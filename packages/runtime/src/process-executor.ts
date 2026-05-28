@@ -15,6 +15,7 @@ export interface ProcessOptions {
     cwd?: string;
     env?: Record<string, string>;
     timeout?: number;
+    /** Maximum output buffer size in bytes (maps to execa `maxBuffer`). */
     maxOutput?: number;
     label?: string;
     rejectOnError?: boolean;
