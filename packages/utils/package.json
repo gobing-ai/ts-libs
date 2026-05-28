@@ -1,7 +1,7 @@
 {
     "name": "@gobing-ai/ts-utils",
     "version": "0.1.0",
-    "description": "@gobing-ai/ts-utils placeholder package for the ts-libs monorepo.",
+    "description": "Zero-dependency TypeScript utilities for dates, cursors, errors, output, origins, roles, and API responses.",
     "type": "module",
     "private": false,
     "sideEffects": false,
