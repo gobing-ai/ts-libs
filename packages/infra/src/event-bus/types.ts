@@ -38,7 +38,3 @@ export type BusLifecycleEvents = {
     'bus.handler.error': (detail: HandlerErrorDetail) => void;
     'bus.handler.async.enqueued': (detail: AsyncEnqueuedDetail) => void;
 };
-
-export interface EventObserver<TEvents extends EventMap = EventMap> {
-    onEvent<K extends keyof TEvents>(event: K, ...args: Parameters<TEvents[K]>): void | Promise<void>;
-}
