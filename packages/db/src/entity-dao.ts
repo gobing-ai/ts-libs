@@ -1,4 +1,4 @@
-import { and, eq, type SQL } from 'drizzle-orm';
+import { and, count as countFn, eq, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 import type { DbClient } from './adapter.js';
 import { BaseDao } from './base-dao.js';
@@ -273,8 +273,6 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
      * @returns The count of matching records.
      */
     async count(where?: SQL, includeDeleted = false): Promise<number> {
-        const { count: countFn } = await import('drizzle-orm');
-
         const conditions: SQL[] = [];
         if (!includeDeleted && this.activeCondition) {
             conditions.push(this.activeCondition);
