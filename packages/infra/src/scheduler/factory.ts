@@ -9,10 +9,24 @@ export function setSchedulerAdapter(adapter: SchedulerAdapter): void {
     runtimeAdapter = adapter;
 }
 
+/** Reset the scheduler adapter singleton. For testing. */
+export function resetSchedulerAdapter(): void {
+    runtimeAdapter = undefined;
+}
+
 export function getSchedulerAdapter(): SchedulerAdapter | undefined {
     return runtimeAdapter;
 }
 
+/**
+ * Initialize the scheduler adapter and register cron entries.
+ *
+ * MUST be called before `adapter.start()`. If the adapter is already
+ * running, newly registered entries will NOT be started until the next
+ * `start()` call.
+ *
+ * Returns the configured adapter (defaults to noop if none set).
+ */
 export function initScheduler(cronEntries?: Array<[string, ScheduledAction]>): SchedulerAdapter {
     // Default: create a noop adapter. Apps inject their own via setSchedulerAdapter.
     if (!runtimeAdapter) {
