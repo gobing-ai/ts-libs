@@ -154,7 +154,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function deepFreeze<T extends Record<string, unknown>>(obj: T): T {
     Object.freeze(obj);
     for (const value of Object.values(obj)) {
-        if (isPlainObject(value) && !Object.isFrozen(value)) {
+        if (Array.isArray(value)) {
+            Object.freeze(value);
+            for (const item of value) {
+                if (isPlainObject(item) && !Object.isFrozen(item)) {
+                    deepFreeze(item as Record<string, unknown>);
+                }
+            }
+        } else if (isPlainObject(value) && !Object.isFrozen(value)) {
             deepFreeze(value);
         }
     }
