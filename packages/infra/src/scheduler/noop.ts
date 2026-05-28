@@ -1,0 +1,18 @@
+/**
+ * No-op scheduler adapter for testing and environments without scheduling.
+ */
+import type { ScheduledAction, SchedulerAdapter } from './types.js';
+
+export class NoopSchedulerAdapter implements SchedulerAdapter {
+    register(_cron: string, _action: ScheduledAction): void {
+        // noop
+    }
+
+    async start(): Promise<void> {
+        // noop
+    }
+
+    async stop(): Promise<void> {
+        // noop
+    }
+}
