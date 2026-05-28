@@ -4,6 +4,13 @@ import type { DbClient } from './adapter.js';
  * Abstract base DAO providing transaction and timestamp utilities to all entity DAOs.
  */
 export abstract class BaseDao {
+    /**
+     * DB transaction utility for subclasses.
+     *
+     * Constructor is `protected` — instantiate through concrete DAO subclasses,
+     * not BaseDao directly. Tests must declare an explicit public constructor
+     * that calls `super(db)` to expose the protected constructor publicly.
+     */
     protected constructor(protected readonly db: DbClient) {}
 
     protected now(): number {
