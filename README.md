@@ -1,5 +1,7 @@
 # @gobing-ai/ts-libs
 
+[TOC]
+
 Monorepo of TypeScript libraries — shared runtime abstractions, database layer, and infrastructure backbone for [Gobing.ai](https://gobing.ai) applications. Built on the [ts-base](https://github.com/robinmin/ts-base) template.
 
 ## Toolchain
@@ -133,6 +135,119 @@ ts-libs/
 ├── bun.lock         # dependency lockfile
 └── package.json     # workspace root
 ```
+
+## Adding a New Library
+
+All libraries are scaffolded from [ts-base](https://github.com/robinmin/ts-base) and follow its `lib` mode conventions. Each package shares the same toolchain (Bun, Biome, TypeScript), directory layout (`src/`, `tests/`), and scripts (`build`, `test`, `typecheck`, `lint`, `check`).
+
+### Step 1 — Scaffold from ts-base
+
+```bash
+cd packages
+bunx degit robinmin/ts-base <new-lib>
+cd <new-lib>
+```
+
+This pulls the latest ts-base template (all four modes).
+
+### Step 2 — Promote the library scaffold
+
+```bash
+bun install
+bun run setup   # choose "Library" when prompted
+```
+
+After setup, `src-lib/` is promoted to the project root, the other scaffolds (`src-app`, `src-cli`, `src-monorepo`) are deleted, and the `package.json` is rewritten with library-mode scripts. You end up with:
+
+```
+packages/<new-lib>/
+├── src/
+│   ├── index.ts        # barrel (public API)
+│   ├── internal.ts     # runtime-agnostic core logic
+│   ├── browser.ts      # browser entry point
+│   └── types.ts        # shared types
+├── tests/
+│   └── index.test.ts
+├── package.json        # pre-configured with build/test/check scripts
+├── tsconfig.json
+├── tsconfig.build.json
+└── README.md
+```
+
+### Step 3 — Adapt for the monorepo
+
+```bash
+# Remove ts-base root files — monorepo provides its own
+rm -rf .github .prototools biome.json lefthook.yml tsconfig.json .gitignore .git release-please-config.json .release-please-manifest.json
+
+# Point tsconfig to the monorepo's shared base
+cat > tsconfig.json << 'EOF'
+{
+    "extends": "../../tooling/typescript/base.json",
+    "include": ["src/**/*.ts", "tests/**/*.ts"]
+}
+EOF
+
+# Remove ts-base-specific scripts that don't apply
+# Keep: build, test, typecheck, lint, format, check
+```
+
+### Step 4 — Customize the package
+
+Edit `package.json`:
+
+```json
+{
+    "name": "@gobing-ai/ts-<name>",
+    "description": "<one-line description>",
+    "dependencies": {
+        "@gobing-ai/ts-runtime": "0.1.0"
+    },
+    "devDependencies": {
+        "@types/bun": "1.3.14"
+    }
+}
+```
+
+- Set `name` to `@gobing-ai/ts-<name>` following the monorepo convention.
+- Add `dependencies` and `peerDependencies` as needed.
+- Remove ts-base devDependencies that the monorepo root already provides (`@biomejs/biome`, `lefthook`, `typescript`).
+- Keep scripts (`build`, `test`, `typecheck`, `lint`, `check`) — they work unchanged.
+
+### Step 5 — Install and verify
+
+```bash
+# From the ts-libs root
+bun install           # picks up the new workspace automatically
+cd packages/<new-lib>
+bun run check         # lint + test
+```
+
+The monorepo's `packages/*` workspace glob picks up the new directory automatically. No root `package.json` changes needed unless the new package has a build-order dependency.
+
+### Step 6 — Wire into the build order (optional)
+
+If the new library is a dependency of other packages, add it to the root build scripts:
+
+```json
+{
+    "scripts": {
+        "build": "... && bun run --filter @gobing-ai/ts-<name> build && ...",
+        "typecheck": "... && bun run --filter @gobing-ai/ts-<name> typecheck && ..."
+    }
+}
+```
+
+### Package template checklist
+
+| Item | Required | Notes |
+|------|----------|-------|
+| `src/index.ts` | Yes | Barrel — export all public API here |
+| `tests/*.test.ts` | Yes | Use `bun:test`, ≥ 90% coverage target |
+| `README.md` | Yes | Overview, architecture diagram (Mermaid), usage |
+| `package.json` | Yes | `name`, `dependencies`, `peerDependencies`, clean devDeps |
+| `tsconfig.json` | Yes | Extends `../../tooling/typescript/base.json` |
+| `tsconfig.build.json` | Yes | Declaration emit config (kept from scaffold) |
 
 ## Development
 
