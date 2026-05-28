@@ -1,3 +1,12 @@
+/**
+ * Zitadel + generic role-based access control helpers.
+ *
+ * Supports Zitadel IAM role claims (`urn:zitadel:iam:org:project:roles`),
+ * generic `roles` arrays, and object-based role maps.
+ *
+ * If auth provider uses a different claim format, extend `hasRole`
+ * rather than forking this module.
+ */
 export function hasRole(profile: Record<string, unknown> | null | undefined, role: string): boolean {
     if (!profile) return false;
     if (!role || typeof role !== 'string') return false;
