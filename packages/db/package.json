@@ -1,7 +1,7 @@
 {
     "name": "@gobing-ai/ts-db",
     "version": "0.1.0",
-    "description": "@gobing-ai/ts-db placeholder package for the ts-libs monorepo.",
+    "description": "@gobing-ai/ts-db — Database abstraction layer with Drizzle ORM adapters, generic DAOs, and migration tooling.",
     "type": "module",
     "private": false,
     "sideEffects": false,
