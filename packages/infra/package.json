@@ -1,7 +1,7 @@
 {
     "name": "@gobing-ai/ts-infra",
     "version": "0.1.0",
-    "description": "@gobing-ai/ts-infra placeholder package for the ts-libs monorepo.",
+    "description": "@gobing-ai/ts-infra — Infrastructure backbone: event bus, job queue, scheduler, telemetry, API client, and logging.",
     "type": "module",
     "private": false,
     "sideEffects": false,
