@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { getPackageName, packageName } from '../src/index.js';
+import { getPackageName, packageName } from '../src/index';
 
 describe('@gobing-ai/ts-db', () => {
     test('exposes package identity placeholder', () => {
