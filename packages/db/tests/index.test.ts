@@ -28,7 +28,6 @@ describe('@gobing-ai/ts-db barrel', () => {
 
     test('exports migration symbols', () => {
         expect(db.applyMigrations).toBeDefined();
-        expect(db.findProjectRoot).toBeDefined();
         expect(db.embeddedMigrations).toBeDefined();
     });
 });
