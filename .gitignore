@@ -68,7 +68,6 @@ playwright-report/
 # Tool caches
 .cache/
 .parcel-cache/
-.turbo/
 .eslintcache
 .stylelintcache
 .rpt2_cache/
