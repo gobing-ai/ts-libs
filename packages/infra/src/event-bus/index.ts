@@ -4,7 +4,6 @@ export type {
     BusLifecycleEvents,
     EmitDoneDetail,
     EventMap,
-    EventObserver,
     HandlerErrorDetail,
     SubscribeOptions,
 } from './types.js';
