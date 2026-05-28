@@ -9,6 +9,7 @@ import { embeddedMigrations } from './embedded-migrations.js';
  * @deprecated Use `FileSystem.getProjectRoot()` instead.
  * @internal — only used for backward compatibility.
  */
+/** @internal */
 export function findProjectRoot(_startDir: string): string {
     return process.cwd();
 }
