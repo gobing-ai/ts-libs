@@ -3,6 +3,23 @@ import { BunSqliteAdapter } from '../src/adapters/bun-sqlite';
 import { embeddedMigrations } from '../src/embedded-migrations';
 import { applyMigrations, findProjectRoot } from '../src/migrate';
 
+// Silence migration console output during tests
+const origInfo = console.info;
+const origWarn = console.warn;
+const origError = console.error;
+
+beforeAll(() => {
+    console.info = () => {};
+    console.warn = () => {};
+    console.error = () => {};
+});
+
+afterAll(() => {
+    console.info = origInfo;
+    console.warn = origWarn;
+    console.error = origError;
+});
+
 let adapter: BunSqliteAdapter;
 
 beforeAll(() => {
