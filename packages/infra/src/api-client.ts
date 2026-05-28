@@ -84,7 +84,7 @@ export class APIClient {
                 }
 
                 const combinedSignal = opts?.signal
-                    ? anyAbortSignal([opts.signal, controller.signal])
+                    ? AbortSignal.any([opts.signal, controller.signal])
                     : controller.signal;
 
                 try {
@@ -159,16 +159,4 @@ export class APIClient {
     async delete<T>(path: string, opts?: RequestOptions): Promise<T> {
         return this.request<T>('DELETE', path, undefined, opts);
     }
-}
-
-function anyAbortSignal(signals: AbortSignal[]): AbortSignal {
-    const controller = new AbortController();
-    for (const signal of signals) {
-        if (signal.aborted) {
-            controller.abort(signal.reason);
-            return controller.signal;
-        }
-        signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
-    }
-    return controller.signal;
 }
