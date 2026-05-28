@@ -2,7 +2,7 @@
 export { APIClient, type APIClientConfig, APIError, type RequestOptions } from './api-client.js';
 
 // Event Bus
-export { EventBus, type EventMap, type EventObserver, type SubscribeOptions } from './event-bus/index.js';
+export { EventBus, type EventMap, type SubscribeOptions } from './event-bus/index.js';
 
 // Events
 export type { AppEvents, AppInternalEvents } from './events/index.js';
@@ -20,7 +20,7 @@ export type {
 } from './job-queue/index.js';
 
 // Logger
-export { getLogger, initializeLogger, type Logger, type LogLevel, setLoggerMuted } from './logger.js';
+export { getLogger, initializeLogger, type Logger, type LogLevel } from './logger.js';
 
 // Scheduler
 export {
