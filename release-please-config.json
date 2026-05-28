@@ -1,0 +1,23 @@
+{
+    "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+    "release-type": "node",
+    "include-component-in-tag": true,
+    "packages": {
+        "packages/utils": {
+            "package-name": "@gobing-ai/ts-utils",
+            "release-type": "node"
+        },
+        "packages/runtime": {
+            "package-name": "@gobing-ai/ts-runtime",
+            "release-type": "node"
+        },
+        "packages/db": {
+            "package-name": "@gobing-ai/ts-db",
+            "release-type": "node"
+        },
+        "packages/infra": {
+            "package-name": "@gobing-ai/ts-infra",
+            "release-type": "node"
+        }
+    }
+}

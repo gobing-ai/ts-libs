@@ -1,0 +1,9 @@
+{
+    "name": "@gobing-ai/typescript-config",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "files": [
+        "base.json"
+    ]
+}

@@ -1,0 +1,17 @@
+{
+    "files": [],
+    "references": [
+        {
+            "path": "./packages/utils"
+        },
+        {
+            "path": "./packages/runtime"
+        },
+        {
+            "path": "./packages/db"
+        },
+        {
+            "path": "./packages/infra"
+        }
+    ]
+}

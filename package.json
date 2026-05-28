@@ -1,0 +1,26 @@
+{
+    "name": "@gobing-ai/ts-libs",
+    "version": "0.1.0",
+    "type": "module",
+    "private": true,
+    "packageManager": "bun@1.3.14",
+    "workspaces": [
+        "packages/*"
+    ],
+    "scripts": {
+        "prepare": "lefthook install",
+        "build": "bun run --filter @gobing-ai/ts-utils build && bun run --filter @gobing-ai/ts-runtime build && bun run --filter @gobing-ai/ts-db build && bun run --filter @gobing-ai/ts-infra build",
+        "test": "bun run --workspaces --parallel test",
+        "typecheck": "bun run --filter @gobing-ai/ts-utils typecheck && bun run --filter @gobing-ai/ts-runtime typecheck && bun run --filter @gobing-ai/ts-db typecheck && bun run --filter @gobing-ai/ts-infra typecheck",
+        "lint": "biome check . && bun run typecheck",
+        "format": "biome check . --write",
+        "autofix": "bun run format && bun run typecheck",
+        "check": "bun run lint && bun run test"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "2.4.16",
+        "@types/bun": "1.3.14",
+        "lefthook": "1.13.0",
+        "typescript": "^6.0.3"
+    }
+}

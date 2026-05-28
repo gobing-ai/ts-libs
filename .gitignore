@@ -1,0 +1,91 @@
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# Editors and local history
+.idea/
+.run/
+.vscode/
+.history/
+*~
+*.swp
+*.swo
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Logs and diagnostics
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Dependencies
+node_modules/
+jspm_packages/
+bower_components/
+web_modules/
+
+# Bun / package-manager state
+.bun-install-cache/
+.yarn-integrity
+.pnp.*
+
+# Build output
+dist/
+build/
+out/
+lib-cov/
+*.tsbuildinfo
+
+# Test and coverage output
+.coverage/
+coverage/
+*.lcov
+.nyc_output/
+test-results/
+playwright-report/
+
+# Tool caches
+.cache/
+.parcel-cache/
+.turbo/
+.eslintcache
+.stylelintcache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Framework and docs output
+.next/
+.nuxt/
+.docusaurus/
+.vuepress/dist/
+.temp/
+
+# Package artifacts
+*.tgz
+*.tar.gz
+
+# Local agent/tooling state
+.agents/

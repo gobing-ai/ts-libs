@@ -1,0 +1,39 @@
+{
+    "name": "@gobing-ai/ts-db",
+    "version": "0.1.0",
+    "description": "@gobing-ai/ts-db placeholder package for the ts-libs monorepo.",
+    "type": "module",
+    "private": false,
+    "sideEffects": false,
+    "license": "Apache-2.0",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "src",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "bun build src/index.ts --outdir dist --target bun --format esm --sourcemap=external && tsc -p tsconfig.build.json",
+        "test": "NODE_ENV=test bun test --coverage --coverage-dir=.coverage --reporter=dots",
+        "typecheck": "tsc --noEmit",
+        "lint": "biome check . && bun run typecheck",
+        "format": "biome check . --write",
+        "check": "bun run lint && bun run test"
+    },
+    "dependencies": {
+        "@gobing-ai/ts-runtime": "0.1.0"
+    },
+    "devDependencies": {
+        "@types/bun": "1.3.14"
+    },
+    "publishConfig": {
+        "access": "public"
+    }
+}
