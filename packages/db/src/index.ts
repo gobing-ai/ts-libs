@@ -4,7 +4,7 @@ export { D1Adapter } from './adapters/d1.js';
 export { BaseDao } from './base-dao.js';
 export { type EmbeddedMigration, embeddedMigrations } from './embedded-migrations.js';
 export { EntityDao, type EntityTable, type PKColumn, type SoftDeletableTable } from './entity-dao.js';
-export { applyMigrations, findProjectRoot, type MigrationOptions } from './migrate.js';
+export { applyMigrations, type MigrationOptions } from './migrate.js';
 export { QueueJobDao, type QueueJobRecord, type QueueStats } from './queue-job-dao.js';
 export {
     appendOnlyColumns,
