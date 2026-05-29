@@ -43,6 +43,13 @@ async function ensureJournalTable(adapter: DbAdapter, table: string): Promise<vo
     );
 }
 
+function validateMigrationTableName(table: string): string {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
+        throw new Error(`Invalid migration journal table name: ${table}`);
+    }
+    return table;
+}
+
 /**
  * Apply migrations from embedded SQL strings (for compiled binaries).
  *
@@ -114,7 +121,7 @@ export async function applyMigrations(adapter: DbAdapter, options?: MigrationOpt
         return;
     }
 
-    const table = options?.migrationsTable ?? '__drizzle_migrations';
+    const table = validateMigrationTableName(options?.migrationsTable ?? '__drizzle_migrations');
 
     await ensureJournalTable(adapter, table);
 
