@@ -2,6 +2,25 @@
     "name": "@gobing-ai/ts-infra",
     "version": "0.1.0",
     "description": "@gobing-ai/ts-infra — Infrastructure backbone: event bus, job queue, scheduler, telemetry, API client, and logging.",
+    "keywords": [
+        "typescript",
+        "event-bus",
+        "job-queue",
+        "scheduler",
+        "opentelemetry",
+        "telemetry",
+        "logger",
+        "api-client"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/gobing-ai/ts-libs.git",
+        "directory": "packages/infra"
+    },
+    "author": "Robin Min <minlongbing@gmail.com>",
+    "contributors": [
+        "Robin Min <minlongbing@gmail.com>"
+    ],
     "type": "module",
     "private": false,
     "sideEffects": false,
@@ -28,7 +47,7 @@
         "format": "biome check . --write",
         "check": "bun run lint && bun run test",
         "prepublishOnly": "bun run build",
-        "release": "npm publish --access public"
+        "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-infra-v<version> && git push --tags' && exit 1"
     },
     "dependencies": {
         "@gobing-ai/ts-db": "^0.1.0",
