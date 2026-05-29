@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-utils",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "description": "Zero-dependency TypeScript utilities for dates, cursors, errors, output, origins, roles, and API responses.",
     "keywords": [
         "typescript",
