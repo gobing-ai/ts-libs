@@ -1,7 +1,7 @@
 /**
  * Scheduler factory — selects adapter based on runtime.
  */
-import type { ScheduledAction, SchedulerAdapter } from './types.js';
+import type { ScheduledAction, SchedulerAdapter } from './types';
 
 let runtimeAdapter: SchedulerAdapter | undefined;
 
