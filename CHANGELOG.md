@@ -8,69 +8,23 @@ versioned **independently**; entries are grouped by package under each release.
 
 ## [Unreleased]
 
+## 0.1.2 — 2026-05-29
+
+- **CI** — fixed the Publish workflow tag trigger so pushing a `*-v<version>` tag publishes automatically (previously only the manual run button worked).
+
 ## 0.1.1 — 2026-05-29
 
-Maintenance release. No consumer-facing API changes — all four packages bumped together
-to validate the automated GitHub Actions release pipeline.
-
-### All packages
-
-- Bumped to `0.1.1` (`@gobing-ai/ts-utils`, `@gobing-ai/ts-runtime`, `@gobing-ai/ts-db`, `@gobing-ai/ts-infra`).
-
-### Tooling (repository only, not shipped)
-
 - **CI** — build before lint/typecheck so cross-package type imports resolve on a clean checkout.
-- **CI** — bumped `actions/checkout` and `actions/setup-node` to v6 (Node 24 runtime).
-- **Tests** — made `resolveProjectPath` test portable (assert against detected project root instead of a hardcoded local path).
+- **CI** — bumped `actions/checkout` and `actions/setup-node` to v6.
+- **Tests** — made the `resolveProjectPath` test portable (no hardcoded local path).
 
 ## 0.1.0 — 2026-05-29
 
-Initial public release of the four-package TypeScript library suite.
+Initial public release.
 
-### `@gobing-ai/ts-utils` 0.1.0
-
-Zero-dependency TypeScript utilities.
-
-- **Access control** — role-based access helpers.
-- **API responses** — standardized success/error response envelopes.
-- **Cursor pagination** — opaque cursor encode/decode helpers.
-- **Dates** — date formatting and manipulation utilities.
-- **Errors** — typed error classes and helpers.
-- **Origins** — origin parsing/validation.
-- **Output** — output formatting helpers.
-- **Constants** — shared constants.
-
-### `@gobing-ai/ts-runtime` 0.1.0
-
-Runtime abstractions for Bun, Node, and Cloudflare Workers.
-
-- **Config** — environment/configuration loading.
-- **Context** — runtime execution context.
-- **Filesystem** — cross-runtime filesystem access.
-- **Process executor** — process execution (built on `execa`).
-- **Types** — shared runtime type definitions.
-- Depends on `@gobing-ai/ts-utils`.
-
-### `@gobing-ai/ts-db` 0.1.0
-
-Database abstraction layer built on Drizzle ORM.
-
-- **Adapters** — `createDbAdapter` with `BunSqliteAdapter` (Bun SQLite) and `D1Adapter` (Cloudflare D1).
-- **DAOs** — `BaseDao`, `EntityDao` (with soft-delete support), and `QueueJobDao`.
-- **Schema builders** — `standardColumns`, `appendOnlyColumns`, soft-delete column helpers, and `queueJobs` schema.
-- **Migrations** — `applyMigrations` and embedded-migration support.
-- `drizzle-orm` is a peer dependency (`>=0.38.0`). Depends on `@gobing-ai/ts-runtime`.
-
-### `@gobing-ai/ts-infra` 0.1.0
-
-Infrastructure backbone for application services.
-
-- **API client** — `APIClient` with typed errors (`APIError`).
-- **Event bus** — `EventBus` and `createSystemBus` with typed event maps.
-- **Job queue** — queue/consumer abstractions with enqueue options and stats.
-- **Scheduler** — pluggable adapters for Node, Cloudflare, and no-op environments.
-- **Logger** — `getLogger` / `initializeLogger` with configurable log levels.
-- **Telemetry** — OpenTelemetry tracing and metrics (`initTelemetry`, `withSpan`, `traceAsync`, and HTTP/DB/queue/scheduler/event-bus instrument helpers).
-- `@opentelemetry/api` is a peer dependency (`^1.9.0`). Depends on `@gobing-ai/ts-db` and `@gobing-ai/ts-runtime`.
+- **`@gobing-ai/ts-utils`** — zero-dependency utilities: access control, API responses, cursor pagination, dates, errors, origins, output.
+- **`@gobing-ai/ts-runtime`** — runtime abstractions (Bun / Node / Cloudflare Workers): config, context, filesystem, process executor.
+- **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
+- **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
 [Unreleased]: https://github.com/gobing-ai/ts-libs/compare/main...HEAD
