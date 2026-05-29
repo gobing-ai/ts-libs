@@ -2,7 +2,7 @@
  * Node.js scheduler adapter using a simple setInterval-based approach.
  * No external cron library dependency — cron expressions are parsed minimally.
  */
-import type { ScheduledAction, SchedulerAdapter } from './types.js';
+import type { ScheduledAction, SchedulerAdapter } from './types';
 
 /** Simple helper to parse cron-like interval strings into milliseconds. */
 function parseInterval(cron: string): number {
