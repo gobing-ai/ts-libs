@@ -8,3 +8,4 @@ extends:
   - typescript
   - structure
   - quality
+  - meta
