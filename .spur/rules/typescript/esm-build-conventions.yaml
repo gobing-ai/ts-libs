@@ -1,0 +1,65 @@
+# ESM publishing conventions — keep TS source ergonomic while generated dist stays Node-compatible.
+include:
+  - "package.json"
+  - "packages/*/package.json"
+  - "packages/**/*.ts"
+  - "scripts/**/*.ts"
+exclude:
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: no-js-extension-in-ts-source-imports
+    description: "TypeScript source should keep relative import/export specifiers extensionless; dist rewriting is handled by scripts/fix-dist-esm-extensions.ts."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "\\b(import|export)\\b[^\\n]*(from\\s+['\"]\\.{1,2}/[^'\"]+\\.js['\"]|import\\s*\\(\\s*['\"]\\.{1,2}/[^'\"]+\\.js['\"])"
+    include:
+      - "packages/**/*.ts"
+      - "scripts/**/*.ts"
+    exclude:
+      - "**/dist/**"
+
+  - id: package-build-runs-dist-extension-fixer
+    description: "Published package builds must run tsc, then the Bun TypeScript dist extension fixer."
+    severity: error
+    evaluator:
+      type: exit-code
+      config:
+        command: sh
+        args:
+          - -c
+          - |
+            errors=0
+            for f in packages/*/package.json; do
+              script="$(bun -e 'const p = await Bun.file(process.argv[1]).json(); console.log(p.scripts?.build ?? "")' "$f")"
+              expected='tsc -p tsconfig.build.json && bun ../../scripts/fix-dist-esm-extensions.ts dist'
+              if [ "$script" != "$expected" ]; then
+                echo "INVALID: $f build script must be: $expected"
+                errors=$((errors + 1))
+              fi
+            done
+            [ "$errors" -eq 0 ] || exit 1
+    include:
+      - "packages/*/package.json"
+
+  - id: root-smoke-dist-uses-bun-ts-script
+    description: "Root dist smoke test must run the TypeScript smoke script with Bun."
+    severity: error
+    evaluator:
+      type: exit-code
+      config:
+        command: sh
+        args:
+          - -c
+          - |
+            actual="$(bun -e 'const p = await Bun.file("./package.json").json(); console.log(p.scripts?.["smoke:dist"] ?? "")')"
+            expected='bun scripts/smoke-dist-imports.ts'
+            if [ "$actual" != "$expected" ]; then
+              echo "INVALID: package.json smoke:dist must be: $expected"
+              exit 1
+            fi
+    include:
+      - "package.json"
