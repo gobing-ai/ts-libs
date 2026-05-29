@@ -1,6 +1,6 @@
 import { type DrizzleD1Database, drizzle } from 'drizzle-orm/d1';
-import type { DbAdapter, DbClient } from '../adapter.js';
-import * as schema from '../schema/index.js';
+import type { DbAdapter, DbClient } from '../adapter';
+import * as schema from '../schema/index';
 
 /**
  * Minimal D1 binding interface — avoids depending on @cloudflare/workers-types.
