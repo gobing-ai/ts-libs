@@ -27,10 +27,10 @@
     ],
     "scripts": {
         "prepare": "lefthook install",
-        "bump-ver": "bun scripts/bump-version.ts",
-        "drop-tags": "bun scripts/drop-tags.ts",
+        "bump-ver": "bun scripts/builder.ts bump-version",
+        "drop-tags": "bun scripts/builder.ts drop-tags",
         "build": "bun run --filter @gobing-ai/ts-utils build && bun run --filter @gobing-ai/ts-runtime build && bun run --filter @gobing-ai/ts-db build && bun run --filter @gobing-ai/ts-infra build && bun run smoke:dist",
-        "smoke:dist": "bun scripts/smoke-dist-imports.ts",
+        "smoke:dist": "bun scripts/builder.ts smoke-dist-imports",
         "typecheck": "bun run --filter @gobing-ai/ts-utils typecheck && bun run --filter @gobing-ai/ts-runtime typecheck && bun run --filter @gobing-ai/ts-db typecheck && bun run --filter @gobing-ai/ts-infra typecheck",
         "lint": "biome check . && bun run typecheck",
         "format": "biome check . --write",
