@@ -2,6 +2,7 @@ import { releaseConfig, repoRoot, SEMVER } from '../config';
 import { runCommand } from './command';
 import {
     branchPushArgs,
+    createAggregateReleaseTag,
     createReleaseTag,
     isAlreadyPublishedError,
     npmPublish,
@@ -56,7 +57,9 @@ export async function bumpVersion(version: string, options: BumpVersionOptions):
 
     const packages = await findWorkspacePackages();
     const publishable = await sortPackagesByDependencyOrder(packages);
-    const tags = publishable.map((pkg) => createReleaseTag(pkg, version));
+    const packageTags = publishable.map((pkg) => createReleaseTag(pkg, version));
+    const aggregateTag = createAggregateReleaseTag(version);
+    const tags = [...packageTags, aggregateTag];
 
     if (git(['status', '--porcelain']).stdout !== '') {
         throw new Error('working tree is not clean. Commit or stash changes before releasing.');
@@ -123,10 +126,12 @@ export async function bumpVersion(version: string, options: BumpVersionOptions):
     console.log('\nPushing branch (tags excluded)...');
     mustGit(branchPushArgs(branch), `git push origin ${branch}`);
 
-    for (const tag of tags) {
+    for (const tag of packageTags) {
         console.log(`Pushing tag ${tag}...`);
         mustGit(tagPushArgs(tag), `git push origin ${tag}`);
     }
+    console.log(`Pushing release trigger tag ${aggregateTag}...`);
+    mustGit(tagPushArgs(aggregateTag), `git push origin ${aggregateTag}`);
 
     console.log(`\nReleased ${version}. The Publish workflow should now be running:`);
     console.log(`  gh run list --workflow=${releaseConfig.publishWorkflow} --limit ${releaseConfig.ghRunListLimit}`);
@@ -139,7 +144,7 @@ export async function dropTags(version: string, options: DropTagsOptions): Promi
 
     const packages = await findWorkspacePackages();
     const publishable = packages.filter((pkg) => !pkg.private);
-    const tags = publishable.map((pkg) => createReleaseTag(pkg, version));
+    const tags = [...publishable.map((pkg) => createReleaseTag(pkg, version)), createAggregateReleaseTag(version)];
     const existingLocal = new Set(git(['tag', '-l']).stdout.split('\n').filter(Boolean));
 
     let deletedLocal = 0;
