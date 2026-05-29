@@ -15,55 +15,45 @@ How releases work for the four `@gobing-ai/ts-*` packages in this monorepo.
 
 ## Releasing an existing package (the normal path)
 
-This is what you do 99% of the time.
-
-### 1. Bump the version
-
-Edit the `version` field in the target package's `package.json`, or use npm:
+All packages are versioned in lockstep and released together with one command:
 
 ```bash
-cd packages/utils
-npm version patch   # 0.1.0 -> 0.1.1  (use minor / major as appropriate)
+bun run bump-ver 0.1.4 --push
 ```
 
-> Only bump the package(s) you intend to release. The CI guard skips any package whose version already exists on npm, so unchanged packages are never republished.
+This bumps every manifest to `0.1.4`, commits `chore(release): ...`, creates the annotated
+tags (`@gobing-ai/ts-<pkg>-v0.1.4`), pushes the branch, then pushes the tags as a dedicated
+event — which triggers `publish.yml`. The workflow builds and publishes via OIDC (no token,
+provenance automatic), in dependency order (`utils → runtime → db → infra`), skipping any
+package whose version is already on npm.
 
-### 2. Commit the version bump
+### Review before pushing
+
+Drop `--push` to do everything locally and stop, so you can inspect the commit and tags first:
 
 ```bash
-git add packages/utils/package.json
-git commit -m "release: ts-utils 0.1.1"
-git push
+bun run bump-ver 0.1.4        # bump + commit + tag, no push
+git show                      # review
+git push origin main && git push origin --tags   # release when satisfied
 ```
 
-### 3. Tag and push
+### Verify
 
-The tag format is **`@gobing-ai/ts-<pkg>-v<version>`** and must match the version you just set:
-
-```bash
-git tag @gobing-ai/ts-utils-v0.1.1
-git push --tags
-```
-
-Pushing the tag triggers `publish.yml`, which builds and publishes via OIDC (no token, provenance attached automatically).
-
-### 4. Verify
-
-- Watch the run: **GitHub → Actions → Publish**.
+- Watch the run: **GitHub → Actions → Publish**, or `gh run list --workflow=publish.yml`.
 - Confirm on npm: `npm view @gobing-ai/ts-utils version`.
 
-### Releasing several packages at once
+> **Tags must be pushed as their own event.** `git push origin main` alone does **not**
+> reliably emit tag-push events (GitHub attributes the push to the branch), so the Publish
+> workflow won't fire. Always push tags separately via `git push origin --tags` — which is
+> exactly what `bump-ver --push` does.
 
-Bump each package's version, commit, then push one tag per package:
+### Fixing a mistake
+
+If a tag was created with the wrong version or didn't trigger, remove it and retry:
 
 ```bash
-git tag @gobing-ai/ts-utils-v0.1.1
-git tag @gobing-ai/ts-runtime-v0.2.0
-git push --tags
+bun run drop-tags 0.1.4 --remote   # delete local + remote tags for 0.1.4
 ```
-
-The workflow publishes every package whose version is new to npm, in dependency order
-(`utils → runtime → db → infra`), so dependents never resolve before their dependencies.
 
 ### Bumping a dependency's major version
 
