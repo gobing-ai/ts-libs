@@ -26,10 +26,12 @@
         "typecheck": "tsc --noEmit",
         "lint": "biome check . && bun run typecheck",
         "format": "biome check . --write",
-        "check": "bun run lint && bun run test"
+        "check": "bun run lint && bun run test",
+        "prepublishOnly": "bun run build",
+        "release": "npm publish --access public"
     },
     "dependencies": {
-        "@gobing-ai/ts-utils": "0.1.0",
+        "@gobing-ai/ts-utils": "^0.1.0",
         "execa": "^9.5.0",
         "yaml": "^2.7.0",
         "zod": "^4.1.0"
