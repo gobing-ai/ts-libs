@@ -4,6 +4,7 @@ export const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 
 export const releaseConfig = {
     packageNamePrefix: '@gobing-ai/ts-',
+    aggregatePackageName: '@gobing-ai/ts-libs',
     tagVersionSeparator: '-v',
     publishWorkflow: 'publish.yml',
     releaseCommitType: 'chore',
