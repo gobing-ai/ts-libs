@@ -36,10 +36,10 @@ graph TD
 
 ### Libraries
 
-- @gobing-ai/ts-utils: Shared utilities with zero dependencies — error types, date helpers, cursor-based pagination, and role-based access control.
-- @gobing-ai/ts-runtime: Runtime abstraction — decouples application code from Bun/Node vs Cloudflare Workers. Provides `RuntimeContext` (service locator), `FileSystem` interface, `ProcessExecutor`, Zod-validated `Config`, and `SpanContext` for distributed tracing.
-- @gobing-ai/ts-db: Database abstraction layer with Drizzle ORM — adapter pattern for Bun SQLite and Cloudflare D1, generic CRUD DAOs, job queue persistence, and migration tooling.
-- @gobing-ai/ts-infra: Infrastructure backbone — typed event bus, job queue types, cron scheduler, OpenTelemetry telemetry, HTTP API client, and structured logging.
+- **[@gobing-ai/ts-utils](packages/utils/README.md)** : Shared utilities with zero dependencies — error types, date helpers, cursor-based pagination, and role-based access control.
+- **[@gobing-ai/ts-runtime](packages/runtime/README.md)** : Runtime abstraction — decouples application code from Bun/Node vs Cloudflare Workers. Provides `RuntimeContext` (service locator), `FileSystem` interface, `ProcessExecutor`, Zod-validated `Config`, and `SpanContext` for distributed tracing.
+- **[@gobing-ai/ts-db](packages/db/README.md)** : Database abstraction layer with Drizzle ORM — adapter pattern for Bun SQLite and Cloudflare D1, generic CRUD DAOs, job queue persistence, and migration tooling.
+- **[@gobing-ai/ts-infra](packages/infra/README.md)** : Infrastructure backbone — typed event bus, job queue types, cron scheduler, OpenTelemetry telemetry, HTTP API client, and structured logging.
 
 ## Getting Started
 
@@ -52,6 +52,8 @@ bun install
 
 # 3. Verify everything works
 bun run check
+## or check with spur rules
+bun run spur-check
 ```
 
 ## Commands
