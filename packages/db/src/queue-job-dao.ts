@@ -1,7 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import type { DbClient } from './adapter.js';
-import { EntityDao } from './entity-dao.js';
-import { queueJobs } from './schema/queue-jobs.js';
+import type { DbClient } from './adapter';
+import { EntityDao } from './entity-dao';
+import { queueJobs } from './schema/queue-jobs';
 
 /**
  * Aggregate queue statistics by job status.
