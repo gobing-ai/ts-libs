@@ -4,9 +4,12 @@
     "exclude": ["tests/**/*.ts"],
     "compilerOptions": {
         "noEmit": false,
-        "emitDeclarationOnly": true,
+        "emitDeclarationOnly": false,
         "declaration": true,
         "declarationMap": true,
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "allowImportingTsExtensions": false,
         "outDir": "dist",
         "rootDir": "src"
     }
