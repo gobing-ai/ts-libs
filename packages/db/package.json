@@ -2,6 +2,25 @@
     "name": "@gobing-ai/ts-db",
     "version": "0.1.0",
     "description": "@gobing-ai/ts-db — Database abstraction layer with Drizzle ORM adapters, generic DAOs, and migration tooling.",
+    "keywords": [
+        "typescript",
+        "database",
+        "drizzle-orm",
+        "dao",
+        "sqlite",
+        "cloudflare-d1",
+        "migrations",
+        "orm"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/gobing-ai/ts-libs.git",
+        "directory": "packages/db"
+    },
+    "author": "Robin Min <minlongbing@gmail.com>",
+    "contributors": [
+        "Robin Min <minlongbing@gmail.com>"
+    ],
     "type": "module",
     "private": false,
     "sideEffects": false,
@@ -28,7 +47,7 @@
         "format": "biome check . --write",
         "check": "bun run lint && bun run test",
         "prepublishOnly": "bun run build",
-        "release": "npm publish --access public"
+        "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-db-v<version> && git push --tags' && exit 1"
     },
     "dependencies": {
         "@gobing-ai/ts-runtime": "^0.1.0"
