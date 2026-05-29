@@ -26,11 +26,13 @@
         "typecheck": "tsc --noEmit",
         "lint": "biome check . && bun run typecheck",
         "format": "biome check . --write",
-        "check": "bun run lint && bun run test"
+        "check": "bun run lint && bun run test",
+        "prepublishOnly": "bun run build",
+        "release": "npm publish --access public"
     },
     "dependencies": {
-        "@gobing-ai/ts-db": "0.1.0",
-        "@gobing-ai/ts-runtime": "0.1.0"
+        "@gobing-ai/ts-db": "^0.1.0",
+        "@gobing-ai/ts-runtime": "^0.1.0"
     },
     "peerDependencies": {
         "@opentelemetry/api": "^1.9.0"
