@@ -20,7 +20,7 @@
         "README.md"
     ],
     "scripts": {
-        "build": "bun build src/index.ts --outdir dist --target bun --format esm --sourcemap=external && tsc -p tsconfig.build.json",
+        "build": "tsc -p tsconfig.build.json",
         "test": "NODE_ENV=test bun test --coverage --coverage-dir=.coverage --reporter=dots",
         "test:full": "NODE_ENV=test bun test --update-snapshots --coverage --coverage-dir=.coverage",
         "typecheck": "tsc --noEmit",
