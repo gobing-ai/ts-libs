@@ -1,0 +1,22 @@
+import { fileURLToPath } from 'node:url';
+
+export const repoRoot = fileURLToPath(new URL('../', import.meta.url));
+
+export const releaseConfig = {
+    packageNamePrefix: '@gobing-ai/ts-',
+    tagVersionSeparator: '-v',
+    publishWorkflow: 'publish.yml',
+    releaseCommitType: 'chore',
+    releaseCommitScope: 'release',
+    releaseCommitSubject: (version: string) => `bump all packages to ${version}`,
+    releaseTagMessage: (tag: string) => `release: ${tag}`,
+    ghRunListLimit: 5,
+} as const;
+
+export const buildConfig = {
+    distEntryExtension: '.js',
+    nodeSmokePackages: ['@gobing-ai/ts-utils', '@gobing-ai/ts-runtime'],
+    bunSmokePackages: ['@gobing-ai/ts-db', '@gobing-ai/ts-infra'],
+} as const;
+
+export const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?$/;
