@@ -144,7 +144,7 @@ From now on this package releases with the others via `bun run bump-ver <version
 
 - The publish job needs npm **≥ 11.5.1** and Node **≥ 22.14.0** for OIDC — handled in the workflow (`setup-node` + `npm install -g npm@^11.5.1`). Don't remove those steps.
 - `publish.yml` must be on the **default branch (`main`)** — and a tag's target commit must be **reachable from `main`** — for a tag push to trigger a workflow run. `bump-ver --push` pushes the branch before the tags to guarantee this.
-- **Push tags individually, not `git push --tags`.** GitHub does not create workflow runs when more than three tags are pushed at once. `bump-ver --push` pushes each tag separately.
+- **Push tags individually, not `git push --tags`.** GitHub does not create workflow runs when more than three tags are pushed at once. `bump-ver --push` disables `push.followTags` for the branch push and then pushes each tag as an explicit `refs/tags/<tag>:refs/tags/<tag>` refspec.
 - No `NPM_TOKEN` secret is used or needed. If the workflow ever asks for one, the Trusted Publisher config is missing or mismatched.
 - Provenance attestations are generated automatically — no flags required.
 
