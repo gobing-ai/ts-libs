@@ -1,8 +1,8 @@
 import { resolve } from 'node:path';
 import type { FileSystem } from '@gobing-ai/ts-runtime';
 
-import type { DbAdapter } from './adapter.js';
-import { embeddedMigrations } from './embedded-migrations.js';
+import type { DbAdapter } from './adapter';
+import { embeddedMigrations } from './embedded-migrations';
 
 /**
  * Find project root by walking up looking for bun.lock.
@@ -115,7 +115,7 @@ async function applyEmbeddedMigrations(adapter: DbAdapter, journalTable: string)
  * @param options - Optional migration folder and table name overrides.
  */
 export async function applyMigrations(adapter: DbAdapter, options?: MigrationOptions): Promise<void> {
-    const { BunSqliteAdapter } = await import('./adapters/bun-sqlite.js');
+    const { BunSqliteAdapter } = await import('./adapters/bun-sqlite');
     if (!(adapter instanceof BunSqliteAdapter)) {
         console.warn('Skipping in-app migrations: only supported for bun-sqlite adapter');
         return;
