@@ -1,0 +1,10 @@
+# Recommended preset — portable rule categories from global install.
+# Use with: spur rule run --preset recommended
+#
+# Add local rule categories to extends to override or supplement global rules.
+# Create category folders under .spur/rules/ (e.g. my-rules/).
+name: recommended
+extends:
+  - typescript
+  - structure
+  - quality

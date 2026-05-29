@@ -1,0 +1,9 @@
+# Development preset — stricter rules for development workflow.
+# Use with: spur rule run --preset spur-dev --rule coverage-gate --fail-on warning
+name: spur-dev
+description: >
+  Stricter rules for development: TypeScript quality (TSDoc, imports, no suppressions),
+  test location enforcement, and coverage gate.
+extends:
+  - typescript
+  - quality/coverage-gate
