@@ -77,7 +77,7 @@ bun run spur-check
 | `bun run drop-tags <version>` | Delete the release git tags for `<version>` **locally**. |
 | `bun run drop-tags <version> --remote` | Also delete those tags on `origin`. Use to recover from a mis-pushed release tag. |
 
-Releases publish from GitHub Actions via npm Trusted Publishing when a `*-v<version>` tag is pushed. Tags must be pushed as a dedicated event (`git push origin --tags`) — `bump-ver --push` does this for you. See [docs/PACKAGE_RELEASE.md](docs/PACKAGE_RELEASE.md) for the full flow.
+Releases publish from GitHub Actions via npm Trusted Publishing when a `*-v<version>` tag is pushed. Tags must be pushed **individually** after the branch (GitHub skips workflow runs when >3 tags are pushed at once, and a tag's commit must be reachable from `main`) — `bump-ver --push` handles all of this. See [docs/PACKAGE_RELEASE.md](docs/PACKAGE_RELEASE.md) for the full flow.
 
 ### Per-package commands
 
@@ -146,7 +146,7 @@ packages/<new-lib>/
 
 ```bash
 # Remove ts-base root files — monorepo provides its own
-rm -rf .github .prototools biome.json lefthook.yml tsconfig.json .gitignore .git release-please-config.json .release-please-manifest.json
+rm -rf .github .prototools biome.json lefthook.yml tsconfig.json .gitignore .git
 
 # Point tsconfig to the monorepo's shared base
 cat > tsconfig.json << 'EOF'
@@ -169,7 +169,7 @@ Edit `package.json`:
     "name": "@gobing-ai/ts-<name>",
     "description": "<one-line description>",
     "dependencies": {
-        "@gobing-ai/ts-runtime": "0.1.0"
+        "@gobing-ai/ts-runtime": "^0.1.0"
     },
     "devDependencies": {
         "@types/bun": "1.3.14"
