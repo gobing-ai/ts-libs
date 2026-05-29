@@ -35,6 +35,9 @@ export class NodeSchedulerAdapter implements SchedulerAdapter {
     private readonly entries: ScheduledEntry[] = [];
     private running = false;
 
+    // biome-ignore lint/complexity/noUselessConstructor: V8 function coverage requires explicit constructor
+    constructor() {}
+
     register(cron: string, action: ScheduledAction): void {
         this.entries.push({ cron, action });
         if (this.running) {
@@ -64,12 +67,14 @@ export class NodeSchedulerAdapter implements SchedulerAdapter {
 
     private startEntry(entry: ScheduledEntry): void {
         const interval = parseInterval(entry.cron);
-        entry.timer = setInterval(async () => {
-            try {
-                await entry.action();
-            } catch {
-                // Swallow — scheduler errors should not crash the process
-            }
-        }, interval);
+        entry.timer = setInterval(this._onScheduledTick.bind(this, entry), interval);
+    }
+
+    private async _onScheduledTick(entry: ScheduledEntry): Promise<void> {
+        try {
+            await entry.action();
+        } catch {
+            // Swallow — scheduler errors should not crash the process
+        }
     }
 }
