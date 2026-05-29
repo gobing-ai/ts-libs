@@ -166,10 +166,9 @@ bus.on('user.signed_up', (email, plan) => {
     console.log(`Welcome ${email} on ${plan} plan!`);
 });
 
-// Async handler (enqueues to job queue — requires JobQueue injection)
+// Async handler (runs through the async handler path)
 bus.on('order.placed', (orderId) => {
-    // handler ref is stored but NOT called by the bus
-    // a QueueConsumer picks up the job and calls the real handler
+    console.log(`Order placed: ${orderId}`);
 }, { async: true });
 
 // Emit
