@@ -4,7 +4,10 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - '@gobing-ai/ts-*-v*'
+      # Broad glob: a leading '@' + embedded '/' in the scoped-package tag
+      # is unreliable as a literal prefix in GitHub's tag filter, so match
+      # any tag ending in -v<version>. Examples: @gobing-ai/ts-utils-v0.1.1
+      - '**-v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: read
