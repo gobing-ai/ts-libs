@@ -34,57 +34,12 @@ graph TD
     infra --> db
 ```
 
-### @gobing-ai/ts-utils
+### Libraries
 
-Shared utilities with zero dependencies — error types, date helpers, cursor-based pagination, and role-based access control.
-
-| | |
-|---|---|
-| **Package** | `@gobing-ai/ts-utils` |
-| **Dependencies** | None |
-| **Peer dependencies** | None |
-| **Tests** | 43 pass · 99.3% line coverage |
-
-**Key exports:** `AppError`, `NotFoundError`, `ValidationError`, `ConflictError`, `InternalError` · `nowMs`, `toMs`, `fromMs` · `encodeCursor`, `decodeCursor`, `encodeCursorFromItem`, `buildCursorMeta` · `hasRole`, `getRoles`
-
-### @gobing-ai/ts-runtime
-
-Runtime abstraction — decouples application code from Bun/Node vs Cloudflare Workers. Provides `RuntimeContext` (service locator), `FileSystem` interface, `ProcessExecutor`, Zod-validated `Config`, and `SpanContext` for distributed tracing.
-
-| | |
-|---|---|
-| **Package** | `@gobing-ai/ts-runtime` |
-| **Dependencies** | `@gobing-ai/ts-utils`, `execa`, `yaml`, `zod` |
-| **Peer dependencies** | None |
-| **Tests** | 23 pass · 99.9% line coverage |
-
-**Key exports:** `RuntimeContext`, `RuntimeFactory`, `FileSystem`, `NodeFileSystem`, `CloudflareFileSystem` · `ProcessExecutor`, `NodeProcessExecutor` · `Config`, `buildConfigFromYaml`, `buildConfigFromObject` · `SpanContext`
-
-### @gobing-ai/ts-db
-
-Database abstraction layer with Drizzle ORM — adapter pattern for Bun SQLite and Cloudflare D1, generic CRUD DAOs, job queue persistence, and migration tooling.
-
-| | |
-|---|---|
-| **Package** | `@gobing-ai/ts-db` |
-| **Dependencies** | `@gobing-ai/ts-runtime` |
-| **Peer dependencies** | `drizzle-orm` (≥ 0.38) |
-| **Tests** | 76 pass · 93.1% line coverage |
-
-**Key exports:** `DbAdapter`, `BunSqliteAdapter`, `D1Adapter`, `createDbAdapter` · `BaseDao`, `EntityDao`, `QueueJobDao` · `applyMigrations`, `embeddedMigrations` · `standardColumns`, `standardColumnsWithSoftDelete`, `queueJobs` · `SpanContext`
-
-### @gobing-ai/ts-infra
-
-Infrastructure backbone — typed event bus, job queue types, cron scheduler, OpenTelemetry telemetry, HTTP API client, and structured logging.
-
-| | |
-|---|---|
-| **Package** | `@gobing-ai/ts-infra` |
-| **Dependencies** | `@gobing-ai/ts-runtime`, `@gobing-ai/ts-db` |
-| **Peer dependencies** | `@opentelemetry/api` (≥ 1.9) |
-| **Tests** | 57 pass · 81.4% line coverage |
-
-**Key exports:** `EventBus`, `createSystemBus` · `JobQueue`, `QueueConsumer`, `Job`, `QueueStats` · `NodeSchedulerAdapter`, `CloudflareSchedulerAdapter`, `NoopSchedulerAdapter`, `initScheduler` · `initTelemetry`, `traceAsync`, `traceSync`, `sanitizeSql`, `getTracer` · `APIClient`, `APIError` · `getLogger`, `initializeLogger`
+- @gobing-ai/ts-utils: Shared utilities with zero dependencies — error types, date helpers, cursor-based pagination, and role-based access control.
+- @gobing-ai/ts-runtime: Runtime abstraction — decouples application code from Bun/Node vs Cloudflare Workers. Provides `RuntimeContext` (service locator), `FileSystem` interface, `ProcessExecutor`, Zod-validated `Config`, and `SpanContext` for distributed tracing.
+- @gobing-ai/ts-db: Database abstraction layer with Drizzle ORM — adapter pattern for Bun SQLite and Cloudflare D1, generic CRUD DAOs, job queue persistence, and migration tooling.
+- @gobing-ai/ts-infra: Infrastructure backbone — typed event bus, job queue types, cron scheduler, OpenTelemetry telemetry, HTTP API client, and structured logging.
 
 ## Getting Started
 
