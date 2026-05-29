@@ -59,6 +59,20 @@ describe('embeddedMigrations', () => {
 });
 
 describe('applyMigrations', () => {
+    test('rejects invalid migration table names before creating journal table SQL', async () => {
+        const tempAdapter = new BunSqliteAdapter({ databaseUrl: ':memory:' });
+        try {
+            await expect(
+                applyMigrations(tempAdapter, {
+                    migrationsFolder: '/nonexistent/path',
+                    migrationsTable: '__drizzle_migrations"; DROP TABLE queue_jobs; --',
+                }),
+            ).rejects.toThrow('Invalid migration journal table name');
+        } finally {
+            tempAdapter.close();
+        }
+    });
+
     test('applies embedded migrations to in-memory DB', async () => {
         // Use embedded path (no drizzle/ folder)
         // The adapter is BunSqliteAdapter so it should apply migrations
