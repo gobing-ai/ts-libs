@@ -4,7 +4,6 @@ import { BunSqliteAdapter } from '../src/adapters/bun-sqlite';
 import { BaseDao } from '../src/base-dao';
 
 class TestDao extends BaseDao {
-    // biome-ignore lint/complexity/noUselessConstructor: needed to expose protected BaseDao constructor publicly
     constructor(db: DbClient) {
         super(db);
     }
