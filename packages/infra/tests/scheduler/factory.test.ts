@@ -5,7 +5,7 @@ import {
     NoopSchedulerAdapter,
     resetSchedulerAdapter,
     setSchedulerAdapter,
-} from '../src/scheduler/index';
+} from '../../src/scheduler/index';
 
 describe('scheduler factory', () => {
     test('setSchedulerAdapter and getSchedulerAdapter', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { D1Adapter, type D1Binding } from '../src/adapters/d1';
+import { D1Adapter, type D1Binding } from '../../src/adapters/d1';
 
 function mockBinding(opts?: { execCalled?: () => void; firstResult?: unknown; allResults?: unknown[] }): D1Binding {
     return {

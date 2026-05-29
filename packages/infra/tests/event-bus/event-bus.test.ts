@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { EventBus } from '../src/event-bus/event-bus';
-import type { BusLifecycleEvents } from '../src/event-bus/types';
-import type { JobQueue } from '../src/job-queue/types';
-import { setLoggerMuted } from '../src/logger';
+import { EventBus } from '../../src/event-bus/event-bus';
+import type { BusLifecycleEvents } from '../../src/event-bus/types';
+import type { JobQueue } from '../../src/job-queue/types';
+import { setLoggerMuted } from '../../src/logger';
 
 setLoggerMuted(true);
 

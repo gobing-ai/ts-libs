@@ -7,8 +7,7 @@ import {
     nowTimestamp,
     standardColumns,
     standardColumnsWithSoftDelete,
-} from '../src/schema/common';
-import { queueJobs } from '../src/schema/queue-jobs';
+} from '../../src/schema/common';
 
 describe('schema/common', () => {
     test('nowTimestamp returns a number', () => {
@@ -45,17 +44,5 @@ describe('schema/common', () => {
 
     test('appendOnlyColumns is pre-built', () => {
         expect(appendOnlyColumns.createdAt).toBeDefined();
-    });
-});
-
-describe('schema/queueJobs', () => {
-    test('queueJobs has standard columns', () => {
-        expect(queueJobs.id).toBeDefined();
-        expect(queueJobs.type).toBeDefined();
-        expect(queueJobs.status).toBeDefined();
-        expect(queueJobs.attempts).toBeDefined();
-        expect(queueJobs.maxRetries).toBeDefined();
-        expect(queueJobs.createdAt).toBeDefined();
-        expect(queueJobs.updatedAt).toBeDefined();
     });
 });

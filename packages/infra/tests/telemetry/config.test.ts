@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { getTelemetryConfig } from '../src/telemetry/config';
+import { getTelemetryConfig } from '../../src/telemetry/config';
 
 describe('telemetry config', () => {
     test('getTelemetryConfig returns defaults with empty input', () => {

@@ -1,0 +1,42 @@
+# Test location rules — project-level override.
+# This project uses flat test naming (tests/foo.test.ts for src/nested/foo.ts).
+# require-corresponding-test is disabled because the 1:1 path mirror convention
+# does not match this project's test organization.
+rules:
+  - id: no-tests-dir
+    description: "Tests must live in tests/ directories at the same level as src/, not in __tests__."
+    severity: error
+    evaluator:
+      type: test-location
+      config:
+        expected: "**/*.test.*"
+        forbid:
+          - "**/__tests__/**"
+          - "**/src/**/*.test.ts"
+          - "**/src/**/*.test.tsx"
+        requireCorrespondingTest: false
+    include:
+      - "packages/**/tests/**/*.test.ts"
+      - "packages/**/tests/**/*.test.tsx"
+
+  - id: require-corresponding-test
+    description: "Every source file must have a corresponding test file in tests/."
+    severity: warning
+    evaluator:
+      type: test-location
+      config:
+        expected: "**/*.test.*"
+        requireCorrespondingTest: true
+    include:
+      - "packages/**/src/**/*.ts"
+    exclude:
+      - "**/index.ts"
+      - "**/*.d.ts"
+      - "**/types.ts"
+      - "**/node_modules/**"
+      - "**/tests/**"
+      # Pure type re-exports — no runtime behavior to test.
+      - "**/span-context.ts"
+      - "**/scheduler/action.ts"
+      # Pure type aliases — no runtime behavior to test.
+      - "**/events/app-events.ts"

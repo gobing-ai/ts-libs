@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { getTelemetryConfig } from '../src/telemetry/config';
+import { getTelemetryConfig } from '../../src/telemetry/config';
 import {
     _resetTelemetry,
     getResolvedConfig,
@@ -7,7 +7,7 @@ import {
     initTelemetry,
     isTelemetryEnabled,
     shutdownTelemetry,
-} from '../src/telemetry/sdk';
+} from '../../src/telemetry/sdk';
 
 describe('telemetry SDK', () => {
     afterAll(async () => {
