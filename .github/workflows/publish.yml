@@ -4,10 +4,11 @@ on:
   workflow_dispatch:
   push:
     tags:
-      # Broad glob: a leading '@' + embedded '/' in the scoped-package tag
-      # is unreliable as a literal prefix in GitHub's tag filter, so match
-      # any tag ending in -v<version>. Examples: @gobing-ai/ts-utils-v0.1.1
-      - '**-v[0-9]+.[0-9]+.[0-9]+'
+      # GitHub tag filters use a simplified glob (NOT regex): '*' matches any
+      # run of characters except '/', and '**' matches across '/' too. Char
+      # ranges like [0-9] and the '+' quantifier are not supported. The scoped
+      # tag '@gobing-ai/ts-utils-v0.1.3' contains a '/', so '**' is required.
+      - '**-v*'
 
 permissions:
   contents: read
