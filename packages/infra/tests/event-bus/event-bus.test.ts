@@ -217,12 +217,13 @@ describe('EventBus', () => {
         expect(detail.error).toBe('boom');
     });
 
-    test('emit enqueues async handlers to jobQueue and publishes lifecycle event', async () => {
-        const enqueued: string[] = [];
+    test('emit dispatches async handlers individually through jobQueue', async () => {
+        const calls: string[] = [];
+        const enqueued: Array<{ type: string; payload: unknown }> = [];
         const mockJobQueue: JobQueue = {
-            async enqueue(type: string, _payload: unknown) {
-                enqueued.push(type);
-                return 'job-1';
+            async enqueue(type: string, payload: unknown) {
+                enqueued.push({ type, payload });
+                return `job-${enqueued.length}`;
             },
             async enqueueBatch(_jobs: Array<{ type: string; payload: unknown }>) {
                 return [];
@@ -236,24 +237,52 @@ describe('EventBus', () => {
         });
 
         const bus = new EventBus<TestEvents>({ jobQueue: mockJobQueue, lifecycleBus });
-        bus.on('user.created', () => {}, { async: true });
-        bus.on('user.created', () => {}, { async: true });
+        bus.on('user.created', (id, name) => calls.push(`a:${id}:${name}`), { async: true });
+        bus.on('user.created', (id, name) => calls.push(`b:${id}:${name}`), { async: true });
         await bus.emit('user.created', 'u1', 'Alice');
 
-        expect(enqueued).toEqual(['user.created']);
-        expect(lifecycleCalls.length).toBe(1);
+        expect(calls).toEqual(['a:u1:Alice', 'b:u1:Alice']);
+        expect(enqueued.map((job) => job.type)).toEqual(['user.created', 'user.created']);
+        expect(lifecycleCalls.length).toBe(2);
         const call = lifecycleCalls[0] as { event: string; detail: unknown };
         expect(call.event).toBe('bus.handler.async.enqueued');
         const detail = call.detail as { event: string; jobId: string; handlerCount: number };
         expect(detail.jobId).toBe('job-1');
-        expect(detail.handlerCount).toBe(2);
+        expect(detail.handlerCount).toBe(1);
     });
 
-    test('emit warns when async handlers registered but no JobQueue', async () => {
+    test('once with async option dispatches exactly once', async () => {
         const bus = new EventBus<TestEvents>();
-        bus.on('user.created', () => {}, { async: true });
-        // Should not throw — just logs a warning
+        let count = 0;
+
+        bus.once(
+            'user.created',
+            () => {
+                count++;
+            },
+            { async: true },
+        );
+
         await bus.emit('user.created', 'u1', 'Alice');
+        await bus.emit('user.created', 'u2', 'Bob');
+
+        expect(count).toBe(1);
+    });
+
+    test('emit dispatches async handlers without JobQueue', async () => {
+        const bus = new EventBus<TestEvents>();
+        let fired = false;
+
+        bus.on(
+            'user.created',
+            () => {
+                fired = true;
+            },
+            { async: true },
+        );
+
+        await bus.emit('user.created', 'u1', 'Alice');
+        expect(fired).toBeTrue();
     });
 
     test('emit handles jobQueue.enqueue failure gracefully', async () => {
