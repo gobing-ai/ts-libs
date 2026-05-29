@@ -65,7 +65,7 @@ export class D1Adapter implements DbAdapter {
 
     async queryAll<T>(sql: string, ...params: unknown[]): Promise<T[]> {
         const stmt = this.binding.prepare(sql);
-        const bound = params.length > 0 ? stmt.bind(...params) : stmt;
+        const bound = stmt.bind(...params);
         const result = await (bound as unknown as { all: <T>() => Promise<{ results: T[] }> }).all<T>();
         return result.results ?? [];
     }
