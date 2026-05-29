@@ -1,0 +1,61 @@
+# Protected file rules — secret detection and git safety.
+include:
+  - "packages/**/*.ts"
+exclude:
+  - "**/*.test.ts"
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: no-hardcoded-secrets
+    description: "Hardcoded secrets detected; read secrets from environment/config boundaries instead."
+    severity: error
+    evaluator:
+      type: secrets-scanner
+      config:
+        categories: [api-key, token, private-key, password, connection-string]
+        scope:
+          include:
+            - "packages/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/*.test.ts"
+            - "**/dist/**"
+
+  - id: no-unsafe-git-commands
+    description: "Unsafe git commands can overwrite history or cause local data loss."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "git\\s+.*(push\\s+.*--force|push\\s+.*--force-with-lease\\b)|git\\s+.*reset\\s+(-H|--hard)\\b"
+    include:
+      - "**/*.sh"
+      - "**/*.bash"
+      - "scripts/**/*.ts"
+      - "package.json"
+      - ".github/**/*.yml"
+      - ".github/**/*.yaml"
+
+  - id: no-env-files
+    description: ".env files must not be committed; use checked-in examples only."
+    severity: error
+    evaluator:
+      type: path
+      config:
+        must: absent
+    include:
+      - "**/.env"
+      - "**/.env.*"
+    exclude:
+      - "**/.env.example"
+
+  - id: no-github-workflows
+    description: "GitHub workflow files require explicit review before being added to this library repo."
+    severity: error
+    evaluator:
+      type: path
+      config:
+        must: absent
+    include:
+      - ".github/workflows/*"

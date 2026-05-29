@@ -1,0 +1,28 @@
+# Output boundary rules — keep terminal writes behind logging/output utilities.
+include:
+  - "packages/**/src/**/*.ts"
+exclude:
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: no-console-output
+    description: "Production source should use logger/output helpers instead of direct console output."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "console\\.(log|error|warn|info|debug|dir|time|trace)"
+    exclude:
+      - "packages/infra/src/logger.ts"
+      - "packages/db/src/migrate.ts"
+
+  - id: no-raw-stdout-stderr
+    description: "Use @gobing-ai/ts-utils output helpers instead of process.stdout/stderr.write directly."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "process\\.(stdout|stderr)\\.write"
+    exclude:
+      - "packages/utils/src/output.ts"

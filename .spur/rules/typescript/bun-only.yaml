@@ -1,0 +1,45 @@
+# Bun/tooling rules — this repository standardizes on Bun and bun:test.
+include:
+  - "package.json"
+  - "packages/**/*.ts"
+  - ".spur/**/*.yaml"
+exclude:
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: no-npm-pnpm-yarn-scripts
+    description: "Use bun scripts instead of npm, pnpm, or yarn commands."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "\\b(npm run|pnpm|yarn)\\b"
+    include:
+      - "package.json"
+      - ".spur/**/*.yaml"
+      - "**/*.yml"
+      - "**/*.yaml"
+      - "**/*.lock"
+
+  - id: enforce-bun-test
+    description: "Test files must use bun:test, not Vitest, Jest, or Mocha."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: 'from [''"](vitest|jest|mocha|@jest|@vitest)'
+    include:
+      - "packages/**/*.test.ts"
+      - "packages/**/*.spec.ts"
+
+  - id: no-vitest-imports-or-apis
+    description: "Use bun:test APIs instead of vitest imports or vi.* helpers."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "from ['\"]vitest['\"]|vi\\.(fn|spyOn|mock|stub)\\b|vitest\\.config"
+    include:
+      - "packages/**/*.ts"
+      - "package.json"

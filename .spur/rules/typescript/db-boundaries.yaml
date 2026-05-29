@@ -1,0 +1,55 @@
+# Database boundary rules — keep schema and raw DB access in the db package seams.
+include:
+  - "packages/**/*.ts"
+exclude:
+  - "**/tests/**"
+  - "**/*.test.ts"
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: no-raw-db-client-queries-outside-dao
+    description: "Raw DbClient mutation/query methods must stay inside DAO implementations."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "this\\.db\\.(insert|select|update|delete)\\("
+    exclude:
+      - "packages/db/src/base-dao.ts"
+      - "packages/db/src/entity-dao.ts"
+      - "packages/db/src/queue-job-dao.ts"
+
+  - id: no-sqlite-table-outside-schema
+    description: "sqliteTable() definitions must live under packages/db/src/schema/."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "sqliteTable\\("
+    exclude:
+      - "packages/db/src/schema/**"
+
+  - id: no-ad-hoc-sqlite-init
+    description: "Direct sqlite.run()/sqlite.exec()/PRAGMA calls must stay inside SQLite adapter code."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "sqlite\\.(run|exec)\\s*\\(|pragma\\s*\\("
+    exclude:
+      - "packages/db/src/adapters/**"
+
+  - id: no-inline-ddl-outside-migrations
+    description: "Inline DDL outside migration code risks schema drift."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "(CREATE TABLE|ALTER TABLE|DROP TABLE)"
+        flags: "i"
+    exclude:
+      - "packages/db/src/migrate.ts"
+      - "packages/db/src/embedded-migrations.ts"
+      - "**/tests/**"
+      - "**/*.test.ts"

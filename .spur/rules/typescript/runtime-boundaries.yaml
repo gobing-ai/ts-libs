@@ -1,0 +1,65 @@
+# Runtime boundary rules — keep platform-specific APIs behind runtime package seams.
+include:
+  - "packages/**/*.ts"
+exclude:
+  - "**/tests/**"
+  - "**/*.test.ts"
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: no-direct-process-spawn
+    description: "Process spawning must stay behind @gobing-ai/ts-runtime's ProcessExecutor seam."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "node:child_process"
+          - specifier: "child_process"
+          - pattern: "Bun\\.(spawn|spawnSync)\\s*\\("
+            matchMode: usage
+          - pattern: "import\\s*\\{\\s*\\$"
+            matchMode: usage
+          - specifier: "execa"
+          - specifier: "zx"
+        scope:
+          include:
+            - "packages/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/*.test.ts"
+            - "**/dist/**"
+            - "packages/runtime/src/process-executor.ts"
+
+  - id: no-direct-fs-io
+    description: "Node/Bun filesystem IO must stay behind @gobing-ai/ts-runtime's FileSystem seam."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - pattern: "from\\s+['\"]node:fs(?:/promises)?['\"]|require\\(['\"]node:fs"
+            matchMode: usage
+          - pattern: "\\bBun\\.(?:write|file)\\("
+            matchMode: usage
+        scope:
+          include:
+            - "packages/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/*.test.ts"
+            - "**/dist/**"
+            - "packages/runtime/src/fs.ts"
+
+  - id: no-direct-process-env
+    description: "Direct process.env access must stay behind @gobing-ai/ts-runtime config helpers."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "process\\.env"
+    include:
+      - "packages/**/src/**/*.ts"
+    exclude:
+      - "packages/runtime/src/config.ts"

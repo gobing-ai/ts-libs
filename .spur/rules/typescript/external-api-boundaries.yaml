@@ -1,0 +1,57 @@
+# External API boundary rules — centralize HTTP calls through APIClient.
+include:
+  - "packages/**/*.ts"
+exclude:
+  - "**/tests/**"
+  - "**/*.test.ts"
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: no-direct-fetch
+    description: "Use @gobing-ai/ts-infra APIClient instead of direct fetch(...) calls."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "(^|[^.[:alnum:]_])fetch\\("
+    exclude:
+      - "packages/infra/src/api-client.ts"
+
+  - id: no-globalthis-fetch
+    description: "Use @gobing-ai/ts-infra APIClient instead of globalThis.fetch(...)."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "globalThis\\.fetch\\("
+    exclude:
+      - "packages/infra/src/api-client.ts"
+
+  - id: no-xml-http-request
+    description: "Use @gobing-ai/ts-infra APIClient instead of XMLHttpRequest."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "new\\s+XMLHttpRequest\\("
+
+  - id: no-third-party-http-clients
+    description: "Use @gobing-ai/ts-infra APIClient instead of ad hoc HTTP client libraries."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "axios"
+          - specifier: "got"
+          - specifier: "ky"
+          - specifier: "ofetch"
+          - specifier: "undici"
+        scope:
+          include:
+            - "packages/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/*.test.ts"
+            - "**/dist/**"
