@@ -3,7 +3,7 @@
  */
 
 import { context, type Span, type SpanOptions, type Tracer, trace } from '@opentelemetry/api';
-import { getTracer } from './sdk.js';
+import { getTracer } from './sdk';
 
 export async function traceAsync<T>(
     name: string,
@@ -61,4 +61,4 @@ export function withSpan<T>(span: Span, fn: () => T): T {
 }
 
 export type { Span, SpanOptions, Tracer } from '@opentelemetry/api';
-export { context, propagation, trace } from './sdk.js';
+export { context, propagation, trace } from './sdk';
