@@ -35,7 +35,6 @@ export class NodeSchedulerAdapter implements SchedulerAdapter {
     private readonly entries: ScheduledEntry[] = [];
     private running = false;
 
-    // biome-ignore lint/complexity/noUselessConstructor: V8 function coverage requires explicit constructor
     constructor() {}
 
     register(cron: string, action: ScheduledAction): void {
