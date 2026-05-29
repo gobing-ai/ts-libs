@@ -12,6 +12,7 @@ versioned **independently**; entries are grouped by package under each release.
 - **CI** — scope Publish runs to the package/version named by the release tag and fail early on tag/manifest mismatches, preventing stale tag reruns from publishing an old manifest.
 - **Tooling** — consolidate build/release automation behind `scripts/builder.ts`, centralize script constants in `scripts/config.ts`, and move unit coverage under `scripts/tests/`.
 - **Tooling** — harden release pushes so `bump-ver --push` disables `push.followTags` and pushes each tag with an explicit source/destination ref.
+- **CI** — trigger Publish from a single aggregate `@gobing-ai/ts-libs-v<version>` tag so lockstep releases publish all packages in one workflow run.
 - **Docs** — clarify the tag-scoped release workflow and stale-tag failure mode.
 
 ## 0.1.5 — 2026-05-29
