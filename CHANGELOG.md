@@ -8,6 +8,21 @@ versioned **independently**; entries are grouped by package under each release.
 
 ## [Unreleased]
 
+## 0.1.1 — 2026-05-29
+
+Maintenance release. No consumer-facing API changes — all four packages bumped together
+to validate the automated GitHub Actions release pipeline.
+
+### All packages
+
+- Bumped to `0.1.1` (`@gobing-ai/ts-utils`, `@gobing-ai/ts-runtime`, `@gobing-ai/ts-db`, `@gobing-ai/ts-infra`).
+
+### Tooling (repository only, not shipped)
+
+- **CI** — build before lint/typecheck so cross-package type imports resolve on a clean checkout.
+- **CI** — bumped `actions/checkout` and `actions/setup-node` to v6 (Node 24 runtime).
+- **Tests** — made `resolveProjectPath` test portable (assert against detected project root instead of a hardcoded local path).
+
 ## 0.1.0 — 2026-05-29
 
 Initial public release of the four-package TypeScript library suite.
