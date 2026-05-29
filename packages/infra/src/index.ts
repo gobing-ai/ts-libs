@@ -1,12 +1,12 @@
 // API Client
-export { APIClient, type APIClientConfig, APIError, type RequestOptions } from './api-client.js';
+export { APIClient, type APIClientConfig, APIError, type RequestOptions } from './api-client';
 
 // Event Bus
-export { EventBus, type EventMap, type SubscribeOptions } from './event-bus/index.js';
+export { EventBus, type EventMap, type SubscribeOptions } from './event-bus/index';
 
 // Events
-export type { AppEvents, AppInternalEvents } from './events/index.js';
-export { createSystemBus } from './events/index.js';
+export type { AppEvents, AppInternalEvents } from './events/index';
+export { createSystemBus } from './events/index';
 
 // Job Queue
 export type {
@@ -17,10 +17,10 @@ export type {
     QueueConsumer,
     QueueConsumerConfig,
     QueueStats,
-} from './job-queue/index.js';
+} from './job-queue/index';
 
 // Logger
-export { getLogger, initializeLogger, type Logger, type LogLevel } from './logger.js';
+export { getLogger, initializeLogger, type Logger, type LogLevel } from './logger';
 
 // Scheduler
 export {
@@ -32,7 +32,7 @@ export {
     type ScheduledAction,
     type SchedulerAdapter,
     setSchedulerAdapter,
-} from './scheduler/index.js';
+} from './scheduler/index';
 
 // Telemetry
 export {
@@ -71,4 +71,4 @@ export {
     traceAsync,
     traceSync,
     withSpan,
-} from './telemetry/index.js';
+} from './telemetry/index';
