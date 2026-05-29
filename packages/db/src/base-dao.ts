@@ -1,4 +1,4 @@
-import type { DbClient } from './adapter.js';
+import type { DbClient } from './adapter';
 
 /**
  * Abstract base DAO providing transaction and timestamp utilities to all entity DAOs.
