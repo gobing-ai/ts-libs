@@ -68,6 +68,16 @@ bun run spur-check
 | `bun run typecheck` | `tsc --noEmit` across all packages |
 | `bun run build` | Build all packages (build order respects dependency graph) |
 
+### Release commands
+
+| Command | What it does |
+|---------|-------------|
+| `bun run bump-ver <version>` | Set the given version on the root manifest and every workspace package (e.g. `bun run bump-ver 0.1.3`). Packages are discovered dynamically from the `workspaces` globs. |
+| `bun run drop-tags <version>` | Delete the release git tags for `<version>` **locally** (e.g. `bun run drop-tags 0.1.3`). |
+| `bun run drop-tags <version> --remote` | Also delete those tags on `origin`. Use to recover from a mis-pushed release tag. |
+
+Releases are published from GitHub Actions via npm Trusted Publishing when a `@gobing-ai/ts-*-v<version>` tag is pushed. See [docs/PACKAGE_RELEASE.md](docs/PACKAGE_RELEASE.md) for the full release flow.
+
 ### Per-package commands
 
 ```bash
