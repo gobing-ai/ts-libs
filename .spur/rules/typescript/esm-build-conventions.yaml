@@ -10,7 +10,7 @@ exclude:
 
 rules:
   - id: no-js-extension-in-ts-source-imports
-    description: "TypeScript source should keep relative import/export specifiers extensionless; dist rewriting is handled by scripts/fix-dist-esm-extensions.ts."
+    description: "TypeScript source should keep relative import/export specifiers extensionless; dist rewriting is handled by scripts/builder.ts fix-dist-esm-extensions."
     severity: error
     evaluator:
       type: regex
@@ -35,7 +35,7 @@ rules:
             errors=0
             for f in packages/*/package.json; do
               script="$(bun -e 'const p = await Bun.file(process.argv[1]).json(); console.log(p.scripts?.build ?? "")' "$f")"
-              expected='tsc -p tsconfig.build.json && bun ../../scripts/fix-dist-esm-extensions.ts dist'
+              expected='tsc -p tsconfig.build.json && bun ../../scripts/builder.ts fix-dist-esm-extensions dist'
               if [ "$script" != "$expected" ]; then
                 echo "INVALID: $f build script must be: $expected"
                 errors=$((errors + 1))
@@ -56,7 +56,7 @@ rules:
           - -c
           - |
             actual="$(bun -e 'const p = await Bun.file("./package.json").json(); console.log(p.scripts?.["smoke:dist"] ?? "")')"
-            expected='bun scripts/smoke-dist-imports.ts'
+            expected='bun scripts/builder.ts smoke-dist-imports'
             if [ "$actual" != "$expected" ]; then
               echo "INVALID: package.json smoke:dist must be: $expected"
               exit 1
