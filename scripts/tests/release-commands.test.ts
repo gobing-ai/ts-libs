@@ -21,5 +21,8 @@ describe('release command git push args', () => {
             'origin',
             'refs/tags/@gobing-ai/ts-utils-v0.1.6:refs/tags/@gobing-ai/ts-utils-v0.1.6',
         ]);
+        expect(tagPushArgs('@gobing-ai/ts-libs-v0.1.6')).toContain(
+            'refs/tags/@gobing-ai/ts-libs-v0.1.6:refs/tags/@gobing-ai/ts-libs-v0.1.6',
+        );
     });
 });
