@@ -1,7 +1,7 @@
 import { and, count as countFn, eq, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
-import type { DbClient } from './adapter.js';
-import { BaseDao } from './base-dao.js';
+import type { DbClient } from './adapter';
+import { BaseDao } from './base-dao';
 
 /**
  * Type for tables compatible with EntityDao.
