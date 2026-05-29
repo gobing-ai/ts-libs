@@ -90,11 +90,14 @@ if (!push) {
     process.exit(0);
 }
 
-// Branch first, then tags as their own push so GitHub emits dedicated tag-push
-// events (required for the tag-filtered Publish workflow to trigger).
-console.log('\nPushing branch...');
-run(['push', 'origin', branch], `git push origin ${branch}`);
-console.log('Pushing tags...');
+// Push the branch WITHOUT its tags first. --no-follow-tags is essential: with
+// push.followTags=true, a plain branch push carries the annotated tags along in
+// the same event, which GitHub attributes to the branch — so the tag-filtered
+// Publish workflow never fires. Pushing tags as a separate event is what
+// triggers it.
+console.log('\nPushing branch (tags excluded)...');
+run(['push', '--no-follow-tags', 'origin', branch], `git push origin ${branch}`);
+console.log('Pushing tags (dedicated event → triggers Publish)...');
 run(['push', 'origin', '--tags'], 'git push origin --tags');
 
 console.log(`\n✓ Released ${version}. The Publish workflow should now be running:`);
