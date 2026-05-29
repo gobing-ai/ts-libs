@@ -1,4 +1,4 @@
-import { EventBus } from '../event-bus/event-bus.js';
+import { EventBus } from '../event-bus/event-bus';
 
 /**
  * Factory that creates a configured system event bus.
