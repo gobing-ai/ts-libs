@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import {
     getSchedulerAdapter,
     initScheduler,
-    NodeSchedulerAdapter,
     NoopSchedulerAdapter,
+    resetSchedulerAdapter,
     setSchedulerAdapter,
 } from '../src/scheduler/index';
 
@@ -21,10 +21,25 @@ describe('scheduler factory', () => {
         expect(adapter).toBeDefined();
     });
 
-    test('initScheduler registers cron entries', () => {
-        const adapter = new NodeSchedulerAdapter();
+    test('resetSchedulerAdapter clears the singleton', () => {
+        const adapter = new NoopSchedulerAdapter();
         setSchedulerAdapter(adapter);
-        initScheduler([['10000', async () => {}]]);
-        // Don't start — just verify registration
+        expect(getSchedulerAdapter()).toBe(adapter);
+
+        resetSchedulerAdapter();
+        expect(getSchedulerAdapter()).toBeUndefined();
+    });
+
+    test('initScheduler noop adapter start and stop work', async () => {
+        resetSchedulerAdapter();
+        const adapter = initScheduler();
+        await adapter.start();
+        await adapter.stop();
+    });
+
+    test('initScheduler registers cron entries', () => {
+        resetSchedulerAdapter();
+        const adapter = initScheduler([['* * * * *', async () => {}]]);
+        expect(adapter).toBeDefined();
     });
 });
