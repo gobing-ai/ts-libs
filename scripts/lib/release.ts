@@ -23,6 +23,14 @@ export function createReleaseTag(pkg: WorkspacePackage, version: string): string
     return `${pkg.name}${releaseConfig.tagVersionSeparator}${version}`;
 }
 
+export function branchPushArgs(branch: string): string[] {
+    return ['-c', 'push.followTags=false', 'push', '--no-follow-tags', 'origin', branch];
+}
+
+export function tagPushArgs(tag: string): string[] {
+    return ['-c', 'push.followTags=false', 'push', 'origin', `refs/tags/${tag}:refs/tags/${tag}`];
+}
+
 export async function sortPackagesByDependencyOrder(packages: WorkspacePackage[]): Promise<WorkspacePackage[]> {
     const publishable = packages.filter((pkg) => !pkg.private);
     const packageByName = new Map(packages.map((pkg) => [pkg.name, pkg]));
