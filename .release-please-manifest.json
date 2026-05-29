@@ -1,6 +1,0 @@
-{
-    "packages/utils": "0.1.0",
-    "packages/runtime": "0.1.0",
-    "packages/db": "0.1.0",
-    "packages/infra": "0.1.0"
-}
