@@ -15,8 +15,7 @@ permissions:
   id-token: write # required for npm Trusted Publishing (OIDC)
 
 # Each per-package tag push triggers its own run. Serialize them (never cancel)
-# so they publish one at a time instead of racing — the first publishes every
-# package, the rest skip cleanly.
+# so package publishes never race with each other.
 concurrency:
   group: publish
   cancel-in-progress: false
@@ -52,30 +51,4 @@ jobs:
         run: bun run build
 
       - name: Publish packages
-        run: |
-          set -euo pipefail
-          # Publish leaves-first so a dependent never resolves before its dependency.
-          # Each pushed tag triggers a separate run, so a version may already be
-          # published by a concurrent/earlier run. The npm view check is a fast
-          # path; the publish itself also tolerates an "already published"
-          # conflict so a re-trigger is a clean skip, not a job failure.
-          for pkg in utils runtime db infra; do
-            dir="packages/$pkg"
-            name=$(node -p "require('./$dir/package.json').name")
-            version=$(node -p "require('./$dir/package.json').version")
-            if npm view "$name@$version" version >/dev/null 2>&1; then
-              echo "skip: $name@$version already published"
-              continue
-            fi
-            echo "publish: $name@$version"
-            if ! out=$(cd "$dir" && npm publish --access public 2>&1); then
-              if echo "$out" | grep -qiE "cannot publish over|previously published|already exists|E409|EPUBLISHCONFLICT"; then
-                echo "skip: $name@$version already published (lost publish race)"
-              else
-                echo "$out" >&2
-                exit 1
-              fi
-            else
-              echo "$out"
-            fi
-          done
+        run: bun scripts/builder.ts publish-packages
