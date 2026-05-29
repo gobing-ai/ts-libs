@@ -1,7 +1,7 @@
 /**
  * No-op scheduler adapter for testing and environments without scheduling.
  */
-import type { ScheduledAction, SchedulerAdapter } from './types.js';
+import type { ScheduledAction, SchedulerAdapter } from './types';
 
 export class NoopSchedulerAdapter implements SchedulerAdapter {
     constructor() {}
