@@ -6,4 +6,4 @@ export type {
     QueueConsumer,
     QueueConsumerConfig,
     QueueStats,
-} from './types.js';
+} from './types';
