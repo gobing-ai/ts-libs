@@ -1,8 +1,8 @@
 import { Database } from 'bun:sqlite';
 import { isAbsolute, resolve } from 'node:path';
 import { type BunSQLiteDatabase, drizzle } from 'drizzle-orm/bun-sqlite';
-import type { DbAdapter, DbClient } from '../adapter.js';
-import * as schema from '../schema/index.js';
+import type { DbAdapter, DbClient } from '../adapter';
+import * as schema from '../schema/index';
 
 type SqliteStatementLike = {
     all: (...params: unknown[]) => unknown;
