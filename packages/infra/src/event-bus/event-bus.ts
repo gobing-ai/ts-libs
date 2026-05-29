@@ -17,13 +17,15 @@ function busLogger(): Logger {
 
 /**
  * Type-safe event bus supporting both synchronous (in-process) and
- * asynchronous (job-queue-backed) handlers.
+ * asynchronous handlers with optional job-queue enqueue instrumentation.
  */
 export class EventBus<TEvents extends EventMap> {
     private readonly syncHandlers = new Map<keyof TEvents, Set<TEvents[keyof TEvents]>>();
     private readonly asyncHandlers = new Map<keyof TEvents, Set<TEvents[keyof TEvents]>>();
+    private readonly asyncHandlerIds = new WeakMap<TEvents[keyof TEvents], string>();
     private readonly jobQueue: JobQueue | null;
     private readonly lifecycleBus: EventBus<BusLifecycleEvents> | null;
+    private nextAsyncHandlerId = 0;
 
     constructor(opts?: {
         jobQueue?: JobQueue;
@@ -102,23 +104,40 @@ export class EventBus<TEvents extends EventMap> {
 
         const asyncSet = this.asyncHandlers.get(event);
         if (asyncSet && asyncSet.size > 0) {
-            asyncCount = asyncSet.size;
+            const handlers = [...asyncSet];
+            asyncCount = handlers.length;
 
-            if (this.jobQueue) {
+            for (const handler of handlers) {
+                if (this.jobQueue) {
+                    try {
+                        const jobId = await this.jobQueue.enqueue(eventName, {
+                            event: eventName,
+                            args,
+                            handlerId: this.getAsyncHandlerId(handler),
+                        });
+                        busLogger().debug('async job enqueued', { event: eventName, jobId, handlerCount: 1 });
+                        this.publishAsyncEnqueued(eventName, jobId, 1);
+                    } catch (error) {
+                        errors++;
+                        const message = error instanceof Error ? error.message : String(error);
+                        busLogger().error('async enqueue failed', { event: eventName, error: message });
+                        this.publishHandlerError(eventName, 'async', message);
+                        continue;
+                    }
+                } else {
+                    busLogger().warn('async handlers registered but no JobQueue injected', {
+                        event: eventName,
+                    });
+                }
+
                 try {
-                    const jobId = await this.jobQueue.enqueue(eventName, { event: eventName, args });
-                    busLogger().debug('async job enqueued', { event: eventName, jobId, handlerCount: asyncCount });
-                    this.publishAsyncEnqueued(eventName, jobId, asyncCount);
+                    await Promise.resolve().then(() => handler(...args));
                 } catch (error) {
                     errors++;
                     const message = error instanceof Error ? error.message : String(error);
-                    busLogger().error('async enqueue failed', { event: eventName, error: message });
+                    busLogger().error('async handler threw', { event: eventName, error: message });
                     this.publishHandlerError(eventName, 'async', message);
                 }
-            } else {
-                busLogger().warn('async handlers registered but no JobQueue injected', {
-                    event: eventName,
-                });
             }
         }
 
@@ -162,6 +181,15 @@ export class EventBus<TEvents extends EventMap> {
             this.asyncHandlers.set(event, set);
         }
         set.add(handler);
+    }
+
+    private getAsyncHandlerId(handler: TEvents[keyof TEvents]): string {
+        const existing = this.asyncHandlerIds.get(handler);
+        if (existing) return existing;
+
+        const id = `handler-${++this.nextAsyncHandlerId}`;
+        this.asyncHandlerIds.set(handler, id);
+        return id;
     }
 
     private publishEmitDone(detail: EmitDoneDetail): void {
