@@ -1,12 +1,14 @@
 import { releaseConfig, repoRoot, SEMVER } from '../config';
 import { runCommand } from './command';
 import {
+    branchPushArgs,
     createReleaseTag,
     isAlreadyPublishedError,
     npmPublish,
     npmViewVersion,
     selectPackagesForPublish,
     sortPackagesByDependencyOrder,
+    tagPushArgs,
 } from './release';
 import { findWorkspacePackages } from './workspace';
 
@@ -119,11 +121,11 @@ export async function bumpVersion(version: string, options: BumpVersionOptions):
     }
 
     console.log('\nPushing branch (tags excluded)...');
-    mustGit(['push', '--no-follow-tags', 'origin', branch], `git push origin ${branch}`);
+    mustGit(branchPushArgs(branch), `git push origin ${branch}`);
 
     for (const tag of tags) {
         console.log(`Pushing tag ${tag}...`);
-        mustGit(['push', 'origin', `refs/tags/${tag}`], `git push origin ${tag}`);
+        mustGit(tagPushArgs(tag), `git push origin ${tag}`);
     }
 
     console.log(`\nReleased ${version}. The Publish workflow should now be running:`);
