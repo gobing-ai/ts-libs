@@ -3,8 +3,8 @@
  */
 import { type Tracer, trace } from '@opentelemetry/api';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
-import type { TelemetryConfig } from './config.js';
-import { getTelemetryConfig } from './config.js';
+import type { TelemetryConfig } from './config';
+import { getTelemetryConfig } from './config';
 
 let tracerProvider: NodeTracerProvider | undefined;
 let telemetryInitialized = false;
