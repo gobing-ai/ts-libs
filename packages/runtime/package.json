@@ -2,6 +2,25 @@
     "name": "@gobing-ai/ts-runtime",
     "version": "0.1.0",
     "description": "@gobing-ai/ts-runtime — Runtime abstractions for Bun, Node, and Cloudflare Workers.",
+    "keywords": [
+        "typescript",
+        "runtime",
+        "bun",
+        "nodejs",
+        "cloudflare-workers",
+        "config",
+        "filesystem",
+        "process"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/gobing-ai/ts-libs.git",
+        "directory": "packages/runtime"
+    },
+    "author": "Robin Min <minlongbing@gmail.com>",
+    "contributors": [
+        "Robin Min <minlongbing@gmail.com>"
+    ],
     "type": "module",
     "private": false,
     "sideEffects": false,
@@ -28,7 +47,7 @@
         "format": "biome check . --write",
         "check": "bun run lint && bun run test",
         "prepublishOnly": "bun run build",
-        "release": "npm publish --access public"
+        "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-runtime-v<version> && git push --tags' && exit 1"
     },
     "dependencies": {
         "@gobing-ai/ts-utils": "^0.1.0",
