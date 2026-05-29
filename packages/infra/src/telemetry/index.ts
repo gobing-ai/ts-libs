@@ -1,5 +1,5 @@
-export { getTelemetryConfig, type TelemetryConfig, type TelemetryConfigPartial } from './config.js';
-export { extractSqlOperation, sanitizeSql } from './db-sanitize.js';
+export { getTelemetryConfig, type TelemetryConfig, type TelemetryConfigPartial } from './config';
+export { extractSqlOperation, sanitizeSql } from './db-sanitize';
 export {
     type Counter,
     getDbOperationDuration,
@@ -23,7 +23,7 @@ export {
     type Histogram,
     initMetrics,
     shutdownMetrics,
-} from './metrics.js';
-export { getTracer, initTelemetry, isTelemetryEnabled, shutdownTelemetry } from './sdk.js';
-export type { Span, SpanOptions, Tracer } from './tracing.js';
-export { addSpanAttributes, addSpanEvent, getActiveSpan, traceAsync, traceSync, withSpan } from './tracing.js';
+} from './metrics';
+export { getTracer, initTelemetry, isTelemetryEnabled, shutdownTelemetry } from './sdk';
+export type { Span, SpanOptions, Tracer } from './tracing';
+export { addSpanAttributes, addSpanEvent, getActiveSpan, traceAsync, traceSync, withSpan } from './tracing';
