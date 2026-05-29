@@ -8,6 +8,11 @@ versioned **independently**; entries are grouped by package under each release.
 
 ## [Unreleased]
 
+## 0.1.3 — 2026-05-29
+
+- **Tooling** — added `bump-ver` and `drop-tags` scripts (dynamic workspace discovery) for releases.
+- **Tooling** — `bump-ver` now prints a `chore(release):` commit (the previous `release:` type is rejected by the commit-msg hook).
+
 ## 0.1.2 — 2026-05-29
 
 - **CI** — fixed the Publish workflow tag trigger so pushing a `*-v<version>` tag publishes automatically (previously only the manual run button worked).

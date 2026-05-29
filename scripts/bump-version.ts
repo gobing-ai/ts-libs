@@ -33,6 +33,6 @@ const tagSuffixes = publishable.map((p) => p.name.split('/').pop()).join(' ');
 console.log(`\nBumped ${packages.length} manifests to ${version}.`);
 console.log('Next steps:');
 console.log('  bun install                              # resync bun.lock');
-console.log(`  git commit -am "release: bump all packages to ${version}"`);
+console.log(`  git commit -am "chore(release): bump all packages to ${version}"`);
 console.log(`  for p in ${tagSuffixes}; do git tag -a "@gobing-ai/$p-v${version}" -m "release: $p ${version}"; done`);
 console.log('  git push origin main                     # followTags carries the annotated tags');
