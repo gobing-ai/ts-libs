@@ -7,13 +7,13 @@ How releases work for the four `@gobing-ai/ts-*` packages in this monorepo.
 - **Existing packages** are published by **GitHub Actions** via npm **Trusted Publishing** (OIDC). You never run `npm publish` by hand — you push git **tags** and CI does the rest.
 - **Brand-new packages** must be **bootstrapped once manually**, because a Trusted Publisher can only be configured for a package that already exists on npm (chicken-and-egg).
 - **All packages are versioned in lockstep** — every release bumps all four to the same version and tags each one (`@gobing-ai/ts-<pkg>-v<version>`).
-- The publish workflow (`.github/workflows/publish.yml`) is **idempotent**: any matching tag triggers a loop over all four packages, publishing each only if its `package.json` version is not already on npm. **What ships is decided by the version in `package.json`, not the tag name.**
+- The publish workflow (`.github/workflows/publish.yml`) is **tag-scoped and idempotent**: `@gobing-ai/ts-<pkg>-v<version>` is resolved against workspace manifests, publishes only that package, only when the manifest has the same version, and skips cleanly if npm already has it.
 
 > The per-package `release` npm script is intentionally disabled — running `bun run release` prints instructions and exits non-zero. Manual `npm publish` is reserved for first-time bootstrap only (see below).
 
 ### Why four tags trigger four runs
 
-Each per-package tag push triggers its own Publish run. Because the loop is idempotent, the **first** run to start publishes all four packages; the other three find everything already published and **skip cleanly** (green). A `concurrency` group serializes the runs so they never race. This is expected — four green runs per release.
+Each per-package tag push triggers its own Publish run. The tag name decides the single package/version that run may publish, and a `concurrency` group serializes the runs so they never race. This is expected: four tag pushes, four scoped runs.
 
 ---
 
@@ -33,7 +33,7 @@ This will:
 4. **Tag** each package: `@gobing-ai/ts-<pkg>-v0.1.5` (annotated).
 5. **Push** the branch first (without tags), then each tag **individually**.
 
-The tag pushes trigger `publish.yml`, which builds and publishes via OIDC (no token, provenance automatic), in dependency order (`utils → runtime → db → infra`).
+The tag pushes trigger `publish.yml`, which builds and publishes via OIDC (no token, provenance automatic). `bump-ver --push` pushes tags in dependency order (`utils → runtime → db → infra`) so dependents publish after dependencies.
 
 > Update `CHANGELOG.md` with a `0.1.5` section **before** running `bump-ver` — it gets folded into the release commit.
 
@@ -100,7 +100,7 @@ Create `packages/<new-pkg>/` following the conventions of the existing packages.
   },
   "publishConfig": { "access": "public" },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && bun ../../scripts/fix-dist-esm-extensions.ts dist",
+    "build": "tsc -p tsconfig.build.json && bun ../../scripts/builder.ts fix-dist-esm-extensions dist",
     "prepublishOnly": "bun run build"
   }
 }
@@ -132,7 +132,7 @@ On [npmjs.com](https://www.npmjs.com/) → the new package → **Settings → Tr
 
 ### 4. Wire the package into CI
 
-Add the new package to the publish loop in `.github/workflows/publish.yml` and to the root `build` / `typecheck` scripts in `package.json`, matching the existing packages. The `bump-ver` / `drop-tags` scripts discover packages automatically from the `workspaces` glob — no edits needed there.
+Add the new package to the root `build` / `typecheck` scripts in `package.json`, matching the existing packages. The `bump-ver`, `drop-tags`, and `scripts/builder.ts publish-packages` commands discover packages automatically from the `workspaces` glob — no CI publish-loop edit is needed.
 
 ### 5. Done — switch to the normal flow
 
@@ -155,7 +155,8 @@ From now on this package releases with the others via `bun run bump-ver <version
 | Tag pushed, no Publish run | Tag's commit not reachable from `main` (branch wasn't pushed first), or 4 tags pushed at once | Push `main` first, then tags one at a time (`bump-ver --push` does both) |
 | Tag pushed, no Publish run | Tag doesn't match the `**-v*` glob | Use the `@gobing-ai/ts-<pkg>-v<version>` format |
 | Publish run skips everything | Version already on npm | Bump to a new version — npm versions are immutable |
-| One run publishes, others show "already published" skip | Normal — idempotent loop; the first run published, the rest skip | None — this is expected and now reported as a clean skip |
+| Publish run fails with tag/version mismatch | The workflow checked out a commit whose manifest version does not match the tag | Recreate the tag on the correct release commit, or use a new version if npm already has the old one |
+| Publish run shows "already published" skip | Normal for a retried run or a version already present on npm | None if npm has the expected version |
 | `npm publish` fails with auth error in CI | Trusted Publisher not configured / field mismatch | Re-check the table in step 3 (workflow filename = `publish.yml`, env blank) |
 | Consumer install conflict after release | Internal dep range too tight | Widen the caret range in the dependent and release it |
 | `bump-ver` aborts "already published on npm" | The target version exists on npm | Use a higher version |
