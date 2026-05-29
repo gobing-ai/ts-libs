@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { spawnSync } from 'node:child_process';
 import {
+    createAggregateReleaseTag,
     createReleaseTag,
     isAlreadyPublishedError,
     npmPublish,
@@ -44,6 +45,7 @@ describe('release tags', () => {
         expect(createReleaseTag(pkg('@gobing-ai/ts-cache', 'packages/cache'), '0.1.5')).toBe(
             '@gobing-ai/ts-cache-v0.1.5',
         );
+        expect(createAggregateReleaseTag('0.1.5')).toBe('@gobing-ai/ts-libs-v0.1.5');
     });
 });
 
@@ -112,6 +114,36 @@ describe('selectPackagesForPublish', () => {
             '@gobing-ai/ts-db',
             '@gobing-ai/ts-app',
         ]);
+    });
+
+    test('aggregate release tag selects all publishable packages in dependency order', async () => {
+        const packages = [
+            pkg('@gobing-ai/ts-libs', '.', {
+                '@gobing-ai/ts-db': '^0.1.0',
+                '@gobing-ai/ts-utils': '^0.1.0',
+            }),
+            pkg('@gobing-ai/ts-db', 'packages/db', { '@gobing-ai/ts-runtime': '^0.1.0' }),
+            pkg('@gobing-ai/ts-runtime', 'packages/runtime', { '@gobing-ai/ts-utils': '^0.1.0' }),
+            pkg('@gobing-ai/ts-utils', 'packages/utils'),
+        ];
+        packages[0].private = true;
+
+        const selected = await selectPackagesForPublish(packages, 'tag', '@gobing-ai/ts-libs-v0.1.5');
+
+        expect(selected.map((workspacePackage) => workspacePackage.name)).toEqual([
+            '@gobing-ai/ts-utils',
+            '@gobing-ai/ts-runtime',
+            '@gobing-ai/ts-db',
+        ]);
+    });
+
+    test('aggregate release tag validates the root manifest version', async () => {
+        const packages = [pkg('@gobing-ai/ts-libs', '.')];
+        packages[0].private = true;
+
+        await expect(selectPackagesForPublish(packages, 'tag', '@gobing-ai/ts-libs-v0.1.6')).rejects.toThrow(
+            'expects @gobing-ai/ts-libs@0.1.6',
+        );
     });
 });
 
