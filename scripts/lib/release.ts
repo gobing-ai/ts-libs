@@ -23,6 +23,10 @@ export function createReleaseTag(pkg: WorkspacePackage, version: string): string
     return `${pkg.name}${releaseConfig.tagVersionSeparator}${version}`;
 }
 
+export function createAggregateReleaseTag(version: string): string {
+    return `${releaseConfig.aggregatePackageName}${releaseConfig.tagVersionSeparator}${version}`;
+}
+
 export function branchPushArgs(branch: string): string[] {
     return ['-c', 'push.followTags=false', 'push', '--no-follow-tags', 'origin', branch];
 }
@@ -83,6 +87,23 @@ export async function selectPackagesForPublish(
     const releaseTag = parseReleaseTag(refName);
     if (!releaseTag) {
         throw new Error(`unsupported release tag: ${refName}`);
+    }
+
+    if (releaseTag.name === releaseConfig.aggregatePackageName) {
+        const aggregatePackage = packages.find((candidate) => candidate.name === releaseTag.name);
+        if (!aggregatePackage) {
+            throw new Error(
+                `aggregate release tag ${refName} names ${releaseTag.name}, but no workspace package has that name`,
+            );
+        }
+
+        if (aggregatePackage.version !== releaseTag.version) {
+            throw new Error(
+                `tag ${refName} expects ${aggregatePackage.name}@${releaseTag.version}, but ${aggregatePackage.path} has ${aggregatePackage.version}`,
+            );
+        }
+
+        return sortPackagesByDependencyOrder(packages);
     }
 
     const pkg = packages.find((candidate) => candidate.name === releaseTag.name);
