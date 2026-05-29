@@ -53,11 +53,30 @@ if (branch === 'HEAD') {
     fail('detached HEAD — checkout a branch before releasing.');
 }
 
-// 3. No tag for this version already exists (local or remote).
+// 3. No tag for this version exists — locally OR on the remote.
 const existingLocal = new Set(git(['tag', '-l']).stdout.split('\n').filter(Boolean));
-const clash = tags.filter((t) => existingLocal.has(t));
-if (clash.length > 0) {
-    fail(`tags already exist locally: ${clash.join(', ')}. Run "bun run drop-tags ${version}" first.`);
+const localClash = tags.filter((t) => existingLocal.has(t));
+if (localClash.length > 0) {
+    fail(`tags already exist locally: ${localClash.join(', ')}. Run "bun run drop-tags ${version}" first.`);
+}
+
+const remoteRefs = git(['ls-remote', '--tags', 'origin']).stdout;
+const remoteClash = tags.filter((t) => remoteRefs.includes(`refs/tags/${t}`));
+if (remoteClash.length > 0) {
+    fail(`tags already exist on origin: ${remoteClash.join(', ')}. Run "bun run drop-tags ${version} --remote" first.`);
+}
+
+// 4. The version is not already published on npm (would E403 on publish).
+// stderr is silenced — an unpublished version legitimately returns E404.
+const published = publishable.filter((p) => {
+    const r = spawnSync('npm', ['view', `${p.name}@${version}`, 'version'], {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return r.status === 0 && (r.stdout ?? '').trim() !== '';
+});
+if (published.length > 0) {
+    fail(`already published on npm at ${version}: ${published.map((p) => p.name).join(', ')}. Use a new version.`);
 }
 
 // --- Bump every manifest ---
@@ -71,8 +90,11 @@ for (const pkg of packages) {
 }
 console.log(`\nBumped ${packages.length} manifests to ${version}.`);
 
-// --- Resync lockfile, commit, tag ---
-run(['add', '--all'], 'git add');
+// --- Commit (only the files a release should touch) ---
+const manifestPaths = packages.map((p) => (p.dir === '.' ? 'package.json' : `${p.dir}/package.json`));
+// CHANGELOG.md and bun.lock are optional — add only if present/changed.
+const optional = ['CHANGELOG.md', 'bun.lock'].filter((f) => Bun.file(`${repoRoot}${f}`).size > 0);
+run(['add', ...manifestPaths, ...optional], 'git add');
 run(['commit', '-m', `chore(release): bump all packages to ${version}`], 'git commit');
 console.log(`Committed: chore(release): bump all packages to ${version}`);
 
