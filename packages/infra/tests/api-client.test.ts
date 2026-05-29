@@ -161,8 +161,7 @@ describe('APIClient', () => {
 
         const calls = mockFetch.mock.calls as unknown[][];
         const headers = (calls[0]?.[1] as { headers: Record<string, string> }).headers;
-        // biome-ignore lint/complexity/useLiteralKeys: Authorization contains hyphen, cannot use dot notation
-        expect(headers['Authorization']).toBe('Bearer token');
+        expect(headers.Authorization).toBe('Bearer token');
         expect(headers['X-Custom']).toBe('value');
         expect(headers['Content-Type']).toBe('application/json');
     });
