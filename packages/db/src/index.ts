@@ -1,11 +1,11 @@
-export { createDbAdapter, type DbAdapter, type DbAdapterConfig, type DbClient, type DbTable } from './adapter.js';
-export { BunSqliteAdapter, type BunSqliteOptions } from './adapters/bun-sqlite.js';
-export { D1Adapter } from './adapters/d1.js';
-export { BaseDao } from './base-dao.js';
-export { type EmbeddedMigration, embeddedMigrations } from './embedded-migrations.js';
-export { EntityDao, type EntityTable, type PKColumn, type SoftDeletableTable } from './entity-dao.js';
-export { applyMigrations, type MigrationOptions } from './migrate.js';
-export { QueueJobDao, type QueueJobRecord, type QueueStats } from './queue-job-dao.js';
+export { createDbAdapter, type DbAdapter, type DbAdapterConfig, type DbClient, type DbTable } from './adapter';
+export { BunSqliteAdapter, type BunSqliteOptions } from './adapters/bun-sqlite';
+export { D1Adapter } from './adapters/d1';
+export { BaseDao } from './base-dao';
+export { type EmbeddedMigration, embeddedMigrations } from './embedded-migrations';
+export { EntityDao, type EntityTable, type PKColumn, type SoftDeletableTable } from './entity-dao';
+export { applyMigrations, type MigrationOptions } from './migrate';
+export { QueueJobDao, type QueueJobRecord, type QueueStats } from './queue-job-dao';
 export {
     appendOnlyColumns,
     buildAppendOnlyColumns,
@@ -14,6 +14,6 @@ export {
     nowTimestamp,
     standardColumns,
     standardColumnsWithSoftDelete,
-} from './schema/common.js';
-export { queueJobs } from './schema/queue-jobs.js';
-export type { SpanContext } from './span-context.js';
+} from './schema/common';
+export { queueJobs } from './schema/queue-jobs';
+export type { SpanContext } from './span-context';
