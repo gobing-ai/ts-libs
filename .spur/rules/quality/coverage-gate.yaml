@@ -1,0 +1,17 @@
+# Coverage gate — override to match project's .coverage dir.
+# Bun coverage reporter only emits packages/*/src/** files to lcov,
+# so no exclude patterns needed.
+rules:
+  - id: coverage-gate
+    description: "Per-file line coverage meets threshold (read from lcov)"
+    severity: error
+    evaluator:
+      type: coverage-gate
+      config:
+        lcovPath: .coverage/lcov.info
+        threshold: 90
+        include:
+          - "packages/**"
+        exclude:
+          - "**/node_modules/**"
+          - "**/drizzle/**"
