@@ -1,5 +1,5 @@
-import type { JobQueue } from '../job-queue/types.js';
-import { getLogger, type Logger } from '../logger.js';
+import type { JobQueue } from '../job-queue/types';
+import { getLogger, type Logger } from '../logger';
 import type {
     AsyncEnqueuedDetail,
     BusLifecycleEvents,
@@ -7,7 +7,7 @@ import type {
     EventMap,
     HandlerErrorDetail,
     SubscribeOptions,
-} from './types.js';
+} from './types';
 
 let _busLogger: Logger | undefined;
 function busLogger(): Logger {
