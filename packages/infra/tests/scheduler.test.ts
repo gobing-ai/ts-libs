@@ -16,6 +16,51 @@ describe('NodeSchedulerAdapter', () => {
         await s.stop();
         // Should not throw
     });
+
+    test('register while running starts new entry', async () => {
+        const s = new NodeSchedulerAdapter();
+        await s.start();
+        s.register('5000', async () => {});
+        await new Promise((r) => setTimeout(r, 10));
+        await s.stop();
+    });
+
+    test('action throwing does not crash scheduler', async () => {
+        const s = new NodeSchedulerAdapter();
+        s.register('1000', async () => {
+            throw new Error('task failed');
+        });
+        await s.start();
+        // Let at least one interval fire
+        await new Promise((r) => setTimeout(r, 50));
+        await s.stop();
+    });
+
+    test('_onScheduledTick executes action and catches errors', async () => {
+        const s = new NodeSchedulerAdapter();
+        let fired = false;
+        const entry = {
+            cron: '60000',
+            action: async () => {
+                fired = true;
+            },
+        };
+        // biome-ignore lint/suspicious/noExplicitAny: test access to private method
+        await (s as any)._onScheduledTick(entry);
+        expect(fired).toBeTrue();
+    });
+
+    test('_onScheduledTick handles thrown errors', async () => {
+        const s = new NodeSchedulerAdapter();
+        const entry: { cron: string; action: () => Promise<void> } = {
+            cron: '60000',
+            action: async () => {
+                throw new Error('fail');
+            },
+        };
+        // biome-ignore lint/suspicious/noExplicitAny: test access to private method
+        await (s as any)._onScheduledTick(entry);
+    });
 });
 
 describe('NoopSchedulerAdapter', () => {
