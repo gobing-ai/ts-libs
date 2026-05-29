@@ -8,6 +8,11 @@ versioned **independently**; entries are grouped by package under each release.
 
 ## [Unreleased]
 
+- **CI** — move Publish package selection into a workspace-aware script, so release tags for new `packages/*` packages work without editing the workflow.
+- **CI** — scope Publish runs to the package/version named by the release tag and fail early on tag/manifest mismatches, preventing stale tag reruns from publishing an old manifest.
+- **Tooling** — consolidate build/release automation behind `scripts/builder.ts`, centralize script constants in `scripts/config.ts`, and move unit coverage under `scripts/tests/`.
+- **Docs** — clarify the tag-scoped release workflow and stale-tag failure mode.
+
 ## 0.1.5 — 2026-05-29
 
 - **CI** — serialize Publish runs with a `concurrency` group and treat "already published" as a clean skip, so per-tag release runs no longer race or fail red.
