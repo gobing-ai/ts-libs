@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-infra",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "description": "@gobing-ai/ts-infra — Infrastructure backbone: event bus, job queue, scheduler, telemetry, API client, and logging.",
     "keywords": [
         "typescript",
