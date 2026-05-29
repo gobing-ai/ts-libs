@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-libs",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "description": "Monorepo of TypeScript libraries — shared runtime abstractions, database layer, infrastructure backbone and etc",
     "keywords": [
         "bun",
@@ -27,20 +27,19 @@
     ],
     "scripts": {
         "prepare": "lefthook install",
-
+        "bump-ver": "bun scripts/bump-version.ts",
+        "drop-tags": "bun scripts/drop-tags.ts",
         "build": "bun run --filter @gobing-ai/ts-utils build && bun run --filter @gobing-ai/ts-runtime build && bun run --filter @gobing-ai/ts-db build && bun run --filter @gobing-ai/ts-infra build && bun run smoke:dist",
         "smoke:dist": "bun scripts/smoke-dist-imports.ts",
         "typecheck": "bun run --filter @gobing-ai/ts-utils typecheck && bun run --filter @gobing-ai/ts-runtime typecheck && bun run --filter @gobing-ai/ts-db typecheck && bun run --filter @gobing-ai/ts-infra typecheck",
         "lint": "biome check . && bun run typecheck",
         "format": "biome check . --write",
         "autofix": "bun run format && bun run typecheck",
-
         "test": "NODE_ENV=test bun test --coverage --coverage-dir=.coverage --reporter=dots",
         "test-pre-check": "spur rule run --preset recommended --fail-on warning",
         "test-post-check": "spur rule run --preset spur-dev --rule coverage-gate --fail-on warning",
         "spur-check": "bun run lint && bun run test-pre-check && bun run test && bun run test-post-check",
         "check": "bun run lint && bun run test",
-
         "test:full": "NODE_ENV=test bun test --update-snapshots --coverage --coverage-dir=.coverage",
         "test-pre-check:full": "spur rule run --preset recommended --fail-on warning --verbose",
         "test-post-check:full": "spur rule run --preset spur-dev --rule coverage-gate --fail-on warning --verbose",
