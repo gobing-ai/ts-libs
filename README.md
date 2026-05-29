@@ -79,6 +79,8 @@ bun run spur-check
 
 Releases publish from GitHub Actions via npm Trusted Publishing when a `*-v<version>` tag is pushed. Tags must be pushed **individually** after the branch (GitHub skips workflow runs when >3 tags are pushed at once, and a tag's commit must be reachable from `main`) — `bump-ver --push` handles all of this. See [docs/PACKAGE_RELEASE.md](docs/PACKAGE_RELEASE.md) for the full flow.
 
+Build and release automation is routed through [`scripts/builder.ts`](scripts/README.md). Shared constants live in `scripts/config.ts`; reusable helpers live in `scripts/lib/`.
+
 ### Per-package commands
 
 ```bash
