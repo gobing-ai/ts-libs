@@ -1,7 +1,5 @@
-import { fileURLToPath } from 'node:url';
 import { Glob } from 'bun';
-
-export const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
+import { repoRoot, SEMVER } from '../config';
 
 export interface WorkspacePackage {
     /** Absolute path to the package's package.json. */
@@ -14,6 +12,8 @@ export interface WorkspacePackage {
     version: string;
     /** Whether the package is marked private (not published). */
     private: boolean;
+    /** Runtime dependencies from package.json. */
+    dependencies: Record<string, string>;
 }
 
 /**
@@ -33,6 +33,7 @@ export async function findWorkspacePackages(): Promise<WorkspacePackage[]> {
             name: rootPkg.name,
             version: rootPkg.version,
             private: rootPkg.private === true,
+            dependencies: rootPkg.dependencies ?? {},
         },
     ];
 
@@ -51,6 +52,7 @@ export async function findWorkspacePackages(): Promise<WorkspacePackage[]> {
                 name: pkg.name,
                 version: pkg.version,
                 private: pkg.private === true,
+                dependencies: pkg.dependencies ?? {},
             });
         }
     }
@@ -58,4 +60,4 @@ export async function findWorkspacePackages(): Promise<WorkspacePackage[]> {
     return packages;
 }
 
-export const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?$/;
+export { repoRoot, SEMVER };
