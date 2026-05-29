@@ -1,4 +1,4 @@
-export { EventBus } from './event-bus.js';
+export { EventBus } from './event-bus';
 export type {
     AsyncEnqueuedDetail,
     BusLifecycleEvents,
@@ -6,4 +6,4 @@ export type {
     EventMap,
     HandlerErrorDetail,
     SubscribeOptions,
-} from './types.js';
+} from './types';
