@@ -7,13 +7,13 @@ How releases work for the four `@gobing-ai/ts-*` packages in this monorepo.
 - **Existing packages** are published by **GitHub Actions** via npm **Trusted Publishing** (OIDC). You never run `npm publish` by hand — you push git **tags** and CI does the rest.
 - **Brand-new packages** must be **bootstrapped once manually**, because a Trusted Publisher can only be configured for a package that already exists on npm (chicken-and-egg).
 - **All packages are versioned in lockstep** — every release bumps all four to the same version and tags each one (`@gobing-ai/ts-<pkg>-v<version>`).
-- The publish workflow (`.github/workflows/publish.yml`) is **tag-scoped and idempotent**: `@gobing-ai/ts-<pkg>-v<version>` is resolved against workspace manifests, publishes only that package, only when the manifest has the same version, and skips cleanly if npm already has it.
+- The publish workflow (`.github/workflows/publish.yml`) is **aggregate-tag scoped and idempotent**: `@gobing-ai/ts-libs-v<version>` is resolved against the root workspace manifest, then publishes all non-private packages in dependency order. It skips cleanly if npm already has a package version.
 
 > The per-package `release` npm script is intentionally disabled — running `bun run release` prints instructions and exits non-zero. Manual `npm publish` is reserved for first-time bootstrap only (see below).
 
-### Why four tags trigger four runs
+### Why one tag triggers one Publish run
 
-Each per-package tag push triggers its own Publish run. The tag name decides the single package/version that run may publish, and a `concurrency` group serializes the runs so they never race. This is expected: four tag pushes, four scoped runs.
+Each release still creates per-package tags for traceability, but only the aggregate `@gobing-ai/ts-libs-v<version>` tag matches the Publish workflow trigger. This avoids multiple tag-triggered Publish runs competing under the same concurrency group.
 
 ---
 
@@ -30,10 +30,10 @@ This will:
 1. **Pre-check** — abort if the working tree is dirty, the version's tags already exist (local or remote), or the version is already on npm.
 2. **Bump** every manifest (root + 4 packages) to `0.1.5`.
 3. **Commit** `chore(release): bump all packages to 0.1.5` (only manifests + `CHANGELOG.md` + `bun.lock`).
-4. **Tag** each package: `@gobing-ai/ts-<pkg>-v0.1.5` (annotated).
-5. **Push** the branch first (without tags), then each tag **individually**.
+4. **Tag** each package: `@gobing-ai/ts-<pkg>-v0.1.5` (annotated), plus the aggregate trigger tag `@gobing-ai/ts-libs-v0.1.5`.
+5. **Push** the branch first (without tags), then tags **individually**.
 
-The tag pushes trigger `publish.yml`, which builds and publishes via OIDC (no token, provenance automatic). `bump-ver --push` pushes tags in dependency order (`utils → runtime → db → infra`) so dependents publish after dependencies.
+The aggregate tag push triggers one `publish.yml` run, which builds and publishes via OIDC (no token, provenance automatic). The publish script publishes packages in dependency order (`utils → runtime → db → infra`) so dependents publish after dependencies.
 
 > Update `CHANGELOG.md` with a `0.1.5` section **before** running `bump-ver` — it gets folded into the release commit.
 
@@ -55,7 +55,7 @@ done
 ### Verify
 
 ```bash
-gh run list --workflow=publish.yml --limit 5   # expect event=push, ~4 runs, all green
+gh run list --workflow=publish.yml --limit 5   # expect one event=push Publish run
 npm view @gobing-ai/ts-utils version           # expect 0.1.5
 ```
 
@@ -144,7 +144,7 @@ From now on this package releases with the others via `bun run bump-ver <version
 
 - The publish job needs npm **≥ 11.5.1** and Node **≥ 22.14.0** for OIDC — handled in the workflow (`setup-node` + `npm install -g npm@^11.5.1`). Don't remove those steps.
 - `publish.yml` must be on the **default branch (`main`)** — and a tag's target commit must be **reachable from `main`** — for a tag push to trigger a workflow run. `bump-ver --push` pushes the branch before the tags to guarantee this.
-- **Push tags individually, not `git push --tags`.** GitHub does not create workflow runs when more than three tags are pushed at once. `bump-ver --push` disables `push.followTags` for the branch push and then pushes each tag as an explicit `refs/tags/<tag>:refs/tags/<tag>` refspec.
+- **Push tags individually, not `git push --tags`.** GitHub does not create workflow runs when more than three tags are pushed at once. `bump-ver --push` disables `push.followTags` for the branch push and then pushes each tag as an explicit `refs/tags/<tag>:refs/tags/<tag>` refspec. Only the aggregate tag matches `publish.yml`.
 - No `NPM_TOKEN` secret is used or needed. If the workflow ever asks for one, the Trusted Publisher config is missing or mismatched.
 - Provenance attestations are generated automatically — no flags required.
 
@@ -152,8 +152,8 @@ From now on this package releases with the others via `bun run bump-ver <version
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Tag pushed, no Publish run | Tag's commit not reachable from `main` (branch wasn't pushed first), or 4 tags pushed at once | Push `main` first, then tags one at a time (`bump-ver --push` does both) |
-| Tag pushed, no Publish run | Tag doesn't match the `**-v*` glob | Use the `@gobing-ai/ts-<pkg>-v<version>` format |
+| Tag pushed, no Publish run | Tag's commit not reachable from `main` (branch wasn't pushed first), or tags were pushed together | Push `main` first, then tags one at a time (`bump-ver --push` does both) |
+| Per-package tag pushed, no Publish run | Expected — per-package tags are traceability tags only | Check for the aggregate `@gobing-ai/ts-libs-v<version>` tag run |
 | Publish run skips everything | Version already on npm | Bump to a new version — npm versions are immutable |
 | Publish run fails with tag/version mismatch | The workflow checked out a commit whose manifest version does not match the tag | Recreate the tag on the correct release commit, or use a new version if npm already has the old one |
 | Publish run shows "already published" skip | Normal for a retried run or a version already present on npm | None if npm has the expected version |
