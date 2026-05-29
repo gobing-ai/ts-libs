@@ -48,6 +48,8 @@ export class NodeSchedulerAdapter implements SchedulerAdapter {
     }
 
     async start(): Promise<void> {
+        if (this.running) return;
+
         this.running = true;
         for (const entry of this.entries) {
             this.startEntry(entry);
@@ -65,6 +67,8 @@ export class NodeSchedulerAdapter implements SchedulerAdapter {
     }
 
     private startEntry(entry: ScheduledEntry): void {
+        if (entry.timer) return;
+
         const interval = parseInterval(entry.cron);
         entry.timer = setInterval(this._onScheduledTick.bind(this, entry), interval);
     }
