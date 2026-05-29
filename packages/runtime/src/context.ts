@@ -1,8 +1,8 @@
-import type { Config } from './config.js';
-import { buildConfigFromObject } from './config.js';
-import type { FileSystem } from './fs.js';
-import { getFs } from './fs.js';
-import type { RuntimeCapabilities, RuntimeFactory, RuntimeName } from './types.js';
+import type { Config } from './config';
+import { buildConfigFromObject } from './config';
+import type { FileSystem } from './fs';
+import { getFs } from './fs';
+import type { RuntimeCapabilities, RuntimeFactory, RuntimeName } from './types';
 
 export type RuntimeScope = 'process' | 'server-request' | 'scheduled-event' | 'test';
 
