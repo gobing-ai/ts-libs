@@ -7,7 +7,7 @@ import type { MeterProvider } from '@opentelemetry/sdk-metrics';
 
 export type { Counter, Histogram } from '@opentelemetry/api';
 
-import type { TelemetryConfig } from './config.js';
+import type { TelemetryConfig } from './config';
 
 let meterProvider: MeterProvider | undefined;
 let metricsInitialized = false;
