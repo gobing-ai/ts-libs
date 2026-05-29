@@ -1,6 +1,24 @@
 {
     "name": "@gobing-ai/ts-libs",
     "version": "0.1.0",
+    "description": "Monorepo of TypeScript libraries — shared runtime abstractions, database layer, infrastructure backbone and etc",
+    "keywords": [
+        "bun",
+        "typescript",
+        "monorepo",
+        "cli",
+        "lib",
+        "hono",
+        "drizzle"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/gobing-ai/ts-libs.git"
+    },
+    "author": "Robin Min <minlongbing@gmail.com>",
+    "contributors": [
+        "Robin Min <minlongbing@gmail.com>"
+    ],
     "type": "module",
     "private": true,
     "packageManager": "bun@1.3.14",
