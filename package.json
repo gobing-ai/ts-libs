@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-libs",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "description": "Monorepo of TypeScript libraries — shared runtime abstractions, database layer, infrastructure backbone and etc",
     "keywords": [
         "bun",
