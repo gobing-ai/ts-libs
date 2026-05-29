@@ -92,13 +92,19 @@ if (!push) {
 
 // Push the branch WITHOUT its tags first. --no-follow-tags is essential: with
 // push.followTags=true, a plain branch push carries the annotated tags along in
-// the same event, which GitHub attributes to the branch — so the tag-filtered
-// Publish workflow never fires. Pushing tags as a separate event is what
-// triggers it.
+// the same event, which GitHub attributes to the branch.
 console.log('\nPushing branch (tags excluded)...');
 run(['push', '--no-follow-tags', 'origin', branch], `git push origin ${branch}`);
-console.log('Pushing tags (dedicated event → triggers Publish)...');
-run(['push', 'origin', '--tags'], 'git push origin --tags');
+
+// Push tags ONE AT A TIME. GitHub does not create workflow runs when more than
+// three tags are pushed in a single operation — `git push --tags` with 4+ tags
+// silently triggers nothing. A single-ref push reliably fires the tag event.
+// The Publish workflow's idempotent loop publishes every package on any single
+// trigger, so each per-tag push re-runs it harmlessly (already-published skip).
+for (const tag of tags) {
+    console.log(`Pushing tag ${tag}...`);
+    run(['push', 'origin', `refs/tags/${tag}`], `git push origin ${tag}`);
+}
 
 console.log(`\n✓ Released ${version}. The Publish workflow should now be running:`);
 console.log('  gh run list --workflow=publish.yml --limit 3');
