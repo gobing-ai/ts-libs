@@ -12,6 +12,9 @@ bun scripts/builder.ts publish-packages
 bun scripts/builder.ts smoke-dist-imports
 ```
 
+`bump-version --push` creates per-package tags for traceability and one aggregate trigger tag,
+`@gobing-ai/ts-libs-v<version>`, which starts a single Publish workflow run for the whole lockstep release.
+
 Root `package.json` keeps short aliases for the release commands:
 
 ```bash
