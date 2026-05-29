@@ -1,5 +1,5 @@
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import { standardColumns } from './common.js';
+import { standardColumns } from './common';
 
 /**
  * Drizzle schema definition for the queue_jobs table.
