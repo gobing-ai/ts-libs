@@ -34,6 +34,36 @@ describe('NodeSchedulerAdapter', () => {
         await s.stop();
     });
 
+    test('start is idempotent and creates one interval per entry', async () => {
+        const originalSetInterval = globalThis.setInterval;
+        const originalClearInterval = globalThis.clearInterval;
+        const timers: Array<{ handler: Parameters<typeof setInterval>[0]; timeout?: number }> = [];
+        const cleared: number[] = [];
+
+        globalThis.setInterval = ((handler: Parameters<typeof setInterval>[0], timeout?: number) => {
+            timers.push({ handler, timeout });
+            return timers.length as unknown as ReturnType<typeof setInterval>;
+        }) as typeof setInterval;
+        globalThis.clearInterval = ((timer?: ReturnType<typeof setInterval>) => {
+            cleared.push(timer as unknown as number);
+        }) as typeof clearInterval;
+
+        try {
+            const s = new NodeSchedulerAdapter();
+            s.register('5000', async () => {});
+
+            await s.start();
+            await s.start();
+            await s.stop();
+
+            expect(timers).toHaveLength(1);
+            expect(cleared).toEqual([1]);
+        } finally {
+            globalThis.setInterval = originalSetInterval;
+            globalThis.clearInterval = originalClearInterval;
+        }
+    });
+
     test('action throwing does not crash scheduler', async () => {
         const s = new NodeSchedulerAdapter();
         s.register('1000', async () => {
