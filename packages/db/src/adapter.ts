@@ -95,15 +95,15 @@ export type DbAdapterConfig =
 export async function createDbAdapter(config: DbAdapterConfig): Promise<DbAdapter> {
     switch (config.driver) {
         case 'bun-sqlite': {
-            const { BunSqliteAdapter } = await import('./adapters/bun-sqlite.js');
+            const { BunSqliteAdapter } = await import('./adapters/bun-sqlite');
             return new BunSqliteAdapter({
                 ...(config.url ? { databaseUrl: config.url } : {}),
                 ...(config.pragmas ? { pragmas: config.pragmas } : {}),
             });
         }
         case 'd1': {
-            const { D1Adapter } = await import('./adapters/d1.js');
-            return new D1Adapter(config.binding as import('./adapters/d1.js').D1Binding);
+            const { D1Adapter } = await import('./adapters/d1');
+            return new D1Adapter(config.binding as import('./adapters/d1').D1Binding);
         }
     }
 }
