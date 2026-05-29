@@ -2,7 +2,7 @@
  * Cloudflare Workers scheduler adapter using Cron Triggers.
  * Uses minimal local type declarations — no @cloudflare/workers-types dependency.
  */
-import type { ScheduledAction, SchedulerAdapter } from './types.js';
+import type { ScheduledAction, SchedulerAdapter } from './types';
 
 interface CfScheduledEvent {
     cron: string;
