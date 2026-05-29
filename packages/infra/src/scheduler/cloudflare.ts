@@ -17,6 +17,9 @@ interface CfEventContext {
 export class CloudflareSchedulerAdapter implements SchedulerAdapter {
     private readonly entries = new Map<string, ScheduledAction>();
 
+    // biome-ignore lint/complexity/noUselessConstructor: V8 function coverage requires explicit constructor
+    constructor() {}
+
     register(cron: string, action: ScheduledAction): void {
         this.entries.set(cron, action);
     }
