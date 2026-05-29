@@ -11,8 +11,8 @@ import {
     getHttpClientRequestDuration,
     getHttpClientRequestErrors,
     getHttpClientRequestTotal,
-} from './telemetry/metrics.js';
-import { traceAsync } from './telemetry/tracing.js';
+} from './telemetry/metrics';
+import { traceAsync } from './telemetry/tracing';
 
 // ── Types ───────────────────────────────────────────────────────────
 
