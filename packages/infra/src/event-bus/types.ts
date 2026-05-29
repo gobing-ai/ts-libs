@@ -5,7 +5,7 @@
 export type EventMap = Record<string, (...args: never[]) => void>;
 
 export interface SubscribeOptions {
-    /** When true, the handler is dispatched asynchronously via the job queue. */
+    /** When true, the handler is dispatched through the async handler path. */
     async?: boolean;
 }
 
