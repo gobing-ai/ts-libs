@@ -4,11 +4,10 @@ on:
   workflow_dispatch:
   push:
     tags:
-      # GitHub tag filters use a simplified glob (NOT regex): '*' matches any
-      # run of characters except '/', and '**' matches across '/' too. Char
-      # ranges like [0-9] and the '+' quantifier are not supported. The scoped
-      # tag '@gobing-ai/ts-utils-v0.1.3' contains a '/', so '**' is required.
-      - '**-v*'
+      # One aggregate tag triggers one Publish run for the lockstep release.
+      # Per-package tags are still created for traceability, but do not trigger
+      # this workflow.
+      - '@gobing-ai/ts-libs-v*'
 
 permissions:
   contents: read
