@@ -77,7 +77,7 @@ bun run spur-check
 | `bun run drop-tags <version>` | Delete the release git tags for `<version>` **locally**. |
 | `bun run drop-tags <version> --remote` | Also delete those tags on `origin`. Use to recover from a mis-pushed release tag. |
 
-Releases publish from GitHub Actions via npm Trusted Publishing when a `*-v<version>` tag is pushed. Tags must be pushed **individually** after the branch (GitHub skips workflow runs when >3 tags are pushed at once, and a tag's commit must be reachable from `main`) — `bump-ver --push` handles all of this. See [docs/PACKAGE_RELEASE.md](docs/PACKAGE_RELEASE.md) for the full flow.
+Releases publish from GitHub Actions via npm Trusted Publishing when the aggregate `@gobing-ai/ts-libs-v<version>` tag is pushed. Per-package tags are still created for traceability, but only the aggregate tag triggers one Publish workflow run — `bump-ver --push` handles all of this. See [docs/PACKAGE_RELEASE.md](docs/PACKAGE_RELEASE.md) for the full flow.
 
 Build and release automation is routed through [`scripts/builder.ts`](scripts/README.md). Shared constants live in `scripts/config.ts`; reusable helpers live in `scripts/lib/`.
 
