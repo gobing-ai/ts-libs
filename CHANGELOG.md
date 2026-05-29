@@ -8,6 +8,17 @@ versioned **independently**; entries are grouped by package under each release.
 
 ## [Unreleased]
 
+## 0.1.5 — 2026-05-29
+
+- **CI** — serialize Publish runs with a `concurrency` group and treat "already published" as a clean skip, so per-tag release runs no longer race or fail red.
+- **CI** — pin npm to `^11.5.1` (was `@latest`) in the publish workflow.
+- **Tooling** — `bump-ver` now pre-checks remote tags and npm for the target version, and scopes the release commit to manifests + changelog + lockfile.
+- **Docs** — release guide and README aligned with the current tag-triggered, lockstep release flow.
+
+## 0.1.4 — 2026-05-29
+
+- **CI** — fixed the tag-trigger chain end-to-end: corrected the tag glob to `**-v*`, push tags individually (GitHub skips runs when >3 tags are pushed at once), and ensure the tagged commit is reachable from `main` before tagging.
+
 ## 0.1.3 — 2026-05-29
 
 - **Tooling** — added `bump-ver` and `drop-tags` scripts (dynamic workspace discovery) for releases.
