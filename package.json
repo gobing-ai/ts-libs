@@ -11,7 +11,7 @@
         "prepare": "lefthook install",
 
         "build": "bun run --filter @gobing-ai/ts-utils build && bun run --filter @gobing-ai/ts-runtime build && bun run --filter @gobing-ai/ts-db build && bun run --filter @gobing-ai/ts-infra build && bun run smoke:dist",
-        "smoke:dist": "node scripts/smoke-dist-imports.mjs",
+        "smoke:dist": "bun scripts/smoke-dist-imports.ts",
         "typecheck": "bun run --filter @gobing-ai/ts-utils typecheck && bun run --filter @gobing-ai/ts-runtime typecheck && bun run --filter @gobing-ai/ts-db typecheck && bun run --filter @gobing-ai/ts-infra typecheck",
         "lint": "biome check . && bun run typecheck",
         "format": "biome check . --write",
