@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtemp, readFile, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 import {
     atomicWriteFile,
@@ -108,8 +108,10 @@ describe('filesystem helpers', () => {
         ]);
     });
 
-    test('resolves project paths from the current repository', () => {
-        expect(resolveProjectPath('packages')).toContain('/xprojects/ts-libs/packages');
+    test('resolves project paths relative to the detected project root', () => {
+        const resolved = resolveProjectPath('packages');
+        expect(resolved).toBe(join(getProjectRoot(), 'packages'));
+        expect(resolved.endsWith(`${sep}packages`)).toBe(true);
     });
 
     test('falls back when project root markers are not found', async () => {
