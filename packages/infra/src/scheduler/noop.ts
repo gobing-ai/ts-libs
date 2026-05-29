@@ -4,6 +4,9 @@
 import type { ScheduledAction, SchedulerAdapter } from './types.js';
 
 export class NoopSchedulerAdapter implements SchedulerAdapter {
+    // biome-ignore lint/complexity/noUselessConstructor: V8 function coverage requires explicit constructor
+    constructor() {}
+
     register(_cron: string, _action: ScheduledAction): void {
         // noop
     }
