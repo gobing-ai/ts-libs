@@ -1,0 +1,155 @@
+import type { DbAdapter } from '@gobing-ai/ts-db';
+import { RunCollisionError } from './errors';
+import { WORKFLOW_ENGINE_SCHEMA_SQL } from './schema-sql';
+import type { WorkflowPersistenceAdapter, WorkflowRunRecord, WorkflowStatus } from './types';
+
+/** Apply workflow-engine-owned schema to a database adapter. */
+export async function applyWorkflowEngineSchema(db: DbAdapter): Promise<void> {
+    for (const statement of WORKFLOW_ENGINE_SCHEMA_SQL.split(';')) {
+        const sql = statement.trim();
+        if (sql.length > 0) await db.exec(sql);
+    }
+}
+
+/** SQLite/D1-compatible workflow persistence adapter backed by ts-db. */
+export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter {
+    constructor(private readonly db: DbAdapter) {}
+
+    /** Create a run row, rejecting duplicate run ids. */
+    async createRun(record: WorkflowRunRecord): Promise<void> {
+        const existing = await this.loadRun(record.id);
+        if (existing !== undefined) throw new RunCollisionError(record.id);
+        await applyWorkflowEngineSchema(this.db);
+        await this.db.run(
+            `INSERT INTO runs (id, workflow_name, mode, status, started_at, completed_at, metadata_json, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            record.id,
+            record.workflow_name,
+            record.mode,
+            record.status,
+            record.started_at,
+            record.completed_at,
+            record.metadata_json,
+            Date.now(),
+            Date.now(),
+        );
+    }
+
+    /** Finalize a run with terminal status and timestamp. */
+    async finalizeRun(runId: string, status: WorkflowStatus, completedAt: string): Promise<void> {
+        await this.db.run(
+            'UPDATE runs SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?',
+            status,
+            completedAt,
+            Date.now(),
+            runId,
+        );
+    }
+
+    /** Save one phase/state execution record. */
+    async savePhase(runId: string, phase: string, status: WorkflowStatus): Promise<void> {
+        const now = Date.now();
+        await this.db.run(
+            `INSERT INTO phase_runs (id, run_id, phase, status, started_at, completed_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            `${runId}:phase:${phase}:${crypto.randomUUID()}`,
+            runId,
+            phase,
+            status,
+            new Date(now).toISOString(),
+            status === 'running' ? null : new Date(now).toISOString(),
+            now,
+            now,
+        );
+    }
+
+    /** Save one transition record. */
+    async saveTransition(runId: string, from: string, to: string, trigger: string | null): Promise<void> {
+        const now = Date.now();
+        await this.db.run(
+            `INSERT INTO transition_runs (id, run_id, from_state, to_state, trigger, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            `${runId}:transition:${from}:${to}:${crypto.randomUUID()}`,
+            runId,
+            from,
+            to,
+            trigger,
+            'done',
+            now,
+            now,
+        );
+    }
+
+    /** Save the latest workflow state snapshot. */
+    async saveWorkflowState(runId: string, state: string, data: Record<string, unknown>): Promise<void> {
+        const now = Date.now();
+        await this.db.run(
+            `INSERT INTO workflow_states (id, run_id, state, data_json, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            `${runId}:state:${state}:${crypto.randomUUID()}`,
+            runId,
+            state,
+            JSON.stringify(data),
+            now,
+            now,
+        );
+    }
+
+    /** Load a single run by id. */
+    async loadRun(runId: string): Promise<WorkflowRunRecord | undefined> {
+        await applyWorkflowEngineSchema(this.db);
+        const row = await this.db.queryFirst<WorkflowRunRecord>('SELECT * FROM runs WHERE id = ?', runId);
+        return row ?? undefined;
+    }
+
+    /** List persisted workflow runs. */
+    async listRuns(): Promise<readonly WorkflowRunRecord[]> {
+        await applyWorkflowEngineSchema(this.db);
+        return await this.db.queryAll<WorkflowRunRecord>('SELECT * FROM runs ORDER BY started_at DESC');
+    }
+}
+
+/** In-memory persistence adapter for tests and embedding. */
+export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter {
+    readonly runs = new Map<string, WorkflowRunRecord>();
+    readonly phases: Array<{ runId: string; phase: string; status: WorkflowStatus }> = [];
+    readonly transitions: Array<{ runId: string; from: string; to: string; trigger: string | null }> = [];
+    readonly states: Array<{ runId: string; state: string; data: Record<string, unknown> }> = [];
+
+    /** Create a run row, rejecting duplicate run ids. */
+    async createRun(record: WorkflowRunRecord): Promise<void> {
+        if (this.runs.has(record.id)) throw new RunCollisionError(record.id);
+        this.runs.set(record.id, record);
+    }
+
+    /** Finalize a run with terminal status and timestamp. */
+    async finalizeRun(runId: string, status: WorkflowStatus, completedAt: string): Promise<void> {
+        const run = this.runs.get(runId);
+        if (run !== undefined) this.runs.set(runId, { ...run, status, completed_at: completedAt });
+    }
+
+    /** Save one phase/state execution record. */
+    async savePhase(runId: string, phase: string, status: WorkflowStatus): Promise<void> {
+        this.phases.push({ runId, phase, status });
+    }
+
+    /** Save one transition record. */
+    async saveTransition(runId: string, from: string, to: string, trigger: string | null): Promise<void> {
+        this.transitions.push({ runId, from, to, trigger });
+    }
+
+    /** Save the latest workflow state snapshot. */
+    async saveWorkflowState(runId: string, state: string, data: Record<string, unknown>): Promise<void> {
+        this.states.push({ runId, state, data });
+    }
+
+    /** Load a single run by id. */
+    async loadRun(runId: string): Promise<WorkflowRunRecord | undefined> {
+        return this.runs.get(runId);
+    }
+
+    /** List persisted workflow runs. */
+    async listRuns(): Promise<readonly WorkflowRunRecord[]> {
+        return [...this.runs.values()];
+    }
+}

@@ -36,6 +36,19 @@
         "drizzle-orm": ">=0.38.0",
       },
     },
+    "packages/dual-workflow-engine": {
+      "name": "@gobing-ai/ts-dual-workflow-engine",
+      "version": "0.1.0",
+      "dependencies": {
+        "@gobing-ai/ts-db": "^0.1.8",
+        "@gobing-ai/ts-runtime": "^0.1.8",
+        "yaml": "^2.7.0",
+        "zod": "^4.1.0",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.14",
+      },
+    },
     "packages/infra": {
       "name": "@gobing-ai/ts-infra",
       "version": "0.1.8",
@@ -174,6 +187,8 @@
     "@gobing-ai/ts-ai-runner": ["@gobing-ai/ts-ai-runner@workspace:packages/ai-runner"],
 
     "@gobing-ai/ts-db": ["@gobing-ai/ts-db@workspace:packages/db"],
+
+    "@gobing-ai/ts-dual-workflow-engine": ["@gobing-ai/ts-dual-workflow-engine@workspace:packages/dual-workflow-engine"],
 
     "@gobing-ai/ts-infra": ["@gobing-ai/ts-infra@workspace:packages/infra"],
 
