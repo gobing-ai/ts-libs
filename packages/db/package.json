@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-db",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "description": "@gobing-ai/ts-db — Database abstraction layer with Drizzle ORM adapters, generic DAOs, and migration tooling.",
     "keywords": [
         "typescript",
