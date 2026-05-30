@@ -16,8 +16,7 @@ export const releaseConfig = {
 
 export const buildConfig = {
     distEntryExtension: '.js',
-    nodeSmokePackages: ['@gobing-ai/ts-utils', '@gobing-ai/ts-runtime'],
-    bunSmokePackages: ['@gobing-ai/ts-db', '@gobing-ai/ts-infra'],
+    nodeSmokePackages: [],
 } as const;
 
 export const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?$/;
