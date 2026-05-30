@@ -1,12 +1,12 @@
 # Package Release Guide
 
-How releases work for the four `@gobing-ai/ts-*` packages in this monorepo.
+How releases work for the `@gobing-ai/ts-*` packages in this monorepo.
 
 ## How releasing works here
 
 - **Existing packages** are published by **GitHub Actions** via npm **Trusted Publishing** (OIDC). You never run `npm publish` by hand — you push git **tags** and CI does the rest.
 - **Brand-new packages** must be **bootstrapped once manually**, because a Trusted Publisher can only be configured for a package that already exists on npm (chicken-and-egg).
-- **All packages are versioned in lockstep** — every release bumps all four to the same version and tags each one (`@gobing-ai/ts-<pkg>-v<version>`).
+- **All packages are versioned in lockstep** — every release bumps all package manifests to the same version and tags each one (`@gobing-ai/ts-<pkg>-v<version>`).
 - The publish workflow (`.github/workflows/publish.yml`) is **aggregate-tag scoped and idempotent**: `@gobing-ai/ts-libs-v<version>` is resolved against the root workspace manifest, then publishes all non-private packages in dependency order. It skips cleanly if npm already has a package version.
 
 > The per-package `release` npm script is intentionally disabled — running `bun run release` prints instructions and exits non-zero. Manual `npm publish` is reserved for first-time bootstrap only (see below).
@@ -28,7 +28,7 @@ bun run bump-ver 0.1.5 --push
 This will:
 
 1. **Pre-check** — abort if the working tree is dirty, the version's tags already exist (local or remote), or the version is already on npm.
-2. **Bump** every manifest (root + 4 packages) to `0.1.5`.
+2. **Bump** every workspace manifest to `0.1.5`.
 3. **Commit** `chore(release): bump all packages to 0.1.5` (only manifests + `CHANGELOG.md` + `bun.lock`).
 4. **Tag** each package: `@gobing-ai/ts-<pkg>-v0.1.5` (annotated), plus the aggregate trigger tag `@gobing-ai/ts-libs-v0.1.5`.
 5. **Push** the branch first (without tags), then tags **individually**.
@@ -101,6 +101,7 @@ Create `packages/<new-pkg>/` following the conventions of the existing packages.
   "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && bun ../../scripts/builder.ts fix-dist-esm-extensions dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "bun run build"
   }
 }
@@ -130,9 +131,16 @@ On [npmjs.com](https://www.npmjs.com/) → the new package → **Settings → Tr
 | Allow npm publish       | ✅              |
 | Allow npm stage publish | ⬜              |
 
-### 4. Wire the package into CI
+### 4. Verify workspace discovery
 
-Add the new package to the root `build` / `typecheck` scripts in `package.json`, matching the existing packages. The `bump-ver`, `drop-tags`, and `scripts/builder.ts publish-packages` commands discover packages automatically from the `workspaces` glob — no CI publish-loop edit is needed.
+No CI publish-loop or root `build` / `typecheck` script edit is needed. The automation discovers non-private packages from the root `workspaces` glob, sorts them by internal package dependencies, and uses the package's own `build` and `typecheck` scripts.
+
+```bash
+bun run typecheck
+bun run build
+```
+
+By default, `bun run build` smoke-imports every publishable package with Bun. `buildConfig.nodeSmokePackages` is empty by default; add a package there only when Node import compatibility is an explicit contract.
 
 ### 5. Done — switch to the normal flow
 
