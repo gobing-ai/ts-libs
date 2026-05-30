@@ -14,6 +14,8 @@ export interface WorkspacePackage {
     private: boolean;
     /** Runtime dependencies from package.json. */
     dependencies: Record<string, string>;
+    /** Package scripts from package.json. */
+    scripts?: Record<string, string>;
 }
 
 /**
@@ -34,6 +36,7 @@ export async function findWorkspacePackages(): Promise<WorkspacePackage[]> {
             version: rootPkg.version,
             private: rootPkg.private === true,
             dependencies: rootPkg.dependencies ?? {},
+            scripts: rootPkg.scripts ?? {},
         },
     ];
 
@@ -53,6 +56,7 @@ export async function findWorkspacePackages(): Promise<WorkspacePackage[]> {
                 version: pkg.version,
                 private: pkg.private === true,
                 dependencies: pkg.dependencies ?? {},
+                scripts: pkg.scripts ?? {},
             });
         }
     }
