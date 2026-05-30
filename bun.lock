@@ -25,7 +25,7 @@
       "name": "@gobing-ai/ts-db",
       "version": "0.1.8",
       "dependencies": {
-        "@gobing-ai/ts-runtime": "0.1.0",
+        "@gobing-ai/ts-runtime": "^0.1.0",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
@@ -52,6 +52,18 @@
       },
       "peerDependencies": {
         "@opentelemetry/api": "^1.9.0",
+      },
+    },
+    "packages/llm-jsonl-importer": {
+      "name": "@gobing-ai/ts-llm-jsonl-importer",
+      "version": "0.1.0",
+      "dependencies": {
+        "@gobing-ai/ts-db": "^0.1.8",
+        "@gobing-ai/ts-runtime": "^0.1.8",
+        "zod": "^4.1.0",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.14",
       },
     },
     "packages/rule-engine": {
@@ -164,6 +176,8 @@
     "@gobing-ai/ts-db": ["@gobing-ai/ts-db@workspace:packages/db"],
 
     "@gobing-ai/ts-infra": ["@gobing-ai/ts-infra@workspace:packages/infra"],
+
+    "@gobing-ai/ts-llm-jsonl-importer": ["@gobing-ai/ts-llm-jsonl-importer@workspace:packages/llm-jsonl-importer"],
 
     "@gobing-ai/ts-rule-engine": ["@gobing-ai/ts-rule-engine@workspace:packages/rule-engine"],
 
