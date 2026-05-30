@@ -84,6 +84,25 @@ describe('runJsonlImport', () => {
         expect(rows[0]?.count).toBe(1);
     });
 
+    test('full mode resets and rewrites file checkpoints even when rows are duplicates', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'reset', timestamp: '2026-05-30T00:00:00.000Z', content: 'reset' }),
+        ]);
+
+        await runJsonlImport('gemini', { db, files: [file], mode: 'incremental', now: fixedNow });
+        const result = await runJsonlImport('gemini', { db, files: [file], mode: 'full', now: fixedNow });
+
+        expect(result.importedRecords).toBe(0);
+        expect(result.skippedDuplicates).toBe(1);
+        expect(result.checkpointUpdates).toBe(1);
+        const checkpoints = await db.queryAll<{ last_imported_line: number }>(
+            'SELECT last_imported_line FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
+            'gemini',
+            file,
+        );
+        expect(checkpoints).toEqual([{ last_imported_line: 1 }]);
+    });
+
     test('splits Pi nested messages into one ETL row per message', async () => {
         const file = await fixtureFile([
             JSON.stringify({

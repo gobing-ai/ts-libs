@@ -42,6 +42,10 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
 
     const mode = options.mode ?? 'incremental';
     const files = await discoverFiles(definition, options.roots, options.files);
+    if (mode === 'full' && !options.dryRun) {
+        await resetCheckpoints(options.db, source, files);
+    }
+
     const parseErrors: ImportIssue[] = [];
     const validationErrors: ImportIssue[] = [];
     let processedLines = 0;
@@ -63,7 +67,7 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
             if (raw === undefined) continue;
 
             const splitRecords = splitRawRecord(definition, raw);
-            let lineImported = false;
+            let lineSucceeded = false;
 
             for (let splitIndex = 0; splitIndex < splitRecords.length; splitIndex += 1) {
                 const split = splitRecords[splitIndex];
@@ -85,6 +89,7 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
                 }
 
                 const redacted = redactRecord(parsed.data, options.redactionRules);
+                lineSucceeded = true;
                 const recordHash = sha256({
                     source,
                     sourceFile: file,
@@ -119,10 +124,9 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
                     );
                 }
                 importedRecords += 1;
-                lineImported = true;
             }
 
-            if (lineImported && !options.dryRun) {
+            if (lineSucceeded && !options.dryRun) {
                 await writeCheckpoint(options.db, source, file, lineNumber, options.now);
                 checkpointUpdates += 1;
             }
@@ -244,6 +248,12 @@ async function readCheckpoint(db: ImportOptions['db'], source: string, sourceFil
         sourceFile,
     );
     return row?.last_imported_line ?? 0;
+}
+
+async function resetCheckpoints(db: ImportOptions['db'], source: string, files: readonly string[]): Promise<void> {
+    for (const file of files) {
+        await db.run('DELETE FROM history_import_checkpoint WHERE source = ? AND source_file = ?', source, file);
+    }
 }
 
 async function writeCheckpoint(
