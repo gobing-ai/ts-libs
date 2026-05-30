@@ -23,6 +23,7 @@ export class RegexEvaluator implements RuleEvaluator {
 
         for (const file of files) {
             const content = await readWorkdirFile(context.workdir, file);
+            regex.lastIndex = 0;
             const match = regex.exec(content);
             if (mode === 'require' && match === null) {
                 findings.push(

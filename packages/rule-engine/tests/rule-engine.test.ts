@@ -35,7 +35,7 @@ describe('RuleEngine', () => {
     test('evaluates forbidden imports', async () => {
         const dir = await makeTempProject();
         await mkdir(join(dir, 'src'), { recursive: true });
-        await writeFile(join(dir, 'src', 'index.ts'), "import { x } from '@spur/core';\n");
+        await writeFile(join(dir, 'src', 'index.ts'), "import { x } from '@spur/core';\nimport '@spur/contracts';\n");
         const rule: ConstraintRule = {
             id: 'no-spur-imports',
             description: 'No old package imports',
@@ -45,7 +45,7 @@ describe('RuleEngine', () => {
             evaluator: { type: 'forbidden-import', config: { patterns: ['@spur/'] } },
         };
         const result = await new RuleEngine().evaluate([rule], dir);
-        expect(result.findings).toHaveLength(1);
+        expect(result.findings).toHaveLength(2);
         expect(result.findings[0]?.filePath).toBe('src/index.ts');
     });
 
@@ -190,7 +190,7 @@ describe('additional evaluators', () => {
                 enabled: true,
                 severity: 'error',
                 include: ['src'],
-                evaluator: { type: 'regex', config: { pattern: 'value' } },
+                evaluator: { type: 'regex', config: { pattern: 'value', flags: 'gm' } },
             },
             {
                 id: 'secret-clean',

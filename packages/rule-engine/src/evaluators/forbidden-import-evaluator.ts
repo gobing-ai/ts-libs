@@ -24,7 +24,8 @@ export class ForbiddenImportEvaluator implements RuleEvaluator {
         for (const file of files) {
             const lines = (await readWorkdirFile(context.workdir, file)).split('\n');
             for (const [index, line] of lines.entries()) {
-                const imported = /(?:from\s+|import\s*\()\s*['"](?<specifier>[^'"]+)['"]/.exec(line)?.groups?.specifier;
+                const imported = /(?:from\s+|import\s*\(|^\s*import\s*)['"](?<specifier>[^'"]+)['"]/.exec(line)?.groups
+                    ?.specifier;
                 if (imported === undefined) continue;
                 const matched = forbidden.find((pattern) => imported.includes(pattern));
                 if (matched !== undefined) {
