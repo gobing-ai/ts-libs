@@ -65,8 +65,8 @@ bun run spur-check
 | `bun run format` | Biome auto-fix (`--write`) |
 | `bun run autofix` | Format then type-check |
 | `bun run test` | Run all tests in parallel across workspaces |
-| `bun run typecheck` | `tsc --noEmit` across all packages |
-| `bun run build` | Build all packages (build order respects dependency graph) |
+| `bun run typecheck` | Discover all publishable workspaces and run their `typecheck` scripts in dependency order |
+| `bun run build` | Discover all publishable workspaces, run their `build` scripts in dependency order, then smoke-import `dist` |
 
 ### Release commands
 
@@ -193,20 +193,11 @@ cd packages/<new-lib>
 bun run check         # lint + test
 ```
 
-The monorepo's `packages/*` workspace glob picks up the new directory automatically. No root `package.json` changes needed unless the new package has a build-order dependency.
+The monorepo's `packages/*` workspace glob picks up the new directory automatically. Root `build`, `typecheck`, release tagging, and publish selection all use workspace discovery. Build order comes from internal package dependencies, so declare any `@gobing-ai/ts-*` dependencies in the new package manifest instead of editing root scripts.
 
-### Step 6 — Wire into the build order (optional)
+### Step 6 — Runtime smoke checks (optional)
 
-If the new library is a dependency of other packages, add it to the root build scripts:
-
-```json
-{
-    "scripts": {
-        "build": "... && bun run --filter @gobing-ai/ts-<name> build && ...",
-        "typecheck": "... && bun run --filter @gobing-ai/ts-<name> typecheck && ..."
-    }
-}
-```
+Every publishable package is smoke-imported with Bun after `bun run build`. `buildConfig.nodeSmokePackages` is empty by default; add a package there only when Node import compatibility is an explicit contract.
 
 ### Package template checklist
 
