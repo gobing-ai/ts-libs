@@ -4,18 +4,21 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+    buildPackages,
     fixDistRoots,
     packageEntryPath,
     resolveSpecifier,
     rewriteSpecifiers,
+    runWorkspaceScript,
     smokeDistImports,
     smokeImport,
     toPosix,
+    typecheckPackages,
     walk,
 } from '../lib/build';
 import type { WorkspacePackage } from '../lib/workspace';
 
-function pkg(name: string, dir: string): WorkspacePackage {
+function pkg(name: string, dir: string, options: Partial<WorkspacePackage> = {}): WorkspacePackage {
     return {
         path: `${dir}/package.json`,
         dir,
@@ -23,6 +26,11 @@ function pkg(name: string, dir: string): WorkspacePackage {
         version: '0.1.5',
         private: false,
         dependencies: {},
+        scripts: {
+            build: 'tsc -p tsconfig.build.json',
+            typecheck: 'tsc -p tsconfig.json --noEmit',
+        },
+        ...options,
     };
 }
 
@@ -100,32 +108,30 @@ describe('resolveSpecifier', () => {
 });
 
 describe('smokeDistImports', () => {
-    test('builds configured smoke import commands', () => {
+    test('smoke imports every publishable package with Bun', async () => {
         const calls: Array<{ command: string; args: string[] }> = [];
         const spawn = ((command: string, args: string[]) => {
             calls.push({ command, args });
             return { status: 0, stdout: '', stderr: '' };
         }) as typeof spawnSync;
 
-        smokeDistImports(
+        await smokeDistImports(
             [
                 pkg('@gobing-ai/ts-utils', 'packages/utils'),
-                pkg('@gobing-ai/ts-runtime', 'packages/runtime'),
-                pkg('@gobing-ai/ts-db', 'packages/db'),
-                pkg('@gobing-ai/ts-infra', 'packages/infra'),
+                pkg('@gobing-ai/ts-runtime', 'packages/runtime', {
+                    dependencies: { '@gobing-ai/ts-utils': 'workspace:*' },
+                }),
+                pkg('@gobing-ai/ts-db', 'packages/db', { dependencies: { '@gobing-ai/ts-runtime': 'workspace:*' } }),
+                pkg('@gobing-ai/ts-infra', 'packages/infra', {
+                    dependencies: { '@gobing-ai/ts-db': 'workspace:*' },
+                }),
             ],
             spawn,
         );
 
-        expect(calls.map((call) => call.command)).toEqual(['node', 'node', 'bun', 'bun']);
+        expect(calls.map((call) => call.command)).toEqual(['bun', 'bun', 'bun', 'bun']);
         expect(calls[0].args.join(' ')).toContain('./packages/utils/dist/index.js');
         expect(calls[3].args.join(' ')).toContain('./packages/infra/dist/index.js');
-    });
-
-    test('fails when a configured smoke package is missing', () => {
-        expect(() => smokeDistImports([pkg('@gobing-ai/ts-utils', 'packages/utils')])).toThrow(
-            'Smoke import package is not in the workspace',
-        );
     });
 
     test('reports command output when smoke import fails', () => {
@@ -134,6 +140,81 @@ describe('smokeDistImports', () => {
         expect(() => smokeImport('node', ['-e', 'import("./missing.js")'], 'missing package', spawn)).toThrow(
             'module not found',
         );
+    });
+});
+
+describe('workspace scripts', () => {
+    test('runs publishable packages in dependency order', async () => {
+        const calls: Array<{ command: string; args: string[] }> = [];
+        const spawn = ((command: string, args: string[]) => {
+            calls.push({ command, args });
+            return { status: 0, stdout: '', stderr: '' };
+        }) as typeof spawnSync;
+
+        await runWorkspaceScript(
+            [
+                pkg('@gobing-ai/ts-db', 'packages/db', { dependencies: { '@gobing-ai/ts-runtime': 'workspace:*' } }),
+                pkg('@gobing-ai/ts-runtime', 'packages/runtime'),
+            ],
+            'typecheck',
+            spawn,
+        );
+
+        expect(calls.map((call) => call.args)).toEqual([
+            ['run', '--filter', '@gobing-ai/ts-runtime', 'typecheck'],
+            ['run', '--filter', '@gobing-ai/ts-db', 'typecheck'],
+        ]);
+    });
+
+    test('build runs package builds before smoke imports', async () => {
+        const calls: string[] = [];
+        const spawn = ((command: string, args: string[]) => {
+            calls.push(`${command} ${args.join(' ')}`);
+            return { status: 0, stdout: '', stderr: '' };
+        }) as typeof spawnSync;
+
+        await buildPackages(
+            [
+                pkg('@gobing-ai/ts-utils', 'packages/utils'),
+                pkg('@gobing-ai/ts-runtime', 'packages/runtime', {
+                    dependencies: { '@gobing-ai/ts-utils': 'workspace:*' },
+                }),
+            ],
+            spawn,
+        );
+
+        expect(calls).toEqual([
+            'bun run --filter @gobing-ai/ts-utils build',
+            'bun run --filter @gobing-ai/ts-runtime build',
+            'bun -e const p = "./packages/utils/dist/index.js"; await import(p)',
+            'bun -e const p = "./packages/runtime/dist/index.js"; await import(p)',
+        ]);
+    });
+
+    test('typecheck delegates to the workspace script runner', async () => {
+        const calls: string[] = [];
+        const spawn = ((command: string, args: string[]) => {
+            calls.push(`${command} ${args.join(' ')}`);
+            return { status: 0, stdout: '', stderr: '' };
+        }) as typeof spawnSync;
+
+        await typecheckPackages([pkg('@gobing-ai/ts-utils', 'packages/utils')], spawn);
+
+        expect(calls).toEqual(['bun run --filter @gobing-ai/ts-utils typecheck']);
+    });
+
+    test('fails when a publishable package is missing a required script', async () => {
+        await expect(
+            runWorkspaceScript([pkg('@gobing-ai/ts-utils', 'packages/utils', { scripts: {} })], 'build'),
+        ).rejects.toThrow('missing required "build" script');
+    });
+
+    test('reports package script failures with package context', async () => {
+        const spawn = (() => ({ status: 1, stdout: '', stderr: '' })) as typeof spawnSync;
+
+        await expect(
+            runWorkspaceScript([pkg('@gobing-ai/ts-utils', 'packages/utils')], 'build', spawn),
+        ).rejects.toThrow('Failed to run "build" for @gobing-ai/ts-utils');
     });
 });
 
