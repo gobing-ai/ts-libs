@@ -3,6 +3,7 @@ import { dirname, extname, join, posix, relative, resolve, sep } from 'node:path
 import { buildConfig, repoRoot } from '../config';
 import type { Spawn } from './command';
 import { runCommand } from './command';
+import { sortPackagesByDependencyOrder } from './release';
 import type { WorkspacePackage } from './workspace';
 
 type SpecifierResolver = (specifier: string) => string;
@@ -114,8 +115,56 @@ export function smokeImport(command: string, args: string[], label: string, spaw
     }
 }
 
-export function smokeDistImports(packages: WorkspacePackage[], spawn?: Spawn): void {
+export async function runWorkspaceScript(
+    packages: WorkspacePackage[],
+    scriptName: 'build' | 'typecheck',
+    spawn?: Spawn,
+): Promise<void> {
+    const orderedPackages = await sortPackagesByDependencyOrder(packages);
+
+    for (const pkg of orderedPackages) {
+        if (!pkg.scripts?.[scriptName]) {
+            throw new Error(`Package ${pkg.name} is missing required "${scriptName}" script in ${pkg.path}`);
+        }
+
+        const result = runCommand(
+            'bun',
+            ['run', '--filter', pkg.name, scriptName],
+            {
+                cwd: repoRoot,
+                stdio: 'inherit',
+            },
+            spawn,
+        );
+
+        if (!result.ok) {
+            throw new Error(`Failed to run "${scriptName}" for ${pkg.name}: exit ${result.status}`);
+        }
+    }
+}
+
+export async function buildPackages(packages: WorkspacePackage[], spawn?: Spawn): Promise<void> {
+    await runWorkspaceScript(packages, 'build', spawn);
+    await smokeDistImports(packages, spawn);
+}
+
+export async function typecheckPackages(packages: WorkspacePackage[], spawn?: Spawn): Promise<void> {
+    await runWorkspaceScript(packages, 'typecheck', spawn);
+}
+
+export async function smokeDistImports(packages: WorkspacePackage[], spawn?: Spawn): Promise<void> {
+    const orderedPackages = await sortPackagesByDependencyOrder(packages);
     const packagesByName = new Map(packages.map((pkg) => [pkg.name, pkg]));
+
+    for (const pkg of orderedPackages) {
+        const entry = packageEntryPath(pkg);
+        smokeImport(
+            'bun',
+            ['-e', `const p = ${JSON.stringify(entry)}; await import(p)`],
+            `package "${pkg.name}" with Bun`,
+            spawn,
+        );
+    }
 
     for (const name of buildConfig.nodeSmokePackages) {
         const pkg = packagesByName.get(name);
@@ -125,18 +174,6 @@ export function smokeDistImports(packages: WorkspacePackage[], spawn?: Spawn): v
             'node',
             ['-e', `const p = ${JSON.stringify(entry)}; import(p)`],
             `package "${name}" with Node`,
-            spawn,
-        );
-    }
-
-    for (const name of buildConfig.bunSmokePackages) {
-        const pkg = packagesByName.get(name);
-        if (!pkg) throw new Error(`Smoke import package is not in the workspace: ${name}`);
-        const entry = packageEntryPath(pkg);
-        smokeImport(
-            'bun',
-            ['-e', `const p = ${JSON.stringify(entry)}; await import(p)`],
-            `package "${name}" with Bun`,
             spawn,
         );
     }
