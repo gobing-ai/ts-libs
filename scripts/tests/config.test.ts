@@ -10,9 +10,8 @@ describe('script config', () => {
         );
     });
 
-    test('keeps smoke import package sets explicit', () => {
-        expect(buildConfig.nodeSmokePackages).toContain('@gobing-ai/ts-utils');
-        expect(buildConfig.bunSmokePackages).toContain('@gobing-ai/ts-infra');
+    test('keeps Node smoke import packages explicit', () => {
+        expect(buildConfig.nodeSmokePackages).toEqual([]);
     });
 
     test('validates semver strings', () => {
