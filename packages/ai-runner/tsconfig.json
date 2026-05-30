@@ -1,0 +1,9 @@
+{
+    "extends": "../../tooling/typescript/base.json",
+    "compilerOptions": {
+        "paths": {
+            "@gobing-ai/ts-runtime": ["../runtime/src/index"]
+        }
+    },
+    "include": ["src/**/*.ts", "tests/**/*.ts"]
+}
