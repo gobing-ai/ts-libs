@@ -69,17 +69,55 @@ export interface CursorListSpec {
  * }
  * ```
  */
+/**
+ * A structural validator (e.g. a zod schema). Kept structural so EntityDao never
+ * imports zod/drizzle-zod — consumers wire `defineTable().insertSchema` here when
+ * they want boundary validation.
+ */
+export interface DaoValidator {
+    parse(input: unknown): unknown;
+}
+
+/** Optional EntityDao configuration. */
+export interface EntityDaoOptions {
+    /** Schema used to validate input before `create`/`createMany`/`upsert`. */
+    insertSchema?: DaoValidator;
+    /** Schema used to validate input before `update`. Falls back to `insertSchema` when absent. */
+    updateSchema?: DaoValidator;
+    /** Which write operations validate. Default: all (`create`, `createMany`, `upsert`, `update`) when a schema is present. */
+    validateOn?: ('create' | 'createMany' | 'upsert' | 'update')[];
+}
+
 export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> extends BaseDao {
     readonly table: TTable;
     /** Primary key columns. A single-element array for single-PK tables, multiple for composite. */
     protected readonly primaryKey: SQLiteColumn[];
     protected readonly collectionName: string;
+    private readonly validation: EntityDaoOptions;
 
-    constructor(adapter: DbAdapter, table: TTable, primaryKey: TPK | SQLiteColumn[], collectionName: string) {
+    constructor(
+        adapter: DbAdapter,
+        table: TTable,
+        primaryKey: TPK | SQLiteColumn[],
+        collectionName: string,
+        options: EntityDaoOptions = {},
+    ) {
         super(adapter);
         this.table = table;
         this.primaryKey = Array.isArray(primaryKey) ? primaryKey : [primaryKey];
         this.collectionName = collectionName;
+        this.validation = options;
+    }
+
+    /** Validate input against the configured schema for an operation, when enabled. */
+    private validate(op: 'create' | 'createMany' | 'upsert' | 'update', input: unknown): void {
+        // `update` is partial, so it only validates against an explicit partial
+        // `updateSchema`; the full insertSchema would reject a partial payload.
+        const schema = op === 'update' ? this.validation.updateSchema : this.validation.insertSchema;
+        if (schema === undefined) return;
+        const enabled = this.validation.validateOn ?? ['create', 'createMany', 'upsert', 'update'];
+        if (!enabled.includes(op)) return;
+        schema.parse(input);
     }
 
     /** Check if the table has soft delete support (inUsed column). */
@@ -120,6 +158,7 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
     ): Promise<TTable['$inferSelect']> {
         const now = this.now();
         const record = { createdAt: now, updatedAt: now, ...data };
+        this.validate('create', record);
         const rows = (await (
             this.insertBuilder.values(record) as unknown as { returning: () => Promise<unknown[]> }
         ).returning()) as TTable['$inferSelect'][];
@@ -139,6 +178,7 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
         if (data.length === 0) return [];
         const now = this.now();
         const records = data.map((d) => ({ createdAt: now, updatedAt: now, ...d }));
+        for (const record of records) this.validate('createMany', record);
         return (await (
             this.insertBuilder.values(records) as unknown as { returning: () => Promise<unknown[]> }
         ).returning()) as TTable['$inferSelect'][];
@@ -155,6 +195,7 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
     ): Promise<TTable['$inferSelect']> {
         const now = this.now();
         const record = { createdAt: now, updatedAt: now, ...data };
+        this.validate('upsert', record);
         // Default conflict-update = the supplied data minus identity columns
         // (conflict target + primary key), so a conflict updates the row in place
         // without rewriting the key it matched on. Identity columns are matched by
@@ -219,6 +260,7 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
     /** Update a record by primary key. `updatedAt` is refreshed. Returns the updated row. */
     async update(id: PKValue, data: Partial<TTable['$inferInsert']>): Promise<TTable['$inferSelect'] | undefined> {
         const updateData = { ...data, updatedAt: this.now() };
+        this.validate('update', updateData);
         const rows = (await (
             this.db
                 .update(this.table as unknown as Parameters<typeof this.db.update>[0])
