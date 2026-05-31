@@ -1,3 +1,4 @@
+import { getProcessEnv } from '@gobing-ai/ts-runtime';
 import type { WorkflowEngineHost } from './host';
 import type {
     ActionResult,
@@ -29,7 +30,7 @@ export class TransitionFlowDriver {
         const nodes = new Map(workflow.nodes.map((node) => [node.id, node]));
         const terminal = new Set(workflow.terminalNodes ?? []);
         const vars = mergeVars(workflow.vars, options.vars);
-        const env = allowedEnv(workflow.env?.allow ?? [], options.env ?? process.env);
+        const env = allowedEnv(workflow.env?.allow ?? [], options.env ?? getProcessEnv());
         let current = nodes.get(workflow.initialNode);
         let transitionsTaken = 0;
         let lastActionResult: ActionResult | undefined;
