@@ -40,22 +40,22 @@ describe('resolveTemplateString', () => {
     };
 
     test('interpolates vars.* references', () => {
-        const result = resolveTemplateString('Hello ${vars.name}!', ctx);
+        const result = resolveTemplateString('Hello $' + '{vars.name}!', ctx);
         expect(result).toBe('Hello world!');
     });
 
     test('interpolates env.* references', () => {
-        const result = resolveTemplateString('Home: ${env.HOME}', ctx);
+        const result = resolveTemplateString('Home: $' + '{env.HOME}', ctx);
         expect(result).toBe('Home: /home/user');
     });
 
     test('interpolates builtin references', () => {
-        const result = resolveTemplateString('WF[${workflow}] run[${runId}]', ctx);
+        const result = resolveTemplateString('WF[$' + '{workflow}] run[$' + '{runId}]', ctx);
         expect(result).toBe('WF[my-wf] run[run-1]');
     });
 
     test('handles multiple references in one string', () => {
-        const result = resolveTemplateString('${vars.name}:${vars.count}', ctx);
+        const result = resolveTemplateString('$' + '{vars.name}:$' + '{vars.count}', ctx);
         expect(result).toBe('world:42');
     });
 
@@ -65,15 +65,15 @@ describe('resolveTemplateString', () => {
     });
 
     test('throws on undefined variable', () => {
-        expect(() => resolveTemplateString('${vars.missing}', ctx)).toThrow(WorkflowValidationError);
+        expect(() => resolveTemplateString('$' + '{vars.missing}', ctx)).toThrow(WorkflowValidationError);
     });
 
     test('throws on undefined env variable', () => {
-        expect(() => resolveTemplateString('${env.NOPE}', ctx)).toThrow(WorkflowValidationError);
+        expect(() => resolveTemplateString('$' + '{env.NOPE}', ctx)).toThrow(WorkflowValidationError);
     });
 
     test('throws on undefined builtin', () => {
-        expect(() => resolveTemplateString('${nope}', ctx)).toThrow(WorkflowValidationError);
+        expect(() => resolveTemplateString('$' + '{nope}', ctx)).toThrow(WorkflowValidationError);
     });
 });
 
@@ -86,7 +86,13 @@ describe('resolveTemplates', () => {
 
     test('resolves templates in plain object values', () => {
         const result = resolveTemplates(
-            { msg: 'hi ${vars.name}', home: '${env.SHELL}', id: '${runId}', num: 42, flag: true },
+            {
+                msg: 'hi $' + '{vars.name}',
+                home: '$' + '{env.SHELL}',
+                id: '$' + '{runId}',
+                num: 42,
+                flag: true,
+            },
             ctx,
         );
         expect(result).toEqual({
@@ -99,12 +105,12 @@ describe('resolveTemplates', () => {
     });
 
     test('resolves templates in nested objects', () => {
-        const result = resolveTemplates({ outer: { inner: { val: '${vars.name}' } } }, ctx);
+        const result = resolveTemplates({ outer: { inner: { val: '$' + '{vars.name}' } } }, ctx);
         expect(result).toEqual({ outer: { inner: { val: 'robin' } } });
     });
 
     test('resolves templates in arrays', () => {
-        const result = resolveTemplates(['${vars.name}', 123, ['${env.SHELL}']], ctx);
+        const result = resolveTemplates(['$' + '{vars.name}', 123, ['$' + '{env.SHELL}']], ctx);
         expect(result).toEqual(['robin', 123, ['/bin/zsh']]);
     });
 
@@ -115,6 +121,6 @@ describe('resolveTemplates', () => {
     });
 
     test('throws on undefined reference in nested value', () => {
-        expect(() => resolveTemplates({ key: '${vars.missing}' }, ctx)).toThrow(WorkflowValidationError);
+        expect(() => resolveTemplates({ key: '$' + '{vars.missing}' }, ctx)).toThrow(WorkflowValidationError);
     });
 });
