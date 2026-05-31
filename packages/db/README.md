@@ -1,22 +1,44 @@
 # @gobing-ai/ts-db
 
-Database abstraction layer — adapter pattern with Drizzle ORM, generic CRUD DAOs, job queue persistence, and migration tooling. Supports Bun SQLite (in-memory and file-based) and Cloudflare D1.
+A **drizzle-free database facade**: typed DAOs over Bun SQLite / Cloudflare D1, a small predicate query spec, single-source-of-truth tables, and migration tooling. Drizzle ORM powers it internally but never appears in your application code — so the storage layer is swappable without touching call sites.
+
+> **v0.2.0 is a breaking redesign.** The public `DbClient` interface and `adapter.getDb()` are removed; DAOs now take a `DbAdapter`; `where`/`orderBy` use a ts-db predicate spec instead of drizzle expressions. See [Migrating from 0.1.x](#migrating-from-01x).
 
 ## Overview
 
-`ts-db` provides a typed database layer decoupled from any specific storage engine. The `DbAdapter` interface abstracts Bun SQLite and Cloudflare D1 behind a common API, while `BaseDao`, `EntityDao`, and `QueueJobDao` provide progressively richer data access patterns.
+Application code imports only `@gobing-ai/ts-db` — never `drizzle-orm`. drizzle is an internal implementation detail, which keeps the storage engine swappable and the query surface small and auditable. Two tiers, your choice:
+
+- **Structured tier** (`EntityDao`) — typed `create`/`createMany`/`upsert`/`findById`/`findBy`/`update`/`delete`/`list`/`listByCursor`/`count`, filtered by a small predicate spec (`{ col, op, value }`).
+- **Raw tier** (`BaseDao`) — `query`/`one`/`tx` for table-agnostic access; ETL/analytics/reporting DAOs extend this directly.
+- **String-SQL escape** (`adapter.exec`/`run`/`queryFirst`/`queryAll`) — for DDL and dynamic identifiers only.
 
 | Component | Purpose |
 |-----------|---------|
-| `DbAdapter` | Unified interface across Bun SQLite and D1 |
+| `createDbAdapter` / `DbAdapter` | Construction + lifecycle + string-SQL escape; exposes an internal typed db to the DAO layer only |
 | `BunSqliteAdapter` | Bun SQLite implementation with statement caching and WAL pragmas |
 | `D1Adapter` | Cloudflare D1 implementation (no `@cloudflare/workers-types` dependency) |
-| `BaseDao` | Transaction + timestamp utilities for all DAOs |
-| `EntityDao` | Generic CRUD with soft delete, pagination, and `count()` |
+| `BaseDao` | Raw tier — `query`/`one`/`tx`, drizzle-free signatures |
+| `EntityDao` | Structured CRUD — predicate filters, soft delete, RETURNING, batch, upsert, cursor pagination, composite PK |
+| `defineTable` | Single source of truth — one table → drizzle table + derived zod insert/select schemas (optional peers) |
+| `Predicate` / `ListSpec` / `OrderTerm` | The drizzle-free query vocabulary |
 | `QueueJobDao` | Job queue persistence — `enqueue`, `claimReady`, `markCompleted`, `failExpiredJobs` |
 | `applyMigrations` | Drizzle migration runner (file-based + embedded fallback) |
-| `schema` | Reusable Drizzle column helpers + `queue_jobs` table definition |
+| `schema` helpers | `standardColumns`, `appendOnlyColumns`, soft-delete columns |
 | `SpanContext` | Re-exported from `@gobing-ai/ts-runtime` for telemetry |
+
+### Optional peers (validation)
+
+`defineTable`'s `insertSchema`/`selectSchema` and DAO validation require the **optional** peers `zod` and `drizzle-zod`. Install them only if you use validation; the DAOs and queries work without them.
+
+### Migrating from 0.1.x
+
+- `adapter.getDb()` → `adapter.db` (internal typed db; rarely needed directly).
+- `new SomeDao(adapter.getDb())` → `new SomeDao(adapter)` — DAOs now take the adapter, not a db handle.
+- `EntityDao` PK arg accepts an array: `super(adapter, table, [table.id], 'name')` (enables composite PKs).
+- `BaseDao.withTransaction` → `tx`.
+- `list({ where: eq(col, v) })` → `list({ where: { col, op: 'eq', value: v } })`.
+- `count(eq(col, v))` → `count({ col, op: 'eq', value: v })`.
+- `create`/`update` use `RETURNING`, so returned rows include DB-defaulted columns.
 
 ## Architecture
 
@@ -24,7 +46,7 @@ Database abstraction layer — adapter pattern with Drizzle ORM, generic CRUD DA
 classDiagram
     class DbAdapter {
         <<interface>>
-        +getDb() DbClient
+        +db InternalDb (internal)
         +exec(sql) void
         +run(sql, ...params) void
         +queryFirst(sql, ...params) T?
@@ -49,21 +71,22 @@ classDiagram
         <<abstract>>
         #db
         +now() number
-        +withTransaction(fn) T
+        +tx(fn) T
+        +query(table, spec) T[]
+        +one(table, where) T?
     }
 
     class EntityDao {
         +create(data) TSelect
+        +createMany(rows) TSelect[]
+        +upsert(data, conflict) TSelect
         +findById(id) TSelect?
-        +findAll() TSelect[]
         +update(id, data) TSelect?
         +delete(id, soft?) TSelect?
         +findBy(column, value) TSelect?
-        +findAllBy(column, value) TSelect[]
-        +list(opts) TSelect[]
+        +list(spec) TSelect[]
+        +listByCursor(spec) Page
         +count(where?) number
-        #hasSoftDelete boolean
-        #activeCondition SQL?
     }
 
     class QueueJobDao {
@@ -154,8 +177,8 @@ const users = sqliteTable('users', {
 });
 
 class UsersDao extends EntityDao<typeof users, typeof users.id> {
-    constructor(db: DbClient) {
-        super(db, users, users.id, 'users');
+    constructor(adapter: DbAdapter) {
+        super(adapter, users, [users.id], 'users');
     }
 
     async findByEmail(email: string) {
@@ -164,7 +187,7 @@ class UsersDao extends EntityDao<typeof users, typeof users.id> {
 }
 
 // Usage
-const dao = new UsersDao(adapter.getDb());
+const dao = new UsersDao(adapter);
 const user = await dao.create({ id: 'u1', name: 'Alice', email: 'a@test.com' });
 const found = await dao.findById('u1');
 const updated = await dao.update('u1', { name: 'Alice Updated' });
@@ -180,7 +203,7 @@ await dao.delete('u1'); // soft delete if table has `inUsed` column
 ```ts
 import { QueueJobDao } from '@gobing-ai/ts-db';
 
-const queue = new QueueJobDao(adapter.getDb());
+const queue = new QueueJobDao(adapter);
 
 // Enqueue
 const jobId = await queue.enqueue('send-email', { to: 'user@test.com' }, { maxRetries: 5 });
@@ -275,13 +298,13 @@ export const todos = sqliteTable('todos', {
 
 ```ts
 // src/todos-dao.ts
-import type { DbClient } from '@gobing-ai/ts-db';
+import type { DbAdapter } from '@gobing-ai/ts-db';
 import { EntityDao } from '@gobing-ai/ts-db';
 import { todos } from './schema';
 
 export class TodosDao extends EntityDao<typeof todos, typeof todos.id> {
-    constructor(db: DbClient) {
-        super(db, todos, todos.id, 'todos');
+    constructor(adapter: DbAdapter) {
+        super(adapter, todos, [todos.id], 'todos');
     }
 
     async findPending() {
@@ -304,7 +327,7 @@ import { TodosDao } from './todos-dao';
 const adapter = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
 await applyMigrations(adapter);
 
-const todos = new TodosDao(adapter.getDb());
+const todos = new TodosDao(adapter);
 
 await todos.create({ id: '1', title: 'Learn ts-db' });
 await todos.create({ id: '2', title: 'Build something' });
