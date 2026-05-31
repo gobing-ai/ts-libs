@@ -47,6 +47,10 @@ export function isTestEnv(): boolean {
     return getNodeEnv() === 'test';
 }
 
+export function getProcessEnv(): Record<string, string | undefined> {
+    return process.env;
+}
+
 export function getDatabaseUrl(): string | undefined {
     return process.env.DATABASE_URL;
 }
