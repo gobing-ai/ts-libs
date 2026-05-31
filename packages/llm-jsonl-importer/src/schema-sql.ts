@@ -1,3 +1,4 @@
+export const HISTORY_IMPORT_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS history_import_checkpoint (
     source TEXT NOT NULL,
     source_file TEXT NOT NULL,
@@ -78,3 +79,4 @@ CREATE TABLE IF NOT EXISTS history_etl_openclaw (
     payload_json TEXT NOT NULL,
     imported_at TEXT NOT NULL
 );
+`.trim();

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { HISTORY_IMPORT_SCHEMA_SQL } from '../src/schema';
+import { HISTORY_IMPORT_SCHEMA_SQL } from '../src/schema-sql';
 
 describe('HISTORY_IMPORT_SCHEMA_SQL', () => {
     test('is a non-empty string containing CREATE TABLE', () => {
