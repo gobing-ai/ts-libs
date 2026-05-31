@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-runtime",
-    "version": "0.1.8",
+    "version": "0.2.0",
     "description": "@gobing-ai/ts-runtime — Runtime abstractions for Bun, Node, and Cloudflare Workers.",
     "keywords": [
         "typescript",
