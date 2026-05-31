@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { getFs, walkDir } from '@gobing-ai/ts-runtime';
 import { sha256 } from './hash';
 import { redactRecord } from './redaction';
-import { HISTORY_IMPORT_SCHEMA_SQL } from './schema';
+import { HISTORY_IMPORT_SCHEMA_SQL } from './schema-sql';
 import { getSourceDefinition } from './sources';
 import type {
     ImportIssue,
