@@ -55,6 +55,16 @@ dist/
 build/
 out/
 lib-cov/
+# Compiled / generated output must live in dist/, never beside source.
+# Source under packages/*/src is .ts only; guard against stray tsc emit into src
+# (see ADR-004 / build rootDir). Hand-written ambient *.d.ts (e.g. global.d.ts)
+# are real source and are NOT ignored.
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+!packages/*/src/**/global.d.ts
+!packages/*/src/**/*.ambient.d.ts
 *.tsbuildinfo
 
 # Test and coverage output
