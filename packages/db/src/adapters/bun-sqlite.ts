@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { isAbsolute, resolve } from 'node:path';
 import { type BunSQLiteDatabase, drizzle } from 'drizzle-orm/bun-sqlite';
-import type { DbAdapter, DbClient } from '../adapter';
+import type { DbAdapter, InternalDb } from '../adapter';
 import * as schema from '../schema/index';
 
 type SqliteStatementLike = {
@@ -74,8 +74,9 @@ export class BunSqliteAdapter implements DbAdapter {
         this.drizzleDb = drizzle({ client: this.sqlite, schema });
     }
 
-    getDb(): DbClient {
-        return this.drizzleDb as unknown as DbClient;
+    /** The internal typed drizzle database (ts-db DAO layer + migrations only). */
+    get db(): InternalDb {
+        return this.drizzleDb as unknown as InternalDb;
     }
 
     /** Returns the underlying drizzle instance for migration operations. */

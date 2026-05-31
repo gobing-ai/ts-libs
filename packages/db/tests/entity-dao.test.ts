@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import type { DbClient } from '../src/adapter';
+import type { DbAdapter } from '../src/adapter';
 import { BunSqliteAdapter } from '../src/adapters/bun-sqlite';
 import { EntityDao } from '../src/entity-dao';
 
@@ -23,14 +23,14 @@ const items = sqliteTable('items', {
 });
 
 class UsersDao extends EntityDao<typeof users, typeof users.id> {
-    constructor(db: DbClient) {
-        super(db, users, users.id, 'users');
+    constructor(adapter: DbAdapter) {
+        super(adapter, users, [users.id], 'users');
     }
 }
 
 class ItemsDao extends EntityDao<typeof items, typeof items.id> {
-    constructor(db: DbClient) {
-        super(db, items, items.id, 'items');
+    constructor(adapter: DbAdapter) {
+        super(adapter, items, [items.id], 'items');
     }
 
     /** Expose protected member for testing. */
@@ -56,8 +56,8 @@ beforeAll(async () => {
     await adapter.exec(
         'CREATE TABLE items (id TEXT PRIMARY KEY, label TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0, in_used INTEGER NOT NULL DEFAULT 1)',
     );
-    usersDao = new UsersDao(adapter.getDb());
-    itemsDao = new ItemsDao(adapter.getDb());
+    usersDao = new UsersDao(adapter);
+    itemsDao = new ItemsDao(adapter);
 });
 
 afterAll(() => {
@@ -141,8 +141,7 @@ describe('EntityDao — CRUD (no soft delete)', () => {
     });
 
     test('list with where clause', async () => {
-        const { eq } = await import('drizzle-orm');
-        const result = await usersDao.list({ where: eq(users.name, 'Alice Updated') });
+        const result = await usersDao.list({ where: { col: users.name, op: 'eq', value: 'Alice Updated' } });
         expect(result).toHaveLength(1);
     });
 
@@ -152,16 +151,17 @@ describe('EntityDao — CRUD (no soft delete)', () => {
     });
 
     test('count with where clause', async () => {
-        const { eq } = await import('drizzle-orm');
-        const c = await usersDao.count(eq(users.name, 'Alice Updated'));
+        const c = await usersDao.count({ col: users.name, op: 'eq', value: 'Alice Updated' });
         expect(c).toBe(1);
     });
 });
 
 describe('EntityDao — soft delete', () => {
-    test('create soft-deletable record', async () => {
+    test('create soft-deletable record returns the DB-defaulted inUsed via RETURNING', async () => {
         const item = await itemsDao.create({ id: 'i1', label: 'Item 1' });
-        expect(item.inUsed).toBeUndefined(); // inUsed is defaulted by DB
+        // create() now uses INSERT ... RETURNING, so the row reflects the DB
+        // default (inUsed = 1) rather than only the JS-supplied fields.
+        expect(item.inUsed).toBe(1);
     });
 
     test('findAll excludes soft-deleted by default', async () => {

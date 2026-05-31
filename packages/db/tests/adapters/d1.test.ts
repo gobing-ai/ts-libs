@@ -32,9 +32,9 @@ describe('D1Adapter', () => {
         expect(adapter).toBeDefined();
     });
 
-    test('getDb returns DbClient', () => {
+    test('db exposes the internal typed drizzle db', () => {
         const adapter = new D1Adapter(mockBinding());
-        const db = adapter.getDb();
+        const db = adapter.db;
         expect(db).toBeDefined();
     });
 

@@ -1,5 +1,5 @@
 import { type DrizzleD1Database, drizzle } from 'drizzle-orm/d1';
-import type { DbAdapter, DbClient } from '../adapter';
+import type { DbAdapter, InternalDb } from '../adapter';
 import * as schema from '../schema/index';
 
 /**
@@ -36,8 +36,14 @@ export class D1Adapter implements DbAdapter {
         this.drizzleDb = drizzle(this.binding, { schema });
     }
 
-    getDb(): DbClient {
-        return this.drizzleDb as unknown as DbClient;
+    /** The internal typed drizzle database (ts-db DAO layer only). */
+    get db(): InternalDb {
+        return this.drizzleDb as unknown as InternalDb;
+    }
+
+    /** Returns the underlying drizzle instance for migration operations. */
+    getDrizzleDb(): DrizzleD1Database<typeof schema> {
+        return this.drizzleDb;
     }
 
     /** Returns the non-mutating binding for advanced direct D1 calls. */

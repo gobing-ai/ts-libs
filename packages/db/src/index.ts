@@ -1,10 +1,27 @@
-export { createDbAdapter, type DbAdapter, type DbAdapterConfig, type DbClient, type DbTable } from './adapter';
+export { createDbAdapter, type DbAdapter, type DbAdapterConfig, type InternalDb } from './adapter';
 export { BunSqliteAdapter, type BunSqliteOptions } from './adapters/bun-sqlite';
 export { D1Adapter } from './adapters/d1';
-export { BaseDao } from './base-dao';
+export { BaseDao, type TxHandle } from './base-dao';
 export { type EmbeddedMigration, embeddedMigrations } from './embedded-migrations';
-export { EntityDao, type EntityTable, type PKColumn, type SoftDeletableTable } from './entity-dao';
+export {
+    type CursorListSpec,
+    EntityDao,
+    type EntityListSpec,
+    type EntityTable,
+    type PKColumn,
+    type PKValue,
+    type SoftDeletableTable,
+} from './entity-dao';
 export { applyMigrations, type MigrationOptions } from './migrate';
+export {
+    type ColRef,
+    type ComparisonOp,
+    compileOrderBy,
+    compilePredicate,
+    type ListSpec,
+    type OrderTerm,
+    type Predicate,
+} from './query-spec';
 export { QueueJobDao, type QueueJobRecord, type QueueStats } from './queue-job-dao';
 export {
     appendOnlyColumns,

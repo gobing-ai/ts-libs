@@ -1,7 +1,8 @@
 import { and, count as countFn, eq, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
-import type { DbClient } from './adapter';
+import type { DbAdapter } from './adapter';
 import { BaseDao } from './base-dao';
+import { compilePredicate, type OrderTerm, type Predicate } from './query-spec';
 
 /**
  * Type for tables compatible with EntityDao.
@@ -12,63 +13,81 @@ export type EntityTable = SQLiteTable & {
     updatedAt: SQLiteColumn;
 };
 
-/**
- * Type for tables with soft delete support.
- */
+/** Type for tables with soft delete support. */
 export type SoftDeletableTable = EntityTable & {
     inUsed: SQLiteColumn;
 };
 
-/**
- * Type for primary key columns.
- */
+/** Type for primary key columns (single column or a tuple for composite keys). */
 export type PKColumn = SQLiteColumn;
 
+/** A primary key value: a single value, or a tuple for composite keys. */
+export type PKValue = string | number | (string | number)[];
+
+/** Options for the structured `list` operation. */
+export interface EntityListSpec {
+    where?: Predicate;
+    orderBy?: readonly OrderTerm[];
+    limit?: number;
+    offset?: number;
+    includeDeleted?: boolean;
+}
+
+/** Options for keyset/cursor pagination. */
+export interface CursorListSpec {
+    /** Opaque cursor from a previous page (the last row's keyset value). */
+    cursor?: string | number;
+    /** Column the cursor walks (must be unique + ordered, e.g. the primary key). */
+    cursorColumn: SQLiteColumn;
+    /** Page size. */
+    limit: number;
+    where?: Predicate;
+    direction?: 'asc' | 'desc';
+    includeDeleted?: boolean;
+}
+
 /**
- * Generic CRUD base class for entity DAOs.
+ * Generic CRUD base class for entity DAOs — the STRUCTURED tier of the facade.
  *
- * Provides standard create, read, update, delete operations with:
- * - Type-safe public API using Drizzle's inference types
- * - Automatic soft delete filtering (if table has `inUsed` column)
+ * Extends {@link BaseDao} (raw tier) with typed create/read/update/delete over a
+ * single table, using RETURNING, drizzle-free predicate filters, soft-delete
+ * auto-filtering, batch insert, upsert, and cursor pagination. drizzle is hidden
+ * entirely — consumers use ts-db vocabulary. (G1/G3)
  *
- * @typeParam TTable - The table type (must extend EntityTable)
- * @typeParam TPK - The primary key column type
+ * @typeParam TTable - The table type (must extend EntityTable).
+ * @typeParam TPK - The primary key column type.
  *
  * @example
  * ```ts
- * export class UsersDao extends EntityDao<typeof users, typeof users.id> {
- *     constructor(db: DbClient) {
- *         super(db, users, users.id, 'users');
+ * class UsersDao extends EntityDao<typeof users, typeof users.id> {
+ *     constructor(adapter: DbAdapter) {
+ *         super(adapter, users, [users.id], 'users');
  *     }
- *
- *     // Add entity-specific methods here
- *     async findByEmail(email: string) {
+ *     findByEmail(email: string) {
  *         return this.findBy(users.email, email);
  *     }
  * }
  * ```
  */
 export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> extends BaseDao {
-    constructor(
-        db: DbClient,
-        public readonly table: TTable,
-        protected readonly primaryKey: TPK,
-        protected readonly collectionName: string,
-    ) {
-        super(db);
+    readonly table: TTable;
+    /** Primary key columns. A single-element array for single-PK tables, multiple for composite. */
+    protected readonly primaryKey: SQLiteColumn[];
+    protected readonly collectionName: string;
+
+    constructor(adapter: DbAdapter, table: TTable, primaryKey: TPK | SQLiteColumn[], collectionName: string) {
+        super(adapter);
+        this.table = table;
+        this.primaryKey = Array.isArray(primaryKey) ? primaryKey : [primaryKey];
+        this.collectionName = collectionName;
     }
 
-    /**
-     * Check if the table has soft delete support (inUsed column).
-     */
+    /** Check if the table has soft delete support (inUsed column). */
     protected get hasSoftDelete(): boolean {
         return 'inUsed' in this.table;
     }
 
-    /**
-     * Build a where condition that filters out soft-deleted records.
-     * Returns undefined if the table doesn't support soft delete.
-     */
+    /** Condition filtering out soft-deleted rows, or undefined when unsupported. */
     protected get activeCondition(): SQL | undefined {
         if (this.hasSoftDelete) {
             return eq((this.table as unknown as SoftDeletableTable).inUsed, 1);
@@ -76,215 +95,196 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
         return undefined;
     }
 
+    /** Build the where-condition matching a primary key value (single or composite). */
+    private pkCondition(id: PKValue): SQL {
+        const values = Array.isArray(id) ? id : [id];
+        if (values.length !== this.primaryKey.length) {
+            throw new Error(
+                `${this.collectionName}: primary key expects ${this.primaryKey.length} value(s), got ${values.length}`,
+            );
+        }
+        const parts = this.primaryKey.map((col, i) => eq(col, values[i]));
+        return parts.length === 1 ? (parts[0] as SQL) : (and(...parts) as SQL);
+    }
+
+    private get insertBuilder() {
+        return this.db.insert(this.table as unknown as Parameters<typeof this.db.insert>[0]);
+    }
+
     /**
-     * Create a new record.
-     *
-     * `createdAt` and `updatedAt` are auto-filled if not provided.
-     *
-     * @param data - The data to insert (createdAt/updatedAt optional).
-     * @returns The created record.
+     * Create a new record. `createdAt`/`updatedAt` are auto-filled if absent.
+     * Returns the row as written by the database (RETURNING).
      */
     async create(
         data: Omit<TTable['$inferInsert'], 'createdAt' | 'updatedAt'> & { createdAt?: number; updatedAt?: number },
     ): Promise<TTable['$inferSelect']> {
         const now = this.now();
-        const record = {
-            ...data,
-            createdAt: (data as Record<string, unknown>).createdAt ?? now,
-            updatedAt: (data as Record<string, unknown>).updatedAt ?? now,
-        };
-
-        await this.db.insert(this.table).values(record);
-
-        return record as TTable['$inferSelect'];
+        const record = { createdAt: now, updatedAt: now, ...data };
+        const rows = (await (
+            this.insertBuilder.values(record) as unknown as { returning: () => Promise<unknown[]> }
+        ).returning()) as TTable['$inferSelect'][];
+        return rows[0] as TTable['$inferSelect'];
     }
 
     /**
-     * Find a record by its primary key.
-     *
-     * @param id - The primary key value.
-     * @param includeDeleted - Whether to include soft-deleted records.
-     * @returns The record if found, otherwise undefined.
+     * Insert many records in a single multi-VALUES statement (efficient for ETL).
+     * Returns the written rows (RETURNING).
      */
-    async findById(id: string | number, includeDeleted = false): Promise<TTable['$inferSelect'] | undefined> {
-        const conditions = [eq(this.primaryKey, id)];
-        if (!includeDeleted && this.activeCondition) {
-            conditions.push(this.activeCondition);
-        }
+    async createMany(
+        data: (Omit<TTable['$inferInsert'], 'createdAt' | 'updatedAt'> & {
+            createdAt?: number;
+            updatedAt?: number;
+        })[],
+    ): Promise<TTable['$inferSelect'][]> {
+        if (data.length === 0) return [];
+        const now = this.now();
+        const records = data.map((d) => ({ createdAt: now, updatedAt: now, ...d }));
+        return (await (
+            this.insertBuilder.values(records) as unknown as { returning: () => Promise<unknown[]> }
+        ).returning()) as TTable['$inferSelect'][];
+    }
 
-        const result = await this.db
+    /**
+     * Insert or update on conflict. `conflictColumns` identify the unique target;
+     * `update` (or all non-conflict columns) are written on conflict. Returns the row.
+     */
+    async upsert(
+        data: Omit<TTable['$inferInsert'], 'createdAt' | 'updatedAt'> & { createdAt?: number; updatedAt?: number },
+        conflictColumns: SQLiteColumn[],
+        updateColumns?: Partial<TTable['$inferInsert']>,
+    ): Promise<TTable['$inferSelect']> {
+        const now = this.now();
+        const record = { createdAt: now, updatedAt: now, ...data };
+        const setOnConflict = { ...(updateColumns ?? data), updatedAt: now };
+        const rows = (await (
+            this.insertBuilder.values(record) as unknown as {
+                onConflictDoUpdate: (cfg: { target: SQLiteColumn[]; set: unknown }) => {
+                    returning: () => Promise<unknown[]>;
+                };
+            }
+        )
+            .onConflictDoUpdate({ target: conflictColumns, set: setOnConflict })
+            .returning()) as TTable['$inferSelect'][];
+        return rows[0] as TTable['$inferSelect'];
+    }
+
+    /** Find a record by its primary key (single value or composite tuple). */
+    async findById(id: PKValue, includeDeleted = false): Promise<TTable['$inferSelect'] | undefined> {
+        const conditions: SQL[] = [this.pkCondition(id)];
+        if (!includeDeleted && this.activeCondition) conditions.push(this.activeCondition);
+        const result = (await this.db
             .select()
             .from(this.table)
-            .where(and(...conditions));
-
-        return (result as TTable['$inferSelect'][])[0];
+            .where(and(...conditions))) as TTable['$inferSelect'][];
+        return result[0];
     }
 
-    /**
-     * Find all records.
-     *
-     * @param includeDeleted - Whether to include soft-deleted records.
-     * @returns Array of records.
-     */
+    /** Find all records (optionally including soft-deleted). */
     async findAll(includeDeleted = false): Promise<TTable['$inferSelect'][]> {
-        const query = this.db.select().from(this.table);
-
-        if (!includeDeleted && this.activeCondition) {
-            return query.where(this.activeCondition);
-        }
-
-        return query;
+        return this.list({ includeDeleted });
     }
 
-    /**
-     * Update a record by its primary key.
-     *
-     * @param id - The primary key value.
-     * @param data - The data to update.
-     * @returns The updated record if found, otherwise undefined.
-     */
-    async update(
-        id: string | number,
-        data: Partial<TTable['$inferInsert']>,
-    ): Promise<TTable['$inferSelect'] | undefined> {
-        const now = this.now();
-        const updateData = {
-            ...data,
-            updatedAt: now,
-        };
-
-        await this.db.update(this.table).set(updateData).where(eq(this.primaryKey, id));
-
-        return this.findById(id);
-    }
-
-    /**
-     * Delete a record by its primary key.
-     *
-     * @param id - The primary key value.
-     * @param soft - Whether to perform a soft delete (default: true if table supports it).
-     * @returns The deleted record (for soft delete), otherwise undefined.
-     */
-    async delete(id: string | number, soft?: boolean): Promise<TTable['$inferSelect'] | undefined> {
-        const useSoftDelete = soft ?? this.hasSoftDelete;
-
-        if (useSoftDelete && this.hasSoftDelete) {
-            const now = this.now();
-            await this.db
-                .update(this.table)
-                .set({ inUsed: 0, updatedAt: now } as Partial<TTable['$inferInsert']>)
-                .where(eq(this.primaryKey, id));
-
-            return this.findById(id, true);
-        }
-
-        await this.db.delete(this.table).where(eq(this.primaryKey, id));
-
-        return undefined;
-    }
-
-    /**
-     * Find a record by a specific column value.
-     *
-     * @param column - The column to search.
-     * @param value - The value to match.
-     * @param includeDeleted - Whether to include soft-deleted records.
-     * @returns The record if found, otherwise undefined.
-     */
+    /** Find the first record matching a column value. */
     async findBy<TCol extends SQLiteColumn>(
         column: TCol,
         value: TCol['_']['data'],
         includeDeleted = false,
     ): Promise<TTable['$inferSelect'] | undefined> {
-        const conditions = [eq(column, value)];
-        if (!includeDeleted && this.activeCondition) {
-            conditions.push(this.activeCondition);
-        }
-
-        const result = await this.db
-            .select()
-            .from(this.table)
-            .where(and(...conditions));
-
-        return (result as TTable['$inferSelect'][])[0];
+        const rows = await this.list({ where: { col: column, op: 'eq', value }, limit: 1, includeDeleted });
+        return rows[0];
     }
 
-    /**
-     * Find all records matching a specific column value.
-     *
-     * @param column - The column to search.
-     * @param value - The value to match.
-     * @param includeDeleted - Whether to include soft-deleted records.
-     * @returns Array of matching records.
-     */
+    /** Find all records matching a column value. */
     async findAllBy<TCol extends SQLiteColumn>(
         column: TCol,
         value: TCol['_']['data'],
         includeDeleted = false,
     ): Promise<TTable['$inferSelect'][]> {
-        const conditions = [eq(column, value)];
-        if (!includeDeleted && this.activeCondition) {
-            conditions.push(this.activeCondition);
-        }
-
-        return this.db
-            .select()
-            .from(this.table)
-            .where(and(...conditions));
+        return this.list({ where: { col: column, op: 'eq', value }, includeDeleted });
     }
 
-    /**
-     * List records with pagination and optional filtering.
-     *
-     * @param options - List options (limit, offset, where).
-     * @returns Array of records.
-     */
-    async list(
-        options: { limit?: number; offset?: number; where?: SQL; includeDeleted?: boolean } = {},
-    ): Promise<TTable['$inferSelect'][]> {
-        const { limit = 100, offset = 0, where, includeDeleted = false } = options;
-        const conditions: SQL[] = [];
-
-        if (!includeDeleted && this.activeCondition) {
-            conditions.push(this.activeCondition);
-        }
-
-        if (where) {
-            conditions.push(where);
-        }
-
-        const query = this.db.select().from(this.table);
-
-        if (conditions.length > 0) {
-            return query
-                .where(and(...conditions))
-                .limit(limit)
-                .offset(offset);
-        }
-
-        return query.limit(limit).offset(offset);
+    /** Update a record by primary key. `updatedAt` is refreshed. Returns the updated row. */
+    async update(id: PKValue, data: Partial<TTable['$inferInsert']>): Promise<TTable['$inferSelect'] | undefined> {
+        const updateData = { ...data, updatedAt: this.now() };
+        const rows = (await (
+            this.db.update(this.table as unknown as Parameters<typeof this.db.update>[0]).set(updateData) as unknown as {
+                where: (c: SQL) => { returning: () => Promise<unknown[]> };
+            }
+        )
+            .where(this.pkCondition(id))
+            .returning()) as TTable['$inferSelect'][];
+        return rows[0];
     }
 
-    /**
-     * Count records in the table.
-     *
-     * @param where - Optional filter condition.
-     * @param includeDeleted - Whether to include soft-deleted records.
-     * @returns The count of matching records.
-     */
-    async count(where?: SQL, includeDeleted = false): Promise<number> {
-        const conditions: SQL[] = [];
-        if (!includeDeleted && this.activeCondition) {
-            conditions.push(this.activeCondition);
+    /** Delete a record by primary key. Soft-deletes when the table supports it (default). */
+    async delete(id: PKValue, soft?: boolean): Promise<TTable['$inferSelect'] | undefined> {
+        const useSoftDelete = soft ?? this.hasSoftDelete;
+        if (useSoftDelete && this.hasSoftDelete) {
+            return this.update(id, { inUsed: 0 } as Partial<TTable['$inferInsert']>);
         }
-        if (where) {
-            conditions.push(where);
+        await (
+            this.db.delete(this.table as unknown as Parameters<typeof this.db.delete>[0]) as unknown as {
+                where: (c: SQL) => Promise<unknown>;
+            }
+        ).where(this.pkCondition(id));
+        return undefined;
+    }
+
+    /** List records with predicate filter, ordering, and offset pagination. */
+    async list(spec: EntityListSpec = {}): Promise<TTable['$inferSelect'][]> {
+        const where = this.withActive(spec.where, spec.includeDeleted);
+        return this.query<TTable['$inferSelect']>(this.table, {
+            ...(where ? { where } : {}),
+            ...(spec.orderBy ? { orderBy: spec.orderBy } : {}),
+            ...(spec.limit !== undefined ? { limit: spec.limit } : {}),
+            ...(spec.offset !== undefined ? { offset: spec.offset } : {}),
+        });
+    }
+
+    /** List one keyset page; returns the rows and the cursor for the next page. */
+    async listByCursor(spec: CursorListSpec): Promise<{ rows: TTable['$inferSelect'][]; nextCursor?: string | number }> {
+        const dir = spec.direction ?? 'asc';
+        const filters: Predicate[] = [];
+        if (spec.where) filters.push(spec.where);
+        if (spec.cursor !== undefined) {
+            filters.push({ col: spec.cursorColumn, op: dir === 'asc' ? 'gt' : 'lt', value: spec.cursor });
         }
+        const where = this.withActive(filters.length > 0 ? { and: filters } : undefined, spec.includeDeleted);
+        const rows = await this.query<TTable['$inferSelect']>(this.table, {
+            ...(where ? { where } : {}),
+            orderBy: [{ col: spec.cursorColumn, dir }],
+            limit: spec.limit,
+        });
+        const last = rows[rows.length - 1] as Record<string, unknown> | undefined;
+        const nextCursor =
+            rows.length === spec.limit && last
+                ? (last[(spec.cursorColumn as unknown as { name: string }).name] as string | number)
+                : undefined;
+        return nextCursor !== undefined ? { rows, nextCursor } : { rows };
+    }
 
-        const query = this.db.select<{ value: number }>({ value: countFn() }).from(this.table);
-
-        const result = conditions.length > 0 ? await query.where(and(...conditions)) : await query;
-
+    /** Count records matching an optional predicate. */
+    async count(where?: Predicate, includeDeleted = false): Promise<number> {
+        const condition = this.withActive(where, includeDeleted);
+        const compiled = condition ? compilePredicate(condition) : undefined;
+        const base = (
+            this.db as unknown as {
+                select: (p: unknown) => { from: (t: unknown) => { where: (c: SQL) => Promise<unknown[]> } };
+            }
+        )
+            .select({ value: countFn() })
+            .from(this.table);
+        const result = (await (compiled ? base.where(compiled) : (base as unknown as Promise<unknown[]>))) as {
+            value: number;
+        }[];
         return result[0]?.value ?? 0;
+    }
+
+    /** Combine a caller predicate with the soft-delete active filter. */
+    private withActive(where: Predicate | undefined, includeDeleted?: boolean): Predicate | undefined {
+        if (includeDeleted || !this.hasSoftDelete) return where;
+        const active: Predicate = { col: (this.table as unknown as SoftDeletableTable).inUsed, op: 'eq', value: 1 };
+        if (!where) return active;
+        return { and: [where, active] };
     }
 }

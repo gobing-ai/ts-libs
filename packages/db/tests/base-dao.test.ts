@@ -1,18 +1,18 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import type { DbClient } from '../src/adapter';
+import type { DbAdapter } from '../src/adapter';
 import { BunSqliteAdapter } from '../src/adapters/bun-sqlite';
-import { BaseDao } from '../src/base-dao';
+import { BaseDao, type TxHandle } from '../src/base-dao';
 
 class TestDao extends BaseDao {
-    constructor(db: DbClient) {
-        super(db);
+    constructor(adapter: DbAdapter) {
+        super(adapter);
     }
     getNow(): number {
         return this.now();
     }
 
-    async runInTransaction(fn: (tx: DbClient) => Promise<string>): Promise<string> {
-        return this.withTransaction(fn);
+    async runInTransaction(fn: (tx: TxHandle) => Promise<string>): Promise<string> {
+        return this.tx(fn);
     }
 }
 
@@ -21,7 +21,7 @@ let dao: TestDao;
 
 beforeAll(() => {
     adapter = new BunSqliteAdapter({ databaseUrl: ':memory:' });
-    dao = new TestDao(adapter.getDb());
+    dao = new TestDao(adapter);
 });
 
 afterAll(() => {
@@ -41,7 +41,7 @@ describe('BaseDao', () => {
         expect(b).toBeGreaterThanOrEqual(a);
     });
 
-    test('withTransaction executes callback within a transaction', async () => {
+    test('tx executes callback within a transaction', async () => {
         await adapter.exec('CREATE TABLE test_tx (id INTEGER PRIMARY KEY, val TEXT)');
 
         const result = await dao.runInTransaction(async (_tx) => {
@@ -54,7 +54,7 @@ describe('BaseDao', () => {
         expect(row?.val).toBe('tx-test');
     });
 
-    test('withTransaction propagates error from callback', async () => {
+    test('tx propagates error from callback', async () => {
         await adapter.exec('CREATE TABLE test_tx2 (id INTEGER PRIMARY KEY, val TEXT)');
 
         await expect(

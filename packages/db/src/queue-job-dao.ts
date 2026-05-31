@@ -1,5 +1,5 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import type { DbClient } from './adapter';
+import type { DbAdapter } from './adapter';
 import { EntityDao } from './entity-dao';
 import { queueJobs } from './schema/queue-jobs';
 
@@ -25,8 +25,8 @@ export type QueueJobRecord = typeof queueJobs.$inferSelect;
  * methods for job lifecycle management (enqueue, process, retry, fail).
  */
 export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id> {
-    constructor(db: DbClient) {
-        super(db, queueJobs, queueJobs.id, 'queue_jobs');
+    constructor(adapter: DbAdapter) {
+        super(adapter, queueJobs, [queueJobs.id], 'queue_jobs');
     }
 
     /**
@@ -80,7 +80,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
         });
 
         if (rows.length > 0) {
-            await this.withTransaction(async (tx) => {
+            await this.tx(async (tx) => {
                 for (const row of rows) {
                     await tx.insert(queueJobs).values(row);
                 }

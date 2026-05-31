@@ -13,8 +13,8 @@ afterAll(() => {
 });
 
 describe('BunSqliteAdapter', () => {
-    test('returns a DbClient from getDb()', () => {
-        const db = adapter.getDb();
+    test('exposes the internal typed db', () => {
+        const db = adapter.db;
         expect(db).toBeDefined();
     });
 
@@ -93,7 +93,7 @@ describe('createDbAdapter factory', () => {
         };
         const a = await createDbAdapter({ driver: 'd1', binding: mockBinding });
         expect(a).toBeDefined();
-        expect(a.getDb()).toBeDefined();
+        expect(a.db).toBeDefined();
         a.close();
     });
 });

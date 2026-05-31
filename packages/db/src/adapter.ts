@@ -1,3 +1,6 @@
+import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
+import type { DrizzleD1Database } from 'drizzle-orm/d1';
+
 /**
  * Minimal D1 binding interface — avoids depending on @cloudflare/workers-types.
  */
@@ -7,70 +10,40 @@ interface D1Binding {
 }
 
 /**
- * Generic database table descriptor carrying select and insert type info.
+ * Internal typed drizzle database handle.
+ *
+ * This is the REAL drizzle database (bun:sqlite or D1 flavour), fully typed.
+ * It is `@internal` — ts-db's DAO base classes use it to build queries, but it
+ * is never part of the public API. Consumers depend only on the ts-db facade
+ * (DAOs, the predicate spec), never on drizzle types directly. (G1)
+ *
+ * @internal
  */
-export interface DbTable<TSelect, TInsert = TSelect> {
-    readonly $inferSelect: TSelect;
-    readonly $inferInsert: TInsert;
-}
-
-type DbInsertBuilder<TTable extends DbTable<unknown, unknown>> = {
-    values(values: TTable['$inferInsert'] | TTable['$inferInsert'][]): PromiseLike<unknown>;
-};
-
-interface DbSelectWhereResult<TTable extends DbTable<unknown, unknown>> extends PromiseLike<TTable['$inferSelect'][]> {
-    limit(value: number): DbSelectWhereResult<TTable>;
-    offset(value: number): DbSelectWhereResult<TTable>;
-    orderBy(column: unknown): DbSelectWhereResult<TTable>;
-}
-
-type DbSelectFromResult<TTable extends DbTable<unknown, unknown>> = DbSelectWhereResult<TTable> & {
-    where(condition: unknown): DbSelectWhereResult<TTable>;
-};
-
-type DbSelectBuilder = {
-    from<TTable extends DbTable<unknown, unknown>>(table: TTable): DbSelectFromResult<TTable>;
-};
-
-type DbProjectionSelectBuilder<TProjection> = {
-    from(table: DbTable<unknown, unknown>): PromiseLike<TProjection[]> & {
-        where(condition: unknown): PromiseLike<TProjection[]>;
-    };
-};
-
-interface DbUpdateResult {
-    changes: number;
-}
-
-interface DbUpdateBuilder<TTable extends DbTable<unknown, unknown>> {
-    set(values: Partial<TTable['$inferInsert']>): { where(condition: unknown): PromiseLike<DbUpdateResult> };
-}
+export type InternalDb = BunSQLiteDatabase<Record<string, unknown>> | DrizzleD1Database<Record<string, unknown>>;
 
 /**
- * Abstract database client with insert/select/update/delete query builders.
- */
-export interface DbClient {
-    insert<TTable extends DbTable<unknown, unknown>>(table: TTable): DbInsertBuilder<TTable>;
-    select(): DbSelectBuilder;
-    select<TProjection>(projection: Record<string, unknown>): DbProjectionSelectBuilder<TProjection>;
-    update<TTable extends DbTable<unknown, unknown>>(table: TTable): DbUpdateBuilder<TTable>;
-    delete<TTable extends DbTable<unknown, unknown>>(
-        table: TTable,
-    ): {
-        where(condition: unknown): PromiseLike<DbUpdateResult>;
-    };
-}
-
-/**
- * Database adapter providing a unified client, raw SQL exec, and lifecycle management.
+ * Database adapter: construction, lifecycle, the internal typed drizzle db, and a
+ * raw string-SQL escape for DDL / dynamic identifiers.
+ *
+ * The internal drizzle db (`db`) is exposed only to ts-db's own DAO layer; the
+ * string-SQL methods are the sole raw escape, intended for DDL and dynamic
+ * identifiers and gated to DAO files by a consumer-side lint rule.
  */
 export interface DbAdapter {
-    getDb(): DbClient;
+    /**
+     * The internal typed drizzle database. ts-db DAO layer only — not public API.
+     * @internal
+     */
+    readonly db: InternalDb;
+    /** Run a raw SQL statement with no parameters (DDL). */
     exec(sql: string): Promise<void>;
     /** Parameterized write (INSERT/UPDATE/DELETE) that returns no rows. */
     run(sql: string, ...params: unknown[]): Promise<void>;
+    /** Parameterized read returning the first row, or undefined. */
     queryFirst<T>(sql: string, ...params: unknown[]): Promise<T | undefined>;
+    /** Parameterized read returning all rows. */
     queryAll<T>(sql: string, ...params: unknown[]): Promise<T[]>;
+    /** Close the underlying connection. */
     close(): void;
 }
 

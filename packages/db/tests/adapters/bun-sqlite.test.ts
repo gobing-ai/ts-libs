@@ -25,8 +25,8 @@ describe('BunSqliteAdapter', () => {
         a.close();
     });
 
-    test('getDb returns a DbClient', () => {
-        const db = adapter.getDb();
+    test('db exposes the internal typed drizzle db', () => {
+        const db = adapter.db;
         expect(db).toBeDefined();
         expect(typeof db).toBe('object');
     });

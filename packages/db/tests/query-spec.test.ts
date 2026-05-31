@@ -110,14 +110,18 @@ describe('compileOrderBy', () => {
         const ascClauses = compileOrderBy([{ col: rows.age }]);
         const descClauses = compileOrderBy([{ col: rows.age, dir: 'desc' }]);
 
-        const ascAges = ((await db
-            .select()
-            .from(rows)
-            .orderBy(...ascClauses)) as { age: number }[]).map((r) => r.age);
-        const descAges = ((await db
-            .select()
-            .from(rows)
-            .orderBy(...descClauses)) as { age: number }[]).map((r) => r.age);
+        const ascAges = (
+            (await db
+                .select()
+                .from(rows)
+                .orderBy(...ascClauses)) as { age: number }[]
+        ).map((r) => r.age);
+        const descAges = (
+            (await db
+                .select()
+                .from(rows)
+                .orderBy(...descClauses)) as { age: number }[]
+        ).map((r) => r.age);
 
         adapter.close();
         expect(ascAges).toEqual([25, 25, 30, 40]);
@@ -127,10 +131,12 @@ describe('compileOrderBy', () => {
     test('multi-column order applies in sequence', async () => {
         const { adapter, db } = seededDb();
         const clauses = compileOrderBy([{ col: rows.age }, { col: rows.name, dir: 'desc' }]);
-        const ordered = ((await db
-            .select()
-            .from(rows)
-            .orderBy(...clauses)) as { id: string }[]).map((r) => r.id);
+        const ordered = (
+            (await db
+                .select()
+                .from(rows)
+                .orderBy(...clauses)) as { id: string }[]
+        ).map((r) => r.id);
         adapter.close();
         // age asc: 25,25,30,40 — ties (bob=2, dave=4) broken by name desc → dave before bob
         expect(ordered).toEqual(['4', '2', '1', '3']);
