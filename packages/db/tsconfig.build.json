@@ -10,6 +10,7 @@
         "module": "Preserve",
         "moduleResolution": "bundler",
         "allowImportingTsExtensions": false,
+        "paths": {},
         "outDir": "dist",
         "rootDir": "src"
     }
