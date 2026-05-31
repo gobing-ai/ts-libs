@@ -8,8 +8,8 @@ exclude:
   - "**/dist/**"
 
 rules:
-  - id: no-raw-db-client-queries-outside-dao
-    description: "Raw DbClient mutation/query methods must stay inside DAO implementations."
+  - id: no-raw-drizzle-builder-outside-dao
+    description: "Drizzle query-builder calls (this.db.insert/select/update/delete) must stay inside the DAO layer. drizzle is an internal detail of @gobing-ai/ts-db (v0.2.0 facade)."
     severity: error
     evaluator:
       type: regex
@@ -20,8 +20,29 @@ rules:
       - "packages/db/src/entity-dao.ts"
       - "packages/db/src/queue-job-dao.ts"
 
+  - id: no-drizzle-import-outside-db-package
+    description: "drizzle-orm is an internal implementation detail of @gobing-ai/ts-db. No other package may import it — consume the ts-db facade instead (BaseDao/EntityDao + the predicate spec)."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "drizzle-orm"
+          - specifier: "drizzle-orm/sqlite-core"
+          - specifier: "drizzle-orm/bun-sqlite"
+          - specifier: "drizzle-orm/d1"
+          - specifier: "drizzle-zod"
+        scope:
+          include:
+            - "packages/**/src/**/*.ts"
+          exclude:
+            - "packages/db/**"
+            - "**/tests/**"
+            - "**/*.test.ts"
+            - "**/dist/**"
+
   - id: no-sqlite-table-outside-schema
-    description: "sqliteTable() definitions must live under packages/db/src/schema/."
+    description: "sqliteTable() definitions must live under packages/db/src/schema/ or come from the defineTable() wrapper (the sanctioned schema-construction primitives)."
     severity: error
     evaluator:
       type: regex
@@ -29,6 +50,7 @@ rules:
         pattern: "sqliteTable\\("
     exclude:
       - "packages/db/src/schema/**"
+      - "packages/db/src/define-table.ts"
 
   - id: no-ad-hoc-sqlite-init
     description: "Direct sqlite.run()/sqlite.exec()/PRAGMA calls must stay inside SQLite adapter code."
