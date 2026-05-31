@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { DbAdapter } from '@gobing-ai/ts-db';
 import {
     createDefaultWorkflowEngineHost,
     DbWorkflowPersistenceAdapter,
@@ -241,11 +242,12 @@ transitions: []
                     },
                 ] as T[];
             },
-            getDb() {
-                throw new Error('unused');
-            },
+            // ts-db 0.2.0: adapters expose the internal typed db via `db` (was getDb()).
+            // This persistence adapter only uses the string-SQL methods, so `db` is an
+            // unused stub here; the whole literal is cast to DbAdapter below.
+            db: {} as DbAdapter['db'],
             close() {},
-        });
+        } satisfies Partial<DbAdapter> as DbAdapter);
         await db.saveTransition('r', 'a', 'b', null);
         expect(await db.listRuns()).toHaveLength(1);
     });
