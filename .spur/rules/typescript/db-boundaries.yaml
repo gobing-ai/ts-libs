@@ -73,5 +73,6 @@ rules:
     exclude:
       - "packages/db/src/migrate.ts"
       - "packages/db/src/embedded-migrations.ts"
+      - "**/schema-sql.ts"
       - "**/tests/**"
       - "**/*.test.ts"
