@@ -155,7 +155,20 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
     ): Promise<TTable['$inferSelect']> {
         const now = this.now();
         const record = { createdAt: now, updatedAt: now, ...data };
-        const setOnConflict = { ...(updateColumns ?? data), updatedAt: now };
+        // Default conflict-update = the supplied data minus identity columns
+        // (conflict target + primary key), so a conflict updates the row in place
+        // without rewriting the key it matched on. Identity columns are matched by
+        // their table property key (not DB column name) to handle snake_case columns.
+        const identityCols = new Set<SQLiteColumn>([...conflictColumns, ...this.primaryKey]);
+        const identityProps = new Set(
+            Object.entries(this.table as unknown as Record<string, SQLiteColumn>)
+                .filter(([, col]) => identityCols.has(col))
+                .map(([key]) => key),
+        );
+        const defaultSet = Object.fromEntries(
+            Object.entries(data as Record<string, unknown>).filter(([key]) => !identityProps.has(key)),
+        );
+        const setOnConflict = { ...(updateColumns ?? defaultSet), updatedAt: now };
         const rows = (await (
             this.insertBuilder.values(record) as unknown as {
                 onConflictDoUpdate: (cfg: { target: SQLiteColumn[]; set: unknown }) => {
@@ -207,7 +220,9 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
     async update(id: PKValue, data: Partial<TTable['$inferInsert']>): Promise<TTable['$inferSelect'] | undefined> {
         const updateData = { ...data, updatedAt: this.now() };
         const rows = (await (
-            this.db.update(this.table as unknown as Parameters<typeof this.db.update>[0]).set(updateData) as unknown as {
+            this.db
+                .update(this.table as unknown as Parameters<typeof this.db.update>[0])
+                .set(updateData) as unknown as {
                 where: (c: SQL) => { returning: () => Promise<unknown[]> };
             }
         )
@@ -242,7 +257,9 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
     }
 
     /** List one keyset page; returns the rows and the cursor for the next page. */
-    async listByCursor(spec: CursorListSpec): Promise<{ rows: TTable['$inferSelect'][]; nextCursor?: string | number }> {
+    async listByCursor(
+        spec: CursorListSpec,
+    ): Promise<{ rows: TTable['$inferSelect'][]; nextCursor?: string | number }> {
         const dir = spec.direction ?? 'asc';
         const filters: Predicate[] = [];
         if (spec.where) filters.push(spec.where);
