@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { NodeFileSystem } from '@gobing-ai/ts-runtime';
+import { getProcessEnv, NodeFileSystem } from '@gobing-ai/ts-runtime';
 import { AgentDetector, type DetectedAgent } from './agent-detector';
 import { type AgentName, isAgentName, TIER2_AGENTS } from './agents/shims';
 import { AiRunner } from './ai-runner';
@@ -51,7 +51,7 @@ export class DoctorRunner {
         this.runner = options.runner ?? new AiRunner();
         this.detector = options.agentDetector ?? new AgentDetector({ runner: this.runner });
         this.timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
-        this.env = options.env ?? process.env;
+        this.env = options.env ?? getProcessEnv();
     }
 
     /** Run a health check on all supported agents. */
