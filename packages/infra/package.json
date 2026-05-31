@@ -50,7 +50,7 @@
         "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-infra-v<version> && git push --tags' && exit 1"
     },
     "dependencies": {
-        "@gobing-ai/ts-db": "^0.1.0",
+        "@gobing-ai/ts-db": "^0.2.0",
         "@gobing-ai/ts-runtime": "^0.1.0"
     },
     "peerDependencies": {
