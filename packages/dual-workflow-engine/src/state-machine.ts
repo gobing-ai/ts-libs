@@ -1,3 +1,4 @@
+import { getProcessEnv } from '@gobing-ai/ts-runtime';
 import { FSMError } from './errors';
 import type { WorkflowEngineHost } from './host';
 import type {
@@ -31,7 +32,7 @@ export class StateMachineDriver {
         const states = new Map(workflow.states.map((state) => [state.id, state]));
         const terminal = new Set(workflow.terminalStates ?? []);
         const vars = mergeVars(workflow.vars, options.vars);
-        const env = allowedEnv(workflow.env?.allow ?? [], options.env ?? process.env);
+        const env = allowedEnv(workflow.env?.allow ?? [], options.env ?? getProcessEnv());
         let current = states.get(workflow.initialState);
         let transitionsTaken = 0;
         let lastActionResult: ActionResult | undefined;
