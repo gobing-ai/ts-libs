@@ -12,9 +12,40 @@ import {
     tagPushArgs,
 } from './release';
 import { findWorkspacePackages } from './workspace';
+import { assertNoWorkspaceRanges, type ManifestLike, substituteWorkspaceRanges } from './workspace-deps';
 
 export interface BumpVersionOptions {
     push: boolean;
+}
+
+/**
+ * Publish a single package with its `workspace:` dependency ranges resolved to
+ * concrete caret ranges. The on-disk manifest is rewritten just for the publish
+ * (npm reads the manifest from disk) and restored afterwards, so the working
+ * tree is never left mutated.
+ *
+ * Fail-closed: if any `workspace:` range survives substitution, the publish is
+ * refused rather than shipping a broken manifest.
+ */
+async function publishWithResolvedRanges(dir: string, name: string, versions: Map<string, string>) {
+    const manifestPath = `${repoRoot}${dir}/package.json`;
+    const original = await Bun.file(manifestPath).text();
+    const parsed = JSON.parse(original) as ManifestLike;
+
+    const { manifest, changed } = substituteWorkspaceRanges(parsed, versions);
+    assertNoWorkspaceRanges(manifest, name);
+
+    if (changed === 0) {
+        return npmPublish(`${repoRoot}${dir}`);
+    }
+
+    await Bun.write(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
+    try {
+        console.log(`  resolved ${changed} workspace dependency range(s) for ${name}`);
+        return npmPublish(`${repoRoot}${dir}`);
+    } finally {
+        await Bun.write(manifestPath, original);
+    }
 }
 
 export interface DropTagsOptions {
@@ -26,6 +57,7 @@ export async function publishPackages(
     refName = process.env.GITHUB_REF_NAME,
 ): Promise<void> {
     const packages = await findWorkspacePackages();
+    const versions = new Map(packages.map((pkg) => [pkg.name, pkg.version]));
     const selected = await selectPackagesForPublish(packages, refType, refName);
     const orderedSelected = await sortPackagesByDependencyOrder(selected);
 
@@ -36,7 +68,7 @@ export async function publishPackages(
         }
 
         console.log(`publish: ${pkg.name}@${pkg.version}`);
-        const result = npmPublish(`${repoRoot}${pkg.dir}`);
+        const result = await publishWithResolvedRanges(pkg.dir, pkg.name, versions);
         if (!result.ok) {
             if (isAlreadyPublishedError(result.output)) {
                 console.log(`skip: ${pkg.name}@${pkg.version} already published (lost publish race)`);

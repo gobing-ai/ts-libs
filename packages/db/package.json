@@ -50,7 +50,7 @@
         "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-db-v<version> && git push --tags' && exit 1"
     },
     "dependencies": {
-        "@gobing-ai/ts-runtime": "^0.1.0"
+        "@gobing-ai/ts-runtime": "workspace:*"
     },
     "peerDependencies": {
         "drizzle-orm": ">=0.38.0",
