@@ -11,7 +11,7 @@ describe('script config', () => {
     });
 
     test('keeps Node smoke import packages explicit', () => {
-        expect(buildConfig.nodeSmokePackages).toEqual([]);
+        expect(buildConfig.nodeSmokePackages).toEqual(['@gobing-ai/ts-db']);
     });
 
     test('validates semver strings', () => {
