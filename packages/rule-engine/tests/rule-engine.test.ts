@@ -256,7 +256,7 @@ describe('loadPresetRules', () => {
                 '        patterns: ["@spur/"]',
             ].join('\n'),
         );
-        const rules = await loadPresetRules('recommended', { workdir: dir });
+        const rules = await loadPresetRules('recommended', { roots: [join(dir, '.spur', 'rules')] });
         expect(rules.map((rule) => rule.id)).toEqual(['no-spur']);
     });
 
@@ -295,9 +295,51 @@ describe('loadPresetRules', () => {
                 '    evaluator: { type: path, config: { paths: ["README.md"] } }',
             ].join('\n'),
         );
-        const rules = await loadPresetRules('recommended', { workdir: dir });
+        const rules = await loadPresetRules('recommended', { roots: [join(dir, '.spur', 'rules')] });
         expect(rules).toHaveLength(1);
         expect(rules[0]).toMatchObject({ id: 'active-rule', fix: { mode: 'suggest' } });
+    });
+
+    test('fills preset categories from a lower-priority root and lets local files shadow global', async () => {
+        const dir = await makeTempProject();
+        const local = join(dir, 'local');
+        const global = join(dir, 'global');
+        // Preset + one category live locally; the other category lives only globally.
+        await mkdir(join(local, 'structure'), { recursive: true });
+        await mkdir(join(global, 'quality'), { recursive: true });
+        await mkdir(join(global, 'structure'), { recursive: true });
+        await writeFile(join(local, 'recommended.yaml'), 'name: recommended\nextends:\n  - quality\n  - structure\n');
+        await writeFile(
+            join(global, 'quality', 'coverage.yaml'),
+            'rules:\n  - id: coverage-gate\n    description: coverage\n    evaluator: { type: path, config: { paths: ["x"] } }\n',
+        );
+        // Same relative path in both roots — local must win.
+        await writeFile(
+            join(local, 'structure', 'layout.yaml'),
+            'rules:\n  - id: layout\n    description: local layout\n    evaluator: { type: path, config: { paths: ["x"] } }\n',
+        );
+        await writeFile(
+            join(global, 'structure', 'layout.yaml'),
+            'rules:\n  - id: layout\n    description: global layout\n    evaluator: { type: path, config: { paths: ["x"] } }\n',
+        );
+        const rules = await loadPresetRules('recommended', { roots: [local, global] });
+        expect(rules.map((rule) => rule.id).sort()).toEqual(['coverage-gate', 'layout']);
+        expect(rules.find((rule) => rule.id === 'layout')?.description).toBe('local layout');
+    });
+
+    test('resolves a preset declared only in a lower-priority root', async () => {
+        const dir = await makeTempProject();
+        const local = join(dir, 'local');
+        const global = join(dir, 'global');
+        await mkdir(join(global, 'quality'), { recursive: true });
+        await mkdir(local, { recursive: true });
+        await writeFile(join(global, 'recommended.yaml'), 'name: recommended\nextends:\n  - quality\n');
+        await writeFile(
+            join(global, 'quality', 'coverage.yaml'),
+            'rules:\n  - id: coverage-gate\n    description: coverage\n    evaluator: { type: path, config: { paths: ["x"] } }\n',
+        );
+        const rules = await loadPresetRules('recommended', { roots: [local, global] });
+        expect(rules.map((rule) => rule.id)).toEqual(['coverage-gate']);
     });
 
     test('loads direct JSON rule files and rejects invalid files', async () => {
