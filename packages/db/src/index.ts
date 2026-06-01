@@ -1,5 +1,4 @@
 export { createDbAdapter, type DbAdapter, type DbAdapterConfig, type InternalDb } from './adapter';
-export { BunSqliteAdapter, type BunSqliteOptions } from './adapters/bun-sqlite';
 export { D1Adapter } from './adapters/d1';
 export { BaseDao, type TxHandle } from './base-dao';
 
