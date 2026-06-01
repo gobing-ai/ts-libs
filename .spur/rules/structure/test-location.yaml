@@ -40,3 +40,6 @@ rules:
       - "**/scheduler/action.ts"
       # Pure type aliases — no runtime behavior to test.
       - "**/events/app-events.ts"
+      # Tested at flat tests/ level (ddl.test.ts, define-table.test.ts).
+      - "packages/db/src/schema/ddl.ts"
+      - "packages/db/src/schema/define-table.ts"
