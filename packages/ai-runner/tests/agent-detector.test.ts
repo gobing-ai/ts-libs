@@ -67,7 +67,18 @@ describe('AgentDetector', () => {
         expect(result).toMatchObject({
             name: 'pi',
             installed: true,
-            version: 'pi 2.3.4',
+            version: '2.3.4',
         });
+    });
+
+    test('detectOne extracts only the semantic version, not the whole line', async () => {
+        const executor = new FakeExecutor(() => ({ stdout: 'opencode version 1.4.0 (build 9c2f)' }));
+        const detector = new AgentDetector({
+            runner: new AiRunner({ processExecutor: executor }),
+        });
+        const result = await detector.detectOne('opencode');
+
+        expect(result.installed).toBe(true);
+        expect(result.version).toBe('1.4.0');
     });
 });
