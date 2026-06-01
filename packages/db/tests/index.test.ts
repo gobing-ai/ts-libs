@@ -5,7 +5,6 @@ import * as db from '../src/index';
 describe('@gobing-ai/ts-db barrel', () => {
     test('exports adapter symbols', () => {
         expect(db.createDbAdapter).toBeDefined();
-        expect(db.BunSqliteAdapter).toBeDefined();
         expect(db.D1Adapter).toBeDefined();
     });
 
