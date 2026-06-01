@@ -53,3 +53,41 @@ export function matchesAny(path: string, patterns: string[] | undefined): boolea
         return clean.length === 0 || path.includes(clean) || path.endsWith(clean);
     });
 }
+
+/**
+ * Segment-aware glob matching with `**` (any depth) and `*` (single segment).
+ *
+ * Stricter than {@link matchesAny}: it anchors the whole path, so `apps/**` does
+ * not match `vendor/apps/x`. Used by evaluators that enforce path policies
+ * (coverage scoping, test-file location) where a loose match would change findings.
+ */
+export function matchesGlob(path: string, pattern: string): boolean {
+    const normalized = path.replaceAll('\\', '/');
+    if (pattern.startsWith('**/')) {
+        const suffix = pattern.slice(3);
+        if (suffix.indexOf('*') === -1) {
+            return normalized.endsWith(suffix) || normalized.endsWith(`/${suffix}`);
+        }
+    }
+    if (pattern === normalized) return true;
+    return matchSegments(normalized.split('/'), pattern.split('/'), 0, 0);
+}
+
+/** Recursive segment-level glob matcher backing {@link matchesGlob}. */
+function matchSegments(file: string[], pattern: string[], fi: number, pi: number): boolean {
+    if (pi >= pattern.length) return fi >= file.length;
+    if (fi >= file.length) return pattern.slice(pi).every((segment) => segment === '**');
+    const pat = pattern[pi] ?? '';
+    if (pat === '**') {
+        return matchSegments(file, pattern, fi, pi + 1) || matchSegments(file, pattern, fi + 1, pi);
+    }
+    if (!matchSegment(file[fi] ?? '', pat)) return false;
+    return matchSegments(file, pattern, fi + 1, pi + 1);
+}
+
+/** Match one path segment against a pattern segment where `*` matches any run of non-`/` chars. */
+function matchSegment(segment: string, pattern: string): boolean {
+    if (pattern.indexOf('*') === -1) return segment === pattern;
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll('*', '[^/]*');
+    return new RegExp(`^${escaped}$`).test(segment);
+}
