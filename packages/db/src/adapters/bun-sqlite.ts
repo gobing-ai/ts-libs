@@ -1,8 +1,8 @@
-import { Database } from 'bun:sqlite';
 import { isAbsolute, resolve } from 'node:path';
+import { Database } from '@gobing-ai/ts-runtime/bun-sqlite';
 import { type BunSQLiteDatabase, drizzle } from 'drizzle-orm/bun-sqlite';
 import type { DbAdapter, InternalDb } from '../adapter';
-import * as schema from '../schema/index';
+import * as schema from '../schema/runtime';
 
 type SqliteStatementLike = {
     all: (...params: unknown[]) => unknown;
