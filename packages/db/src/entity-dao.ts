@@ -4,6 +4,36 @@ import type { DbAdapter } from './adapter';
 import { BaseDao } from './base-dao';
 import { compilePredicate, type OrderTerm, type Predicate } from './query-spec';
 
+type ReturningRows = {
+    returning: () => Promise<unknown[]>;
+};
+
+type InsertBuilder = {
+    values: (record: unknown) => ReturningRows & {
+        onConflictDoUpdate: (cfg: { target: SQLiteColumn[]; set: unknown }) => ReturningRows;
+    };
+};
+
+type UpdateBuilder = {
+    set: (data: unknown) => {
+        where: (condition: SQL) => ReturningRows;
+    };
+};
+
+type DeleteBuilder = {
+    where: (condition: SQL) => Promise<unknown>;
+};
+
+type CountQuery = Promise<unknown[]> & {
+    where: (condition: SQL) => Promise<unknown[]>;
+};
+
+type CountDb = {
+    select: (projection: unknown) => {
+        from: (table: unknown) => CountQuery;
+    };
+};
+
 /**
  * Type for tables compatible with EntityDao.
  * Must have standard columns: createdAt, updatedAt.
@@ -127,8 +157,9 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
 
     /** Condition filtering out soft-deleted rows, or undefined when unsupported. */
     protected get activeCondition(): SQL | undefined {
-        if (this.hasSoftDelete) {
-            return eq((this.table as unknown as SoftDeletableTable).inUsed, 1);
+        const table = this.table;
+        if ('inUsed' in table) {
+            return eq(table.inUsed as SQLiteColumn, 1);
         }
         return undefined;
     }
@@ -146,7 +177,7 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
     }
 
     private get insertBuilder() {
-        return this.db.insert(this.table as unknown as Parameters<typeof this.db.insert>[0]);
+        return this.db.insert(this.table as Parameters<typeof this.db.insert>[0]) as InsertBuilder;
     }
 
     /**
@@ -159,9 +190,7 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
         const now = this.now();
         const record = { createdAt: now, updatedAt: now, ...data };
         this.validate('create', record);
-        const rows = (await (
-            this.insertBuilder.values(record) as unknown as { returning: () => Promise<unknown[]> }
-        ).returning()) as TTable['$inferSelect'][];
+        const rows = (await this.insertBuilder.values(record).returning()) as TTable['$inferSelect'][];
         return rows[0] as TTable['$inferSelect'];
     }
 
@@ -179,9 +208,7 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
         const now = this.now();
         const records = data.map((d) => ({ createdAt: now, updatedAt: now, ...d }));
         for (const record of records) this.validate('createMany', record);
-        return (await (
-            this.insertBuilder.values(records) as unknown as { returning: () => Promise<unknown[]> }
-        ).returning()) as TTable['$inferSelect'][];
+        return (await this.insertBuilder.values(records).returning()) as TTable['$inferSelect'][];
     }
 
     /**
@@ -202,21 +229,16 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
         // their table property key (not DB column name) to handle snake_case columns.
         const identityCols = new Set<SQLiteColumn>([...conflictColumns, ...this.primaryKey]);
         const identityProps = new Set(
-            Object.entries(this.table as unknown as Record<string, SQLiteColumn>)
-                .filter(([, col]) => identityCols.has(col))
+            Object.entries(this.table)
+                .filter(([, col]) => identityCols.has(col as SQLiteColumn))
                 .map(([key]) => key),
         );
         const defaultSet = Object.fromEntries(
             Object.entries(data as Record<string, unknown>).filter(([key]) => !identityProps.has(key)),
         );
         const setOnConflict = { ...(updateColumns ?? defaultSet), updatedAt: now };
-        const rows = (await (
-            this.insertBuilder.values(record) as unknown as {
-                onConflictDoUpdate: (cfg: { target: SQLiteColumn[]; set: unknown }) => {
-                    returning: () => Promise<unknown[]>;
-                };
-            }
-        )
+        const rows = (await this.insertBuilder
+            .values(record)
             .onConflictDoUpdate({ target: conflictColumns, set: setOnConflict })
             .returning()) as TTable['$inferSelect'][];
         return rows[0] as TTable['$inferSelect'];
@@ -261,13 +283,8 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
     async update(id: PKValue, data: Partial<TTable['$inferInsert']>): Promise<TTable['$inferSelect'] | undefined> {
         const updateData = { ...data, updatedAt: this.now() };
         this.validate('update', updateData);
-        const rows = (await (
-            this.db
-                .update(this.table as unknown as Parameters<typeof this.db.update>[0])
-                .set(updateData) as unknown as {
-                where: (c: SQL) => { returning: () => Promise<unknown[]> };
-            }
-        )
+        const rows = (await (this.db.update(this.table as Parameters<typeof this.db.update>[0]) as UpdateBuilder)
+            .set(updateData)
             .where(this.pkCondition(id))
             .returning()) as TTable['$inferSelect'][];
         return rows[0];
@@ -279,11 +296,9 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
         if (useSoftDelete && this.hasSoftDelete) {
             return this.update(id, { inUsed: 0 } as Partial<TTable['$inferInsert']>);
         }
-        await (
-            this.db.delete(this.table as unknown as Parameters<typeof this.db.delete>[0]) as unknown as {
-                where: (c: SQL) => Promise<unknown>;
-            }
-        ).where(this.pkCondition(id));
+        await (this.db.delete(this.table as Parameters<typeof this.db.delete>[0]) as DeleteBuilder).where(
+            this.pkCondition(id),
+        );
         return undefined;
     }
 
@@ -325,21 +340,15 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
         for (const [key, value] of Object.entries(this.table)) {
             if (value === column) return key;
         }
-        return (column as unknown as { name: string }).name;
+        return (column as { name: string }).name;
     }
 
     /** Count records matching an optional predicate. */
     async count(where?: Predicate, includeDeleted = false): Promise<number> {
         const condition = this.withActive(where, includeDeleted);
         const compiled = condition ? compilePredicate(condition) : undefined;
-        const base = (
-            this.db as unknown as {
-                select: (p: unknown) => { from: (t: unknown) => { where: (c: SQL) => Promise<unknown[]> } };
-            }
-        )
-            .select({ value: countFn() })
-            .from(this.table);
-        const result = (await (compiled ? base.where(compiled) : (base as unknown as Promise<unknown[]>))) as {
+        const base = (this.db as CountDb).select({ value: countFn() }).from(this.table);
+        const result = (await (compiled ? base.where(compiled) : base)) as {
             value: number;
         }[];
         return result[0]?.value ?? 0;
@@ -348,7 +357,9 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
     /** Combine a caller predicate with the soft-delete active filter. */
     private withActive(where: Predicate | undefined, includeDeleted?: boolean): Predicate | undefined {
         if (includeDeleted || !this.hasSoftDelete) return where;
-        const active: Predicate = { col: (this.table as unknown as SoftDeletableTable).inUsed, op: 'eq', value: 1 };
+        const table = this.table;
+        if (!('inUsed' in table)) return where;
+        const active: Predicate = { col: table.inUsed as SQLiteColumn, op: 'eq', value: 1 };
         if (!where) return active;
         return { and: [where, active] };
     }
