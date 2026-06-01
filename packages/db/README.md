@@ -2,7 +2,7 @@
 
 A **drizzle-free database facade**: typed DAOs over Bun SQLite / Cloudflare D1, a small predicate query spec, single-source-of-truth tables, and migration tooling. Drizzle ORM powers it internally but never appears in your application code — so the storage layer is swappable without touching call sites.
 
-> **v0.2.0 is a breaking redesign.** The public `DbClient` interface and `adapter.getDb()` are removed; DAOs now take a `DbAdapter`; `where`/`orderBy` use a ts-db predicate spec instead of drizzle expressions. See [Migrating from 0.1.x](#migrating-from-01x).
+> **v0.2.3 is a breaking redesign.** The public `DbClient` interface and `adapter.getDb()` are removed; DAOs now take a `DbAdapter`; `where`/`orderBy` use a ts-db predicate spec instead of drizzle expressions. See [Migrating from 0.1.x](#migrating-from-01x).
 
 ## Overview
 
@@ -15,7 +15,7 @@ Application code imports only `@gobing-ai/ts-db` — never `drizzle-orm`. drizzl
 | Component | Purpose |
 |-----------|---------|
 | `createDbAdapter` / `DbAdapter` | Construction + lifecycle + string-SQL escape; exposes an internal typed db to the DAO layer only |
-| `BunSqliteAdapter` | Bun SQLite implementation with statement caching and WAL pragmas |
+| `BunSqliteAdapter` | Bun SQLite implementation with statement caching and WAL pragmas (`@gobing-ai/ts-db/bun-sqlite`) |
 | `D1Adapter` | Cloudflare D1 implementation (no `@cloudflare/workers-types` dependency) |
 | `BaseDao` | Raw tier — `query`/`one`/`tx`, drizzle-free signatures |
 | `EntityDao` | Structured CRUD — predicate filters, soft delete, RETURNING, batch, upsert, cursor pagination, composite PK |
@@ -236,7 +236,8 @@ const stats = await queue.getStats();
 ### Migrations
 
 ```ts
-import { BunSqliteAdapter, applyMigrations } from '@gobing-ai/ts-db';
+import { applyMigrations } from '@gobing-ai/ts-db';
+import { BunSqliteAdapter } from '@gobing-ai/ts-db/bun-sqlite';
 
 const adapter = new BunSqliteAdapter({ databaseUrl: './data/app.db' });
 
