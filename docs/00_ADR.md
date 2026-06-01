@@ -124,3 +124,46 @@ boundaries) live as spur rules under `.spur/rules/` and must stay green.
 
 **Consequences.** A change that violates a boundary fails the gate, turning architecture into a
 checked guarantee. New cross-cutting invariants are added as spur rules, not just review habits.
+
+---
+
+## ADR-007: `defineTable` Is the Single Source of Truth — One Table → DDL + Zod
+
+**Status:** Accepted · **Date:** 2026-06-01 · **Targets:** next `@gobing-ai/ts-db` (0.2.3)
+
+**Context.** Today a persisted table is described in up to three places that drift independently: a
+Drizzle table object (for DAOs/types), a hand-written `CREATE TABLE` DDL string (for migrations), and
+a Zod schema (for boundary validation). Consumers feel this directly — e.g. spur's `packages/domain`
+maintains Drizzle `schema/*.ts` objects **and** a hand-written `DOMAIN_SCHEMA_SQL`. Hand-written DDL
+and `.sql` text-imports are also fragile: the `.sql` import broke the ts-libs build and is not
+portable through `tsc` build → npm publish → consumer bundlers, so it was removed in favour of
+inlined TS strings — which does not solve the drift, only the portability.
+
+Separately, ADR-005's `defineTable` lives in the main barrel and statically imports `drizzle-zod`,
+so the "optional" `drizzle-zod`/`zod` peers are loaded by *any* `@gobing-ai/ts-db` import — the
+optionality is not actually honoured (every consumer must install `drizzle-zod`).
+
+**Decision.** A Drizzle table object is the **single source of truth**; everything else is *derived*,
+never re-authored:
+
+1. **`defineTable(name, columns)` → `{ table, insertSchema, selectSchema, createTableSql }`.** The
+   DDL is generated from the Drizzle table via `getTableConfig` (runtime, no drizzle-kit CLI) and
+   covers columns, types, NOT NULL, defaults, PRIMARY KEY (incl. composite), UNIQUE, and FOREIGN KEYS.
+   Zod schemas continue to come from `drizzle-zod`.
+2. **No hand-written `CREATE TABLE` for tables that have a Drizzle definition.** Migrations compose
+   the generated `createTableSql`. Raw DDL strings / `.sql` files are disallowed for such tables.
+   (Hand-written SQL remains acceptable only for tables with no Drizzle object — and as inlined TS
+   strings, never `.sql` text-imports in a published package.)
+3. **Optionality made structural (fixes ADR-005's leak).** `defineTable` and its zod-deriving surface
+   move to a subpath export `@gobing-ai/ts-db/schema`. The main barrel (`@gobing-ai/ts-db`) does not
+   import `drizzle-zod`. Only consumers that import the subpath need the optional peers — verified by a
+   build-time smoke import of the main barrel **without** `drizzle-zod` installed.
+
+**Consequences.** One definition yields the DAO/type surface, the migration DDL, and the validation
+schema — drift becomes impossible. This is a 0.2.3 release for `ts-db` (a `defineTable` return-shape
+addition plus the `defineTable` subpath move). Downstream (spur `packages/domain`) replaces its
+hand-written `DOMAIN_SCHEMA_SQL` with composed `createTableSql` and re-points `defineTable` imports to
+the subpath. A spur rule (`no-hand-written-ddl-for-drizzle-tables`) enforces "no raw `CREATE TABLE`
+beside a Drizzle table; derive it." `getTableConfig`-based generation is proven feasible at runtime
+(columns/types/constraints/composite-PK/FK all extractable). Implementation is tracked as a task under
+`docs/tasks/`.
