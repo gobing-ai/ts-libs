@@ -315,11 +315,17 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
             limit: spec.limit,
         });
         const last = rows[rows.length - 1] as Record<string, unknown> | undefined;
+        const cursorResultKey = this.resultKeyForColumn(spec.cursorColumn);
         const nextCursor =
-            rows.length === spec.limit && last
-                ? (last[(spec.cursorColumn as unknown as { name: string }).name] as string | number)
-                : undefined;
+            rows.length === spec.limit && last ? (last[cursorResultKey] as string | number | undefined) : undefined;
         return nextCursor !== undefined ? { rows, nextCursor } : { rows };
+    }
+
+    private resultKeyForColumn(column: SQLiteColumn): string {
+        for (const [key, value] of Object.entries(this.table)) {
+            if (value === column) return key;
+        }
+        return (column as unknown as { name: string }).name;
     }
 
     /** Count records matching an optional predicate. */
