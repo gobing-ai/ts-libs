@@ -2,7 +2,7 @@ export { createDbAdapter, type DbAdapter, type DbAdapterConfig, type InternalDb 
 export { BunSqliteAdapter, type BunSqliteOptions } from './adapters/bun-sqlite';
 export { D1Adapter } from './adapters/d1';
 export { BaseDao, type TxHandle } from './base-dao';
-export { type DefinedTable, defineTable } from './define-table';
+
 export { type EmbeddedMigration, embeddedMigrations } from './embedded-migrations';
 export {
     type CursorListSpec,
