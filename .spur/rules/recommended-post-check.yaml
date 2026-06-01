@@ -1,0 +1,11 @@
+# Recommended post-check preset — stricter rules for development workflow.
+# Use with: spur rule run --preset recommended-post-check
+#
+# Runs AFTER tests (test-post-check). Enforces coverage gate on fresh lcov.info.
+name: recommended-post-check
+description: >
+  Post-test quality gates: TypeScript quality (TSDoc, imports, no suppressions),
+  test location enforcement, and coverage gate.
+extends:
+  - typescript
+  - quality

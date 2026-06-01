@@ -1,0 +1,11 @@
+# Recommended pre-check preset — portable rule categories from global install.
+# Use with: spur rule run --preset recommended-pre-check
+#
+# Runs BEFORE tests (test-pre-check). Biome + typecheck + structural/spur rules.
+# Excludes `quality` (coverage-gate) — that runs in post-check after tests
+# regenerate .coverage/lcov.info.
+name: recommended-pre-check
+extends:
+  - typescript
+  - structure
+  - meta
