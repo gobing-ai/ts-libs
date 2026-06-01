@@ -29,6 +29,7 @@
         "prepare": "lefthook install",
         "bump-ver": "bun scripts/builder.ts bump-version",
         "drop-tags": "bun scripts/builder.ts drop-tags",
+        "clean": "bun scripts/builder.ts clean",
         "build": "bun scripts/builder.ts build",
         "smoke:dist": "bun scripts/builder.ts smoke-dist-imports",
         "typecheck": "bun scripts/builder.ts typecheck",
