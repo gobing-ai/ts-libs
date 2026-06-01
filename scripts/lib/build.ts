@@ -1,4 +1,4 @@
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, posix, relative, resolve, sep } from 'node:path';
 import { buildConfig, repoRoot } from '../config';
 import type { Spawn } from './command';
@@ -143,7 +143,14 @@ export async function runWorkspaceScript(
     }
 }
 
+export async function cleanPackages(packages: WorkspacePackage[]): Promise<void> {
+    for (const pkg of packages) {
+        await rm(resolve(repoRoot, pkg.dir, 'dist'), { recursive: true, force: true });
+    }
+}
+
 export async function buildPackages(packages: WorkspacePackage[], spawn?: Spawn): Promise<void> {
+    await cleanPackages(packages);
     await runWorkspaceScript(packages, 'build', spawn);
     await smokeDistImports(packages, spawn);
 }
