@@ -76,7 +76,7 @@ describe('AgentDetector', () => {
             processExecutor: new FakeExecutor(() => ({ stdout: 'pi 1.2.3' })),
         });
         const detected = await new AgentDetector({ runner }).detectOne('pi');
-        expect(detected).toMatchObject({ installed: true, version: 'pi 1.2.3' });
+        expect(detected).toMatchObject({ installed: true, version: '1.2.3' });
     });
 
     test('reports unknown and unparsable agents', async () => {
@@ -108,6 +108,25 @@ describe('DoctorRunner', () => {
         });
         const result = await doctor.runOne('pi');
         expect(result).toMatchObject({ agent: 'pi', installed: true, authenticated: true, usable: true });
+    });
+
+    test('does not treat a blank provider key as pi authentication', async () => {
+        const runner = new AiRunner({
+            processExecutor: new FakeExecutor((options) =>
+                options.args?.includes('--version') === true
+                    ? { stdout: 'pi 1.2.3' }
+                    : // pi auth fallback (--list-models) reports unauthenticated
+                      { stdout: 'not authenticated' },
+            ),
+        });
+        const doctor = new DoctorRunner({
+            runner,
+            agentDetector: new AgentDetector({ runner }),
+            env: { GOOGLE_API_KEY: '   ' },
+        });
+        const result = await doctor.runOne('pi');
+        expect(result.authenticated).toBe(false);
+        expect(result.usable).toBe(false);
     });
 
     test('runs all doctor checks and handles unsupported auth commands', async () => {
