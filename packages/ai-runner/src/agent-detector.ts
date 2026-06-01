@@ -103,7 +103,7 @@ export class AgentDetector {
         return {
             name: agent,
             installed: true,
-            version: output.split('\n')[0] ?? match.groups.version,
+            version: match.groups.version,
             channels: [],
             error: null,
         };
