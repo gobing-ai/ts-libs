@@ -1,10 +1,13 @@
 import type { ProcessExecutor } from '@gobing-ai/ts-runtime';
 import { AgentDetectionEvaluator } from '../evaluators/agent-detection-evaluator';
+import { CoverageGateEvaluator } from '../evaluators/coverage-gate-evaluator';
 import { ExitCodeEvaluator } from '../evaluators/exit-code-evaluator';
 import { ForbiddenImportEvaluator } from '../evaluators/forbidden-import-evaluator';
 import { PathEvaluator } from '../evaluators/path-evaluator';
 import { RegexEvaluator } from '../evaluators/regex-evaluator';
 import { SecretsScannerEvaluator } from '../evaluators/secrets-scanner-evaluator';
+import { TestLocationEvaluator } from '../evaluators/test-location-evaluator';
+import { TsdocExportEvaluator } from '../evaluators/tsdoc-export-evaluator';
 import { JsonFormatter } from '../formatters/json';
 import { TextFormatter } from '../formatters/text';
 import type { RuleEngineHost } from './rule-engine-host';
@@ -21,6 +24,9 @@ export function registerBuiltins(host: RuleEngineHost, executor?: ProcessExecuto
     host.evaluators.register('exit-code', new ExitCodeEvaluator(executor), 'builtin');
     host.evaluators.register('secrets-scanner', new SecretsScannerEvaluator(), 'builtin');
     host.evaluators.register('agent-detection', new AgentDetectionEvaluator(), 'builtin');
+    host.evaluators.register('coverage-gate', new CoverageGateEvaluator(), 'builtin');
+    host.evaluators.register('tsdoc-export', new TsdocExportEvaluator(), 'builtin');
+    host.evaluators.register('test-location', new TestLocationEvaluator(), 'builtin');
     host.formatters.register('text', new TextFormatter(), 'builtin');
     host.formatters.register('json', new JsonFormatter(), 'builtin');
 }
