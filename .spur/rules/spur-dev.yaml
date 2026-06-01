@@ -6,4 +6,4 @@ description: >
   test location enforcement, and coverage gate.
 extends:
   - typescript
-  - quality/coverage-gate
+  - quality
