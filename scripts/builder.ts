@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { buildPackages, fixDistRoots, smokeDistImports, typecheckPackages } from './lib/build';
+import { buildPackages, cleanPackages, fixDistRoots, smokeDistImports, typecheckPackages } from './lib/build';
 import { bumpVersion, dropTags, publishPackages } from './lib/release-commands';
 import { findWorkspacePackages } from './lib/workspace';
 
@@ -30,6 +30,12 @@ try {
         case 'build': {
             const packages = await findWorkspacePackages();
             await buildPackages(packages);
+            break;
+        }
+
+        case 'clean': {
+            const packages = await findWorkspacePackages();
+            await cleanPackages(packages);
             break;
         }
 
@@ -68,6 +74,7 @@ function usage(commandUsage?: string): never {
 Commands:
   bump-version <version> [--push]
   drop-tags <version> [--remote]
+  clean
   build
   typecheck
   fix-dist-esm-extensions <dist-dir> [...dist-dir]
