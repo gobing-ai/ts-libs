@@ -1,20 +1,25 @@
 import { type SQLiteColumnBuilderBase, sqliteTable } from 'drizzle-orm/sqlite-core';
 import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 import type { ZodType } from 'zod';
+import { generateCreateTableSql } from './ddl';
 
 /**
- * A table definition bundled with its drizzle-zod validation schemas.
+ * A table definition bundled with its drizzle-zod validation schemas and DDL.
  *
  * The single source of truth (G2): one table authored once yields the drizzle
- * table (for queries/migrations) plus insert/select zod schemas (for boundary
- * validation), with no parallel re-authoring.
+ * table (for queries/migrations), insert/select zod schemas (for boundary
+ * validation), and CREATE TABLE DDL (for migrations) — with no parallel
+ * re-authoring.
  *
- * The zod schemas are derived lazily — only materialised the first time they are
- * read — so a consumer that only needs the table pays nothing extra.
+ * The zod schemas and DDL are derived lazily — only materialised the first
+ * time they are read — so a consumer that only needs the table pays nothing
+ * extra.
  *
- * `defineTable`, `insertSchema`, and `selectSchema` require the optional peers
- * `zod` and `drizzle-zod`. Consumers that never validate need not install them
- * and simply use `createDbAdapter` + raw `sqliteTable` + the column helpers.
+ * `defineTable`, `insertSchema`, `selectSchema`, and `createTableSql` require
+ * the optional peers `zod` and `drizzle-zod`. Consumers that never validate and
+ * don't need generated DDL can use `createDbAdapter` + raw `sqliteTable` +
+ * column helpers without installing those peers. Import from
+ * `@gobing-ai/ts-db/schema` to opt in.
  */
 export interface DefinedTable<TTable> {
     /** The underlying drizzle table — pass to DAOs, migrations, queries. */
@@ -23,13 +28,17 @@ export interface DefinedTable<TTable> {
     readonly insertSchema: ZodType;
     /** Zod schema validating a selected row. */
     readonly selectSchema: ZodType;
+    /** `CREATE TABLE IF NOT EXISTS` DDL generated from the table definition (lazy). */
+    readonly createTableSql: string;
 }
 
 /**
- * Define a SQLite table and derive its validation schemas in one place (G2).
+ * Define a SQLite table and derive its validation schemas and DDL in one place (G2).
  *
  * @example
  * ```ts
+ * import { defineTable } from '@gobing-ai/ts-db/schema';
+ *
  * export const users = defineTable('users', {
  *     id: text('id').primaryKey(),
  *     email: text('email').notNull().unique(),
@@ -37,6 +46,7 @@ export interface DefinedTable<TTable> {
  * });
  * users.table          // drizzle table for DAOs/migrations
  * users.insertSchema   // zod schema derived from the table
+ * users.createTableSql // CREATE TABLE IF NOT EXISTS "users" (...)
  * ```
  */
 export function defineTable<TName extends string, TColumns extends Record<string, SQLiteColumnBuilderBase>>(
@@ -47,6 +57,7 @@ export function defineTable<TName extends string, TColumns extends Record<string
 
     let insert: ZodType | undefined;
     let select: ZodType | undefined;
+    let ddl: string | undefined;
 
     return {
         table,
@@ -61,6 +72,12 @@ export function defineTable<TName extends string, TColumns extends Record<string
                 select = createSelectSchema(table) as unknown as ZodType;
             }
             return select;
+        },
+        get createTableSql(): string {
+            if (ddl === undefined) {
+                ddl = generateCreateTableSql(table);
+            }
+            return ddl;
         },
     };
 }
