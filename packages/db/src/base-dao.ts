@@ -2,6 +2,21 @@ import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import type { DbAdapter, InternalDb } from './adapter';
 import { compileOrderBy, compilePredicate, type ListSpec, type Predicate } from './query-spec';
 
+type TransactionalDb = {
+    transaction: <T>(cb: (tx: TxHandle) => Promise<T>) => Promise<T>;
+};
+
+type SelectQuery<T> = Promise<T[]> & {
+    where: (condition: unknown) => SelectQuery<T>;
+    orderBy: (...order: unknown[]) => SelectQuery<T>;
+    limit: (limit: number) => SelectQuery<T>;
+    offset: (offset: number) => SelectQuery<T>;
+};
+
+function asSelectQuery<T>(query: object): SelectQuery<T> {
+    return query as SelectQuery<T>;
+}
+
 /**
  * A transaction-scoped handle passed to {@link BaseDao.tx} callbacks.
  *
@@ -42,9 +57,7 @@ export abstract class BaseDao {
      * The callback receives a transaction-scoped db handle.
      */
     protected async tx<T>(fn: (tx: TxHandle) => Promise<T>): Promise<T> {
-        return (this.db as { transaction: (cb: (tx: TxHandle) => Promise<T>) => Promise<T> }).transaction((tx) =>
-            fn(tx),
-        );
+        return (this.db as TransactionalDb).transaction((tx) => fn(tx));
     }
 
     /**
@@ -58,17 +71,12 @@ export abstract class BaseDao {
         const order = spec.orderBy ? compileOrderBy(spec.orderBy) : [];
 
         // drizzle's fluent builder is internal here; the public input is the spec.
-        let q = (this.db as InternalDb).select().from(table) as unknown as {
-            where: (c: unknown) => typeof q;
-            orderBy: (...o: unknown[]) => typeof q;
-            limit: (n: number) => typeof q;
-            offset: (n: number) => typeof q;
-        };
+        let q = asSelectQuery<T>(this.db.select().from(table));
         if (condition) q = q.where(condition);
         if (order.length > 0) q = q.orderBy(...order);
         if (spec.limit !== undefined) q = q.limit(spec.limit);
         if (spec.offset !== undefined) q = q.offset(spec.offset);
-        return (await (q as unknown as Promise<T[]>)) ?? [];
+        return (await q) ?? [];
     }
 
     /** Run a SELECT and return the first matching row, or undefined. */
