@@ -3,6 +3,58 @@ import type { DbAdapter } from './adapter';
 import { EntityDao } from './entity-dao';
 import { queueJobs } from './schema/queue-jobs';
 
+type SelectGroupByQuery = {
+    groupBy: (group: unknown) => Promise<unknown[]>;
+};
+
+type SelectWhereQuery = {
+    where: (where: unknown) => Promise<unknown[]>;
+};
+
+type SelectReadyQuery = {
+    where: (where: unknown) => {
+        orderBy: (order: unknown) => { limit: (limit: number) => Promise<unknown[]> };
+    };
+};
+
+type QueueSelectDb = {
+    select: (projection: unknown) => {
+        from: (table: unknown) => SelectGroupByQuery & SelectWhereQuery;
+    };
+};
+
+type QueueReadyDb = {
+    select: () => {
+        from: (table: unknown) => SelectReadyQuery;
+    };
+};
+
+type QueueUpdateReturningDb = {
+    update: (table: unknown) => {
+        set: (value: unknown) => {
+            where: (where: unknown) => {
+                returning: () => Promise<unknown[]>;
+            };
+        };
+    };
+};
+
+type QueueUpdateVoidDb = {
+    update: (table: unknown) => {
+        set: (value: unknown) => {
+            where: (where: unknown) => Promise<unknown>;
+        };
+    };
+};
+
+type QueueUpdateChangesDb = {
+    update: (table: unknown) => {
+        set: (value: unknown) => {
+            where: (where: unknown) => Promise<{ changes: number }>;
+        };
+    };
+};
+
 /**
  * Aggregate queue statistics by job status.
  */
@@ -101,11 +153,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
      * Get aggregate job counts by status.
      */
     async getStats(): Promise<QueueStats> {
-        const result = await (
-            this.db as unknown as {
-                select: (fn: unknown) => { from: (t: unknown) => { groupBy: (g: unknown) => Promise<unknown[]> } };
-            }
-        )
+        const result = await (this.db as QueueSelectDb)
             .select({
                 status: queueJobs.status,
                 count: sql`count(*)`,
@@ -128,11 +176,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
      * Count jobs by status.
      */
     async countByStatus(status: string): Promise<number> {
-        const result = await (
-            this.db as unknown as {
-                select: (fn: unknown) => { from: (t: unknown) => { where: (w: unknown) => Promise<unknown[]> } };
-            }
-        )
+        const result = await (this.db as QueueSelectDb)
             .select({ value: sql`count(*)` })
             .from(queueJobs)
             .where(sql`${queueJobs.status} = ${status}`);
@@ -146,17 +190,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
     async findPending(batchSize: number): Promise<QueueJobRecord[]> {
         const now = this.now();
 
-        const result = await (
-            this.db as unknown as {
-                select: () => {
-                    from: (t: unknown) => {
-                        where: (w: unknown) => {
-                            orderBy: (o: unknown) => { limit: (l: number) => Promise<unknown[]> };
-                        };
-                    };
-                };
-            }
-        )
+        const result = await (this.db as QueueReadyDb)
             .select()
             .from(queueJobs)
             .where(
@@ -180,17 +214,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
 
         const now = this.now();
 
-        const result = await (
-            this.db as unknown as {
-                update: (t: unknown) => {
-                    set: (v: unknown) => {
-                        where: (w: unknown) => {
-                            returning: () => Promise<unknown[]>;
-                        };
-                    };
-                };
-            }
-        )
+        const result = await (this.db as QueueUpdateReturningDb)
             .update(queueJobs)
             .set({ status: 'processing', processingAt: now, updatedAt: now })
             .where(
@@ -217,11 +241,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
 
         const now = this.now();
 
-        await (
-            this.db as unknown as {
-                update: (t: unknown) => { set: (v: unknown) => { where: (w: unknown) => Promise<unknown> } };
-            }
-        )
+        await (this.db as QueueUpdateVoidDb)
             .update(queueJobs)
             .set({ status: 'processing', processingAt: now, updatedAt: now })
             .where(and(inArray(queueJobs.id, ids), eq(queueJobs.status, 'pending')));
@@ -268,13 +288,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
     async resetStuckJobs(visibilityTimeout: number): Promise<number> {
         const cutoff = this.now() - visibilityTimeout;
 
-        const result = await (
-            this.db as unknown as {
-                update: (t: unknown) => {
-                    set: (v: unknown) => { where: (w: unknown) => Promise<{ changes: number }> };
-                };
-            }
-        )
+        const result = await (this.db as QueueUpdateChangesDb)
             .update(queueJobs)
             .set({ status: 'pending', processingAt: null, updatedAt: this.now() })
             .where(
@@ -293,13 +307,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
     async failExpiredJobs(): Promise<number> {
         const now = this.now();
 
-        const result = await (
-            this.db as unknown as {
-                update: (t: unknown) => {
-                    set: (v: unknown) => { where: (w: unknown) => Promise<{ changes: number }> };
-                };
-            }
-        )
+        const result = await (this.db as QueueUpdateChangesDb)
             .update(queueJobs)
             .set({
                 status: 'failed',
