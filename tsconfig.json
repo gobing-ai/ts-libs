@@ -12,6 +12,18 @@
         },
         {
             "path": "./packages/infra"
+        },
+        {
+            "path": "./packages/ai-runner"
+        },
+        {
+            "path": "./packages/rule-engine"
+        },
+        {
+            "path": "./packages/dual-workflow-engine"
+        },
+        {
+            "path": "./packages/llm-jsonl-importer"
         }
     ]
 }
