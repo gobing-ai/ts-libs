@@ -257,9 +257,9 @@ describe('EntityDao — facade capabilities', () => {
 
     test('createMany inserts a batch and returns rows', async () => {
         const rows = await eventsDao.createMany([
-            { id: 'e1', name: 'first', seq: 1 },
-            { id: 'e2', name: 'second', seq: 2 },
-            { id: 'e3', name: 'third', seq: 3 },
+            { id: 'e1', name: 'first', seq: 1, createdAt: 1000, updatedAt: 1000 },
+            { id: 'e2', name: 'second', seq: 2, createdAt: 2000, updatedAt: 2000 },
+            { id: 'e3', name: 'third', seq: 3, createdAt: 3000, updatedAt: 3000 },
         ]);
         expect(rows).toHaveLength(3);
         expect(rows.map((r) => r.id).sort()).toEqual(['e1', 'e2', 'e3']);
@@ -309,6 +309,20 @@ describe('EntityDao — facade capabilities', () => {
         const ids1 = page1.rows.map((r) => r.id);
         const ids2 = page2.rows.map((r) => r.id);
         expect(ids1.some((id) => ids2.includes(id))).toBeFalse();
+    });
+
+    test('listByCursor derives nextCursor from the result property key', async () => {
+        const page1 = await eventsDao.listByCursor({ cursorColumn: events.createdAt, limit: 2 });
+        expect(page1.rows).toHaveLength(2);
+        expect(page1.nextCursor).toBe(page1.rows.at(-1)?.createdAt);
+
+        const page2 = await eventsDao.listByCursor({
+            cursorColumn: events.createdAt,
+            limit: 2,
+            cursor: page1.nextCursor,
+        });
+        expect(page2.rows).toHaveLength(2);
+        expect(page2.rows[0]?.createdAt).toBeGreaterThan(page1.rows.at(-1)?.createdAt ?? 0);
     });
 
     test('listByCursor last page has no nextCursor', async () => {
