@@ -3,7 +3,8 @@
     "compilerOptions": {
         "paths": {
             "@gobing-ai/ts-db": ["../db/src/index"],
-            "@gobing-ai/ts-runtime": ["../runtime/src/index"]
+            "@gobing-ai/ts-runtime": ["../runtime/src/index"],
+            "@gobing-ai/ts-runtime/bun-sqlite": ["../runtime/src/bun-sqlite"]
         }
     },
     "include": ["src/**/*.ts", "tests/**/*.ts"]
