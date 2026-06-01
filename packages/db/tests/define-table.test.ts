@@ -2,9 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { text } from 'drizzle-orm/sqlite-core';
 import type { DbAdapter } from '../src/adapter';
 import { BunSqliteAdapter } from '../src/adapters/bun-sqlite';
-import { defineTable } from '../src/define-table';
 import { EntityDao } from '../src/entity-dao';
 import { standardColumns } from '../src/schema/common';
+import { defineTable } from '../src/schema/define-table';
 
 const accounts = defineTable('accounts', {
     id: text('id').primaryKey(),
