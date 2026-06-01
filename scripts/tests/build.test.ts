@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import type { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
     buildPackages,
+    cleanPackages,
     fixDistRoots,
     packageEntryPath,
     resolveSpecifier,
@@ -129,9 +130,10 @@ describe('smokeDistImports', () => {
             spawn,
         );
 
-        expect(calls.map((call) => call.command)).toEqual(['bun', 'bun', 'bun', 'bun']);
+        expect(calls.map((call) => call.command)).toEqual(['bun', 'bun', 'bun', 'bun', 'node']);
         expect(calls[0].args.join(' ')).toContain('./packages/utils/dist/index.js');
         expect(calls[3].args.join(' ')).toContain('./packages/infra/dist/index.js');
+        expect(calls[4].args.join(' ')).toContain('./packages/db/dist/index.js');
     });
 
     test('reports command output when smoke import fails', () => {
@@ -179,6 +181,7 @@ describe('workspace scripts', () => {
                 pkg('@gobing-ai/ts-runtime', 'packages/runtime', {
                     dependencies: { '@gobing-ai/ts-utils': 'workspace:*' },
                 }),
+                pkg('@gobing-ai/ts-db', 'packages/db', { dependencies: { '@gobing-ai/ts-runtime': 'workspace:*' } }),
             ],
             spawn,
         );
@@ -186,9 +189,28 @@ describe('workspace scripts', () => {
         expect(calls).toEqual([
             'bun run --filter @gobing-ai/ts-utils build',
             'bun run --filter @gobing-ai/ts-runtime build',
+            'bun run --filter @gobing-ai/ts-db build',
             'bun -e const p = "./packages/utils/dist/index.js"; await import(p)',
             'bun -e const p = "./packages/runtime/dist/index.js"; await import(p)',
+            'bun -e const p = "./packages/db/dist/index.js"; await import(p)',
+            'node -e const p = "./packages/db/dist/index.js"; import(p)',
         ]);
+    });
+
+    test('clean removes workspace dist directories', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'ts-libs-clean-'));
+        try {
+            const packageDir = join(root, 'packages', 'utils');
+            const distDir = join(packageDir, 'dist');
+            await mkdir(distDir, { recursive: true });
+            await writeFile(join(distDir, 'stale.js'), 'export const stale = true;\n');
+
+            await cleanPackages([pkg('@gobing-ai/ts-utils', packageDir)]);
+
+            await expect(readFile(join(distDir, 'stale.js'), 'utf-8')).rejects.toThrow();
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
     });
 
     test('typecheck delegates to the workspace script runner', async () => {
