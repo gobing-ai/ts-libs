@@ -32,6 +32,14 @@
             "types": "./dist/index.d.ts",
             "import": "./dist/index.js"
         },
+        "./bun-sqlite": {
+            "types": "./dist/adapters/bun-sqlite.d.ts",
+            "import": "./dist/adapters/bun-sqlite.js"
+        },
+        "./d1": {
+            "types": "./dist/adapters/d1.d.ts",
+            "import": "./dist/adapters/d1.js"
+        },
         "./schema": {
             "types": "./dist/schema/index.d.ts",
             "import": "./dist/schema/index.js"
