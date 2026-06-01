@@ -39,6 +39,11 @@ export interface DoctorRunnerOptions {
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 
+/** True when a value is a defined, non-blank string. */
+function isNonEmpty(value: string | undefined): boolean {
+    return value !== undefined && value.trim().length > 0;
+}
+
 /** Runs installation and auth health checks for supported coding agents. */
 export class DoctorRunner {
     private readonly detector: AgentDetector;
@@ -82,9 +87,14 @@ export class DoctorRunner {
     }
 
     private async checkAuth(agent: AgentName): Promise<boolean> {
-        if (agent === 'gemini') return this.fs.exists(join(homedir(), '.gemini', 'settings.json'));
-        if (agent === 'codex' && (await this.fs.exists(join(homedir(), '.codex', 'auth.json')))) return true;
-        if (agent === 'pi' && (this.env.GOOGLE_API_KEY !== undefined || this.env.ANTHROPIC_API_KEY !== undefined))
+        // gemini/codex expose no auth-status command; treat a non-empty credential
+        // file as authenticated. An empty/zero-byte file is a stale-credential
+        // false positive, so existence alone is insufficient.
+        if (agent === 'gemini') return this.hasNonEmptyFile(join(homedir(), '.gemini', 'settings.json'));
+        if (agent === 'codex' && (await this.hasNonEmptyFile(join(homedir(), '.codex', 'auth.json')))) return true;
+        // pi reads provider keys from the environment; require a non-empty value
+        // rather than mere presence (an empty export is not a usable credential).
+        if (agent === 'pi' && (isNonEmpty(this.env.GOOGLE_API_KEY) || isNonEmpty(this.env.ANTHROPIC_API_KEY)))
             return true;
         const command = this.runner.runAuthCommand(agent, { timeout: this.timeout });
         if (command === null) return false;
@@ -93,5 +103,12 @@ export class DoctorRunner {
             result.exitCode === 0 &&
             !/not authenticated|not logged|unauthenticated/i.test(`${result.stdout}\n${result.stderr}`)
         );
+    }
+
+    /** True when the path exists and has a non-zero size. */
+    private async hasNonEmptyFile(path: string): Promise<boolean> {
+        const stat = await this.fs.stat(path);
+        if (stat === null) return false;
+        return stat.isFile() && stat.size > 0;
     }
 }
