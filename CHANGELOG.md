@@ -6,7 +6,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
-## [0.2.3]
+## [0.2.4]
+
+### Changed
+
+- **`ts-db`:** Extracted inline query-builder type annotations into named type aliases (`TransactionalDb`, `SelectQuery`, `InsertBuilder`, `UpdateBuilder`, `DeleteBuilder`, `CountQuery`, `ReturningRows`) across `BaseDao`, `EntityDao`, and `QueueJobDao`. No API surface change — purely internal readability improvement.
 
 ### Breaking Changes
 
@@ -96,7 +100,8 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[0.2.3]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.5...HEAD
+[0.2.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.3...HEAD
+[0.2.3]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.5...@gobing-ai/ts-libs-v0.2.3
 [0.1.5]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.4...@gobing-ai/ts-libs-v0.1.5
 [0.1.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.3...@gobing-ai/ts-libs-v0.1.4
 [0.1.3]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.2...@gobing-ai/ts-libs-v0.1.3
