@@ -7,5 +7,7 @@ name: recommended
 extends:
   - typescript
   - structure
-  - quality
   - meta
+# Note: `quality` (coverage-gate) is intentionally excluded — it runs only in
+# test-post-check, after `bun run test` regenerates .coverage/lcov.info. Including
+# it here would gate coverage in test-pre-check against a stale/partial lcov.
