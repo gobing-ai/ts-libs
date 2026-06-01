@@ -1,4 +1,4 @@
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { NodeFileSystem } from '@gobing-ai/ts-runtime';
 import { parse } from 'yaml';
 import {
@@ -12,22 +12,39 @@ import {
 
 /** Options for loading rule presets. */
 export interface RuleLoaderOptions {
-    /** Project working directory. */
-    workdir: string;
-    /** Rule root directory. Defaults to ".spur/rules". */
-    rulesRoot?: string;
+    /**
+     * Ordered rule root directories, highest priority first. Presets, category
+     * folders, and rule files are resolved across all roots: the highest-priority
+     * root that provides a given relative path wins, and gaps are filled from
+     * lower-priority roots. The caller owns root discovery and ordering — this
+     * loader stays agnostic to any project layout convention.
+     */
+    roots: string[];
 }
 
-/** Load and normalize a preset by name. */
+/** Merged view of rule roots: winning file per relative path, plus categories. */
+interface MergedRoots {
+    /** Normalized relative path (e.g. `quality/coverage-gate.yaml`) → winning absolute path. */
+    readonly files: ReadonlyMap<string, string>;
+    /** Category folder names visible across all roots. */
+    readonly categories: ReadonlySet<string>;
+}
+
+/**
+ * Load and normalize a preset by name, resolving across one or more rule roots.
+ *
+ * Roots are merged in order: the first root to provide a relative path owns it,
+ * so a caller can layer project-local rules over shared/global rules and inherit
+ * the rest of a preset's categories from the lower-priority roots.
+ */
 export async function loadPresetRules(name: string, options: RuleLoaderOptions): Promise<ConstraintRule[]> {
-    const fs = new NodeFileSystem();
-    const root = resolve(options.workdir, options.rulesRoot ?? '.spur/rules');
-    const presetPath = await findDefinitionPath(root, name);
+    const merged = await buildMergedRoots(options.roots.map((root) => resolve(root)));
+    const presetPath = findMergedPreset(merged, name);
     if (presetPath === null) return [];
     const preset = PresetDefinitionSchema.parse(await readStructuredFile(presetPath)) as PresetDefinition;
     const rules: ConstraintRule[] = [];
     for (const entry of preset.extends) {
-        rules.push(...(await loadPresetEntry(root, entry, new Set([name]))));
+        rules.push(...(await loadPresetEntry(merged, entry, new Set([name]))));
     }
     const disabled = new Set(preset.disable ?? []);
     const normalized = rules.filter((rule) => !disabled.has(rule.id));
@@ -37,7 +54,6 @@ export async function loadPresetRules(name: string, options: RuleLoaderOptions):
             rule.fix = { ...(rule.fix ?? { mode: 'none' }), ...override.fix };
         }
     }
-    await fs.exists(root);
     return normalized;
 }
 
@@ -46,43 +62,122 @@ export async function loadRuleFile(filePath: string): Promise<ConstraintRule[]> 
     return normalizeRuleFile(await readStructuredFile(resolve(filePath)), dirname(resolve(filePath)));
 }
 
-async function loadPresetEntry(root: string, entry: string, seen: Set<string>): Promise<ConstraintRule[]> {
-    const presetPath = await findDefinitionPath(root, entry);
+async function loadPresetEntry(merged: MergedRoots, entry: string, seen: Set<string>): Promise<ConstraintRule[]> {
+    // Sub-preset reference — recurse (cycle-guarded).
+    const presetPath = findMergedPreset(merged, entry);
     if (presetPath !== null && !seen.has(entry)) {
         seen.add(entry);
         const preset = PresetDefinitionSchema.safeParse(await readStructuredFile(presetPath));
         if (preset.success) {
             const rules: ConstraintRule[] = [];
-            for (const child of preset.data.extends) rules.push(...(await loadPresetEntry(root, child, seen)));
+            for (const child of preset.data.extends) rules.push(...(await loadPresetEntry(merged, child, seen)));
             return rules.filter((rule) => !(preset.data.disable ?? []).includes(rule.id));
         }
     }
 
-    const categoryDir = resolve(root, entry);
-    const fs = new NodeFileSystem();
-    if (!(await fs.exists(categoryDir))) return [];
-    const entries = (await fs.readDir(categoryDir)).filter((file) => /\.(ya?ml|json)$/i.test(file)).sort();
-    const rules: ConstraintRule[] = [];
-    for (const file of entries) {
-        rules.push(...(await loadRuleFile(join(categoryDir, file))));
+    // Category folder reference — load every winning file under that prefix.
+    if (merged.categories.has(entry)) {
+        const rules: ConstraintRule[] = [];
+        for (const absPath of mergedFilesInCategory(merged, entry)) {
+            rules.push(...(await loadRuleFile(absPath)));
+        }
+        return rules;
     }
-    return rules;
+
+    // Sub-path reference — a single winning rule file within a category.
+    const subPath = findMergedFile(merged, entry);
+    if (subPath !== null) return loadRuleFile(subPath);
+
+    return [];
 }
 
-async function findDefinitionPath(root: string, name: string): Promise<string | null> {
+/**
+ * Build the merged view across ordered roots.
+ *
+ * Roots are processed in the order supplied (highest priority first). The first
+ * root to provide a given relative path owns that file; later roots are shadowed.
+ */
+async function buildMergedRoots(roots: readonly string[]): Promise<MergedRoots> {
     const fs = new NodeFileSystem();
-    const candidates = [
-        resolve(root, `${name}.yaml`),
-        resolve(root, `${name}.yml`),
-        resolve(root, `${name}.json`),
-        resolve(root, name, 'index.yaml'),
-        resolve(root, name, 'index.yml'),
-        resolve(root, name, 'index.json'),
-    ];
-    for (const candidate of candidates) {
-        if (await fs.exists(candidate)) return candidate;
+    const files = new Map<string, string>();
+    const categories = new Set<string>();
+    for (const root of roots) {
+        for (const absPath of await walkYamlFiles(fs, root)) {
+            const relPath = relative(root, absPath).split(sep).join('/');
+            const slashIdx = relPath.indexOf('/');
+            if (slashIdx > 0) categories.add(relPath.slice(0, slashIdx));
+            if (!files.has(relPath)) files.set(relPath, absPath);
+        }
+        for (const dir of await listImmediateDirs(fs, root)) categories.add(dir);
+    }
+    return { files, categories };
+}
+
+/** Find a preset definition across roots: `<name>.{yaml,yml,json}` or `<name>/index.*`. */
+function findMergedPreset(merged: MergedRoots, name: string): string | null {
+    return firstHit(merged, [
+        `${name}.yaml`,
+        `${name}.yml`,
+        `${name}.json`,
+        `${name}/index.yaml`,
+        `${name}/index.yml`,
+        `${name}/index.json`,
+    ]);
+}
+
+/** Find a single rule file by sub-path entry (e.g. `typescript/tsdoc-exports`). */
+function findMergedFile(merged: MergedRoots, entry: string): string | null {
+    const hasExt = /\.(ya?ml|json)$/i.test(entry);
+    return firstHit(merged, hasExt ? [entry] : [`${entry}.yaml`, `${entry}.yml`, `${entry}.json`]);
+}
+
+/** Return the winning absolute path for the first matching relative candidate. */
+function firstHit(merged: MergedRoots, relCandidates: readonly string[]): string | null {
+    for (const rel of relCandidates) {
+        const hit = merged.files.get(rel);
+        if (hit !== undefined) return hit;
     }
     return null;
+}
+
+/** Winning files under a category prefix, sorted by relative path. */
+function mergedFilesInCategory(merged: MergedRoots, category: string): string[] {
+    const prefix = `${category}/`;
+    return [...merged.files.entries()]
+        .filter(([relPath]) => relPath.startsWith(prefix))
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([, absPath]) => absPath);
+}
+
+/** Recursively collect YAML/JSON file paths under a directory, skipping root-level `presets/`. */
+async function walkYamlFiles(fs: NodeFileSystem, dir: string, depth = 0): Promise<string[]> {
+    const stat = await fs.stat(dir);
+    if (stat === null || !stat.isDirectory()) return [];
+    const acc: string[] = [];
+    for (const entry of (await fs.readDir(dir)).sort()) {
+        if (depth === 0 && entry === 'presets') continue;
+        const fullPath = join(dir, entry);
+        const entryStat = await fs.stat(fullPath);
+        if (entryStat?.isDirectory()) {
+            acc.push(...(await walkYamlFiles(fs, fullPath, depth + 1)));
+        } else if (entryStat?.isFile() && /\.(ya?ml|json)$/i.test(entry)) {
+            acc.push(fullPath);
+        }
+    }
+    return acc;
+}
+
+/** List immediate subdirectory names of a root (excluding `presets`). */
+async function listImmediateDirs(fs: NodeFileSystem, dir: string): Promise<string[]> {
+    const stat = await fs.stat(dir);
+    if (stat === null || !stat.isDirectory()) return [];
+    const dirs: string[] = [];
+    for (const entry of await fs.readDir(dir)) {
+        if (entry === 'presets') continue;
+        const entryStat = await fs.stat(join(dir, entry));
+        if (entryStat?.isDirectory()) dirs.push(entry);
+    }
+    return dirs;
 }
 
 async function readStructuredFile(path: string): Promise<unknown> {
