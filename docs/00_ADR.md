@@ -193,3 +193,36 @@ from — not as an empty interface ahead of need.
 The config env accessors (`getNodeEnv`/`getProcessEnv`/`getDatabaseUrl`/`interpolateEnv`) reach
 `process.env` directly and are documented as node-bun-only; on Workers, callers must inject config
 rather than rely on `process`. Reintroducing a factory is a deliberate future ADR, not drift.
+
+---
+
+## ADR-009: `ts-infra` Telemetry Instruments Against the Global Provider; Export Is an Opt-In Subpath
+
+**Status:** Accepted · **Date:** 2026-06-02 · **Targets:** `@gobing-ai/ts-infra`
+
+**Context.** `ts-infra`'s telemetry both instrumented *and* half-owned a provider: `initTelemetry`
+constructed a bare `NodeTracerProvider` (no exporter — so it exported nothing), and the main barrel
+statically imported `@opentelemetry/sdk-trace-node` as a value. That made the SDK a *de-facto runtime
+dependency of every consumer* the moment they enabled telemetry, even BYO-collector or browser/edge
+consumers — and an exporter owned by a shared library forces one deployment-topology opinion (endpoint,
+protocol, auth, batching) on all of them, plus an OTel-version lock-step. By the "library instruments,
+app configures export" principle (and the same structural-optionality test as ADR-007), exporter
+ownership is a consumer concern, not a library concern.
+
+**Decision.** The core (`@gobing-ai/ts-infra`) **only instruments**: spans/metrics are recorded against
+the globally-registered OTel provider via `trace.getTracer()` / `metrics.getMeter()`, degrading to
+no-ops when none is registered. `initTelemetry` no longer constructs or registers any provider — it
+resolves config and flips the enabled flag. Export is opt-in through a dedicated subpath,
+`@gobing-ai/ts-infra/otel-node` (`initNodeTelemetry` / `shutdownNodeTelemetry`), which builds Node
+OTLP/HTTP tracer + meter providers and registers them globally. The OTLP exporter packages
+(`exporter-trace-otlp-http`, `exporter-metrics-otlp-http`, `resources`, `sdk-trace-node`,
+`sdk-metrics`) are **optional peers** (`peerDependenciesMeta.optional`); the main barrel imports none
+of them — proven by a shipped-artifact scan of `dist/index.js` and a static import-graph test. The OTel
+SDK peers move to `^2.0.0` (the current line); `@opentelemetry/api` stays a required peer at `^1.9.0`.
+
+**Consequences.** BYO and browser/edge consumers install nothing extra and hit no global-provider
+conflict; Node consumers get turnkey OTLP with one `initNodeTelemetry` call. Library and consumer OTel
+versions are decoupled — the app owns the exporter/collector matrix. A future Workers exporter is a new
+subpath (`/otel-workers`), not a change to the core. Containment is enforced by
+`tests/telemetry/optional-peers.test.ts`; a spur rule may later codify "no exporter import outside
+`otel-*` subpaths."
