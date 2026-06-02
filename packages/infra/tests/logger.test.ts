@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { getLogger, initializeLogger, setLoggerMuted } from '../src/logger';
 
 setLoggerMuted(true);
@@ -50,5 +50,47 @@ describe('logger', () => {
         initializeLogger('debug');
         const after = getLogger('reset-test');
         expect(after).not.toBe(before);
+    });
+
+    describe('level filtering', () => {
+        // These tests assert real console output, so they un-mute locally and
+        // restore the muted/default state afterward.
+        afterEach(() => {
+            setLoggerMuted(true);
+            initializeLogger('info');
+        });
+
+        test('suppresses output below the configured level', () => {
+            initializeLogger('warn');
+            setLoggerMuted(false);
+            const debugSpy = spyOn(console, 'debug').mockImplementation(() => {});
+            const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
+            const log = getLogger('filter-test');
+            log.debug('below threshold — dropped');
+            log.warn('at threshold — emitted');
+
+            expect(debugSpy).not.toHaveBeenCalled();
+            expect(warnSpy).toHaveBeenCalledTimes(1);
+            debugSpy.mockRestore();
+            warnSpy.mockRestore();
+        });
+
+        test('a logger cached before re-init honors the new level', () => {
+            // Regression: ConsoleLogger must read the level dynamically, not
+            // capture it at construction — otherwise cached loggers go stale.
+            setLoggerMuted(false);
+            initializeLogger('error');
+            const log = getLogger('stale-level');
+            const infoSpy = spyOn(console, 'log').mockImplementation(() => {});
+
+            log.info('dropped under error level');
+            expect(infoSpy).not.toHaveBeenCalled();
+
+            initializeLogger('info');
+            log.info('emitted after lowering the level');
+            expect(infoSpy).toHaveBeenCalledTimes(1);
+            infoSpy.mockRestore();
+        });
     });
 });
