@@ -228,6 +228,9 @@ describe('EventBus', () => {
             async enqueueBatch(_jobs: Array<{ type: string; payload: unknown }>) {
                 return [];
             },
+            async stats() {
+                return { pending: 0, processing: 0, completed: 0, failed: 0 };
+            },
         };
 
         const lifecycleCalls: Array<{ event: string; detail: unknown }> = [];
@@ -298,6 +301,9 @@ describe('EventBus', () => {
             },
             async enqueueBatch() {
                 return [];
+            },
+            async stats() {
+                return { pending: 0, processing: 0, completed: 0, failed: 0 };
             },
         };
 
