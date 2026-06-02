@@ -1,3 +1,4 @@
+import type { TestPathResolver } from '../resolvers/test-path-resolver';
 import type { ResultFormatter, RuleEvaluator } from '../types';
 import { CapabilityRegistry } from './capability-registry';
 
@@ -7,9 +8,12 @@ export class RuleEngineHost {
     readonly evaluators: CapabilityRegistry<RuleEvaluator>;
     /** Formatter registry keyed by formatter name. */
     readonly formatters: CapabilityRegistry<ResultFormatter>;
+    /** Test-path resolver registry keyed by language name. */
+    readonly resolvers: CapabilityRegistry<TestPathResolver>;
 
     constructor() {
         this.evaluators = new CapabilityRegistry<RuleEvaluator>('evaluator');
         this.formatters = new CapabilityRegistry<ResultFormatter>('formatter');
+        this.resolvers = new CapabilityRegistry<TestPathResolver>('resolver');
     }
 }
