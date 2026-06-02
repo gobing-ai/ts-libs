@@ -46,6 +46,8 @@ export interface RuleFixConfig {
 
 /** Rule file shape before normalization. */
 export interface ConstraintRuleFile {
+    /** Optional JSON Schema ref used by editors and loader validation. */
+    $schema?: string;
     /** File-level default include patterns. */
     include?: string[];
     /** File-level default exclude patterns. */
@@ -70,6 +72,8 @@ export interface PresetExtensions {
 
 /** Preset definition that composes category folders or other presets. */
 export interface PresetDefinition {
+    /** Optional JSON Schema ref used by editors and loader validation. */
+    $schema?: string;
     /** Preset name. */
     name: string;
     /** Category folders or preset names to compose. */
@@ -206,6 +210,7 @@ export const ConstraintRuleSchema = z.object({
 
 /** Zod schema for a constraint rule file. */
 export const ConstraintRuleFileSchema = z.object({
+    $schema: z.string().optional(),
     include: z.array(z.string()).optional(),
     exclude: z.array(z.string()).optional(),
     severity: z.enum(['error', 'warning', 'info']).optional(),
@@ -214,6 +219,7 @@ export const ConstraintRuleFileSchema = z.object({
 
 /** Zod schema for a preset definition. */
 export const PresetDefinitionSchema = z.object({
+    $schema: z.string().optional(),
     name: z.string().min(1),
     extends: z.array(z.string()).default([]),
     disable: z.array(z.string()).optional(),
