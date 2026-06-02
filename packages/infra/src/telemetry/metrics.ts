@@ -3,28 +3,21 @@
  * All degrade to no-ops when telemetry is disabled.
  */
 import { type Counter, type Histogram, metrics } from '@opentelemetry/api';
-import type { MeterProvider } from '@opentelemetry/sdk-metrics';
 
 export type { Counter, Histogram } from '@opentelemetry/api';
 
-import type { TelemetryConfig } from './config';
-
-let meterProvider: MeterProvider | undefined;
 let metricsInitialized = false;
 
 export function isMetricsInitialized(): boolean {
     return metricsInitialized;
 }
 
-export function getMeterProvider(): MeterProvider {
-    return meterProvider ?? (metrics.getMeterProvider() as MeterProvider);
-}
-
 const METER_NAME = '@gobing-ai/ts-infra';
 const METER_VERSION = '0.1.0';
 
+/** Meter from the globally-registered provider (no-op when none registered). */
 function getMeter() {
-    return getMeterProvider().getMeter(METER_NAME, METER_VERSION);
+    return metrics.getMeter(METER_NAME, METER_VERSION);
 }
 
 // ── Instrument cache ────────────────────────────────────────────────
@@ -45,20 +38,6 @@ function getOrCreateHistogram(key: string, name: string, description: string, un
     return instruments[key] as Histogram;
 }
 
-// ── HTTP server ─────────────────────────────────────────────────────
-
-export function getHttpServerRequestTotal(): Counter {
-    return getOrCreateCounter('httpSrvReq', 'http.server.request.total', 'Total inbound HTTP requests', '{request}');
-}
-
-export function getHttpServerRequestDuration(): Histogram {
-    return getOrCreateHistogram('httpSrvDur', 'http.server.request.duration', 'Inbound HTTP request duration');
-}
-
-export function getHttpServerRequestErrors(): Counter {
-    return getOrCreateCounter('httpSrvErr', 'http.server.request.errors', 'Inbound HTTP 5xx errors', '{error}');
-}
-
 // ── HTTP client ─────────────────────────────────────────────────────
 
 export function getHttpClientRequestTotal(): Counter {
@@ -71,20 +50,6 @@ export function getHttpClientRequestDuration(): Histogram {
 
 export function getHttpClientRequestErrors(): Counter {
     return getOrCreateCounter('httpCliErr', 'http.client.request.errors', 'Outbound HTTP errors', '{error}');
-}
-
-// ── DB ──────────────────────────────────────────────────────────────
-
-export function getDbOperationTotal(): Counter {
-    return getOrCreateCounter('dbOpTotal', 'db.client.operation.total', 'Total DB operations', '{operation}');
-}
-
-export function getDbOperationDuration(): Histogram {
-    return getOrCreateHistogram('dbOpDur', 'db.client.operation.duration', 'DB operation duration');
-}
-
-export function getDbOperationErrors(): Counter {
-    return getOrCreateCounter('dbOpErr', 'db.client.operation.errors', 'DB operation errors', '{error}');
 }
 
 // ── Event bus ───────────────────────────────────────────────────────
@@ -131,12 +96,18 @@ export function getSchedulerJobFailedTotal(): Counter {
 
 // ── Lifecycle ───────────────────────────────────────────────────────
 
-export function initMetrics(_config?: Partial<TelemetryConfig>): void {
+export function initMetrics(): void {
     if (metricsInitialized) return;
     metricsInitialized = true;
 }
 
 export function shutdownMetrics(): Promise<void> {
+    // The meter provider is owned by whoever registered it globally (the host
+    // app or `@gobing-ai/ts-infra/otel-node`). Here we only drop the instrument
+    // cache so post-shutdown getters rebuild against a fresh meter.
+    for (const key of Object.keys(instruments)) {
+        instruments[key] = undefined;
+    }
     metricsInitialized = false;
     return Promise.resolve();
 }
