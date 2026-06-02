@@ -2,17 +2,8 @@ import { and, count as countFn, eq, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 import type { DbAdapter } from './adapter';
 import { BaseDao } from './base-dao';
+import type { CountSelectDb, InsertBuilder, ReturningRows } from './drizzle-builders';
 import { compilePredicate, type OrderTerm, type Predicate } from './query-spec';
-
-type ReturningRows = {
-    returning: () => Promise<unknown[]>;
-};
-
-type InsertBuilder = {
-    values: (record: unknown) => ReturningRows & {
-        onConflictDoUpdate: (cfg: { target: SQLiteColumn[]; set: unknown }) => ReturningRows;
-    };
-};
 
 type UpdateBuilder = {
     set: (data: unknown) => {
@@ -22,16 +13,6 @@ type UpdateBuilder = {
 
 type DeleteBuilder = {
     where: (condition: SQL) => Promise<unknown>;
-};
-
-type CountQuery = Promise<unknown[]> & {
-    where: (condition: SQL) => Promise<unknown[]>;
-};
-
-type CountDb = {
-    select: (projection: unknown) => {
-        from: (table: unknown) => CountQuery;
-    };
 };
 
 /**
@@ -347,7 +328,7 @@ export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> ext
     async count(where?: Predicate, includeDeleted = false): Promise<number> {
         const condition = this.withActive(where, includeDeleted);
         const compiled = condition ? compilePredicate(condition) : undefined;
-        const base = (this.db as CountDb).select({ value: countFn() }).from(this.table);
+        const base = (this.db as CountSelectDb).select({ value: countFn() }).from(this.table);
         const result = (await (compiled ? base.where(compiled) : base)) as {
             value: number;
         }[];
