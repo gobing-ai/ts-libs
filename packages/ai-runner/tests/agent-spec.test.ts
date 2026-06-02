@@ -43,18 +43,62 @@ describe('AgentSpec persistence', () => {
     test('loadAgentSpecs rejects duplicate ids', () => {
         const dir = mkdtempSync(join(tmpdir(), 'agent-spec-dupe-'));
         const source = [
-            'id: "coder"',
-            'name: "Coder"',
-            'type: "codex"',
-            'workspace: "/repo"',
-            'purpose: "Implement"',
-            'tags: ["code"]',
+            'id: coder',
+            'name: Coder',
+            'type: codex',
+            'workspace: /repo',
+            'purpose: Implement',
+            'tags: [code]',
             'config:',
-            '  model: "gpt-5"',
+            '  model: gpt-5',
             '',
         ].join('\n');
         writeFileSync(join(dir, 'a.yaml'), source);
         writeFileSync(join(dir, 'b.yaml'), source);
         expect(() => loadAgentSpecs(dir)).toThrow('Duplicate agent id "coder"');
+    });
+
+    test('loadAgentSpecs rejects missing required fields', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'agent-spec-missing-'));
+        writeFileSync(join(dir, 'a.yaml'), 'id: coder\nname: Coder\ntype: codex');
+        expect(() => loadAgentSpecs(dir)).toThrow(ValueError);
+    });
+
+    test('loadAgentSpecs rejects non-array tags', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'agent-spec-bad-tags-'));
+        const source = [
+            'id: coder',
+            'name: Coder',
+            'type: codex',
+            'workspace: /repo',
+            'purpose: Implement',
+            'tags: "not-an-array"',
+            'config:',
+            '  model: gpt-5',
+            '',
+        ].join('\n');
+        writeFileSync(join(dir, 'a.yaml'), source);
+        expect(() => loadAgentSpecs(dir)).toThrow('"tags" must be a string array');
+    });
+
+    test('loadAgentSpecs rejects non-object config', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'agent-spec-bad-config-'));
+        const source = [
+            'id: coder',
+            'name: Coder',
+            'type: codex',
+            'workspace: /repo',
+            'purpose: Implement',
+            'tags: [code]',
+            'config: "not-an-object"',
+            '',
+        ].join('\n');
+        writeFileSync(join(dir, 'a.yaml'), source);
+        expect(() => loadAgentSpecs(dir)).toThrow('"config" must be an object');
+    });
+
+    test('loadAgentSpecs returns empty array for missing directory', () => {
+        const specs = loadAgentSpecs('/nonexistent/agent-spec-dir');
+        expect(specs).toEqual([]);
     });
 });
