@@ -300,7 +300,9 @@ describe('loadPresetRules', () => {
                 'rules:',
                 '  - id: active-rule',
                 '    description: active',
-                '    fix: { mode: none }',
+                // Authored as `auto`; the preset override lowers it to `suggest`
+                // (overrides may only lower fix authority, never raise it).
+                '    fix: { mode: auto }',
                 '    evaluator: { type: path, config: { paths: ["README.md"] } }',
                 '  - id: nested-disabled',
                 '    description: disabled',
