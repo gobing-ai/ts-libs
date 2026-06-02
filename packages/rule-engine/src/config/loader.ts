@@ -9,6 +9,7 @@ import {
     type PresetDefinition,
     PresetDefinitionSchema,
 } from '../types';
+import { collectPresetExtensions, type ExtensionRef } from './extensions';
 
 /** Options for loading rule presets. */
 export interface RuleLoaderOptions {
@@ -20,6 +21,14 @@ export interface RuleLoaderOptions {
      * loader stays agnostic to any project layout convention.
      */
     roots: string[];
+}
+
+/** Loaded preset rules plus extension module refs declared by composed presets. */
+export interface LoadedPreset {
+    /** Normalized rules after preset disable/override handling. */
+    readonly rules: ConstraintRule[];
+    /** Extension modules declared by the preset graph, resolved to absolute paths. */
+    readonly extensions: ExtensionRef[];
 }
 
 /** Merged view of rule roots: winning file per relative path, plus categories. */
@@ -37,14 +46,17 @@ interface MergedRoots {
  * so a caller can layer project-local rules over shared/global rules and inherit
  * the rest of a preset's categories from the lower-priority roots.
  */
-export async function loadPresetRules(name: string, options: RuleLoaderOptions): Promise<ConstraintRule[]> {
+export async function loadPreset(name: string, options: RuleLoaderOptions): Promise<LoadedPreset> {
     const merged = await buildMergedRoots(options.roots.map((root) => resolve(root)));
     const presetPath = findMergedPreset(merged, name);
-    if (presetPath === null) return [];
+    if (presetPath === null) return { rules: [], extensions: [] };
     const preset = PresetDefinitionSchema.parse(await readStructuredFile(presetPath)) as PresetDefinition;
     const rules: ConstraintRule[] = [];
+    const extensions = collectPresetExtensions(preset.name, dirname(presetPath), preset.extensions);
     for (const entry of preset.extends) {
-        rules.push(...(await loadPresetEntry(merged, entry, new Set([name]))));
+        const loaded = await loadPresetEntry(merged, entry, new Set([name]));
+        rules.push(...loaded.rules);
+        extensions.push(...loaded.extensions);
     }
     const disabled = new Set(preset.disable ?? []);
     const normalized = rules.filter((rule) => !disabled.has(rule.id));
@@ -54,7 +66,11 @@ export async function loadPresetRules(name: string, options: RuleLoaderOptions):
             rule.fix = { ...(rule.fix ?? { mode: 'none' }), ...override.fix };
         }
     }
-    return normalized;
+    return { rules: normalized, extensions };
+}
+
+export async function loadPresetRules(name: string, options: RuleLoaderOptions): Promise<ConstraintRule[]> {
+    return (await loadPreset(name, options)).rules;
 }
 
 /** Load a direct rule file from disk. */
@@ -62,19 +78,24 @@ export async function loadRuleFile(filePath: string): Promise<ConstraintRule[]> 
     return normalizeRuleFile(await readStructuredFile(resolve(filePath)), dirname(resolve(filePath)));
 }
 
-async function loadPresetEntry(merged: MergedRoots, entry: string, seen: Set<string>): Promise<ConstraintRule[]> {
+async function loadPresetEntry(merged: MergedRoots, entry: string, seen: Set<string>): Promise<LoadedPreset> {
     // Sub-preset reference — recurse, erroring on a genuine cycle.
     const presetPath = findMergedPreset(merged, entry);
     if (presetPath !== null) {
         if (seen.has(entry)) {
             throw new Error(`Circular preset dependency detected: ${[...seen, entry].join(' → ')}`);
         }
-        seen.add(entry);
+        const nextSeen = new Set([...seen, entry]);
         const preset = PresetDefinitionSchema.safeParse(await readStructuredFile(presetPath));
         if (preset.success) {
             const rules: ConstraintRule[] = [];
-            for (const child of preset.data.extends) rules.push(...(await loadPresetEntry(merged, child, seen)));
-            return rules.filter((rule) => !(preset.data.disable ?? []).includes(rule.id));
+            const extensions = collectPresetExtensions(preset.data.name, dirname(presetPath), preset.data.extensions);
+            for (const child of preset.data.extends) {
+                const loaded = await loadPresetEntry(merged, child, nextSeen);
+                rules.push(...loaded.rules);
+                extensions.push(...loaded.extensions);
+            }
+            return { rules: rules.filter((rule) => !(preset.data.disable ?? []).includes(rule.id)), extensions };
         }
     }
 
@@ -84,14 +105,14 @@ async function loadPresetEntry(merged: MergedRoots, entry: string, seen: Set<str
         for (const absPath of mergedFilesInCategory(merged, entry)) {
             rules.push(...(await loadRuleFile(absPath)));
         }
-        return rules;
+        return { rules, extensions: [] };
     }
 
     // Sub-path reference — a single winning rule file within a category.
     const subPath = findMergedFile(merged, entry);
-    if (subPath !== null) return loadRuleFile(subPath);
+    if (subPath !== null) return { rules: await loadRuleFile(subPath), extensions: [] };
 
-    return [];
+    return { rules: [], extensions: [] };
 }
 
 /**
