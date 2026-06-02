@@ -30,14 +30,14 @@ class ConsoleLogger implements Logger {
 
     constructor(
         private readonly category: string,
-        private readonly minLevel: LogLevel = 'info',
         context: Record<string, unknown> = {},
     ) {
         this.context = { category, ...context };
     }
 
     private log(level: LogLevel, msg: string, data?: Record<string, unknown>): void {
-        if (LEVEL_ORDER[level] < LEVEL_ORDER[this.minLevel]) return;
+        // Read the level dynamically so re-initialization affects cached loggers too.
+        if (LEVEL_ORDER[level] < LEVEL_ORDER[globalLevel]) return;
         if (globalMuted) return;
 
         const entry = {
@@ -86,7 +86,7 @@ class ConsoleLogger implements Logger {
     }
 
     child(context: Record<string, unknown>): Logger {
-        return new ConsoleLogger(this.category, this.minLevel, { ...this.context, ...context });
+        return new ConsoleLogger(this.category, { ...this.context, ...context });
     }
 }
 
@@ -109,7 +109,7 @@ export function getLogger(category: string): Logger {
     const existing = loggers.get(category);
     if (existing) return existing;
 
-    const logger = new ConsoleLogger(category, globalLevel);
+    const logger = new ConsoleLogger(category);
     loggers.set(category, logger);
     return logger;
 }
