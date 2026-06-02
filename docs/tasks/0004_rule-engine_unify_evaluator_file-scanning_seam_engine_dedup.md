@@ -25,7 +25,6 @@ Architectural refactor cluster surfaced by the review in task 0002 (findings #3,
 
 ### Requirements
 
-### Requirements
 
 - [x] **R1 — single scanFiles seam with explicit matchMode** → **MET** | `evaluators/file-utils.ts` exports `scanFiles({workdir, include, exclude, matchMode, fs})`; takes scope as a parameter so import-boundary's per-boundary scan composes.
 - [x] **R2 — migrate 5 evaluators; same findings for same inputs** → **MET** | regex (loose), forbidden-import-simple (loose) / -structured (glob), secrets-scanner (loose), import-boundary (glob), tsdoc-export (glob + collapsed double-scoping). Per-evaluator suites green: 3, 6, 2, 10, 10 respectively — no test changed.
@@ -107,7 +106,6 @@ migrated + suite-verified at a time.
 
 ### Review
 
-### Review
 
 Verification 2026-06-02 (Phase 7 + 8). **Verdict: PASS.**
 
