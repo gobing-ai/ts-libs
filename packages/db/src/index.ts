@@ -14,6 +14,7 @@ export {
     type PKValue,
     type SoftDeletableTable,
 } from './entity-dao';
+export { type InboxMessage, InboxMessageDao } from './inbox-message-dao';
 export { applyMigrations, type MigrationOptions } from './migrate';
 export {
     type ColRef,
@@ -34,5 +35,6 @@ export {
     standardColumns,
     standardColumnsWithSoftDelete,
 } from './schema/common';
+export { inboxMessages } from './schema/inbox-messages';
 export { queueJobs } from './schema/queue-jobs';
 export type { SpanContext } from './span-context';
