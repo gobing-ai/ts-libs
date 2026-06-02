@@ -5,7 +5,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
-import { discoverFiles, matchesGlob, readWorkdirFile } from './file-utils';
+import { escapeRegExp, scanFiles, stringArray } from './file-utils';
 
 /** A forbidden entry: either an exact import specifier or a raw source pattern. */
 type ForbiddenEntry =
@@ -50,14 +50,15 @@ export class ForbiddenImportEvaluator implements RuleEvaluator {
         config: Record<string, unknown>,
     ): Promise<RuleEvaluationResult> {
         const forbidden = arrayConfig(config, 'patterns');
-        const files = await discoverFiles({
+        const files = await scanFiles({
             workdir: context.workdir,
             include: rule.include ?? ['.ts', '.tsx', '.js', '.jsx'],
             exclude: rule.exclude,
+            matchMode: 'loose',
         });
         const findings = [];
-        for (const file of files) {
-            const lines = (await readWorkdirFile(context.workdir, file)).split('\n');
+        for (const { file, content } of files) {
+            const lines = content.split('\n');
             for (const [index, line] of lines.entries()) {
                 const imported = importSpecifier(line);
                 if (imported === undefined) continue;
@@ -89,15 +90,12 @@ export class ForbiddenImportEvaluator implements RuleEvaluator {
         const exclude = stringArray(scope?.exclude) ?? [];
         const entries = (config.forbidden as ForbiddenEntry[]).map(compileEntry);
 
-        // Discover all source files, then apply scope globs precisely (discoverFiles'
-        // include matching is intentionally loose, so it cannot do `**`-anchored scoping).
-        const files = (await discoverFiles({ workdir: context.workdir }))
-            .filter((file) => include.some((glob) => matchesGlob(file, glob)))
-            .filter((file) => !exclude.some((glob) => matchesGlob(file, glob)));
+        // Anchored `**`-glob scoping: scanFiles' 'glob' mode applies matchesGlob precisely.
+        const files = await scanFiles({ workdir: context.workdir, include, exclude, matchMode: 'glob' });
 
         const findings = [];
-        for (const file of files) {
-            const lines = (await readWorkdirFile(context.workdir, file)).split('\n');
+        for (const { file, content } of files) {
+            const lines = content.split('\n');
             for (const [index, line] of lines.entries()) {
                 const hit = entries.find((entry) => entry.regex.test(line));
                 if (hit !== undefined) {
@@ -133,17 +131,9 @@ function compileEntry(entry: ForbiddenEntry): ScanEntry {
     return { regex: new RegExp(entry.pattern), label: entry.pattern };
 }
 
-function escapeRegExp(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function arrayConfig(config: Record<string, unknown>, key: string): string[] {
     const value = config[key];
     if (Array.isArray(value) && value.every((item) => typeof item === 'string')) return value;
     if (typeof value === 'string') return [value];
     throw new Error(`forbidden-import evaluator requires string[] config "${key}"`);
-}
-
-function stringArray(value: unknown): string[] | undefined {
-    return Array.isArray(value) && value.every((item) => typeof item === 'string') ? (value as string[]) : undefined;
 }

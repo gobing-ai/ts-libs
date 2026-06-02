@@ -5,7 +5,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
-import { discoverFiles, matchesGlob, readWorkdirFile } from './file-utils';
+import { escapeRegExp, matchesGlob, scanFiles } from './file-utils';
 
 /**
  * A forbidden entry within a boundary declaration.
@@ -61,17 +61,16 @@ export class ImportBoundaryEvaluator implements RuleEvaluator {
 
         const compiled = (boundaries as unknown as BoundaryDecl[]).map((b) => compileBoundary(b));
 
-        // Discover all files once; filter per boundary below.
-        const allFiles = await discoverFiles({ workdir: context.workdir });
+        // Scan all files once (read up front); apply each boundary's globs in-memory below.
+        const allFiles = await scanFiles({ workdir: context.workdir, matchMode: 'glob' });
 
         const findings = [];
         for (const boundary of compiled) {
             const inScope = allFiles
-                .filter((file) => matchesGlob(file, boundary.scope))
-                .filter((file) => !boundary.excludePatterns.some((ex) => matchesGlob(file, ex)));
+                .filter(({ file }) => matchesGlob(file, boundary.scope))
+                .filter(({ file }) => !boundary.excludePatterns.some((ex) => matchesGlob(file, ex)));
 
-            for (const file of inScope) {
-                const content = await readWorkdirFile(context.workdir, file);
+            for (const { file, content } of inScope) {
                 const lines = content.split('\n');
                 for (const [index, line] of lines.entries()) {
                     for (const entry of boundary.forbidden) {
@@ -133,8 +132,4 @@ function compileEntry(entry: ForbiddenEntry): { regex: RegExp; label: string; im
 /** Return true when a source line is an import/export/require/dynamic-import statement. */
 function isImportLine(line: string): boolean {
     return /(?:^\s*import\b|^\s*export\b.*\bfrom\b|(?:from|require|import)\s*\(?\s*['"])/.test(line);
-}
-
-function escapeRegExp(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

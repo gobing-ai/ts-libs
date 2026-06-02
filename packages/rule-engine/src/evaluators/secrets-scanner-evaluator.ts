@@ -5,7 +5,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
-import { discoverFiles, readWorkdirFile } from './file-utils';
+import { parseInlineFlags, scanFiles, stringArray } from './file-utils';
 
 /** Built-in secret category names. */
 export type SecretsCategory = 'api-key' | 'private-key' | 'password' | 'token' | 'connection-string';
@@ -61,11 +61,11 @@ export class SecretsScannerEvaluator implements RuleEvaluator {
         const scope = config.scope as { include?: unknown; exclude?: unknown } | undefined;
         const include = stringArray(scope?.include) ?? rule.include;
         const exclude = stringArray(scope?.exclude) ?? rule.exclude;
-        const files = await discoverFiles({ workdir: context.workdir, include, exclude });
+        const files = await scanFiles({ workdir: context.workdir, include, exclude, matchMode: 'loose' });
 
         const findings = [];
-        for (const file of files) {
-            const lines = (await readWorkdirFile(context.workdir, file)).split('\n');
+        for (const { file, content } of files) {
+            const lines = content.split('\n');
             for (const [index, line] of lines.entries()) {
                 for (const pattern of patterns) {
                     pattern.regex.lastIndex = 0;
@@ -106,14 +106,6 @@ function buildPatterns(config: Record<string, unknown>): ScanPattern[] {
 
 /** Compile a pattern, folding a leading `(?i)` group into the JS `i` flag. */
 function compile(source: string): RegExp {
-    const inline = /^\(\?([a-z]+)\)/.exec(source);
-    if (inline) {
-        const flags = [...(inline[1] ?? '')].filter((flag) => 'imsu'.includes(flag)).join('');
-        return new RegExp(source.slice(inline[0].length), flags);
-    }
-    return new RegExp(source);
-}
-
-function stringArray(value: unknown): string[] | undefined {
-    return Array.isArray(value) && value.every((item) => typeof item === 'string') ? (value as string[]) : undefined;
+    const { flags, rest } = parseInlineFlags(source);
+    return new RegExp(rest, flags);
 }

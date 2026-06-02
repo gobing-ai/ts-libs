@@ -5,7 +5,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
-import { discoverFiles, matchesGlob, readWorkdirFile } from './file-utils';
+import { scanFiles } from './file-utils';
 
 /** Export kinds this evaluator can check for a preceding JSDoc block. */
 const VALID_KINDS = ['function', 'class', 'type', 'const', 'enum', 'interface'] as const;
@@ -52,13 +52,13 @@ export class TsdocExportEvaluator implements RuleEvaluator {
         const requested = new Set(kinds as ExportKind[]);
         const include = rule.include ?? ['**/*.ts', '**/*.tsx'];
         const exclude = rule.exclude ?? [];
-        const files = await discoverFiles({ workdir: context.workdir, include: ['.ts', '.tsx'] });
+        // Single, strict glob scoping — collapses the previous double-scoping (loose
+        // discoverFiles prefilter + per-file matchesGlob) into one pass.
+        const files = await scanFiles({ workdir: context.workdir, include, exclude, matchMode: 'glob' });
 
         const findings = [];
-        for (const file of files) {
-            if (!include.some((pattern) => matchesGlob(file, pattern))) continue;
-            if (exclude.some((pattern) => matchesGlob(file, pattern))) continue;
-            const lines = (await readWorkdirFile(context.workdir, file)).split('\n');
+        for (const { file, content } of files) {
+            const lines = content.split('\n');
             for (const site of findExports(lines, requested)) {
                 if (!precededByJsdoc(lines, site.line)) {
                     findings.push(

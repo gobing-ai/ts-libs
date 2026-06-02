@@ -39,26 +39,16 @@ export class RuleEngine {
         this.host.evaluators.register(type, evaluator, 'extension');
     }
 
-    /** Evaluate all enabled rules against a working directory. */
+    /**
+     * Evaluate all enabled rules against a working directory.
+     *
+     * Thin delegate to {@link evaluateWithFixes} with `maxFixMode = 'none'`; the fix
+     * branch in that path is short-circuited by `effectiveFixMode` so callers see only
+     * findings, never auto-generated fixes. Keeps the rule loop and error-finding
+     * semantics in one place.
+     */
     async evaluate(rules: ConstraintRule[], workdir: string): Promise<RuleEngineResult> {
-        const findings: ConstraintFinding[] = [];
-        const fixes: Fix[] = [];
-        for (const rule of rules) {
-            if (rule.enabled === false) continue;
-            try {
-                const result = await this.host.evaluators.get(rule.evaluator.type).evaluate(rule, { rule, workdir });
-                findings.push(...result.findings);
-                fixes.push(...result.fixes);
-            } catch (error) {
-                findings.push(
-                    createFinding(rule, error instanceof Error ? error.message : String(error), null, {
-                        code: `evaluator:${rule.evaluator.type}`,
-                        kind: 'error',
-                    }),
-                );
-            }
-        }
-        return { findings, fixes };
+        return this.evaluateWithFixes(rules, workdir, 'none');
     }
 
     /**
