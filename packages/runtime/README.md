@@ -174,7 +174,48 @@ const config = buildConfigFromYaml(yaml, {
 // config.logging.level === 'debug' (from YAML)
 ```
 
-### 4. File system abstraction
+### 4. Structured config + JSON-schema validation
+
+`loadStructuredConfig` reads a `.json`/`.yaml` file and — if it declares a top-level `$schema` — validates
+it against that schema before returning. This powers schema-checked rule and workflow files in
+`ts-rule-engine` and `ts-dual-workflow-engine`.
+
+```ts
+import { loadStructuredConfig } from '@gobing-ai/ts-runtime';
+
+const config = await loadStructuredConfig('rules.yaml'); // validates against its $schema, throws on violation
+const raw = await loadStructuredConfig('rules.yaml', { validateSchema: false }); // skip validation
+```
+
+A `StructuredConfigSchemaError` (with a `violations` array of `{ path, message }`) is thrown on any
+schema violation.
+
+#### `$schema` reference styles
+
+There are three ways a config file can name its schema. **Prefer the bundled package specifier** — it is
+the most secure and performant default:
+
+| Style | Example | Resolution | Notes |
+|-------|---------|------------|-------|
+| **Package specifier** (recommended) | `$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"` | Resolved through `node_modules` via the module resolver, then read from disk | No network, no path guessing; survives hoisting/pnpm/monorepo layouts. Schemas ship in each package's `schemas/` (declared in `files`). **Quote the value** — YAML treats a leading `@` as reserved. |
+| Relative path | `$schema: ./schemas/rule-file.schema.json` | Resolved against the config file's directory | Fine for repo-local schemas; brittle if the config moves. |
+| Remote URL | `$schema: https://json-schema.org/.../rule-file.schema.json` | Fetched over HTTP(S) — **off by default** | SSRF/DoS surface for third-party configs. Opt in with `{ allowRemote: true }` (5s timeout) or supply your own `fetch`. |
+
+```ts
+// Bundled package schema (default path — no extra options needed):
+//   $schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
+await loadStructuredConfig('rules.yaml');
+
+// Remote schema is refused unless explicitly enabled:
+await loadStructuredConfig('rules.yaml', { allowRemote: true });        // built-in fetch, time-bounded
+await loadStructuredConfig('rules.yaml', { fetch: myFetch });           // or inject your own
+```
+
+> **Security:** remote schema fetching is disabled by default. Resolving a bundled schema from
+> `node_modules` keeps validation entirely local — no outbound request, no dependency on a schema host's
+> availability, and no chance for a malicious config to point validation at an internal URL.
+
+### 5. File system abstraction
 
 All file operations go through the `FileSystem` interface. Swap implementations for testing:
 
@@ -186,7 +227,7 @@ await fs.writeFile('output.json', JSON.stringify(data));
 const content = await fs.readFile('output.json');
 ```
 
-### 5. Graceful disposal
+### 6. Graceful disposal
 
 `RuntimeContext.dispose()` calls `dispose()` on every registered service that implements the pattern:
 

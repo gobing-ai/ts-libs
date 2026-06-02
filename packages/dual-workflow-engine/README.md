@@ -119,7 +119,7 @@ const workflow = await loadWorkflowDef('./workflows/approval.yaml');
 await service.run(workflow, { runId: 'approval-1' });
 ```
 
-`loadWorkflowDef(path)` reads YAML or JSON from disk. File loads honor a top-level `$schema` ref by default, then validate the internal structural schema and semantic references before returning a `WorkflowDef`. `loadWorkflowDefFromText(text, source)` handles inline definitions with internal validation only.
+`loadWorkflowDef(path)` reads YAML or JSON from disk. File loads honor a top-level `$schema` ref by default, then validate the internal structural schema and semantic references before returning a `WorkflowDef`. The `$schema` value resolves from the bundled package schema (shipped under `node_modules/@gobing-ai/ts-dual-workflow-engine/schemas/`) — no network access; quote the value, since YAML treats a leading `@` as reserved. Relative paths and (opt-in) remote URLs also work; see `@gobing-ai/ts-runtime` → *Structured config*. `loadWorkflowDefFromText(text, source)` handles inline definitions with internal validation only.
 
 ### State-machine YAML
 
@@ -127,7 +127,7 @@ await service.run(workflow, { runId: 'approval-1' });
 
 ```yaml
 # workflows/approval.yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/dual-workflow-engine/schemas/state-machine-workflow.schema.json"
+$schema: "@gobing-ai/ts-dual-workflow-engine/schemas/state-machine-workflow.schema.json"
 kind: state-machine
 name: approval
 initialState: draft
@@ -183,7 +183,7 @@ Transition-flow definitions must declare `kind: transition-flow`.
 
 ```yaml
 # workflows/import-file.yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/dual-workflow-engine/schemas/transition-flow-workflow.schema.json"
+$schema: "@gobing-ai/ts-dual-workflow-engine/schemas/transition-flow-workflow.schema.json"
 kind: transition-flow
 name: import-file
 initialNode: read

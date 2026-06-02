@@ -101,10 +101,10 @@ process.exitCode = result.findings.some((finding) => finding.severity === 'error
 
 ## Rule Files
 
-Rule files can be YAML, JSON, or a single rule object. File loads honor a top-level `$schema` ref by default, then validate the internal Zod schema. A multi-rule YAML file looks like this:
+Rule files can be YAML, JSON, or a single rule object. File loads honor a top-level `$schema` ref by default, then validate the internal Zod schema. The `$schema` value is resolved from the bundled package schema (shipped under `node_modules/@gobing-ai/ts-rule-engine/schemas/`) — no network access. Quote the value, since YAML treats a leading `@` as reserved. Relative paths and (opt-in) remote URLs are also supported; see `@gobing-ai/ts-runtime` → *Structured config* for the full resolution rules. A multi-rule YAML file looks like this:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 include:
   - "packages/*/src/**/*.ts"
 exclude:
@@ -141,7 +141,7 @@ const rules = await loadRuleFile('.rules/typescript.yaml');
 
 ## Presets
 
-Presets compose category folders, other presets, and rule-file subpaths across one or more roots. Preset loads also honor top-level `$schema` refs by default.
+Presets compose category folders, other presets, and rule-file subpaths across one or more roots. Preset loads also honor top-level `$schema` refs by default, resolved from the bundled package schema (no network access).
 
 Example layout:
 
@@ -157,7 +157,7 @@ Example layout:
 Example preset:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/preset.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/preset.schema.json"
 name: recommended
 extends:
   - quality
@@ -229,7 +229,7 @@ The effective fix mode is the lower authority between `rule.fix.mode` and the ca
 Example rule with regex replacement:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: rename-foo
     description: Replace foo with bar
@@ -276,7 +276,7 @@ Built-in fixer providers:
 Regex forbid:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: no-debugger
     description: Do not commit debugger statements
@@ -291,7 +291,7 @@ rules:
 Path presence:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: package-readme-required
     description: Each package should document its public API
@@ -304,7 +304,7 @@ rules:
 Glob absence:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: no-dist-in-source
     description: Built artifacts should not be committed
@@ -318,7 +318,7 @@ rules:
 Coverage gate:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: coverage-gate
     description: Source files must meet coverage threshold
@@ -336,7 +336,7 @@ rules:
 Import boundary:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: db-boundary
     description: Only ts-db may import drizzle
@@ -354,7 +354,7 @@ rules:
 Schema artifact:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: rule-schema-artifact
     description: Rule JSON schema artifact is complete
@@ -371,7 +371,7 @@ rules:
 ast-grep:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: no-throw-string
     description: Throw Error objects, not strings
@@ -398,7 +398,7 @@ The `test-location` evaluator can require source files to have corresponding tes
 Example:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: python-sources-have-tests
     description: Python sources should have pytest files
@@ -445,7 +445,7 @@ engine.registerEvaluator('workspace-name', evaluator);
 Then use it in a rule:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: workspace-name
     description: Check workspace naming convention
@@ -460,7 +460,7 @@ Preset extensions are trusted local modules. They are disabled unless the caller
 Preset:
 
 ```yaml
-$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/preset.schema.json"
+$schema: "@gobing-ai/ts-rule-engine/schemas/preset.schema.json"
 name: local
 extends:
   - quality
