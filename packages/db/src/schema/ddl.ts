@@ -1,30 +1,11 @@
 import { getTableConfig, type SQLiteTable } from 'drizzle-orm/sqlite-core';
+import { getDrizzleTableName, sqlExpressionToText } from './drizzle-internals';
 
 /**
  * Quote an identifier for use in SQL (double-quoted for SQLite compatibility).
  */
 function quoteIdent(name: string): string {
     return `"${name.replace(/"/g, '""')}"`;
-}
-
-/**
- * Extract the SQL string from a drizzle-orm SQL expression by walking its
- * internal `queryChunks` — StringChunk values plus Param placeholders.
- */
-function sqlToString(chunks: Array<{ value?: unknown; input?: unknown }>): string {
-    return chunks
-        .map((chunk) => {
-            // StringChunk — the literal SQL fragment
-            if ('value' in chunk && typeof chunk.value === 'string') {
-                return chunk.value;
-            }
-            // Param — use the input value if available
-            if ('input' in chunk && chunk.input !== undefined) {
-                return String(chunk.input);
-            }
-            return String(chunk.value ?? '?');
-        })
-        .join('');
 }
 
 /**
@@ -48,25 +29,8 @@ function defaultToSql(value: unknown): string | undefined {
     if (typeof value === 'boolean') {
         return value ? '1' : '0';
     }
-    // drizzle-orm SQL expression (has queryChunks)
-    if (typeof value === 'object' && value !== null && 'queryChunks' in value) {
-        const chunks = (value as Record<string, unknown>).queryChunks as
-            | Array<{ value?: unknown; input?: unknown }>
-            | undefined;
-        if (chunks) {
-            return sqlToString(chunks);
-        }
-    }
-    return String(value);
-}
-
-/**
- * Resolve a drizzle table object to its string name.
- */
-function getTableName(table: Record<string, unknown>): string {
-    // Drizzle tables store name at Symbol.for('drizzle:Name')
-    const nameSym = Symbol.for('drizzle:Name');
-    return String((table as unknown as Record<symbol, unknown>)[nameSym]);
+    // drizzle-orm SQL expression (sql`...`) — rendered via the internals quarantine.
+    return sqlExpressionToText(value) ?? String(value);
 }
 
 /**
@@ -157,7 +121,7 @@ export function generateCreateTableSql(table: SQLiteTable): string {
         const ref = fk.reference();
         const localCols = ref.columns.map((c) => quoteIdent(c.name)).join(', ');
         const foreignCols = ref.foreignColumns.map((c) => quoteIdent(c.name)).join(', ');
-        const foreignTableName = getTableName(ref.foreignTable as unknown as Record<string, symbol | unknown>);
+        const foreignTableName = getDrizzleTableName(ref.foreignTable);
 
         let constraint = `FOREIGN KEY (${localCols}) REFERENCES ${quoteIdent(foreignTableName)} (${foreignCols})`;
         if (fk.onDelete) {
