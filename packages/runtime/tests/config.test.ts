@@ -10,6 +10,9 @@ import {
     interpolateTree,
     isTestEnv,
     parseConfigYaml,
+    parseYamlObject,
+    stringifyYamlObject,
+    YamlParseError,
 } from '../src/config';
 
 describe('config helpers', () => {
@@ -74,5 +77,44 @@ describe('config helpers', () => {
         } else {
             process.env.DATABASE_URL = previousDatabaseUrl;
         }
+    });
+});
+
+describe('YAML utilities', () => {
+    test('parseYamlObject parses scalars, arrays, nested objects', () => {
+        const result = parseYamlObject(
+            ['name: Coder', 'count: 3', 'enabled: true', 'tags: [code, team]', 'config:', '  model: gpt-5'].join('\n'),
+        );
+        expect(result).toEqual({
+            name: 'Coder',
+            count: 3,
+            enabled: true,
+            tags: ['code', 'team'],
+            config: { model: 'gpt-5' },
+        });
+    });
+
+    test('parseYamlObject returns {} for empty/null input', () => {
+        expect(parseYamlObject('')).toEqual({});
+        expect(parseYamlObject('null')).toEqual({});
+    });
+
+    test('parseYamlObject throws YamlParseError on invalid YAML', () => {
+        expect(() => parseYamlObject('key: "unclosed')).toThrow(YamlParseError);
+    });
+
+    test('parseYamlObject throws YamlParseError when root is not an object', () => {
+        expect(() => parseYamlObject('- item')).toThrow(YamlParseError);
+        expect(() => parseYamlObject('42')).toThrow(YamlParseError);
+    });
+
+    test('stringifyYamlObject round-trips through parseYamlObject', () => {
+        const value: Record<string, unknown> = { name: 'Coder', tags: ['a', 'b'], config: { model: 'gpt-5' } };
+        expect(parseYamlObject(stringifyYamlObject(value))).toEqual(value);
+    });
+
+    test('stringifyYamlObject preserves nested objects', () => {
+        const text = stringifyYamlObject({ outer: { inner: { level: 'deep' } } });
+        expect(parseYamlObject(text)).toEqual({ outer: { inner: { level: 'deep' } } });
     });
 });
