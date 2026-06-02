@@ -5,6 +5,7 @@ import {
     type ConstraintRuleFile,
     ConstraintRuleFileSchema,
     ConstraintRuleSchema,
+    type FixMode,
     type PresetDefinition,
     PresetDefinitionSchema,
 } from '../types';
@@ -69,14 +70,35 @@ export async function loadPreset(name: string, options: RuleLoaderOptions): Prom
         extensions.push(...loaded.extensions);
     }
     const disabled = new Set(preset.disable ?? []);
-    const normalized = rules.filter((rule) => !disabled.has(rule.id));
-    for (const rule of normalized) {
+    const deduped = dedupeById(rules).filter((rule) => !disabled.has(rule.id));
+    for (const rule of deduped) {
         const override = preset.overrides?.[rule.id];
         if (override?.fix !== undefined) {
+            assertFixModeNotPromoted(name, rule, override.fix.mode);
             rule.fix = { ...(rule.fix ?? { mode: 'none' }), ...override.fix };
         }
     }
-    return { rules: normalized, extensions };
+    return { rules: deduped, extensions };
+}
+
+/** Collapse rules sharing an id to a single entry; later definitions win (last-wins merge). */
+function dedupeById(rules: readonly ConstraintRule[]): ConstraintRule[] {
+    const byId = new Map<string, ConstraintRule>();
+    for (const rule of rules) byId.set(rule.id, rule);
+    return [...byId.values()];
+}
+
+/** Fix-mode authority ordering; an override may lower but never raise a rule's mode. */
+const FIX_MODE_AUTHORITY: Record<FixMode, number> = { none: 0, suggest: 1, auto: 2 };
+
+/** Throw when a preset override would escalate a rule's fix authority above its authored level. */
+function assertFixModeNotPromoted(presetName: string, rule: ConstraintRule, overrideMode: FixMode): void {
+    const ruleMode = rule.fix?.mode ?? 'none';
+    if (FIX_MODE_AUTHORITY[overrideMode] > FIX_MODE_AUTHORITY[ruleMode]) {
+        throw new Error(
+            `Preset "${presetName}" override for rule "${rule.id}" raises fix mode from "${ruleMode}" to "${overrideMode}"; overrides may only lower fix authority`,
+        );
+    }
 }
 
 export async function loadPresetRules(name: string, options: RuleLoaderOptions): Promise<ConstraintRule[]> {
@@ -86,7 +108,7 @@ export async function loadPresetRules(name: string, options: RuleLoaderOptions):
 /** Load a direct rule file from disk. */
 export async function loadRuleFile(filePath: string, options: RuleFileLoadOptions = {}): Promise<ConstraintRule[]> {
     const resolved = resolve(filePath);
-    return normalizeRuleFile(await readStructuredFile(resolved, options), dirname(resolved));
+    return normalizeRuleFile(await readStructuredFile(resolved, options), resolved);
 }
 
 async function loadPresetEntry(
@@ -119,7 +141,7 @@ async function loadPresetEntry(
     if (merged.categories.has(entry)) {
         const rules: ConstraintRule[] = [];
         for (const absPath of mergedFilesInCategory(merged, entry)) {
-            rules.push(...normalizeRuleFile(await readStructuredFile(absPath, options), dirname(absPath)));
+            rules.push(...normalizeRuleFile(await readStructuredFile(absPath, options), absPath));
         }
         return { rules, extensions: [] };
     }
@@ -128,7 +150,7 @@ async function loadPresetEntry(
     const subPath = findMergedFile(merged, entry);
     if (subPath !== null)
         return {
-            rules: normalizeRuleFile(await readStructuredFile(subPath, options), dirname(subPath)),
+            rules: normalizeRuleFile(await readStructuredFile(subPath, options), subPath),
             extensions: [],
         };
 
@@ -234,25 +256,47 @@ async function readStructuredFile(
     });
 }
 
-function normalizeRuleFile(raw: unknown, sourceDir: string): ConstraintRule[] {
+/** A rule as parsed by Zod: severity may be absent until normalization fills it. */
+type ParsedRule = Omit<ConstraintRule, 'severity'> & { severity?: ConstraintRule['severity'] };
+
+function normalizeRuleFile(raw: unknown, filePath: string): ConstraintRule[] {
+    const sourceDir = dirname(filePath);
     const maybeFile = ConstraintRuleFileSchema.safeParse(raw);
     if (maybeFile.success) return normalizeFileRules(maybeFile.data, sourceDir);
     const maybeRule = ConstraintRuleSchema.safeParse(raw);
-    if (maybeRule.success) return [normalizeRule(maybeRule.data, {}, sourceDir)];
-    throw new Error(`Invalid rule file: ${basename(sourceDir)}`);
+    if (maybeRule.success) return [normalizeRule(maybeRule.data, sourceDir)];
+    // Surface the schema diagnostics that best fit the input: a `rules:` array means
+    // the author intended a rule file, so report against that schema; otherwise the
+    // single-rule schema. Include field paths so the offending key is obvious.
+    const isRuleFileShape = typeof raw === 'object' && raw !== null && 'rules' in raw;
+    const issues = (isRuleFileShape ? maybeFile.error : maybeRule.error).issues;
+    throw new Error(`Invalid rule file "${basename(filePath)}": ${formatIssues(issues)}`);
 }
 
-function normalizeFileRules(file: ConstraintRuleFile, sourceDir: string): ConstraintRule[] {
+/** Render Zod issues as `path: message` fragments for actionable diagnostics. */
+function formatIssues(issues: readonly { path: PropertyKey[]; message: string }[]): string {
+    return issues
+        .map((issue) => {
+            const path = issue.path.map(String).join('.');
+            return path.length > 0 ? `${path}: ${issue.message}` : issue.message;
+        })
+        .join('; ');
+}
+
+/** A rule file as parsed by Zod: rule severities may be absent until normalization. */
+type ParsedRuleFile = Omit<ConstraintRuleFile, 'rules'> & { rules: ParsedRule[] };
+
+function normalizeFileRules(file: ParsedRuleFile, sourceDir: string): ConstraintRule[] {
     return file.rules.map((rule) =>
         normalizeRule(
             {
                 ...rule,
-                severity: rule.severity ?? file.severity ?? 'error',
+                // Rule-level severity wins, then the file-level default, then 'error'.
+                severity: rule.severity ?? file.severity,
                 include: rule.include ?? file.include,
                 // File-level excludes always apply; a rule's own excludes add to (not replace) them.
                 exclude: mergeExcludes(file.exclude, rule.exclude),
             },
-            {},
             sourceDir,
         ),
     );
@@ -264,7 +308,7 @@ function mergeExcludes(fileExclude?: string[], ruleExclude?: string[]): string[]
     return [...new Set([...(fileExclude ?? []), ...(ruleExclude ?? [])])];
 }
 
-function normalizeRule(rule: ConstraintRule, _defaults: Partial<ConstraintRule>, _sourceDir: string): ConstraintRule {
+function normalizeRule(rule: ParsedRule, _sourceDir: string): ConstraintRule {
     return {
         ...rule,
         enabled: rule.enabled ?? true,
