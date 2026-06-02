@@ -1,59 +1,14 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { DbAdapter } from './adapter';
+import type {
+    SelectOrderedLimitDb,
+    SelectProjectionDb,
+    UpdateChangesDb,
+    UpdateReturningDb,
+    UpdateVoidDb,
+} from './drizzle-builders';
 import { EntityDao } from './entity-dao';
 import { queueJobs } from './schema/queue-jobs';
-
-type SelectGroupByQuery = {
-    groupBy: (group: unknown) => Promise<unknown[]>;
-};
-
-type SelectWhereQuery = {
-    where: (where: unknown) => Promise<unknown[]>;
-};
-
-type SelectReadyQuery = {
-    where: (where: unknown) => {
-        orderBy: (order: unknown) => { limit: (limit: number) => Promise<unknown[]> };
-    };
-};
-
-type QueueSelectDb = {
-    select: (projection: unknown) => {
-        from: (table: unknown) => SelectGroupByQuery & SelectWhereQuery;
-    };
-};
-
-type QueueReadyDb = {
-    select: () => {
-        from: (table: unknown) => SelectReadyQuery;
-    };
-};
-
-type QueueUpdateReturningDb = {
-    update: (table: unknown) => {
-        set: (value: unknown) => {
-            where: (where: unknown) => {
-                returning: () => Promise<unknown[]>;
-            };
-        };
-    };
-};
-
-type QueueUpdateVoidDb = {
-    update: (table: unknown) => {
-        set: (value: unknown) => {
-            where: (where: unknown) => Promise<unknown>;
-        };
-    };
-};
-
-type QueueUpdateChangesDb = {
-    update: (table: unknown) => {
-        set: (value: unknown) => {
-            where: (where: unknown) => Promise<{ changes: number }>;
-        };
-    };
-};
 
 /**
  * Aggregate queue statistics by job status.
@@ -153,7 +108,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
      * Get aggregate job counts by status.
      */
     async getStats(): Promise<QueueStats> {
-        const result = await (this.db as QueueSelectDb)
+        const result = await (this.db as SelectProjectionDb)
             .select({
                 status: queueJobs.status,
                 count: sql`count(*)`,
@@ -176,7 +131,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
      * Count jobs by status.
      */
     async countByStatus(status: string): Promise<number> {
-        const result = await (this.db as QueueSelectDb)
+        const result = await (this.db as SelectProjectionDb)
             .select({ value: sql`count(*)` })
             .from(queueJobs)
             .where(sql`${queueJobs.status} = ${status}`);
@@ -190,7 +145,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
     async findPending(batchSize: number): Promise<QueueJobRecord[]> {
         const now = this.now();
 
-        const result = await (this.db as QueueReadyDb)
+        const result = await (this.db as SelectOrderedLimitDb)
             .select()
             .from(queueJobs)
             .where(
@@ -214,7 +169,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
 
         const now = this.now();
 
-        const result = await (this.db as QueueUpdateReturningDb)
+        const result = await (this.db as UpdateReturningDb)
             .update(queueJobs)
             .set({ status: 'processing', processingAt: now, updatedAt: now })
             .where(
@@ -241,7 +196,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
 
         const now = this.now();
 
-        await (this.db as QueueUpdateVoidDb)
+        await (this.db as UpdateVoidDb)
             .update(queueJobs)
             .set({ status: 'processing', processingAt: now, updatedAt: now })
             .where(and(inArray(queueJobs.id, ids), eq(queueJobs.status, 'pending')));
@@ -288,7 +243,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
     async resetStuckJobs(visibilityTimeout: number): Promise<number> {
         const cutoff = this.now() - visibilityTimeout;
 
-        const result = await (this.db as QueueUpdateChangesDb)
+        const result = await (this.db as UpdateChangesDb)
             .update(queueJobs)
             .set({ status: 'pending', processingAt: null, updatedAt: this.now() })
             .where(
@@ -307,7 +262,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
     async failExpiredJobs(): Promise<number> {
         const now = this.now();
 
-        const result = await (this.db as QueueUpdateChangesDb)
+        const result = await (this.db as UpdateChangesDb)
             .update(queueJobs)
             .set({
                 status: 'failed',
