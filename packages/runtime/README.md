@@ -4,14 +4,17 @@ Runtime abstraction layer — environment detection, file system, process execut
 
 ## Overview
 
-`ts-runtime` decouples application code from platform specifics. Instead of importing `node:fs` or `node:child_process` directly, consumers go through interfaces (`FileSystem`, `ProcessExecutor`) that resolve to the correct implementation at startup based on `RuntimeContext`. Node filesystem modules are loaded lazily by `NodeFileSystem`, so importing the package remains safe for Worker bundles that select `CloudflareFileSystem`.
+`ts-runtime` decouples application code from platform specifics. Instead of importing `node:fs` or `node:child_process` directly, consumers go through interfaces (`FileSystem`, `SyncFileSystem`, `ProcessExecutor`, `SyncProcessExecutor`, `PipeProcessSpawner`) that resolve to the correct implementation at startup based on `RuntimeContext`. Node filesystem modules are loaded lazily by `NodeFileSystem`, so importing the package remains safe for Worker bundles that select `CloudflareFileSystem`.
 
 **Key abstractions:**
 
 | Concept | Interface | Bun/Node impl | Cloudflare impl |
 |---------|-----------|---------------|-----------------|
-| File system | `FileSystem` | `NodeFileSystem` | `CloudflareFileSystem` (unsupported filesystem facade) |
-| Process execution | `ProcessExecutor` | `NodeProcessExecutor` | — |
+| Async file system | `FileSystem` | `NodeFileSystem` | `CloudflareFileSystem` (unsupported filesystem facade) |
+| Sync file system | `SyncFileSystem` | `NodeSyncFileSystem` | — |
+| Buffered process execution | `ProcessExecutor` | `NodeProcessExecutor` | — |
+| Sync process execution | `SyncProcessExecutor` | `BunSyncProcessExecutor` | — |
+| Pipe process spawning | `PipeProcessSpawner` | `BunPipeProcessSpawner` | — |
 | Configuration | `Config` (Zod schema) | YAML + env vars | YAML + env vars |
 | Context | `RuntimeContext` | service locator | service locator |
 | Tracing | `SpanContext` | `{ traceId, spanId }` | `{ traceId, spanId }` |
@@ -82,6 +85,23 @@ classDiagram
         +createLogStream(path) LogStream
     }
 
+    class SyncFileSystem {
+        <<interface>>
+        +readFile(path) string
+        +writeFile(path, content) void
+        +mkdir(path) void
+        +readDir(path) string[]
+        +unlink(path) void
+    }
+
+    class NodeSyncFileSystem {
+        +readFile(path) string
+        +writeFile(path, content) void
+        +mkdir(path) void
+        +readDir(path) string[]
+        +unlink(path) void
+    }
+
     class ProcessExecutor {
         <<interface>>
         +run(options) Promise~ProcessResult~
@@ -89,6 +109,35 @@ classDiagram
 
     class NodeProcessExecutor {
         +run(options) Promise~ProcessResult~
+    }
+
+    class SyncProcessExecutor {
+        <<interface>>
+        +runSync(options) ProcessResult
+    }
+
+    class BunSyncProcessExecutor {
+        +runSync(options) ProcessResult
+    }
+
+    class PipeProcessSpawner {
+        <<interface>>
+        +spawn(options) PipeProcess
+    }
+
+    class BunPipeProcessSpawner {
+        +spawn(options) PipeProcess
+    }
+
+    class PipeProcess {
+        <<interface>>
+        +pid number?
+        +stdout ReadableStream?
+        +stderr ReadableStream?
+        +exited Promise~number?~
+        +writeStdin(input) void
+        +endStdin() void
+        +kill(signal?) void
     }
 
     class Config {
@@ -107,7 +156,11 @@ classDiagram
 
     FileSystem <|.. NodeFileSystem : implements
     FileSystem <|.. CloudflareFileSystem : implements
+    SyncFileSystem <|.. NodeSyncFileSystem : implements
     ProcessExecutor <|.. NodeProcessExecutor : implements
+    SyncProcessExecutor <|.. BunSyncProcessExecutor : implements
+    PipeProcessSpawner <|.. BunPipeProcessSpawner : implements
+    BunPipeProcessSpawner --> PipeProcess : creates
     RuntimeContext --> FileSystem : "fileSystem"
     RuntimeContext --> Config : "config"
     RuntimeContext --> ProcessExecutor : "processExecutor"
@@ -217,7 +270,7 @@ await loadStructuredConfig('rules.yaml', { fetch: myFetch });           // or in
 
 ### 5. File system abstraction
 
-All file operations go through the `FileSystem` interface. Swap implementations for testing:
+Most file operations go through the async `FileSystem` interface. Swap implementations for testing:
 
 ```ts
 import { getFs } from '@gobing-ai/ts-runtime';
@@ -225,6 +278,18 @@ import { getFs } from '@gobing-ai/ts-runtime';
 const fs = getFs();
 await fs.writeFile('output.json', JSON.stringify(data));
 const content = await fs.readFile('output.json');
+```
+
+Use `SyncFileSystem` only for APIs that must stay synchronous, such as config discovery at module
+boundaries or compatibility wrappers. The sync seam still keeps direct `node:fs` access inside
+`ts-runtime`.
+
+```ts
+import { NodeSyncFileSystem } from '@gobing-ai/ts-runtime';
+
+const fs = new NodeSyncFileSystem();
+fs.writeFile('agents/coder.yaml', 'id: coder\n');
+const files = fs.readDir('agents');
 ```
 
 ### 6. Graceful disposal
@@ -302,6 +367,9 @@ const config = buildConfigFromObject({
 
 ### Process execution
 
+`NodeProcessExecutor` is the default buffered async executor. It returns a `ProcessResult` and only
+throws on non-zero exits when `rejectOnError` is set.
+
 ```ts
 import { NodeProcessExecutor } from '@gobing-ai/ts-runtime';
 
@@ -317,6 +385,46 @@ const result = await exec.run({
 console.log(result.stdout);
 console.log(`Duration: ${result.durationMs}ms`);
 ```
+
+Use `BunSyncProcessExecutor` for synchronous command probes where the caller needs an immediate
+result, for example checking git state while building a prompt preamble.
+
+```ts
+import { BunSyncProcessExecutor } from '@gobing-ai/ts-runtime';
+
+const exec = new BunSyncProcessExecutor();
+
+const branch = exec.runSync({
+    command: 'git',
+    args: ['branch', '--show-current'],
+    cwd: '/path/to/repo',
+    rejectOnError: false,
+});
+
+if (branch.exitCode === 0) {
+    console.log(branch.stdout);
+}
+```
+
+Use `BunPipeProcessSpawner` when the host needs a long-running subprocess with writable stdin and
+readable stdout/stderr streams. This is the primitive used by team-mode agent processes.
+
+```ts
+import { BunPipeProcessSpawner } from '@gobing-ai/ts-runtime';
+
+const process = new BunPipeProcessSpawner().spawn({
+    command: 'codex',
+    args: ['exec', 'Wait for task messages.'],
+    cwd: '/path/to/repo',
+});
+
+process.writeStdin('[task from=operator id=msg-1] Inspect packages/runtime\n');
+process.endStdin();
+
+const exitCode = await process.exited;
+```
+
+Cloudflare Workers do not expose process execution; do not register process executors there.
 
 ### SpanContext (for telemetry)
 
