@@ -49,6 +49,19 @@ export class RegexEvaluator implements RuleEvaluator {
                 }
                 continue;
             }
+            if (config.multiline === true) {
+                const globalRegex = new RegExp(pattern, flags.includes('g') ? flags : `${flags}g`);
+                for (const match of content.matchAll(globalRegex)) {
+                    if (match.index === undefined) continue;
+                    findings.push(
+                        createFinding(rule, `forbidden pattern found: ${pattern}`, file, {
+                            line: lineForOffset(content, match.index),
+                            code: 'regex:found',
+                        }),
+                    );
+                }
+                continue;
+            }
             // forbid: report each matching line so findings carry precise locations.
             for (const [index, line] of content.split('\n').entries()) {
                 regex.lastIndex = 0;
@@ -95,4 +108,13 @@ function stringConfig(config: Record<string, unknown>, key: string, fallback?: s
     if (typeof value === 'string') return value;
     if (fallback !== undefined) return fallback;
     throw new Error(`regex evaluator requires string config "${key}"`);
+}
+
+/** Return the one-based line containing a string offset. */
+function lineForOffset(content: string, offset: number): number {
+    let line = 1;
+    for (let index = 0; index < offset; index += 1) {
+        if (content.charCodeAt(index) === 10) line += 1;
+    }
+    return line;
 }
