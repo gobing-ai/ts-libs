@@ -1,6 +1,5 @@
-import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
-import { NodeFileSystem } from '@gobing-ai/ts-runtime';
-import { parse } from 'yaml';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { loadStructuredConfig, NodeFileSystem } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     type ConstraintRuleFile,
@@ -21,6 +20,17 @@ export interface RuleLoaderOptions {
      * loader stays agnostic to any project layout convention.
      */
     roots: string[];
+    /** When true, honor top-level `$schema` refs in preset and rule files. Defaults to true. */
+    validateSchema?: boolean;
+    /** Optional fetch implementation for remote HTTP(S) schema refs. */
+    fetch?: (input: string) => Promise<Response>;
+}
+
+export interface RuleFileLoadOptions {
+    /** When true, honor top-level `$schema` refs. Defaults to true. */
+    validateSchema?: boolean;
+    /** Optional fetch implementation for remote HTTP(S) schema refs. */
+    fetch?: (input: string) => Promise<Response>;
 }
 
 /** Loaded preset rules plus extension module refs declared by composed presets. */
@@ -50,11 +60,11 @@ export async function loadPreset(name: string, options: RuleLoaderOptions): Prom
     const merged = await buildMergedRoots(options.roots.map((root) => resolve(root)));
     const presetPath = findMergedPreset(merged, name);
     if (presetPath === null) return { rules: [], extensions: [] };
-    const preset = PresetDefinitionSchema.parse(await readStructuredFile(presetPath)) as PresetDefinition;
+    const preset = PresetDefinitionSchema.parse(await readStructuredFile(presetPath, options)) as PresetDefinition;
     const rules: ConstraintRule[] = [];
     const extensions = collectPresetExtensions(preset.name, dirname(presetPath), preset.extensions);
     for (const entry of preset.extends) {
-        const loaded = await loadPresetEntry(merged, entry, new Set([name]));
+        const loaded = await loadPresetEntry(merged, entry, new Set([name]), options);
         rules.push(...loaded.rules);
         extensions.push(...loaded.extensions);
     }
@@ -74,11 +84,17 @@ export async function loadPresetRules(name: string, options: RuleLoaderOptions):
 }
 
 /** Load a direct rule file from disk. */
-export async function loadRuleFile(filePath: string): Promise<ConstraintRule[]> {
-    return normalizeRuleFile(await readStructuredFile(resolve(filePath)), dirname(resolve(filePath)));
+export async function loadRuleFile(filePath: string, options: RuleFileLoadOptions = {}): Promise<ConstraintRule[]> {
+    const resolved = resolve(filePath);
+    return normalizeRuleFile(await readStructuredFile(resolved, options), dirname(resolved));
 }
 
-async function loadPresetEntry(merged: MergedRoots, entry: string, seen: Set<string>): Promise<LoadedPreset> {
+async function loadPresetEntry(
+    merged: MergedRoots,
+    entry: string,
+    seen: Set<string>,
+    options: Pick<RuleLoaderOptions, 'validateSchema' | 'fetch'>,
+): Promise<LoadedPreset> {
     // Sub-preset reference — recurse, erroring on a genuine cycle.
     const presetPath = findMergedPreset(merged, entry);
     if (presetPath !== null) {
@@ -86,12 +102,12 @@ async function loadPresetEntry(merged: MergedRoots, entry: string, seen: Set<str
             throw new Error(`Circular preset dependency detected: ${[...seen, entry].join(' → ')}`);
         }
         const nextSeen = new Set([...seen, entry]);
-        const preset = PresetDefinitionSchema.safeParse(await readStructuredFile(presetPath));
+        const preset = PresetDefinitionSchema.safeParse(await readStructuredFile(presetPath, options));
         if (preset.success) {
             const rules: ConstraintRule[] = [];
             const extensions = collectPresetExtensions(preset.data.name, dirname(presetPath), preset.data.extensions);
             for (const child of preset.data.extends) {
-                const loaded = await loadPresetEntry(merged, child, nextSeen);
+                const loaded = await loadPresetEntry(merged, child, nextSeen, options);
                 rules.push(...loaded.rules);
                 extensions.push(...loaded.extensions);
             }
@@ -103,14 +119,18 @@ async function loadPresetEntry(merged: MergedRoots, entry: string, seen: Set<str
     if (merged.categories.has(entry)) {
         const rules: ConstraintRule[] = [];
         for (const absPath of mergedFilesInCategory(merged, entry)) {
-            rules.push(...(await loadRuleFile(absPath)));
+            rules.push(...normalizeRuleFile(await readStructuredFile(absPath, options), dirname(absPath)));
         }
         return { rules, extensions: [] };
     }
 
     // Sub-path reference — a single winning rule file within a category.
     const subPath = findMergedFile(merged, entry);
-    if (subPath !== null) return { rules: await loadRuleFile(subPath), extensions: [] };
+    if (subPath !== null)
+        return {
+            rules: normalizeRuleFile(await readStructuredFile(subPath, options), dirname(subPath)),
+            extensions: [],
+        };
 
     return { rules: [], extensions: [] };
 }
@@ -204,9 +224,14 @@ async function listImmediateDirs(fs: NodeFileSystem, dir: string): Promise<strin
     return dirs;
 }
 
-async function readStructuredFile(path: string): Promise<unknown> {
-    const content = await new NodeFileSystem().readFile(path);
-    return extname(path) === '.json' ? JSON.parse(content) : parse(content);
+async function readStructuredFile(
+    path: string,
+    options: Pick<RuleLoaderOptions, 'validateSchema' | 'fetch'> = {},
+): Promise<unknown> {
+    return await loadStructuredConfig(path, {
+        validateSchema: options.validateSchema,
+        fetch: options.fetch,
+    });
 }
 
 function normalizeRuleFile(raw: unknown, sourceDir: string): ConstraintRule[] {

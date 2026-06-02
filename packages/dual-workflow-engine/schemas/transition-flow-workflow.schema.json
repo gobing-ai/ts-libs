@@ -1,0 +1,70 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/dual-workflow-engine/schemas/transition-flow-workflow.schema.json",
+    "title": "@gobing-ai/ts-dual-workflow-engine Transition-flow Workflow",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["kind", "name", "initialNode", "nodes", "edges"],
+    "properties": {
+        "$schema": { "type": "string" },
+        "kind": { "const": "transition-flow" },
+        "name": { "type": "string" },
+        "initialNode": { "type": "string" },
+        "terminalNodes": { "type": "array", "items": { "type": "string" } },
+        "iterationBound": { "type": "integer" },
+        "vars": { "type": "object", "additionalProperties": { "type": "string" } },
+        "env": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "allow": { "type": "array", "items": { "type": "string" } }
+            }
+        },
+        "nodes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id"],
+                "properties": {
+                    "id": { "type": "string" },
+                    "type": { "enum": ["action", "gate", "parallel", "decision"] },
+                    "action": { "$ref": "#/$defs/action" }
+                }
+            }
+        },
+        "edges": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["from", "to"],
+                "properties": {
+                    "from": { "type": "string" },
+                    "to": { "type": "string" },
+                    "condition": { "$ref": "#/$defs/guard" }
+                }
+            }
+        }
+    },
+    "$defs": {
+        "action": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind"],
+            "properties": {
+                "kind": { "type": "string" },
+                "options": { "type": "object", "additionalProperties": true }
+            }
+        },
+        "guard": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind"],
+            "properties": {
+                "kind": { "type": "string" },
+                "options": { "type": "object", "additionalProperties": true }
+            }
+        }
+    }
+}

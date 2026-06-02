@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/preset.schema.json",
+    "title": "@gobing-ai/ts-rule-engine Preset",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["name"],
+    "properties": {
+        "$schema": { "type": "string" },
+        "name": { "type": "string" },
+        "extends": { "type": "array", "items": { "type": "string" } },
+        "disable": { "type": "array", "items": { "type": "string" } },
+        "overrides": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "fix": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "mode": { "enum": ["none", "suggest", "auto"] }
+                        }
+                    }
+                }
+            }
+        },
+        "extensions": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "resolvers": { "type": "array", "items": { "type": "string" } },
+                "evaluators": { "type": "array", "items": { "type": "string" } },
+                "fixers": { "type": "array", "items": { "type": "string" } },
+                "formatters": { "type": "array", "items": { "type": "string" } }
+            }
+        }
+    }
+}

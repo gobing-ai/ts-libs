@@ -1,0 +1,71 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/dual-workflow-engine/schemas/state-machine-workflow.schema.json",
+    "title": "@gobing-ai/ts-dual-workflow-engine State-machine Workflow",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["name", "initialState", "states", "transitions"],
+    "properties": {
+        "$schema": { "type": "string" },
+        "kind": { "const": "state-machine" },
+        "name": { "type": "string" },
+        "initialState": { "type": "string" },
+        "terminalStates": { "type": "array", "items": { "type": "string" } },
+        "iterationBound": { "type": "integer" },
+        "vars": { "type": "object", "additionalProperties": { "type": "string" } },
+        "env": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "allow": { "type": "array", "items": { "type": "string" } }
+            }
+        },
+        "states": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id"],
+                "properties": {
+                    "id": { "type": "string" },
+                    "onEnter": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+                    "onExit": { "type": "array", "items": { "$ref": "#/$defs/action" } }
+                }
+            }
+        },
+        "transitions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["from", "to"],
+                "properties": {
+                    "from": { "type": "string" },
+                    "to": { "type": "string" },
+                    "trigger": { "type": "string" },
+                    "guard": { "$ref": "#/$defs/guard" }
+                }
+            }
+        }
+    },
+    "$defs": {
+        "action": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind"],
+            "properties": {
+                "kind": { "type": "string" },
+                "options": { "type": "object", "additionalProperties": true }
+            }
+        },
+        "guard": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind"],
+            "properties": {
+                "kind": { "type": "string" },
+                "options": { "type": "object", "additionalProperties": true }
+            }
+        }
+    }
+}

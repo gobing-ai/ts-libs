@@ -1,0 +1,49 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json",
+    "title": "@gobing-ai/ts-rule-engine Rule File",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["rules"],
+    "properties": {
+        "$schema": { "type": "string" },
+        "include": { "type": "array", "items": { "type": "string" } },
+        "exclude": { "type": "array", "items": { "type": "string" } },
+        "severity": { "enum": ["error", "warning", "info"] },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" } }
+    },
+    "$defs": {
+        "rule": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "evaluator"],
+            "properties": {
+                "id": { "type": "string" },
+                "description": { "type": "string" },
+                "enabled": { "type": "boolean" },
+                "severity": { "enum": ["error", "warning", "info"] },
+                "include": { "type": "array", "items": { "type": "string" } },
+                "exclude": { "type": "array", "items": { "type": "string" } },
+                "evaluator": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["type"],
+                    "properties": {
+                        "type": { "type": "string" },
+                        "config": { "type": "object", "additionalProperties": true }
+                    }
+                },
+                "fix": { "$ref": "#/$defs/fix" }
+            }
+        },
+        "fix": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "mode": { "enum": ["none", "suggest", "auto"] },
+                "replacement": { "type": "string" },
+                "params": { "type": "object", "additionalProperties": true }
+            }
+        }
+    }
+}
