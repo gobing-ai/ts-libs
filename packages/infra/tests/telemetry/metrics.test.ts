@@ -1,17 +1,11 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import {
     _resetMetrics,
-    getDbOperationDuration,
-    getDbOperationErrors,
-    getDbOperationTotal,
     getEventbusEmitsTotal,
     getEventbusErrorsTotal,
     getHttpClientRequestDuration,
     getHttpClientRequestErrors,
     getHttpClientRequestTotal,
-    getHttpServerRequestDuration,
-    getHttpServerRequestErrors,
-    getHttpServerRequestTotal,
     getQueueJobCompletedTotal,
     getQueueJobEnqueuedTotal,
     getQueueJobFailedTotal,
@@ -62,40 +56,36 @@ describe('metrics', () => {
         _resetMetrics();
         initMetrics();
         // Create an instrument to populate cache
-        getHttpServerRequestTotal();
+        getHttpClientRequestTotal();
         _resetMetrics();
         // After reset, creating again should work
         expect(isMetricsInitialized()).toBeFalse();
     });
 
-    test('instrument getters return defined objects', () => {
+    test('counter getters return usable counters', () => {
         _resetMetrics();
         initTelemetry({ enabled: true, serviceName: 'test-metrics' });
 
-        const counter = getHttpServerRequestTotal();
+        const counter = getHttpClientRequestTotal();
         expect(counter).toBeDefined();
         expect(typeof counter.add).toBe('function');
     });
 
-    test('histogram getters return defined objects', () => {
+    test('histogram getters return usable histograms', () => {
         _resetMetrics();
         initTelemetry({ enabled: true, serviceName: 'test-metrics' });
 
-        const histogram = getHttpServerRequestDuration();
+        const histogram = getHttpClientRequestDuration();
         expect(histogram).toBeDefined();
         expect(typeof histogram.record).toBe('function');
     });
 
-    test('all counter instrument getters return instruments', () => {
+    test('all retained counter getters return instruments', () => {
         _resetMetrics();
         initTelemetry({ enabled: true, serviceName: 'test-metrics' });
 
-        expect(getHttpServerRequestTotal()).toBeDefined();
-        expect(getHttpServerRequestErrors()).toBeDefined();
         expect(getHttpClientRequestTotal()).toBeDefined();
         expect(getHttpClientRequestErrors()).toBeDefined();
-        expect(getDbOperationTotal()).toBeDefined();
-        expect(getDbOperationErrors()).toBeDefined();
         expect(getEventbusEmitsTotal()).toBeDefined();
         expect(getEventbusErrorsTotal()).toBeDefined();
         expect(getQueueJobEnqueuedTotal()).toBeDefined();
@@ -105,13 +95,11 @@ describe('metrics', () => {
         expect(getSchedulerJobFailedTotal()).toBeDefined();
     });
 
-    test('all histogram instrument getters return instruments', () => {
+    test('all retained histogram getters return instruments', () => {
         _resetMetrics();
         initTelemetry({ enabled: true, serviceName: 'test-metrics' });
 
-        expect(getHttpServerRequestDuration()).toBeDefined();
         expect(getHttpClientRequestDuration()).toBeDefined();
-        expect(getDbOperationDuration()).toBeDefined();
         expect(getQueueJobProcessingDuration()).toBeDefined();
         expect(getSchedulerJobDuration()).toBeDefined();
     });
