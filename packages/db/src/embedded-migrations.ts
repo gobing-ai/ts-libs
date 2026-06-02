@@ -29,4 +29,14 @@ export const embeddedMigrations: EmbeddedMigration[] = [
         sql: 'ALTER TABLE `queue_jobs` ADD `expires_at` integer;',
         hash: '7380f8c162352a61b15205af5a87e0e7313a499203dae98fe62151a1dc7fec0e',
     },
+    {
+        tag: '0003_inbox_messages',
+        sql: "CREATE TABLE `inbox_messages` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`from_id` text,\n\t`to_id` text NOT NULL,\n\t`body` text NOT NULL,\n\t`status` text DEFAULT 'queued' NOT NULL,\n\t`in_reply_to` text,\n\t`created_at` integer NOT NULL,\n\t`updated_at` integer NOT NULL,\n\t`delivered_at` integer,\n\t`inject_attempts` integer DEFAULT 0 NOT NULL,\n\t`inject_error` text\n);",
+        hash: 'c4ba569172d1be276c42b5c164c668404e6229dcf48b41d7fb2bc93e8d29d11b',
+    },
+    {
+        tag: '0004_inbox_messages_to_status_idx',
+        sql: 'CREATE INDEX `idx_inbox_messages_to_status` ON `inbox_messages` (`to_id`,`status`);',
+        hash: '3c00f1bce4f569e442f3142df31ff478d6c9b3d460824d46575f50a324bfae61',
+    },
 ];
