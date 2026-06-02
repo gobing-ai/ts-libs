@@ -1,5 +1,4 @@
-import { loadStructuredConfig } from '@gobing-ai/ts-runtime';
-import { parse } from 'yaml';
+import { loadStructuredConfig, parseYamlObject } from '@gobing-ai/ts-runtime';
 import { WorkflowValidationError } from './errors';
 import { StateMachineWorkflowDefSchema, TransitionFlowWorkflowDefSchema } from './schema';
 import type { WorkflowDef } from './types';
@@ -13,7 +12,7 @@ export interface WorkflowLoadOptions {
 
 /** Load a workflow definition from YAML or JSON text. */
 export function loadWorkflowDefFromText(text: string, source = '<inline>'): WorkflowDef {
-    const parsed = source.endsWith('.json') ? JSON.parse(text) : parse(text);
+    const parsed = source.endsWith('.json') ? JSON.parse(text) : parseYamlObject(text);
     return parseWorkflowDef(parsed, source);
 }
 
