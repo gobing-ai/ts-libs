@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { loadWorkflowDefFromText } from '../src/config';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadWorkflowDef, loadWorkflowDefFromText } from '../src/config';
 import { WorkflowValidationError } from '../src/errors';
 import type { StateMachineWorkflowDef } from '../src/types';
 
@@ -85,5 +88,33 @@ transitions:
 
     test('includes source name in validation error message', () => {
         expect(() => loadWorkflowDefFromText('bogus: true', 'my-file.yaml')).toThrow('my-file.yaml');
+    });
+
+    test('loadWorkflowDef honors $schema validation by default', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'workflow-schema-'));
+        const schemaPath = join(dir, 'workflow.schema.json');
+        const workflowPath = join(dir, 'workflow.yaml');
+        await writeFile(
+            schemaPath,
+            JSON.stringify({
+                type: 'object',
+                additionalProperties: false,
+                required: ['name', 'initialState', 'states', 'transitions'],
+                properties: {
+                    $schema: { type: 'string' },
+                    name: { type: 'string' },
+                    initialState: { type: 'string' },
+                    states: { type: 'array', items: { type: 'object' } },
+                    transitions: { type: 'array', items: { type: 'object' } },
+                },
+            }),
+        );
+        await writeFile(
+            workflowPath,
+            '$schema: ./workflow.schema.json\nname: invalid\ninitialState: start\nstates:\n  - id: start\ntransitions: []\nextra: nope\n',
+        );
+
+        await expect(loadWorkflowDef(workflowPath)).rejects.toThrow('failed JSON schema validation');
+        expect(await loadWorkflowDef(workflowPath, { validateSchema: false })).toMatchObject({ name: 'invalid' });
     });
 });
