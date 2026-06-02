@@ -15,6 +15,75 @@ describe('loadPresetRules', () => {
     test('returns empty array when no roots are supplied', async () => {
         expect(await loadPresetRules('anything', { roots: [] })).toEqual([]);
     });
+
+    test('applies overrides declared by nested presets', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'preset-nested-override-'));
+        await writeFile(
+            join(root, 'child.yaml'),
+            [
+                'name: child',
+                'extends:',
+                '  - quality',
+                'overrides:',
+                '  needs-test:',
+                '    fix:',
+                '      mode: suggest',
+                '',
+            ].join('\n'),
+        );
+        await writeFile(join(root, 'parent.yaml'), ['name: parent', 'extends:', '  - child', ''].join('\n'));
+        await writeFile(
+            join(root, 'quality.yaml'),
+            [
+                'rules:',
+                '  - id: needs-test',
+                '    evaluator:',
+                '      type: test-location',
+                '    fix:',
+                '      mode: auto',
+                '',
+            ].join('\n'),
+        );
+
+        const rules = await loadPresetRules('parent', { roots: [root] });
+
+        expect(rules).toHaveLength(1);
+        expect(rules[0]?.fix?.mode).toBe('suggest');
+    });
+
+    test('rejects fix authority promotion declared by nested presets', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'preset-nested-promotion-'));
+        await writeFile(
+            join(root, 'child.yaml'),
+            [
+                'name: child',
+                'extends:',
+                '  - quality',
+                'overrides:',
+                '  needs-test:',
+                '    fix:',
+                '      mode: auto',
+                '',
+            ].join('\n'),
+        );
+        await writeFile(join(root, 'parent.yaml'), ['name: parent', 'extends:', '  - child', ''].join('\n'));
+        await writeFile(
+            join(root, 'quality.yaml'),
+            [
+                'rules:',
+                '  - id: needs-test',
+                '    evaluator:',
+                '      type: test-location',
+                '    fix:',
+                '      mode: suggest',
+                '',
+            ].join('\n'),
+        );
+
+        await expect(loadPresetRules('parent', { roots: [root] })).rejects.toThrow(
+            'raises fix mode from "suggest" to "auto"',
+        );
+    });
 });
 
 describe('loadRuleFile', () => {
