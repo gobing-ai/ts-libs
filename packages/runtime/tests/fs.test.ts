@@ -75,6 +75,21 @@ describe('NodeFileSystem', () => {
         await Bun.sleep(10);
         expect(await readFile(file, 'utf-8')).toBe('hello\n');
     });
+
+    test('preserves write order for many chunks queued before the stream is ready', async () => {
+        // All writes land synchronously, before the lazy stream resolves — they must flush FIFO.
+        // The old shared-buffer/shift() approach could interleave same-tick writes out of order.
+        const root = await createTempDir();
+        const file = join(root, 'logs', 'ordered.log');
+
+        const stream = createLogStream(file, new NodeFileSystem());
+        const chunks = Array.from({ length: 200 }, (_, i) => `${i}\n`);
+        for (const chunk of chunks) stream.write(chunk);
+        stream.end();
+
+        await Bun.sleep(20);
+        expect(await readFile(file, 'utf-8')).toBe(chunks.join(''));
+    });
 });
 
 describe('NodeSyncFileSystem', () => {
@@ -121,6 +136,22 @@ describe('filesystem helpers', () => {
             join(root, 'a', 'c.json'),
             join(root, 'a', 'd.json'),
         ]);
+    });
+
+    test('concurrent atomic writes to one path never collide on a temp name', async () => {
+        // Same-millisecond writers previously shared `${pid}.${Date.now()}.tmp`, so one clobbered
+        // the other's temp before rename. With a unique token, all writes complete and one wins clean.
+        const root = await createTempDir();
+        const fs = new NodeFileSystem();
+        const file = join(root, 'race', 'value.txt');
+
+        const values = Array.from({ length: 25 }, (_, i) => `v${i}`);
+        await Promise.all(values.map((value) => atomicWriteFile(file, value, fs)));
+
+        // Exactly the target file remains — no leaked `.tmp` siblings.
+        const siblings = await fs.readDir(join(root, 'race'));
+        expect(siblings).toEqual(['value.txt']);
+        expect(values).toContain(await fs.readFile(file));
     });
 
     test('resolves project paths relative to the detected project root', () => {
