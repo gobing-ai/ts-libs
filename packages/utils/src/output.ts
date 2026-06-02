@@ -2,18 +2,29 @@ export interface WriteTarget {
     write(chunk: string): unknown;
 }
 
-let defaultStdoutTarget: WriteTarget = process.stdout;
-let defaultStderrTarget: WriteTarget = process.stderr;
+// Resolved lazily, not at module load: reading `process.std*` eagerly would throw on import in
+// runtimes without `process` (e.g. Cloudflare Workers). `undefined` means "fall back to process".
+let defaultStdoutTarget: WriteTarget | undefined;
+let defaultStderrTarget: WriteTarget | undefined;
+
+function processStream(name: 'stdout' | 'stderr'): WriteTarget {
+    const proc = (globalThis as { process?: { stdout?: WriteTarget; stderr?: WriteTarget } }).process;
+    const stream = proc?.[name];
+    if (stream === undefined) {
+        throw new Error(`No ${name} target available: set one via setDefaultOutputTargets or pass an explicit target`);
+    }
+    return stream;
+}
 
 function writeLine(message: string, target: WriteTarget): void {
     target.write(`${message}\n`);
 }
 
-export function echo(message: string, target: WriteTarget = defaultStdoutTarget): void {
+export function echo(message: string, target: WriteTarget = defaultStdoutTarget ?? processStream('stdout')): void {
     writeLine(message, target);
 }
 
-export function echoError(message: string, target: WriteTarget = defaultStderrTarget): void {
+export function echoError(message: string, target: WriteTarget = defaultStderrTarget ?? processStream('stderr')): void {
     writeLine(message, target);
 }
 
