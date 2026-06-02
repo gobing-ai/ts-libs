@@ -22,6 +22,7 @@ Application code imports only `@gobing-ai/ts-db` — never `drizzle-orm`. drizzl
 | `defineTable` | Single source of truth — one table → drizzle table + derived zod insert/select schemas (optional peers) |
 | `Predicate` / `ListSpec` / `OrderTerm` | The drizzle-free query vocabulary |
 | `QueueJobDao` | Job queue persistence — `enqueue`, `claimReady`, `markCompleted`, `failExpiredJobs` |
+| `InboxMessageDao` | Durable inter-agent message persistence (`@gobing-ai/ts-db/inbox`) |
 | `applyMigrations` | Drizzle migration runner (file-based + embedded fallback) |
 | `schema` helpers | `standardColumns`, `appendOnlyColumns`, soft-delete columns |
 | `SpanContext` | Re-exported from `@gobing-ai/ts-runtime` for telemetry |
@@ -102,6 +103,15 @@ classDiagram
         +getStats() QueueStats
     }
 
+    class InboxMessageDao {
+        +enqueue(fromId, toId, body, inReplyTo?) string
+        +drainPending(toId) InboxMessage[]
+        +markDelivered(msgId) void
+        +markFailed(msgId, error) void
+        +inbox(toId, limit?, offset?) InboxMessage[]
+        +countPending(toId) number
+    }
+
     class ColumnHelpers {
         +standardColumns
         +standardColumnsWithSoftDelete
@@ -110,6 +120,10 @@ classDiagram
 
     class QueueJobsTable {
         +queueJobs
+    }
+
+    class InboxMessagesTable {
+        +inboxMessages
     }
 
     class MigrationRunner {
@@ -124,7 +138,9 @@ classDiagram
     DbAdapter <|.. D1Adapter : implements
     BaseDao <|-- EntityDao : extends
     EntityDao <|-- QueueJobDao : extends
+    EntityDao <|-- InboxMessageDao : extends
     QueueJobDao --> QueueJobsTable : "uses"
+    InboxMessageDao --> InboxMessagesTable : "uses"
     MigrationRunner --> EmbeddedMigrations : "uses"
     MigrationRunner --> BunSqliteAdapter : "requires"
 ```
@@ -233,6 +249,39 @@ const stats = await queue.getStats();
 // → { pending: 5, processing: 2, completed: 100, failed: 3 }
 ```
 
+### InboxMessageDao — durable inter-agent messages
+
+`InboxMessageDao` persists directed messages for team-mode or multi-agent workflows. It lives on the
+`@gobing-ai/ts-db/inbox` subpath so consumers can depend on the inbox surface without pulling schema
+helpers.
+
+```ts
+import { InboxMessageDao } from '@gobing-ai/ts-db/inbox';
+
+const inbox = new InboxMessageDao(adapter);
+
+// Operator sends a task to an agent.
+const msgId = await inbox.enqueue(null, 'coder', 'Please inspect packages/db');
+
+// Agent process startup/live-injection path atomically drains queued work.
+const pending = await inbox.drainPending('coder');
+for (const msg of pending) {
+    try {
+        await injectIntoAgentStdin(`[task from=${msg.fromId ?? 'operator'} id=${msg.id}] ${msg.body}`);
+        await inbox.markDelivered(msg.id);
+    } catch (error) {
+        await inbox.markFailed(msg.id, String(error));
+    }
+}
+
+const history = await inbox.inbox('coder', 20);
+const queued = await inbox.countPending('coder');
+```
+
+The `inbox_messages` table is additive and included in embedded migrations. It stores `from_id`,
+`to_id`, `body`, `status`, optional reply linkage, delivery timestamp, injection attempts, and the
+last injection error. The indexed access path is `(to_id, status)` for efficient pending drains.
+
 ### Migrations
 
 ```ts
@@ -252,7 +301,7 @@ await applyMigrations(adapter);
 
 ```ts
 import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import { standardColumns, standardColumnsWithSoftDelete, queueJobs } from '@gobing-ai/ts-db';
+import { standardColumns, standardColumnsWithSoftDelete, queueJobs, inboxMessages } from '@gobing-ai/ts-db';
 
 // Standard columns (createdAt, updatedAt)
 const docs = sqliteTable('docs', {
@@ -269,6 +318,8 @@ const projects = sqliteTable('projects', {
 });
 
 // queue_jobs table is pre-built for use with QueueJobDao
+
+// inbox_messages table is pre-built for use with InboxMessageDao
 ```
 
 ## Usage

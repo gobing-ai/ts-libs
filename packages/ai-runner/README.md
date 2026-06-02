@@ -13,6 +13,11 @@ Coding-agent command shims, installation detection, doctor checks, slash-command
 | `DoctorRunner` | Combines installation and authentication checks into a usability report |
 | `getAgentShim()` | Returns the pure command builder for one supported agent |
 | `translateSlashCommand()` | Converts Claude-style `/plugin:command` inputs to each agent's dialect |
+| `buildIdentityPreamble()` | Builds team-mode identity and communication context for prompts |
+| `loadAgentSpecs()` / `saveAgentSpec()` | Persist agent definitions as YAML-compatible config |
+| `MessageService` | Thin service wrapper around `@gobing-ai/ts-db/inbox` |
+| `TeamAgentProcess` | Manages a long-running agent subprocess with pipe-mode stdin/stdout |
+| `TeamOrchestrator` | Loads specs, starts/stops agents, and routes durable/live messages |
 
 Supported agent identifiers are `claude`, `codex`, `gemini`, `pi`, `opencode`, `antigravity`, and `openclaw`.
 
@@ -22,7 +27,7 @@ Supported agent identifiers are `claude`, `codex`, `gemini`, `pi`, `opencode`, `
 bun add @gobing-ai/ts-ai-runner
 ```
 
-The package depends on `@gobing-ai/ts-runtime` for process execution. The target agent CLIs are not bundled; install them separately in the host environment.
+The package depends on `@gobing-ai/ts-runtime` for process execution and `@gobing-ai/ts-db` for team-mode inbox types. The target agent CLIs are not bundled; install them separately in the host environment.
 
 ## Detect Installed Agents
 
@@ -72,6 +77,41 @@ console.log(result.stdout);
 ```
 
 `AiRunner` captures `stdout`, `stderr`, `exitCode`, optional termination `signal`, and `durationMs`. It does not throw on non-zero agent exits; callers decide how to handle failures.
+
+### Team identity preambles
+
+`PromptOptions` accepts optional team-mode fields. When any of `purpose`, `systemPrompt`, `taskId`,
+or non-empty `peers` is supplied, `AiRunner` prepends an identity preamble before dispatching the
+prompt through the selected agent shim. Existing callers that only pass `input`, `continue`, `model`,
+or `mode` are unchanged.
+
+```ts
+await runner.runPromptCommand('codex', {
+    input: 'Implement the inbox DAO tests',
+    taskId: '0005',
+    purpose: 'Implement scoped code changes',
+    systemPrompt: 'Follow repository AGENTS.md rules.',
+    peers: [{ id: 'planner', type: 'claude', purpose: 'Plan implementation work' }],
+});
+```
+
+Use `buildIdentityPreamble()` directly when a host app needs to preview or inject the same context
+outside `AiRunner`:
+
+```ts
+import { buildIdentityPreamble } from '@gobing-ai/ts-ai-runner';
+
+const preamble = buildIdentityPreamble({
+    agentId: 'coder',
+    agentType: 'codex',
+    workspace: '/workspace/spur',
+    taskId: '0005',
+    taskTitle: 'Implement team mode primitives',
+    purpose: 'Make focused code changes',
+    peers: [{ id: 'reviewer', type: 'claude', purpose: 'Review correctness and risk' }],
+    guardrails: ['Do not commit without operator approval.'],
+});
+```
 
 ## Inject a Process Executor
 
@@ -159,9 +199,117 @@ console.log(command.command, command.args);
 
 This is the right layer for UI previews, audit logging, and custom launchers.
 
+## Team Mode Primitives
+
+The team-mode APIs are intentionally small building blocks. They do not implement an HTTP API,
+dashboard, or product workflow; downstream apps compose them into their own orchestration layer.
+
+### Agent specs
+
+Agent specs define agents as config. The built-in parser supports the repository's constrained YAML
+subset: scalars, arrays, nested objects, and no anchors/tags/multiline scalars.
+
+```ts
+import { loadAgentSpecs, saveAgentSpec } from '@gobing-ai/ts-ai-runner';
+
+await saveAgentSpec(
+    {
+        id: 'coder',
+        name: 'Coder',
+        type: 'codex',
+        workspace: '/workspace/spur',
+        purpose: 'Implement scoped code changes',
+        tags: ['code'],
+        config: { model: 'gpt-5', systemPrompt: 'Follow repository rules.' },
+        autoStart: true,
+    },
+    './agents',
+);
+
+const specs = loadAgentSpecs('./agents');
+```
+
+`validateAgentId()` enforces lowercase agent ids with alphanumeric, `_`, and `-` characters.
+
+### Durable messages
+
+`MessageService` wraps `InboxMessageDao` from `@gobing-ai/ts-db/inbox`. It owns no subprocess
+behavior; it only persists, drains, marks delivery/failure, and formats messages.
+
+```ts
+import { InboxMessageDao } from '@gobing-ai/ts-db/inbox';
+import { MessageService } from '@gobing-ai/ts-ai-runner';
+
+const messages = new MessageService(new InboxMessageDao(adapter));
+
+const id = await messages.enqueue(null, 'coder', 'Review the runtime process seam');
+const pending = await messages.drain('coder');
+
+for (const msg of pending) {
+    console.log(MessageService.formatMessage(msg));
+    await messages.deliver(msg.id);
+}
+```
+
+### Persistent agent processes
+
+`TeamAgentProcess` wraps a long-running agent subprocess using the runtime pipe-process seam. It
+supports start/stop, stdin sends, stdout/stderr subscriptions, status, pid, and exit-code queries.
+
+```ts
+import { TeamAgentProcess, type AgentSpec } from '@gobing-ai/ts-ai-runner';
+
+const spec: AgentSpec = {
+    id: 'coder',
+    name: 'Coder',
+    type: 'codex',
+    workspace: '/workspace/spur',
+    purpose: 'Implement scoped code changes',
+    tags: [],
+    config: {},
+};
+
+const process = new TeamAgentProcess({
+    spec,
+    command: ['codex', 'exec', 'You are coder. Wait for inbox messages.'],
+});
+
+const unsubscribe = process.subscribe((chunk) => {
+    console.log(chunk.toString());
+});
+
+await process.start();
+await process.send('[task from=operator id=msg-1] Inspect packages/db');
+await process.stop();
+unsubscribe();
+```
+
+### Team orchestrator
+
+`TeamOrchestrator` connects specs, shims, processes, and messages. On start it loads an agent spec,
+builds the agent command through the matching shim, starts the process, drains pending inbox messages,
+and injects them live. `sendMessage()` always persists first, then injects immediately when the target
+agent is running.
+
+```ts
+import { InboxMessageDao } from '@gobing-ai/ts-db/inbox';
+import { MessageService, TeamOrchestrator } from '@gobing-ai/ts-ai-runner';
+
+const messages = new MessageService(new InboxMessageDao(adapter));
+const team = new TeamOrchestrator('./agents', messages);
+
+await team.startAgent('coder');
+await team.sendMessage(null, 'coder', 'Please implement task 0005');
+
+console.log(team.getAgentStatus('coder')); // running
+
+await team.stopAll();
+```
+
 ## Boundary Notes
 
 - This package is a command adapter, not an agent orchestration framework.
 - It does not install agent CLIs or manage credentials.
 - It does not parse agent responses beyond process result capture.
-- It keeps subprocess launching behind `ProcessExecutor`, so tests can stay deterministic.
+- It keeps subprocess launching behind `ProcessExecutor` / `PipeProcessSpawner`, so tests can stay deterministic.
+- Team-mode persistence is delegated to `@gobing-ai/ts-db/inbox`; host apps own migrations and adapter lifecycle.
