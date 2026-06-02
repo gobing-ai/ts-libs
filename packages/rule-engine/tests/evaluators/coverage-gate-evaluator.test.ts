@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CoverageGateEvaluator } from '../../src/evaluators/coverage-gate-evaluator';
 import type { ConstraintRule } from '../../src/types';
@@ -15,7 +16,11 @@ function makeRule(config: Record<string, unknown>): ConstraintRule {
 }
 
 async function tempDir(): Promise<string> {
-    const dir = join(import.meta.dir, '.tmp', `cov-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const dir = join(
+        tmpdir(),
+        'ts-libs-rule-engine-coverage-gate',
+        `cov-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    );
     await mkdir(dir, { recursive: true });
     return dir;
 }
