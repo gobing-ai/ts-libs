@@ -43,8 +43,15 @@ interface ScanPattern {
  * - `customPatterns`: extra `{ name, pattern }` entries to scan for.
  * - `scope`: `{ include, exclude }` globs; falls back to the rule's `include` /
  *   `exclude` when omitted.
+ *
+ * Trust assumption: rule config (including `customPatterns`) is trusted input.
+ * Patterns are compiled with `new RegExp` and run per line without a backtracking
+ * bound, so a catastrophic-backtracking custom pattern is the rule author's
+ * responsibility. Runtime ReDoS hardening is deferred (see task 0003).
  */
 export class SecretsScannerEvaluator implements RuleEvaluator {
+    // Explicit constructor: V8 function coverage counts only declared functions, so
+    // this method-light class needs it to clear the coverage-gate function threshold.
     constructor() {}
 
     /** Evaluate files against the selected secret categories and custom patterns. */
