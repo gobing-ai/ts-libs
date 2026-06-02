@@ -24,6 +24,8 @@ export interface LoadExtensionsOptions {
     allowExtensions?: boolean;
     /** Optional sink for non-fatal warnings (e.g. built-in overrides). */
     logger?: { warn: (message: string) => void };
+    /** Optional module loader seam for tests or embedders with custom import policy. */
+    moduleLoader?: (absPath: string) => Promise<Record<string, unknown>>;
 }
 
 /** Host registries that can receive extension capabilities (fixers live on the engine, not the host). */
@@ -79,8 +81,9 @@ export async function loadExtensionsIntoHost(
         );
     }
 
+    const loadModule = options.moduleLoader ?? defaultModuleLoader;
     for (const ref of refs) {
-        const moduleExports = (await import(ref.absPath)) as Record<string, unknown>;
+        const moduleExports = await loadModule(ref.absPath);
         const candidate = moduleExports.default ?? moduleExports.extension;
         if (
             candidate === null ||
@@ -105,4 +108,8 @@ export async function loadExtensionsIntoHost(
         }
         registry.register(name, candidate, 'extension');
     }
+}
+
+async function defaultModuleLoader(absPath: string): Promise<Record<string, unknown>> {
+    return (await import(absPath)) as Record<string, unknown>;
 }
