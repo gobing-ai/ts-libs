@@ -1,19 +1,3 @@
-import { createWriteStream, mkdirSync } from 'node:fs';
-import {
-    access,
-    appendFile,
-    cp,
-    mkdir,
-    readdir,
-    readFile,
-    realpath,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
-
 export interface FileStat {
     isFile(): boolean;
     isDirectory(): boolean;
@@ -41,26 +25,47 @@ export interface FileSystem {
     createLogStream(path: string): LogStream;
 }
 
+type NodeFsPromises = typeof import('node:fs/promises');
+type NodeFs = typeof import('node:fs');
+
+let fsPromisesModule: Promise<NodeFsPromises> | null = null;
+let fsModule: Promise<NodeFs> | null = null;
+
+function nodeFsPromises(): Promise<NodeFsPromises> {
+    fsPromisesModule ??= import('node:fs/promises');
+    return fsPromisesModule;
+}
+
+function nodeFs(): Promise<NodeFs> {
+    fsModule ??= import('node:fs');
+    return fsModule;
+}
+
 export class NodeFileSystem implements FileSystem {
     async readFile(path: string): Promise<string> {
+        const { readFile } = await nodeFsPromises();
         return await readFile(path, 'utf-8');
     }
 
     async writeFile(path: string, content: string): Promise<void> {
+        const { writeFile } = await nodeFsPromises();
         await ensureDirForFile(path, this);
         await writeFile(path, content, 'utf-8');
     }
 
     async appendFile(path: string, content: string): Promise<void> {
+        const { appendFile } = await nodeFsPromises();
         await ensureDirForFile(path, this);
         await appendFile(path, content, 'utf-8');
     }
 
     async mkdir(path: string): Promise<void> {
+        const { mkdir } = await nodeFsPromises();
         await mkdir(path, { recursive: true });
     }
 
     async exists(path: string): Promise<boolean> {
+        const { access } = await nodeFsPromises();
         try {
             await access(path);
             return true;
@@ -70,14 +75,17 @@ export class NodeFileSystem implements FileSystem {
     }
 
     async readDir(path: string): Promise<string[]> {
+        const { readdir } = await nodeFsPromises();
         return await readdir(path);
     }
 
     async unlink(path: string): Promise<void> {
+        const { rm } = await nodeFsPromises();
         await rm(path, { recursive: true, force: true });
     }
 
     async stat(path: string): Promise<FileStat | null> {
+        const { stat } = await nodeFsPromises();
         try {
             const value = await stat(path);
             return {
@@ -92,20 +100,58 @@ export class NodeFileSystem implements FileSystem {
     }
 
     async realpath(path: string): Promise<string> {
+        const { realpath } = await nodeFsPromises();
         return await realpath(path);
     }
 
     async copy(src: string, dest: string): Promise<void> {
+        const { cp } = await nodeFsPromises();
         await cp(src, dest, { recursive: true });
     }
 
     async rename(src: string, dest: string): Promise<void> {
+        const { rename } = await nodeFsPromises();
         await rename(src, dest);
     }
 
     createLogStream(path: string): LogStream {
-        mkdirSync(dirname(path), { recursive: true });
-        return createWriteStream(path, { flags: 'a' });
+        return new LazyNodeLogStream(path);
+    }
+}
+
+class LazyNodeLogStream implements LogStream {
+    private readonly ready: Promise<{
+        write: (chunk: string) => void;
+        end: () => void;
+    }>;
+    private ended = false;
+    private readonly pending: string[] = [];
+
+    constructor(path: string) {
+        this.ready = nodeFs().then(({ createWriteStream, mkdirSync }) => {
+            mkdirSync(dirnamePath(path), { recursive: true });
+            const stream = createWriteStream(path, { flags: 'a' });
+            for (const chunk of this.pending.splice(0)) stream.write(chunk);
+            if (this.ended) stream.end();
+            return {
+                write: (chunk: string) => stream.write(chunk),
+                end: () => stream.end(),
+            };
+        });
+    }
+
+    write(chunk: string): void {
+        if (this.ended) return;
+        this.pending.push(chunk);
+        void this.ready.then((stream) => {
+            const next = this.pending.shift();
+            if (next !== undefined) stream.write(next);
+        });
+    }
+
+    end(): void {
+        this.ended = true;
+        void this.ready.then((stream) => stream.end());
     }
 }
 
@@ -180,12 +226,12 @@ export function getFs(): FileSystem {
 }
 
 export async function ensureDirForFile(path: string, fs = getFs()): Promise<void> {
-    await fs.mkdir(dirname(path));
+    await fs.mkdir(dirnamePath(path));
 }
 
 export async function atomicWriteFile(path: string, content: string, fs = getFs()): Promise<void> {
     await ensureDirForFile(path, fs);
-    const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+    const tempPath = `${path}.${getProcessPid()}.${Date.now()}.tmp`;
     await fs.writeFile(tempPath, content);
     await fs.rename(tempPath, path);
 }
@@ -206,7 +252,7 @@ export async function walkDir(path: string, fs = getFs()): Promise<string[]> {
     const entries = (await fs.readDir(path)).sort();
     const result: string[] = [];
     for (const entry of entries) {
-        const fullPath = join(path, entry);
+        const fullPath = joinPath(path, entry);
         const entryStat = await fs.stat(fullPath);
         if (entryStat?.isDirectory()) {
             result.push(...(await walkDir(fullPath, fs)));
@@ -217,13 +263,13 @@ export async function walkDir(path: string, fs = getFs()): Promise<string[]> {
     return result;
 }
 
-export function getProjectRoot(startDir = process.cwd()): string {
-    let current = resolve(startDir);
+export function getProjectRoot(startDir = getProcessCwd()): string {
+    let current = resolvePath(startDir);
     for (let i = 0; i < 12; i++) {
-        if (Bun.file(join(current, 'bun.lock')).size !== 0 || Bun.file(join(current, 'package.json')).size !== 0) {
+        if (hasBunFile(joinPath(current, 'bun.lock')) || hasBunFile(joinPath(current, 'package.json'))) {
             return current;
         }
-        const parent = dirname(current);
+        const parent = dirnamePath(current);
         if (parent === current) return startDir;
         current = parent;
     }
@@ -231,9 +277,70 @@ export function getProjectRoot(startDir = process.cwd()): string {
 }
 
 export function resolveProjectPath(...segments: string[]): string {
-    return resolve(getProjectRoot(), ...segments);
+    return resolvePath(getProjectRoot(), ...segments);
 }
 
 export function createLogStream(path: string, fs = getFs()): LogStream {
     return fs.createLogStream(path);
+}
+
+function hasBunFile(path: string): boolean {
+    const bun = (globalThis as { Bun?: { file: (path: string) => { size: number } } }).Bun;
+    if (bun === undefined) return false;
+    return bun.file(path).size !== 0;
+}
+
+function getProcessPid(): number {
+    return (globalThis as { process?: { pid?: number } }).process?.pid ?? 0;
+}
+
+function getProcessCwd(): string {
+    return (globalThis as { process?: { cwd?: () => string } }).process?.cwd?.() ?? '/';
+}
+
+function normalizeSeparators(path: string): string {
+    return path.replaceAll('\\', '/');
+}
+
+function isAbsolutePath(path: string): boolean {
+    return path.startsWith('/') || /^[A-Za-z]:\//.test(normalizeSeparators(path));
+}
+
+function dirnamePath(path: string): string {
+    const input = normalizeSeparators(path);
+    if (/^\/+$/.test(input)) return '/';
+    const normalized = input.replace(/\/+$/, '');
+    if (normalized === '' || normalized === '/') return normalized || '.';
+    const index = normalized.lastIndexOf('/');
+    if (index < 0) return '.';
+    if (index === 0) return '/';
+    return normalized.slice(0, index);
+}
+
+function joinPath(...segments: string[]): string {
+    const filtered = segments.filter((segment) => segment.length > 0).map(normalizeSeparators);
+    if (filtered.length === 0) return '.';
+    const absolute = isAbsolutePath(filtered[0] ?? '');
+    const joined = filtered.join('/').replace(/\/+/g, '/');
+    return absolute ? joined : joined.replace(/^\//, '');
+}
+
+function resolvePath(...segments: string[]): string {
+    const candidates = segments.length === 0 ? [getProcessCwd()] : segments;
+    let resolved = '';
+    for (const segment of candidates.map(normalizeSeparators)) {
+        if (segment.length === 0) continue;
+        resolved = isAbsolutePath(segment) ? segment : joinPath(resolved || getProcessCwd(), segment);
+    }
+    const parts: string[] = [];
+    const absolute = isAbsolutePath(resolved);
+    for (const part of resolved.split('/')) {
+        if (part === '' || part === '.') continue;
+        if (part === '..') {
+            parts.pop();
+            continue;
+        }
+        parts.push(part);
+    }
+    return `${absolute ? '/' : ''}${parts.join('/')}` || (absolute ? '/' : '.');
 }
