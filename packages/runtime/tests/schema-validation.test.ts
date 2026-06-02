@@ -118,6 +118,31 @@ describe('loadStructuredConfig', () => {
         ).rejects.toThrow('HTTP 404');
     });
 
+    test('rejects an oversized remote schema by Content-Length before reading the body', async () => {
+        await expect(
+            parseStructuredConfig('$schema: https://schemas.example/big.json\nname: demo\n', 'remote.yaml', {
+                fetch: async () => new Response('{}', { headers: { 'content-length': String(6 * 1024 * 1024) } }),
+            }),
+        ).rejects.toThrow('exceeds the');
+    });
+
+    test('aborts a remote schema whose streamed body exceeds the byte cap (lying Content-Length)', async () => {
+        // No/dishonest Content-Length: the streaming tally must still stop a multi-MB drip.
+        const oversized = new ReadableStream<Uint8Array>({
+            start(controller) {
+                const mb = new Uint8Array(1024 * 1024);
+                for (let i = 0; i < 6; i++) controller.enqueue(mb);
+                controller.close();
+            },
+        });
+
+        await expect(
+            parseStructuredConfig('$schema: https://schemas.example/drip.json\nname: demo\n', 'remote.yaml', {
+                fetch: async () => new Response(oversized),
+            }),
+        ).rejects.toThrow('exceeds the');
+    });
+
     test('reports invalid JSON in referenced schema files', async () => {
         const dir = await mkdtemp(join(tmpdir(), 'structured-config-invalid-schema-'));
         const configPath = join(dir, 'config.yaml');
@@ -180,6 +205,34 @@ describe('loadStructuredConfig', () => {
         const result = validateJsonSchema('z', { oneOf: [{ const: 'a' }, { const: 'b' }] });
         expect(result[0]?.message).toContain('[0]');
         expect(result[0]?.message).toContain('[1]');
+    });
+
+    test('terminates on cyclic $ref instead of overflowing the stack', () => {
+        // A self-referential $ref (node → node) is a DoS surface: unguarded it recurses until the
+        // stack overflows. The visited-ref guard breaks the cycle, so validation must simply return.
+        const recursive = {
+            $ref: '#/$defs/node',
+            $defs: {
+                node: {
+                    type: 'object',
+                    properties: { child: { $ref: '#/$defs/node' } },
+                },
+            },
+        };
+
+        expect(validateJsonSchema({ child: { child: {} } }, recursive)).toEqual([]);
+        // Sibling constraints under the cyclic ref still fire — the guard stops recursion, not checks.
+        const constrained = {
+            $ref: '#/$defs/node',
+            $defs: {
+                node: {
+                    type: 'object',
+                    required: ['child'],
+                    properties: { child: { $ref: '#/$defs/node' } },
+                },
+            },
+        };
+        expect(validateJsonSchema({}, constrained)).toHaveLength(1);
     });
 
     test('treats object const/enum members as order-insensitive', () => {
