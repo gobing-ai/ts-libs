@@ -4,6 +4,41 @@ Constraint rule loading, evaluation, formatting, and fix generation for Bun/Type
 
 This package is a library. It does not ship a CLI. Downstream tools can use it to load rule presets, evaluate a workspace, format findings, collect fix candidates, and optionally apply those fixes.
 
+## Briefing
+
+`ts-rule-engine` is a policy workflow engine: loaders turn rule files and presets into `ConstraintRule` objects, `RuleEngine` dispatches each rule to a matching evaluator through `RuleEngineHost`, and the result can be formatted for users or converted into fix candidates for controlled application.
+
+```mermaid
+erDiagram
+    RULE_ENGINE ||--|| RULE_ENGINE_HOST : uses
+    RULE_ENGINE ||--o{ CONSTRAINT_RULE : evaluates
+    RULE_ENGINE_HOST ||--o{ EVALUATOR : registers
+    RULE_ENGINE_HOST ||--o{ RESOLVER : registers
+    RULE_ENGINE_HOST ||--o{ FORMATTER : registers
+    RULE_ENGINE ||--o{ FIXER : owns
+    PRESET ||--o{ CONSTRAINT_RULE : composes
+    PRESET ||--o{ EXTENSION : declares
+    EXTENSION }o--|| RULE_ENGINE_HOST : loads_into
+    EVALUATOR ||--o{ FINDING : emits
+    FIXER ||--o{ FIX : emits
+    FORMATTER ||--|| RESULT : renders
+```
+
+| Entity | One-line Description |
+|--------|----------------------|
+| `RuleEngine` | Orchestrates the evaluation workflow for enabled rules in a target workspace. |
+| `RuleEngineHost` | Holds named capability registries for evaluators, resolvers, and formatters. |
+| `ConstraintRule` | Declarative policy unit with matching scope, severity, evaluator config, and optional fix config. |
+| `Preset` | YAML/JSON composition unit that collects rule categories, other presets, disabled rules, and extension refs. |
+| `Evaluator` | Executes one rule type and emits findings plus any evaluator-native fixes. |
+| `Resolver` | Maps source paths to related test paths or skeletons for rules such as `test-location`. |
+| `Formatter` | Renders a `RuleEngineResult` as text, JSON, or a downstream custom report format. |
+| `Fixer` | Produces file edits from findings when a rule opts into manual or automatic fix modes. |
+| `Extension` | Trusted local module declared by presets to register custom resolvers, evaluators, or formatters. |
+| `Finding` | Structured policy violation or evaluator error with severity, location, and machine-readable code. |
+| `Fix` | Candidate byte-range or file-level edit returned separately from findings and applied only on request. |
+| `RuleEngineResult` | Aggregate output containing all findings and fixes for one evaluation run. |
+
 ## Install
 
 ```bash
@@ -66,9 +101,10 @@ process.exitCode = result.findings.some((finding) => finding.severity === 'error
 
 ## Rule Files
 
-Rule files can be YAML, JSON, or a single rule object. A multi-rule YAML file looks like this:
+Rule files can be YAML, JSON, or a single rule object. File loads honor a top-level `$schema` ref by default, then validate the internal Zod schema. A multi-rule YAML file looks like this:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 include:
   - "packages/*/src/**/*.ts"
 exclude:
@@ -105,7 +141,7 @@ const rules = await loadRuleFile('.rules/typescript.yaml');
 
 ## Presets
 
-Presets compose category folders, other presets, and rule-file subpaths across one or more roots.
+Presets compose category folders, other presets, and rule-file subpaths across one or more roots. Preset loads also honor top-level `$schema` refs by default.
 
 Example layout:
 
@@ -121,6 +157,7 @@ Example layout:
 Example preset:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/preset.schema.json"
 name: recommended
 extends:
   - quality
@@ -192,6 +229,7 @@ The effective fix mode is the lower authority between `rule.fix.mode` and the ca
 Example rule with regex replacement:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: rename-foo
     description: Replace foo with bar
@@ -238,6 +276,7 @@ Built-in fixer providers:
 Regex forbid:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: no-debugger
     description: Do not commit debugger statements
@@ -252,6 +291,7 @@ rules:
 Path presence:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: package-readme-required
     description: Each package should document its public API
@@ -264,6 +304,7 @@ rules:
 Glob absence:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: no-dist-in-source
     description: Built artifacts should not be committed
@@ -277,6 +318,7 @@ rules:
 Coverage gate:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: coverage-gate
     description: Source files must meet coverage threshold
@@ -294,6 +336,7 @@ rules:
 Import boundary:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: db-boundary
     description: Only ts-db may import drizzle
@@ -311,6 +354,7 @@ rules:
 Schema artifact:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: rule-schema-artifact
     description: Rule JSON schema artifact is complete
@@ -327,6 +371,7 @@ rules:
 ast-grep:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: no-throw-string
     description: Throw Error objects, not strings
@@ -353,6 +398,7 @@ The `test-location` evaluator can require source files to have corresponding tes
 Example:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: python-sources-have-tests
     description: Python sources should have pytest files
@@ -399,6 +445,7 @@ engine.registerEvaluator('workspace-name', evaluator);
 Then use it in a rule:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/rule-file.schema.json"
 rules:
   - id: workspace-name
     description: Check workspace naming convention
@@ -413,6 +460,7 @@ Preset extensions are trusted local modules. They are disabled unless the caller
 Preset:
 
 ```yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/rule-engine/schemas/preset.schema.json"
 name: local
 extends:
   - quality

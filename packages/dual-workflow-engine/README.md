@@ -113,27 +113,111 @@ The default host includes built-in `note` and `shell` action runners plus an `al
 ## Load Workflows from YAML
 
 ```ts
-import { loadWorkflowDefFromText } from '@gobing-ai/ts-dual-workflow-engine';
+import { loadWorkflowDef, WorkflowService } from '@gobing-ai/ts-dual-workflow-engine';
 
-const workflow = loadWorkflowDefFromText(`
+const workflow = await loadWorkflowDef('./workflows/approval.yaml');
+await service.run(workflow, { runId: 'approval-1' });
+```
+
+`loadWorkflowDef(path)` reads YAML or JSON from disk. File loads honor a top-level `$schema` ref by default, then validate the internal structural schema and semantic references before returning a `WorkflowDef`. `loadWorkflowDefFromText(text, source)` handles inline definitions with internal validation only.
+
+### State-machine YAML
+
+`kind: state-machine` is optional because state-machine is the default shape, but including it makes the file easier to scan.
+
+```yaml
+# workflows/approval.yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/dual-workflow-engine/schemas/state-machine-workflow.schema.json"
+kind: state-machine
+name: approval
+initialState: draft
+terminalStates: [done]
+vars:
+  reviewer: robin
+env:
+  allow: [APP_ENV]
+states:
+  - id: draft
+    onEnter:
+      - kind: note
+        options:
+          message: "review requested by ${vars.reviewer} in ${env.APP_ENV}"
+  - id: approved
+    onEnter:
+      - kind: note
+        options:
+          message: approved
+  - id: done
+transitions:
+  - from: draft
+    to: approved
+    guard:
+      kind: always
+  - from: approved
+    to: done
+```
+
+```ts
+import {
+    createDefaultWorkflowEngineHost,
+    loadWorkflowDef,
+    MemoryWorkflowPersistenceAdapter,
+    WorkflowService,
+} from '@gobing-ai/ts-dual-workflow-engine';
+
+const service = new WorkflowService(
+    createDefaultWorkflowEngineHost(),
+    new MemoryWorkflowPersistenceAdapter(),
+);
+
+const workflow = await loadWorkflowDef('./workflows/approval.yaml');
+const result = await service.run(workflow, {
+    runId: 'approval-1',
+    env: { APP_ENV: 'development' },
+});
+```
+
+### Transition-flow YAML
+
+Transition-flow definitions must declare `kind: transition-flow`.
+
+```yaml
+# workflows/import-file.yaml
+$schema: "https://raw.githubusercontent.com/gobing-ai/ts-libs/main/packages/dual-workflow-engine/schemas/transition-flow-workflow.schema.json"
 kind: transition-flow
 name: import-file
 initialNode: read
 terminalNodes: [done]
+vars:
+  file: events.jsonl
 nodes:
   - id: read
+    type: action
     action:
       kind: note
       options:
-        message: reading ${'${vars.file}'}
+        message: "reading ${vars.file}"
+  - id: validate
+    type: gate
   - id: done
 edges:
   - from: read
+    to: validate
+  - from: validate
     to: done
-`);
+    condition:
+      kind: always
 ```
 
-`loadWorkflowDef(path)` reads YAML from disk. `validateWorkflowDef()` is available when the caller already has an object.
+```ts
+const workflow = await loadWorkflowDef('./workflows/import-file.yaml');
+const result = await service.run(workflow, {
+    runId: 'import-1',
+    vars: { file: 'override.jsonl' },
+});
+```
+
+`validateWorkflowDef()` is available when the caller already has an object and only needs validation.
 
 ## Variables and Environment
 
