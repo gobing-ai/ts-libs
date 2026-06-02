@@ -56,6 +56,18 @@ export interface ConstraintRuleFile {
     rules: ConstraintRule[];
 }
 
+/** Relative module paths a preset contributes per capability kind. */
+export interface PresetExtensions {
+    /** Test-path resolver module paths. */
+    resolvers?: string[];
+    /** Evaluator module paths. */
+    evaluators?: string[];
+    /** Fixer module paths. */
+    fixers?: string[];
+    /** Formatter module paths. */
+    formatters?: string[];
+}
+
 /** Preset definition that composes category folders or other presets. */
 export interface PresetDefinition {
     /** Preset name. */
@@ -66,6 +78,8 @@ export interface PresetDefinition {
     disable?: string[];
     /** Per-rule overrides. */
     overrides?: Record<string, { fix?: { mode: FixMode } }>;
+    /** Custom capability modules contributed by this preset (opt-in to load). */
+    extensions?: PresetExtensions;
 }
 
 /** Candidate fix emitted by an evaluator or fixer. */
@@ -84,6 +98,16 @@ export interface Fix {
     mode: Exclude<FixMode, 'none'>;
 }
 
+/**
+ * What a finding represents.
+ *
+ * - `violation`: the rule ran and the project breached its policy (the default).
+ * - `error`: the rule could not run — a misconfiguration or runtime fault in the
+ *   evaluator itself. These are not policy breaches and callers may surface them
+ *   separately (e.g. "rule misconfigured") rather than as project violations.
+ */
+export type FindingKind = 'violation' | 'error';
+
 /** Finding emitted by a constraint rule. */
 export interface ConstraintFinding {
     /** Rule identifier. */
@@ -100,6 +124,8 @@ export interface ConstraintFinding {
     column?: number;
     /** Machine-readable evaluator/source code. */
     code?: string;
+    /** Whether this is a policy violation or an evaluator error. Absent means `violation`. */
+    kind?: FindingKind;
 }
 
 /** Aggregate result returned by a rule evaluator. */
@@ -193,5 +219,13 @@ export const PresetDefinitionSchema = z.object({
     disable: z.array(z.string()).optional(),
     overrides: z
         .record(z.string(), z.object({ fix: z.object({ mode: z.enum(['none', 'suggest', 'auto']) }).optional() }))
+        .optional(),
+    extensions: z
+        .object({
+            resolvers: z.array(z.string()).optional(),
+            evaluators: z.array(z.string()).optional(),
+            fixers: z.array(z.string()).optional(),
+            formatters: z.array(z.string()).optional(),
+        })
         .optional(),
 });
