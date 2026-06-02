@@ -32,6 +32,25 @@ describe('AiRunner', () => {
         });
     });
 
+    test('prepends identity preamble only when team options are present', async () => {
+        const executor = new FakeExecutor(() => ({ stdout: 'ok' }));
+        const runner = new AiRunner({ processExecutor: executor, defaultCwd: '/repo' });
+        await runner.runPromptCommand('codex', {
+            input: 'ship it',
+            purpose: 'Implement',
+            systemPrompt: 'Use repo rules.',
+            taskId: '0005',
+            peers: [{ id: 'planner', type: 'claude', purpose: 'Plan' }],
+        });
+
+        const prompt = executor.calls[0]?.args?.[1] ?? '';
+        expect(prompt).toContain('You are agent `codex` (codex) in workspace `/repo`.');
+        expect(prompt).toContain('Your current task: #0005.');
+        expect(prompt).toContain('Use repo rules.');
+        expect(prompt).toContain('- `planner` (claude) — Plan');
+        expect(prompt.endsWith('ship it')).toBeTrue();
+    });
+
     test('exposes stable shim metadata', () => {
         expect(getAgentShim('pi').tier).toBe(1);
         expect(getAgentShim('openclaw').command).toBe('openclaw');
