@@ -3,7 +3,13 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { collectPresetExtensions, loadExtensionsIntoHost } from '../../src/config/extensions';
+import { loadPreset, loadPresetRules } from '../../src/config/loader';
 import { RuleEngineHost } from '../../src/host/rule-engine-host';
+
+export const extension = {
+    name: 'self-test-extension',
+    resolveTestPath: (path: string) => path.replace(/\.ts$/, '.test.ts'),
+};
 
 async function tempDir(): Promise<string> {
     const dir = join(
@@ -43,26 +49,136 @@ describe('loadExtensionsIntoHost', () => {
     });
 
     test('imports and registers a module-exported capability when allowed', async () => {
-        const dir = await tempDir();
-        const modulePath = join(dir, 'custom-resolver.ts');
-        await writeFile(
-            modulePath,
-            'export default { name: "custom", resolveTestPath: (p) => p.replace(/\\.ts$/, ".test.ts") };\n',
-        );
         const host = new RuleEngineHost();
-        const refs = collectPresetExtensions('p', dir, { resolvers: ['custom-resolver.ts'] });
-        await loadExtensionsIntoHost(host, refs, { allowExtensions: true });
+        const refs = [{ kind: 'resolvers' as const, presetName: 'p', absPath: '/extensions/custom-resolver.ts' }];
+        await loadExtensionsIntoHost(host, refs, {
+            allowExtensions: true,
+            moduleLoader: async () => ({
+                default: { name: 'custom', resolveTestPath: (path: string) => path.replace(/\.ts$/, '.test.ts') },
+            }),
+        });
         expect(host.resolvers.has('custom')).toBe(true);
         expect(host.resolvers.get('custom').resolveTestPath('a.ts')).toBe('a.test.ts');
     });
 
     test('throws when a module lacks a string name', async () => {
-        const dir = await tempDir();
-        const modulePath = join(dir, 'bad.ts');
-        await writeFile(modulePath, 'export default { notName: true };\n');
-        const refs = collectPresetExtensions('p', dir, { resolvers: ['bad.ts'] });
-        await expect(loadExtensionsIntoHost(new RuleEngineHost(), refs, { allowExtensions: true })).rejects.toThrow(
-            'must export an object with a string "name"',
+        const refs = [{ kind: 'resolvers' as const, presetName: 'p', absPath: '/extensions/bad.ts' }];
+        await expect(
+            loadExtensionsIntoHost(new RuleEngineHost(), refs, {
+                allowExtensions: true,
+                moduleLoader: async () => ({ default: { notName: true } }),
+            }),
+        ).rejects.toThrow('must export an object with a string "name"');
+    });
+
+    test('default module loader imports extension modules', async () => {
+        const host = new RuleEngineHost();
+        const refs = [{ kind: 'resolvers' as const, presetName: 'p', absPath: import.meta.url }];
+
+        await loadExtensionsIntoHost(host, refs, { allowExtensions: true });
+
+        expect(host.resolvers.has('self-test-extension')).toBe(true);
+    });
+
+    test('throws for extension kinds that have no host registry', async () => {
+        const refs = [{ kind: 'fixers' as const, presetName: 'p', absPath: '/extensions/fixer.ts' }];
+        await expect(
+            loadExtensionsIntoHost(new RuleEngineHost(), refs, {
+                allowExtensions: true,
+                moduleLoader: async () => ({ default: { name: 'custom-fixer' } }),
+            }),
+        ).rejects.toThrow('fixers extensions are not supported');
+    });
+
+    test('warns when an extension overrides an existing capability', async () => {
+        const warnings: string[] = [];
+        const refs = [{ kind: 'resolvers' as const, presetName: 'p', absPath: '/extensions/resolver.ts' }];
+        const host = new RuleEngineHost();
+        host.resolvers.register(
+            'typescript',
+            { name: 'typescript', resolveTestPath: (path: string) => path },
+            'builtin',
         );
+
+        await loadExtensionsIntoHost(host, refs, {
+            allowExtensions: true,
+            logger: { warn: (message) => warnings.push(message) },
+            moduleLoader: async () => ({ default: { name: 'typescript', resolveTestPath: (path: string) => path } }),
+        });
+
+        expect(warnings[0]).toContain('overrides existing "typescript"');
+    });
+});
+
+describe('loadPreset extensions', () => {
+    test('returns extension refs declared by top-level and nested presets', async () => {
+        const dir = await tempDir();
+        const root = join(dir, '.spur', 'rules');
+        await mkdir(join(root, 'quality'), { recursive: true });
+        await writeFile(
+            join(root, 'recommended.yaml'),
+            [
+                'name: recommended',
+                'extends:',
+                '  - nested',
+                'extensions:',
+                '  resolvers:',
+                '    - ./top-resolver.ts',
+            ].join('\n'),
+        );
+        await writeFile(
+            join(root, 'nested.yaml'),
+            [
+                'name: nested',
+                'extends:',
+                '  - quality',
+                'extensions:',
+                '  evaluators:',
+                '    - ./nested-evaluator.ts',
+            ].join('\n'),
+        );
+        await writeFile(
+            join(root, 'quality', 'rule.yaml'),
+            [
+                'rules:',
+                '  - id: q',
+                '    description: q',
+                '    evaluator: { type: path, config: { paths: ["README.md"] } }',
+            ].join('\n'),
+        );
+
+        const loaded = await loadPreset('recommended', { roots: [root] });
+
+        expect(loaded.rules.map((rule) => rule.id)).toEqual(['q']);
+        expect(loaded.extensions.map((ref) => ref.kind)).toEqual(['resolvers', 'evaluators']);
+        expect(loaded.extensions.map((ref) => ref.absPath)).toEqual([
+            join(root, 'top-resolver.ts'),
+            join(root, 'nested-evaluator.ts'),
+        ]);
+    });
+
+    test('loadPresetRules preserves the existing rules-only API', async () => {
+        const dir = await tempDir();
+        const root = join(dir, '.spur', 'rules');
+        await mkdir(join(root, 'quality'), { recursive: true });
+        await writeFile(
+            join(root, 'recommended.yaml'),
+            ['name: recommended', 'extends:', '  - quality', 'extensions:', '  resolvers:', '    - ./resolver.ts'].join(
+                '\n',
+            ),
+        );
+        await writeFile(
+            join(root, 'quality', 'rule.yaml'),
+            [
+                'rules:',
+                '  - id: q',
+                '    description: q',
+                '    evaluator: { type: path, config: { paths: ["README.md"] } }',
+            ].join('\n'),
+        );
+
+        const rules = await loadPresetRules('recommended', { roots: [root] });
+
+        expect(rules.map((rule) => rule.id)).toEqual(['q']);
     });
 });
