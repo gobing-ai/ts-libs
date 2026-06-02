@@ -1,9 +1,9 @@
 ---
 name: "Review findings: rule-engine SECU + architecture"
 description: "Review findings: rule-engine SECU + architecture"
-status: Testing
+status: Done
 created_at: 2026-06-02T14:14:12.809Z
-updated_at: 2026-06-02T15:15:16.495Z
+updated_at: 2026-06-02T15:28:10.851Z
 folder: docs/tasks
 type: task
 feature-id: ""
