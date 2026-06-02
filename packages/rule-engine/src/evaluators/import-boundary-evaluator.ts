@@ -7,24 +7,6 @@ import {
 } from '../types';
 import { escapeRegExp, matchesGlob, scanFiles } from './file-utils';
 
-/**
- * A forbidden entry within a boundary declaration.
- *
- * - String form: substring match against any import/export/require/dynamic-import specifier.
- * - Object form: regex `pattern` matched against the full line (mode `usage`) or import lines
- *   only (mode `import`).
- */
-type ForbiddenEntry =
-    | string
-    | {
-          /** Regex pattern to match against lines. */
-          pattern: string;
-          /** `import` = restrict to import/export/require lines; `usage` = any line. Default: `import`. */
-          mode?: 'import' | 'usage';
-          /** Explicit syntax hint (informational, not enforced differently from `mode`). */
-          syntax?: string;
-      };
-
 /** A compiled boundary ready for file scanning. */
 interface CompiledBoundary {
     scope: string;
@@ -59,7 +41,7 @@ export class ImportBoundaryEvaluator implements RuleEvaluator {
             throw new Error('import-boundary evaluator requires non-empty array config "boundaries"');
         }
 
-        const compiled = (boundaries as unknown as BoundaryDecl[]).map((b) => compileBoundary(b));
+        const compiled = boundaries.map((boundary, index) => compileBoundary(boundary, index));
 
         // Scan all files once (read up front); apply each boundary's globs in-memory below.
         const allFiles = await scanFiles({ workdir: context.workdir, matchMode: 'glob' });
@@ -92,24 +74,37 @@ export class ImportBoundaryEvaluator implements RuleEvaluator {
     }
 }
 
-/** Raw shape of one boundary declaration from the config. */
-interface BoundaryDecl {
-    scope: string;
-    forbidden: ForbiddenEntry[];
-    exclude?: string[];
-}
-
 /** Compile a raw boundary declaration into a scan-ready form. */
-function compileBoundary(decl: BoundaryDecl): CompiledBoundary {
+function compileBoundary(decl: unknown, index: number): CompiledBoundary {
+    if (!isRecord(decl)) {
+        throw new Error(`import-boundary evaluator requires object config "boundaries[${index}]"`);
+    }
+    const scope = decl.scope;
+    if (typeof scope !== 'string' || scope.length === 0) {
+        throw new Error(`import-boundary evaluator requires string config "boundaries[${index}].scope"`);
+    }
+    const forbidden = decl.forbidden;
+    if (!Array.isArray(forbidden) || forbidden.length === 0) {
+        throw new Error(`import-boundary evaluator requires non-empty array config "boundaries[${index}].forbidden"`);
+    }
+    const exclude = decl.exclude;
+    if (exclude !== undefined && !isStringArray(exclude)) {
+        throw new Error(`import-boundary evaluator requires string[] config "boundaries[${index}].exclude"`);
+    }
+
     return {
-        scope: decl.scope,
-        excludePatterns: decl.exclude ?? [],
-        forbidden: decl.forbidden.map((entry) => compileEntry(entry)),
+        scope,
+        excludePatterns: exclude ?? [],
+        forbidden: forbidden.map((entry, entryIndex) => compileEntry(entry, index, entryIndex)),
     };
 }
 
 /** Compile one forbidden entry into a regex + metadata. */
-function compileEntry(entry: ForbiddenEntry): { regex: RegExp; label: string; importOnly: boolean } {
+function compileEntry(
+    entry: unknown,
+    boundaryIndex: number,
+    entryIndex: number,
+): { regex: RegExp; label: string; importOnly: boolean } {
     if (typeof entry === 'string') {
         // String form: match as an import specifier substring.
         const escaped = escapeRegExp(entry);
@@ -118,6 +113,17 @@ function compileEntry(entry: ForbiddenEntry): { regex: RegExp; label: string; im
             label: entry,
             importOnly: true,
         };
+    }
+
+    if (!isRecord(entry) || typeof entry.pattern !== 'string' || entry.pattern.length === 0) {
+        throw new Error(
+            `import-boundary evaluator requires string config "boundaries[${boundaryIndex}].forbidden[${entryIndex}].pattern"`,
+        );
+    }
+    if (entry.mode !== undefined && entry.mode !== 'import' && entry.mode !== 'usage') {
+        throw new Error(
+            `import-boundary evaluator requires "import" or "usage" config "boundaries[${boundaryIndex}].forbidden[${entryIndex}].mode"`,
+        );
     }
 
     // Object form with `pattern`.
@@ -132,4 +138,14 @@ function compileEntry(entry: ForbiddenEntry): { regex: RegExp; label: string; im
 /** Return true when a source line is an import/export/require/dynamic-import statement. */
 function isImportLine(line: string): boolean {
     return /(?:^\s*import\b|^\s*export\b.*\bfrom\b|(?:from|require|import)\s*\(?\s*['"])/.test(line);
+}
+
+/** Return true when value is a plain object-ish config record. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Return true when every array item is a string. */
+function isStringArray(value: unknown): value is string[] {
+    return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
