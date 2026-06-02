@@ -22,6 +22,16 @@ export interface PromptOptions {
     model?: string;
     /** Output mode passed through to the agent CLI. */
     mode?: OutputMode;
+    /** Team-mode purpose included in the identity preamble. */
+    purpose?: string;
+    /** Caller-defined prompt tags. */
+    tags?: string[];
+    /** Additional system prompt rendered in the identity preamble. */
+    systemPrompt?: string;
+    /** Current task identifier included in the identity preamble. */
+    taskId?: string;
+    /** Peer agents included in the identity preamble. */
+    peers?: Array<{ id: string; type: string; purpose?: string }>;
 }
 
 /** Pure command builder for one coding-agent CLI. */
