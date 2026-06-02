@@ -2,6 +2,11 @@
  * Node.js scheduler adapter using a simple setInterval-based approach.
  * No external cron library dependency — cron expressions are parsed minimally.
  */
+import {
+    getSchedulerJobDuration,
+    getSchedulerJobExecutedTotal,
+    getSchedulerJobFailedTotal,
+} from '../telemetry/metrics';
 import type { ScheduledAction, SchedulerAdapter } from './types';
 
 /** Simple helper to parse cron-like interval strings into milliseconds. */
@@ -74,10 +79,15 @@ export class NodeSchedulerAdapter implements SchedulerAdapter {
     }
 
     private async _onScheduledTick(entry: ScheduledEntry): Promise<void> {
+        const startMs = performance.now();
+        getSchedulerJobExecutedTotal().add(1, { cron: entry.cron });
         try {
             await entry.action();
         } catch {
             // Swallow — scheduler errors should not crash the process
+            getSchedulerJobFailedTotal().add(1, { cron: entry.cron });
+        } finally {
+            getSchedulerJobDuration().record(performance.now() - startMs, { cron: entry.cron });
         }
     }
 }
