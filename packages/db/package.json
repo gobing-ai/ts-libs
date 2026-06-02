@@ -40,6 +40,10 @@
             "types": "./dist/adapters/d1.d.ts",
             "import": "./dist/adapters/d1.js"
         },
+        "./inbox": {
+            "types": "./dist/inbox.d.ts",
+            "import": "./dist/inbox.js"
+        },
         "./schema": {
             "types": "./dist/schema/index.d.ts",
             "import": "./dist/schema/index.js"
