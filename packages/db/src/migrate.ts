@@ -5,13 +5,16 @@ import type { DbAdapter } from './adapter';
 import { embeddedMigrations } from './embedded-migrations';
 
 /**
- * Find project root by walking up looking for bun.lock.
- * @deprecated Use `FileSystem.getProjectRoot()` instead.
- * @internal — only used for backward compatibility.
+ * Minimal structural logger for migration progress.
+ *
+ * Structurally compatible with `@gobing-ai/ts-infra`'s `Logger` so consumers can
+ * pass theirs directly — ts-db never imports ts-infra (keeps the package
+ * boundary). Defaults to `console` when absent.
  */
-/** @internal */
-export function findProjectRoot(_startDir: string): string {
-    return process.cwd();
+export interface MigrationLogger {
+    info(msg: string): void;
+    warn(msg: string): void;
+    error(msg: string): void;
 }
 
 /**
@@ -24,6 +27,8 @@ export interface MigrationOptions {
     migrationsTable?: string;
     /** File system abstraction for path resolution. */
     fs?: FileSystem;
+    /** Logger for migration progress. Default: `console`. */
+    logger?: MigrationLogger;
 }
 
 /**
@@ -56,7 +61,11 @@ function validateMigrationTableName(table: string): string {
  * Checks the journal table and applies only migrations that haven't run yet.
  * Each migration is executed with adapter.exec() for file-based or adapter.run() for journal tracking.
  */
-async function applyEmbeddedMigrations(adapter: DbAdapter, journalTable: string): Promise<void> {
+async function applyEmbeddedMigrations(
+    adapter: DbAdapter,
+    journalTable: string,
+    logger: MigrationLogger,
+): Promise<void> {
     // Validate journal table name — this is an internal constant, never user input.
     if (!/^__[a-z_]+$/.test(journalTable)) {
         throw new Error(`Invalid migration journal table name: ${journalTable}`);
@@ -76,7 +85,7 @@ async function applyEmbeddedMigrations(adapter: DbAdapter, journalTable: string)
     for (const migration of embeddedMigrations) {
         if (appliedHashes.has(migration.hash)) continue;
 
-        console.info(`Applying embedded migration: ${migration.tag}`);
+        logger.info(`Applying embedded migration: ${migration.tag}`);
 
         // Split on semicolons and execute each non-empty statement
         const statements = migration.sql
@@ -94,7 +103,7 @@ async function applyEmbeddedMigrations(adapter: DbAdapter, journalTable: string)
     }
 
     if (applied > 0) {
-        console.info(`Applied ${applied} embedded migration(s)`);
+        logger.info(`Applied ${applied} embedded migration(s)`);
     }
 }
 
@@ -115,9 +124,10 @@ async function applyEmbeddedMigrations(adapter: DbAdapter, journalTable: string)
  * @param options - Optional migration folder and table name overrides.
  */
 export async function applyMigrations(adapter: DbAdapter, options?: MigrationOptions): Promise<void> {
+    const logger = options?.logger ?? console;
     const { BunSqliteAdapter } = await import('./adapters/bun-sqlite');
     if (!(adapter instanceof BunSqliteAdapter)) {
-        console.warn('Skipping in-app migrations: only supported for bun-sqlite adapter');
+        logger.warn('Skipping in-app migrations: only supported for bun-sqlite adapter');
         return;
     }
 
@@ -125,39 +135,41 @@ export async function applyMigrations(adapter: DbAdapter, options?: MigrationOpt
 
     await ensureJournalTable(adapter, table);
 
-    const folder = options?.migrationsFolder ?? resolve(findProjectRoot(process.cwd()), 'drizzle');
+    const folder = options?.migrationsFolder ?? resolve(process.cwd(), 'drizzle');
 
-    // File-based migrations: attempt if drizzle/ folder is accessible.
-    // Use FileSystem.exists when available, otherwise try and fall back to embedded.
+    // File-based migrations: attempt only if the drizzle/ folder is present.
+    // With an injected fs we get a definitive answer (await the Promise — a bare
+    // `fs.exists(...)` is always truthy and silently disables the check); without
+    // one we attempt optimistically and fall back on the migrator's own error.
     const fs = options?.fs;
-    const tryFileBased = fs?.exists(folder) ?? true; // optimistic when no fs
+    const tryFileBased = fs ? await fs.exists(folder) : true;
 
     if (tryFileBased) {
         try {
             const { migrate: drizzleMigrate } = await import('drizzle-orm/bun-sqlite/migrator');
 
-            console.info(`Applying database migrations from ${folder}`);
+            logger.info(`Applying database migrations from ${folder}`);
 
             await drizzleMigrate(adapter.getDrizzleDb(), {
                 migrationsFolder: folder,
                 ...(options?.migrationsTable !== undefined ? { migrationsTable: options.migrationsTable } : {}),
             });
-            console.info('Database migrations complete');
+            logger.info('Database migrations complete');
             return;
         } catch (error) {
-            // If folder doesn't exist, fall through to embedded migrations.
-            // Any other error should be thrown.
+            // A missing/empty migrations folder is expected in compiled binaries —
+            // fall through to embedded. Any other failure is real; rethrow it.
             const message = error instanceof Error ? error.message : String(error);
             if (message.includes('journal') || message.includes('ENOENT') || message.includes('meta')) {
-                console.info(`File-based migrations unavailable, using embedded: ${message}`);
+                logger.info(`File-based migrations unavailable, using embedded: ${message}`);
             } else {
-                console.error(`[MIGRATE] drizzleMigrate failed: ${message}`);
+                logger.error(`[MIGRATE] drizzleMigrate failed: ${message}`);
                 throw error;
             }
         }
     }
 
     // Fallback: embedded migrations (for compiled binaries)
-    console.info('No drizzle/ folder found — applying embedded migrations');
-    await applyEmbeddedMigrations(adapter, table);
+    logger.info('No drizzle/ folder found — applying embedded migrations');
+    await applyEmbeddedMigrations(adapter, table, logger);
 }
