@@ -2,17 +2,11 @@ export { getTelemetryConfig, type TelemetryConfig, type TelemetryConfigPartial }
 export { extractSqlOperation, sanitizeSql } from './db-sanitize';
 export {
     type Counter,
-    getDbOperationDuration,
-    getDbOperationErrors,
-    getDbOperationTotal,
     getEventbusEmitsTotal,
     getEventbusErrorsTotal,
     getHttpClientRequestDuration,
     getHttpClientRequestErrors,
     getHttpClientRequestTotal,
-    getHttpServerRequestDuration,
-    getHttpServerRequestErrors,
-    getHttpServerRequestTotal,
     getQueueJobCompletedTotal,
     getQueueJobEnqueuedTotal,
     getQueueJobFailedTotal,
