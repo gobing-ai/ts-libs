@@ -20,8 +20,8 @@ interface ExportSite {
 }
 
 const KIND_PATTERN: Record<ExportKind, RegExp> = {
-    function: /^export\s+(?:async\s+)?function\s+([A-Za-z0-9_$]+)/,
-    class: /^export\s+(?:abstract\s+)?class\s+([A-Za-z0-9_$]+)/,
+    function: /^export\s+(?:default\s+)?(?:async\s+)?function\s*\*?\s+([A-Za-z0-9_$]+)/,
+    class: /^export\s+(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_$]+)/,
     interface: /^export\s+interface\s+([A-Za-z0-9_$]+)/,
     type: /^export\s+type\s+([A-Za-z0-9_$]+)/,
     const: /^export\s+const\s+([A-Za-z0-9_$]+)/,
@@ -90,8 +90,22 @@ function findExports(lines: string[], requested: ReadonlySet<ExportKind>): Expor
     return sites;
 }
 
-/** True when the line immediately above a declaration closes a JSDoc block. */
+/**
+ * True when a JSDoc block precedes a declaration.
+ *
+ * Skips decorator lines (`@Component(...)`) so a documented but decorated class
+ * is not falsely flagged, then checks whether the nearest preceding non-decorator
+ * line closes (or is) a JSDoc comment.
+ */
 function precededByJsdoc(lines: string[], declarationLine: number): boolean {
-    const prev = lines[declarationLine - 2]?.trim();
-    return prev !== undefined && (prev.endsWith('*/') || prev.startsWith('/**'));
+    let cursor = declarationLine - 2; // zero-based line above the declaration
+    while (cursor >= 0) {
+        const prev = lines[cursor]?.trim() ?? '';
+        if (prev.startsWith('@')) {
+            cursor -= 1; // decorator — keep walking up
+            continue;
+        }
+        return prev.endsWith('*/') || prev.startsWith('/**');
+    }
+    return false;
 }
