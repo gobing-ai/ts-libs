@@ -4,15 +4,14 @@ Infrastructure backbone — typed event bus, DB-backed job queue, cron scheduler
 
 ## Overview
 
-`ts-infra` provides seven subsystems that form the application backbone:
+`ts-infra` provides six subsystems that form the application backbone:
 
 | Subsystem | Module | Purpose |
 |-----------|--------|---------|
 | **Event Bus** | `event-bus/` | Typed pub/sub with sync + async dispatch, lifecycle self-observability |
-| **Events** | `events/` | Typed event map pattern + system bus factory |
 | **Job Queue** | `job-queue/` | DB-backed enqueue and consume flow (`DBJobQueue`, `DBQueueConsumer`) plus queue interfaces |
 | **Scheduler** | `scheduler/` | Cron-like scheduled actions — Node (interval), Cloudflare (Cron Triggers), Noop (test) |
-| **Telemetry** | `telemetry/` | OpenTelemetry SDK wrapper — tracing (`traceAsync`), metrics (17 instruments), SQL sanitizer |
+| **Telemetry** | `telemetry/` | OTel instrumentation — tracing (`traceAsync`), metrics (12 instruments), SQL sanitizer; opt-in OTLP export via the `/otel-node` subpath |
 | **API Client** | `api-client.ts` | Typed HTTP client with OTel tracing, timeout, and error handling |
 | **Logger** | `logger.ts` | Structured JSON logger with levels, child loggers, and mute toggle |
 
@@ -29,12 +28,6 @@ classDiagram
             +removeAllListeners(event?) void
             +listenerCount(event) number
             +eventNames() string[]
-        }
-    }
-
-    namespace events {
-        class EventFactory {
-            +createSystemBus() EventBus
         }
     }
 
@@ -104,11 +97,15 @@ classDiagram
             +getActiveSpan() Span
         }
         class Metrics {
-            +getHttpServerRequestTotal() Counter
-            +getHttpServerRequestDuration() Histogram
-            +getDbOperationTotal() Counter
+            +getHttpClientRequestTotal() Counter
+            +getHttpClientRequestDuration() Histogram
+            +getEventbusEmitsTotal() Counter
             +getQueueJobEnqueuedTotal() Counter
             +getSchedulerJobExecutedTotal() Counter
+        }
+        class OtelNode {
+            +initNodeTelemetry(opts) void
+            +shutdownNodeTelemetry() Promise~void~
         }
         class DbSanitize {
             +sanitizeSql(sql) string
@@ -343,7 +340,6 @@ initTelemetry({
     enabled: true,
     serviceName: 'my-api',
     environment: 'production',
-    exporterEndpoint: 'http://otel-collector:4318/v1/traces',
 });
 
 // Trace an operation
@@ -369,6 +365,46 @@ import { getQueueJobEnqueuedTotal, getQueueJobProcessingDuration } from '@gobing
 
 getQueueJobEnqueuedTotal().add(1, { 'queue.job_type': 'send-email' });
 getQueueJobProcessingDuration().record(42, { 'queue.job_type': 'send-email' });
+```
+
+#### Instrumentation vs. export
+
+The main barrel only **instruments** — it records spans and metrics against the
+globally-registered OpenTelemetry provider, and degrades to no-ops when none is
+registered. It does **not** ship an exporter, so it never forces an OTel SDK or a
+collector opinion on consumers. Two ways to actually export:
+
+1. **BYO** — register your own OTel SDK (tracer + meter providers, exporters) at
+   process startup. ts-infra's spans/metrics flow into it automatically.
+2. **Turnkey OTLP** — opt into the `@gobing-ai/ts-infra/otel-node` subpath, which
+   wires Node OTLP/HTTP export for both signals and registers the providers
+   globally.
+
+```ts
+// Node-only convenience: pulls the optional OTLP exporter peers.
+import { initNodeTelemetry, shutdownNodeTelemetry } from '@gobing-ai/ts-infra/otel-node';
+
+initNodeTelemetry({
+    serviceName: 'my-api',
+    serviceVersion: '1.4.0',
+    endpoint: 'http://otel-collector:4318', // signal paths (/v1/traces, /v1/metrics) appended
+    headers: { authorization: `Bearer ${process.env.OTEL_TOKEN}` },
+});
+
+process.on('SIGTERM', async () => {
+    await shutdownNodeTelemetry(); // flush + drain buffered spans/metrics
+});
+```
+
+The exporter packages are **optional peers** — only consumers of `/otel-node`
+need them installed. The main `@gobing-ai/ts-infra` import never pulls them, so
+BYO and browser/edge consumers stay lean. To use the subpath:
+
+```bash
+bun add @opentelemetry/sdk-trace-node @opentelemetry/sdk-metrics \
+        @opentelemetry/resources \
+        @opentelemetry/exporter-trace-otlp-http \
+        @opentelemetry/exporter-metrics-otlp-http
 ```
 
 ## Usage
