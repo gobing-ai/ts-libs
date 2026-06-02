@@ -25,8 +25,6 @@ Today only preset files (PresetDefinitionSchema, src/types.ts:241-258) may decla
 
 ### Requirements
 
-### Requirements
-
 - [x] **R1 — ConstraintRuleFileSchema accepts `extensions`** → **MET** | `types.ts` shared `ExtensionsSchema` (resolvers/evaluators/fixers/formatters of `relativeExtensionPath`) on `ConstraintRuleFileSchema`; `ConstraintRuleFile.extensions?` added.
 - [x] **R2 — single-rule schema does NOT gain extensions** → **MET** | `ConstraintRuleSchema` unchanged; test "single-rule file declares no extensions" asserts `extensions: []`.
 - [x] **R3 — loadRuleFile threads extension refs out** → **MET** | `loader.ts` `loadRuleFile` returns `LoadedPreset` (`{rules, extensions}`); collects via `collectExtensions(basename, dirname, parsed.extensions)`. (Breaking change, operator-approved.)
@@ -103,8 +101,6 @@ Today only preset files (PresetDefinitionSchema, src/types.ts:241-258) may decla
 - [ ] Add R7 tests: load, traversal-reject, strict-key-reject, allowExtensions:false throws
 - [ ] Gate: `bun run spur-check` + `bun run build` green; diff intentional only
 
-
-### Review
 
 ### Review
 
