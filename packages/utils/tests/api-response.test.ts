@@ -11,9 +11,11 @@ import {
     notFoundResponse,
     paginatedResponse,
     successResponse,
+    toApiResponse,
     unauthorizedResponse,
     validationErrorResponse,
 } from '../src/api-response';
+import { ConflictError, InternalError, NotFoundError, ValidationError } from '../src/errors';
 
 describe('success and info responses', () => {
     test('wrap typed data with success and info envelopes', () => {
@@ -82,5 +84,46 @@ describe('convenience error helpers', () => {
             message: 'DB down',
             details: { error: 'timeout' },
         });
+    });
+});
+
+describe('toApiResponse (domain error → envelope bridge)', () => {
+    test('maps each AppError subclass to its HTTP code and surfaces client-safe messages', () => {
+        expect(toApiResponse(new NotFoundError('user 42 missing'))).toMatchObject({
+            code: API_ERROR_CODES.NOT_FOUND,
+            message: 'user 42 missing',
+            result: 'warn',
+        });
+        expect(toApiResponse(new ValidationError('email invalid'))).toMatchObject({
+            code: API_ERROR_CODES.VALIDATION_ERROR,
+            message: 'email invalid',
+        });
+        expect(toApiResponse(new ConflictError('slug taken'))).toMatchObject({
+            code: API_ERROR_CODES.CONFLICT,
+            message: 'slug taken',
+        });
+    });
+
+    test('passes details only for client-safe errors', () => {
+        expect(toApiResponse(new ValidationError('bad'), { field: 'email' })).toMatchObject({
+            details: { field: 'email' },
+        });
+    });
+
+    test('collapses InternalError to an opaque 500 — never leaks message or cause', () => {
+        // Security invariant: internal failure detail must not reach the client.
+        const internal = new InternalError('connection string postgres://secret@host', { cause: 'ECONNREFUSED' });
+        const envelope = toApiResponse(internal, { stack: 'sensitive' });
+        expect(envelope.code).toBe(API_ERROR_CODES.INTERNAL_ERROR);
+        expect(envelope.message).toBe('Internal server error');
+        expect(envelope.message).not.toContain('postgres');
+        expect(envelope.details).toBeUndefined();
+    });
+
+    test('collapses an unknown (non-AppError) throwable to an opaque 500', () => {
+        const envelope = toApiResponse(new Error('raw stack trace leak'));
+        expect(envelope.code).toBe(API_ERROR_CODES.INTERNAL_ERROR);
+        expect(envelope.message).toBe('Internal server error');
+        expect(envelope.message).not.toContain('stack');
     });
 });
