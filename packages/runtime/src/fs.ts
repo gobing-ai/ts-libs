@@ -1,3 +1,5 @@
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+
 export interface FileStat {
     isFile(): boolean;
     isDirectory(): boolean;
@@ -23,6 +25,14 @@ export interface FileSystem {
     copy(src: string, dest: string): Promise<void>;
     rename(src: string, dest: string): Promise<void>;
     createLogStream(path: string): LogStream;
+}
+
+export interface SyncFileSystem {
+    readFile(path: string): string;
+    writeFile(path: string, content: string): void;
+    mkdir(path: string): void;
+    readDir(path: string): string[];
+    unlink(path: string): void;
 }
 
 type NodeFsPromises = typeof import('node:fs/promises');
@@ -116,6 +126,29 @@ export class NodeFileSystem implements FileSystem {
 
     createLogStream(path: string): LogStream {
         return new LazyNodeLogStream(path);
+    }
+}
+
+export class NodeSyncFileSystem implements SyncFileSystem {
+    readFile(path: string): string {
+        return readFileSync(path, 'utf-8');
+    }
+
+    writeFile(path: string, content: string): void {
+        ensureDirForFileSync(path, this);
+        writeFileSync(path, content, 'utf-8');
+    }
+
+    mkdir(path: string): void {
+        mkdirSync(path, { recursive: true });
+    }
+
+    readDir(path: string): string[] {
+        return readdirSync(path);
+    }
+
+    unlink(path: string): void {
+        rmSync(path, { recursive: true, force: true });
     }
 }
 
@@ -227,6 +260,10 @@ export function getFs(): FileSystem {
 
 export async function ensureDirForFile(path: string, fs = getFs()): Promise<void> {
     await fs.mkdir(dirnamePath(path));
+}
+
+export function ensureDirForFileSync(path: string, fs: SyncFileSystem): void {
+    fs.mkdir(dirnamePath(path));
 }
 
 export async function atomicWriteFile(path: string, content: string, fs = getFs()): Promise<void> {
