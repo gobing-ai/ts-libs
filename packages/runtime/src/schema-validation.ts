@@ -1,5 +1,9 @@
+import { dirname, isAbsolute, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { getFs } from './fs';
+
+/** Default time budget for a single remote schema fetch. */
+const REMOTE_SCHEMA_FETCH_TIMEOUT_MS = 5_000;
 
 export interface JsonSchemaViolation {
     path: string;
@@ -22,7 +26,19 @@ export interface JsonSchema {
 
 export interface StructuredConfigLoadOptions {
     validateSchema?: boolean;
+    /**
+     * Allow `http(s)://` `$schema` refs. Off by default: remote fetches are an SSRF/DoS surface when
+     * configs are authored by third parties. Prefer bundled package-specifier refs (resolved from
+     * `node_modules`). Supplying `fetch` explicitly also opts into remote resolution.
+     */
+    allowRemote?: boolean;
     fetch?: (input: string) => Promise<Response>;
+    /**
+     * Module resolver for bare package-specifier `$schema` refs (e.g.
+     * `@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json`). Defaults to `Bun.resolveSync`.
+     * Injectable for testing.
+     */
+    resolve?: (specifier: string, from: string) => string;
 }
 
 export class StructuredConfigSchemaError extends Error {
@@ -61,27 +77,27 @@ export async function validateDeclaredJsonSchema(
     const schemaRef = value.$schema;
     if (typeof schemaRef !== 'string' || schemaRef.length === 0) return;
 
-    const schemaPath = resolveSchemaRef(schemaRef, source);
-    const schemaText = await readSchema(schemaPath, options.fetch);
+    const schemaLocation = resolveSchemaRef(schemaRef, source, options.resolve);
+    const schemaText = await readSchema(schemaLocation, options);
     let schema: unknown;
     try {
         schema = JSON.parse(schemaText);
     } catch (error) {
         throw new StructuredConfigSchemaError(
-            `Invalid JSON schema "${schemaPath}" referenced by "${source}": ${errorMessage(error)}`,
+            `Invalid JSON schema "${schemaLocation}" referenced by "${source}": ${errorMessage(error)}`,
         );
     }
 
     if (!isObject(schema)) {
         throw new StructuredConfigSchemaError(
-            `JSON schema "${schemaPath}" referenced by "${source}" must be an object`,
+            `JSON schema "${schemaLocation}" referenced by "${source}" must be an object`,
         );
     }
 
     const violations = validateJsonSchema(value, schema, '', (schema.$defs ?? {}) as Record<string, JsonSchema>);
     if (violations.length > 0) {
         throw new StructuredConfigSchemaError(
-            `Configuration "${source}" failed JSON schema validation against "${schemaPath}": ${violations
+            `Configuration "${source}" failed JSON schema validation against "${schemaLocation}": ${violations
                 .map((violation) => `${violation.path}: ${violation.message}`)
                 .join('; ')}`,
             violations,
@@ -95,20 +111,23 @@ export function validateJsonSchema(
     path = '',
     defs: Record<string, JsonSchema> = {},
 ): JsonSchemaViolation[] {
+    const violations: JsonSchemaViolation[] = [];
+
+    // Applicator keywords compose with their siblings (logical AND), per JSON Schema 2020-12 —
+    // a node may carry `$ref`/`oneOf`/`anyOf` *and* `type`/`properties`/... and all apply.
     if (schema.$ref !== undefined) {
         const resolved = resolveRef(schema.$ref, defs, schema.$defs);
-        return resolved === undefined ? [] : validateJsonSchema(value, resolved, path, defs);
+        if (resolved !== undefined) violations.push(...validateJsonSchema(value, resolved, path, defs));
     }
 
     if (schema.oneOf !== undefined) {
-        return validateCombinator(value, schema.oneOf, path, defs, 'oneOf');
+        violations.push(...validateCombinator(value, schema.oneOf, path, defs, 'oneOf'));
     }
 
     if (schema.anyOf !== undefined) {
-        return validateCombinator(value, schema.anyOf, path, defs, 'anyOf');
+        violations.push(...validateCombinator(value, schema.anyOf, path, defs, 'anyOf'));
     }
 
-    const violations: JsonSchemaViolation[] = [];
     if (schema.const !== undefined && !jsonEqual(value, schema.const)) {
         violations.push({ path: path || '(root)', message: `expected constant ${JSON.stringify(schema.const)}` });
     }
@@ -128,7 +147,9 @@ export function validateJsonSchema(
         }
     }
 
-    if (schema.type === 'object' || (schema.properties !== undefined && isObject(value))) {
+    const hasObjectKeywords =
+        schema.properties !== undefined || schema.required !== undefined || schema.additionalProperties !== undefined;
+    if (schema.type === 'object' || (hasObjectKeywords && isObject(value))) {
         violations.push(...validateObject(value, schema, path, defs));
     }
 
@@ -205,7 +226,23 @@ function validateCombinator(
     const passing = branchViolations.filter((violations) => violations.length === 0).length;
     if (mode === 'anyOf' && passing >= 1) return [];
     if (mode === 'oneOf' && passing === 1) return [];
-    return branchViolations[0] ?? [{ path: path || '(root)', message: `failed ${mode}` }];
+
+    const at = path || '(root)';
+    // oneOf matching more than one branch is a failure, not a pass — report it explicitly.
+    if (mode === 'oneOf' && passing > 1) {
+        return [{ path: at, message: `expected to match exactly one oneOf branch, matched ${passing}` }];
+    }
+
+    // No branch matched: surface every branch's reason so the author sees all options, not just branch 0.
+    const detail = branchViolations
+        .map((branch, index) => `[${index}] ${branch.map((v) => `${v.path}: ${v.message}`).join(', ')}`)
+        .join(' | ');
+    return [
+        {
+            path: at,
+            message: `expected to match ${mode === 'oneOf' ? 'exactly one' : 'at least one'} branch — ${detail}`,
+        },
+    ];
 }
 
 function resolveRef(
@@ -218,27 +255,81 @@ function resolveRef(
     return defs[name] ?? localDefs?.[name];
 }
 
-function resolveSchemaRef(schemaRef: string, source: string): string {
-    if (isRemoteRef(schemaRef) || isAbsolutePath(schemaRef)) return schemaRef;
-    return joinPath(dirnamePath(source), schemaRef);
+function resolveSchemaRef(
+    schemaRef: string,
+    source: string,
+    resolve: ((specifier: string, from: string) => string) | undefined,
+): string {
+    if (isRemoteRef(schemaRef) || isAbsolute(schemaRef)) return schemaRef;
+    // Relative ref — resolve against the config file's directory.
+    if (schemaRef.startsWith('./') || schemaRef.startsWith('../')) {
+        return join(isRemoteRef(source) ? '.' : dirname(source), schemaRef);
+    }
+    // Bare package specifier (e.g. "@scope/pkg/schemas/x.json") — resolve through node_modules.
+    return resolvePackageSchema(schemaRef, source, resolve);
 }
 
-async function readSchema(
-    schemaPath: string,
-    fetchFn: ((input: string) => Promise<Response>) | undefined = globalThis.fetch,
-): Promise<string> {
-    if (isRemoteRef(schemaPath)) {
-        if (fetchFn === undefined)
-            throw new StructuredConfigSchemaError(`Cannot fetch remote JSON schema "${schemaPath}"`);
-        const response = await fetchFn(schemaPath);
+function resolvePackageSchema(
+    specifier: string,
+    source: string,
+    resolve: ((specifier: string, from: string) => string) | undefined,
+): string {
+    const resolveFn = resolve ?? defaultResolve;
+    if (resolveFn === undefined) {
+        throw new StructuredConfigSchemaError(
+            `Cannot resolve package schema "${specifier}" referenced by "${source}": no module resolver available`,
+        );
+    }
+    const { pkg, subpath } = splitPackageSpecifier(specifier);
+    if (subpath.length === 0) {
+        throw new StructuredConfigSchemaError(
+            `Package schema ref "${specifier}" referenced by "${source}" must include a path within the package`,
+        );
+    }
+    const from = isRemoteRef(source) ? process.cwd() : dirname(source);
+    try {
+        // Resolve the package root via its always-present package.json, then join the subpath.
+        // This sidesteps `exports` gating on arbitrary JSON subpaths.
+        const manifest = resolveFn(`${pkg}/package.json`, from);
+        return join(dirname(manifest), subpath);
+    } catch (error) {
+        throw new StructuredConfigSchemaError(
+            `Cannot resolve package schema "${specifier}" referenced by "${source}": ${errorMessage(error)}`,
+        );
+    }
+}
+
+function splitPackageSpecifier(specifier: string): { pkg: string; subpath: string } {
+    const parts = specifier.split('/');
+    const segments = specifier.startsWith('@') ? 2 : 1;
+    return { pkg: parts.slice(0, segments).join('/'), subpath: parts.slice(segments).join('/') };
+}
+
+async function readSchema(schemaLocation: string, options: StructuredConfigLoadOptions): Promise<string> {
+    if (isRemoteRef(schemaLocation)) {
+        const fetchFn = options.fetch ?? (options.allowRemote ? boundedFetch : undefined);
+        if (fetchFn === undefined) {
+            throw new StructuredConfigSchemaError(
+                `Refusing to fetch remote JSON schema "${schemaLocation}": pass { allowRemote: true } or a fetch implementation to opt in`,
+            );
+        }
+        const response = await fetchFn(schemaLocation);
         if (!response.ok) {
             throw new StructuredConfigSchemaError(
-                `Failed to fetch JSON schema "${schemaPath}": HTTP ${response.status}`,
+                `Failed to fetch JSON schema "${schemaLocation}": HTTP ${response.status}`,
             );
         }
         return await response.text();
     }
-    return await getFs().readFile(schemaPath);
+    return await getFs().readFile(schemaLocation);
+}
+
+const defaultResolve: ((specifier: string, from: string) => string) | undefined =
+    typeof Bun !== 'undefined' ? (specifier, from) => Bun.resolveSync(specifier, from) : undefined;
+
+/** Default remote fetch, time-bounded so a slow/hung schema host cannot stall config loading. */
+function boundedFetch(input: string): Promise<Response> {
+    return globalThis.fetch(input, { signal: AbortSignal.timeout(REMOTE_SCHEMA_FETCH_TIMEOUT_MS) });
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -260,7 +351,18 @@ function typeName(value: unknown): string {
 }
 
 function jsonEqual(left: unknown, right: unknown): boolean {
-    return JSON.stringify(left) === JSON.stringify(right);
+    if (left === right) return true;
+    if (Array.isArray(left) || Array.isArray(right)) {
+        if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+        return left.every((entry, index) => jsonEqual(entry, right[index]));
+    }
+    if (isObject(left) && isObject(right)) {
+        const keys = Object.keys(left);
+        if (keys.length !== Object.keys(right).length) return false;
+        // Object member order is insignificant in JSON — compare by key, not by serialization.
+        return keys.every((key) => key in right && jsonEqual(left[key], right[key]));
+    }
+    return false;
 }
 
 function errorMessage(error: unknown): string {
@@ -269,30 +371,4 @@ function errorMessage(error: unknown): string {
 
 function isRemoteRef(ref: string): boolean {
     return /^https?:\/\//i.test(ref);
-}
-
-function normalizeSeparators(path: string): string {
-    return path.replaceAll('\\', '/');
-}
-
-function isAbsolutePath(path: string): boolean {
-    return path.startsWith('/') || /^[A-Za-z]:\//.test(normalizeSeparators(path));
-}
-
-function dirnamePath(path: string): string {
-    const input = normalizeSeparators(path);
-    if (isRemoteRef(input)) return input.slice(0, input.lastIndexOf('/'));
-    const index = input.lastIndexOf('/');
-    if (index < 0) return '.';
-    if (index === 0) return '/';
-    return input.slice(0, index);
-}
-
-function joinPath(...segments: string[]): string {
-    const filtered = segments.filter((segment) => segment.length > 0).map(normalizeSeparators);
-    if (filtered.length === 0) return '.';
-    if (isRemoteRef(filtered[0] ?? '')) return filtered.join('/').replace(/([^:])\/+/g, '$1/');
-    const absolute = isAbsolutePath(filtered[0] ?? '');
-    const joined = filtered.join('/').replace(/\/+/g, '/');
-    return absolute ? joined : joined.replace(/^\//, '');
 }
