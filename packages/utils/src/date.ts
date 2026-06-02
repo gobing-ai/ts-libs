@@ -9,7 +9,8 @@ export function toMs(input: Date | number | string | null | undefined): number |
         const parsed = new Date(input).getTime();
         return Number.isNaN(parsed) ? null : parsed;
     }
-    return Math.floor(input);
+    // Reject NaN/±Infinity rather than passing them through as a "valid" timestamp.
+    return Number.isFinite(input) ? Math.floor(input) : null;
 }
 
 export function fromMs(ms: number | null | undefined): Date | null {
