@@ -1,9 +1,12 @@
-import { dirname, isAbsolute, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { getFs } from './fs';
+import { dirnamePath, isAbsolutePath, joinPath } from './path';
 
 /** Default time budget for a single remote schema fetch. */
 const REMOTE_SCHEMA_FETCH_TIMEOUT_MS = 5_000;
+
+/** Upper bound on a remote schema body. A timeout alone lets a slow multi-GB drip exhaust memory. */
+const REMOTE_SCHEMA_MAX_BYTES = 5 * 1024 * 1024;
 
 export interface JsonSchemaViolation {
     path: string;
@@ -110,22 +113,31 @@ export function validateJsonSchema(
     schema: JsonSchema,
     path = '',
     defs: Record<string, JsonSchema> = {},
+    seenRefs: ReadonlySet<string> = new Set(),
 ): JsonSchemaViolation[] {
     const violations: JsonSchemaViolation[] = [];
 
     // Applicator keywords compose with their siblings (logical AND), per JSON Schema 2020-12 —
     // a node may carry `$ref`/`oneOf`/`anyOf` *and* `type`/`properties`/... and all apply.
     if (schema.$ref !== undefined) {
-        const resolved = resolveRef(schema.$ref, defs, schema.$defs);
-        if (resolved !== undefined) violations.push(...validateJsonSchema(value, resolved, path, defs));
+        // Cyclic `$ref` (A→B→A) would recurse until stack overflow — a DoS surface for untrusted
+        // schemas. Following a ref already on the current path is a no-op: that branch is being
+        // validated higher up the stack, so re-entering adds nothing but unbounded depth.
+        if (!seenRefs.has(schema.$ref)) {
+            const resolved = resolveRef(schema.$ref, defs, schema.$defs);
+            if (resolved !== undefined) {
+                const nextSeen = new Set(seenRefs).add(schema.$ref);
+                violations.push(...validateJsonSchema(value, resolved, path, defs, nextSeen));
+            }
+        }
     }
 
     if (schema.oneOf !== undefined) {
-        violations.push(...validateCombinator(value, schema.oneOf, path, defs, 'oneOf'));
+        violations.push(...validateCombinator(value, schema.oneOf, path, defs, 'oneOf', seenRefs));
     }
 
     if (schema.anyOf !== undefined) {
-        violations.push(...validateCombinator(value, schema.anyOf, path, defs, 'anyOf'));
+        violations.push(...validateCombinator(value, schema.anyOf, path, defs, 'anyOf', seenRefs));
     }
 
     if (schema.const !== undefined && !jsonEqual(value, schema.const)) {
@@ -150,11 +162,11 @@ export function validateJsonSchema(
     const hasObjectKeywords =
         schema.properties !== undefined || schema.required !== undefined || schema.additionalProperties !== undefined;
     if (schema.type === 'object' || (hasObjectKeywords && isObject(value))) {
-        violations.push(...validateObject(value, schema, path, defs));
+        violations.push(...validateObject(value, schema, path, defs, seenRefs));
     }
 
     if (schema.type === 'array' || (schema.items !== undefined && Array.isArray(value))) {
-        violations.push(...validateArray(value, schema, path, defs));
+        violations.push(...validateArray(value, schema, path, defs, seenRefs));
     }
 
     return violations;
@@ -165,6 +177,7 @@ function validateObject(
     schema: JsonSchema,
     path: string,
     defs: Record<string, JsonSchema>,
+    seenRefs: ReadonlySet<string>,
 ): JsonSchemaViolation[] {
     if (!isObject(value)) return [{ path: path || '(root)', message: `expected object, got ${typeName(value)}` }];
 
@@ -178,7 +191,9 @@ function validateObject(
     const properties = schema.properties ?? {};
     for (const [key, childSchema] of Object.entries(properties)) {
         if (key in value) {
-            violations.push(...validateJsonSchema(value[key], childSchema, path ? `${path}.${key}` : key, defs));
+            violations.push(
+                ...validateJsonSchema(value[key], childSchema, path ? `${path}.${key}` : key, defs, seenRefs),
+            );
         }
     }
 
@@ -193,7 +208,13 @@ function validateObject(
         for (const [key, child] of Object.entries(value)) {
             if (!(key in properties)) {
                 violations.push(
-                    ...validateJsonSchema(child, schema.additionalProperties, path ? `${path}.${key}` : key, defs),
+                    ...validateJsonSchema(
+                        child,
+                        schema.additionalProperties,
+                        path ? `${path}.${key}` : key,
+                        defs,
+                        seenRefs,
+                    ),
                 );
             }
         }
@@ -207,11 +228,12 @@ function validateArray(
     schema: JsonSchema,
     path: string,
     defs: Record<string, JsonSchema>,
+    seenRefs: ReadonlySet<string>,
 ): JsonSchemaViolation[] {
     if (!Array.isArray(value)) return [{ path: path || '(root)', message: `expected array, got ${typeName(value)}` }];
     if (schema.items === undefined) return [];
     return value.flatMap((entry, index) =>
-        validateJsonSchema(entry, schema.items as JsonSchema, `${path}[${index}]`, defs),
+        validateJsonSchema(entry, schema.items as JsonSchema, `${path}[${index}]`, defs, seenRefs),
     );
 }
 
@@ -221,8 +243,9 @@ function validateCombinator(
     path: string,
     defs: Record<string, JsonSchema>,
     mode: 'oneOf' | 'anyOf',
+    seenRefs: ReadonlySet<string>,
 ): JsonSchemaViolation[] {
-    const branchViolations = schemas.map((schema) => validateJsonSchema(value, schema, path, defs));
+    const branchViolations = schemas.map((schema) => validateJsonSchema(value, schema, path, defs, seenRefs));
     const passing = branchViolations.filter((violations) => violations.length === 0).length;
     if (mode === 'anyOf' && passing >= 1) return [];
     if (mode === 'oneOf' && passing === 1) return [];
@@ -260,10 +283,10 @@ function resolveSchemaRef(
     source: string,
     resolve: ((specifier: string, from: string) => string) | undefined,
 ): string {
-    if (isRemoteRef(schemaRef) || isAbsolute(schemaRef)) return schemaRef;
+    if (isRemoteRef(schemaRef) || isAbsolutePath(schemaRef)) return schemaRef;
     // Relative ref — resolve against the config file's directory.
     if (schemaRef.startsWith('./') || schemaRef.startsWith('../')) {
-        return join(isRemoteRef(source) ? '.' : dirname(source), schemaRef);
+        return joinPath(isRemoteRef(source) ? '.' : dirnamePath(source), schemaRef);
     }
     // Bare package specifier (e.g. "@scope/pkg/schemas/x.json") — resolve through node_modules.
     return resolvePackageSchema(schemaRef, source, resolve);
@@ -286,12 +309,12 @@ function resolvePackageSchema(
             `Package schema ref "${specifier}" referenced by "${source}" must include a path within the package`,
         );
     }
-    const from = isRemoteRef(source) ? process.cwd() : dirname(source);
+    const from = isRemoteRef(source) ? process.cwd() : dirnamePath(source);
     try {
         // Resolve the package root via its always-present package.json, then join the subpath.
         // This sidesteps `exports` gating on arbitrary JSON subpaths.
         const manifest = resolveFn(`${pkg}/package.json`, from);
-        return join(dirname(manifest), subpath);
+        return joinPath(dirnamePath(manifest), subpath);
     } catch (error) {
         throw new StructuredConfigSchemaError(
             `Cannot resolve package schema "${specifier}" referenced by "${source}": ${errorMessage(error)}`,
@@ -319,9 +342,54 @@ async function readSchema(schemaLocation: string, options: StructuredConfigLoadO
                 `Failed to fetch JSON schema "${schemaLocation}": HTTP ${response.status}`,
             );
         }
-        return await response.text();
+        return await readBoundedBody(response, schemaLocation);
     }
     return await getFs().readFile(schemaLocation);
+}
+
+/**
+ * Read a response body under a hard byte cap. `Content-Length` is a fast-path reject, but servers
+ * lie or omit it, so the stream is also tallied chunk-by-chunk — a multi-GB drip is aborted before
+ * it can exhaust memory. Falls back to `.text()` only when the body is not a readable stream.
+ */
+async function readBoundedBody(response: Response, schemaLocation: string): Promise<string> {
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > REMOTE_SCHEMA_MAX_BYTES) {
+        throw new StructuredConfigSchemaError(
+            `Remote JSON schema "${schemaLocation}" exceeds the ${REMOTE_SCHEMA_MAX_BYTES}-byte limit (Content-Length ${declared})`,
+        );
+    }
+
+    const body = response.body;
+    if (body === null) return await response.text();
+
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.byteLength;
+            if (total > REMOTE_SCHEMA_MAX_BYTES) {
+                await reader.cancel();
+                throw new StructuredConfigSchemaError(
+                    `Remote JSON schema "${schemaLocation}" exceeds the ${REMOTE_SCHEMA_MAX_BYTES}-byte limit`,
+                );
+            }
+            chunks.push(value);
+        }
+    } finally {
+        reader.releaseLock();
+    }
+
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        merged.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(merged);
 }
 
 const defaultResolve: ((specifier: string, from: string) => string) | undefined =
