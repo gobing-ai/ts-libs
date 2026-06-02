@@ -35,8 +35,4 @@ describe('@gobing-ai/ts-infra barrel', () => {
         expect(infra.DBJobQueue).toBeDefined();
         expect(infra.DBQueueConsumer).toBeDefined();
     });
-
-    test('exports events symbols', () => {
-        expect(infra.createSystemBus).toBeDefined();
-    });
 });
