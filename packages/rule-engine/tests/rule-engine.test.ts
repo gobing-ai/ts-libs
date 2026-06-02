@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import {
@@ -51,6 +52,20 @@ describe('RuleEngine', () => {
 
     test('formats empty result', () => {
         expect(new TextFormatter().format({ findings: [], fixes: [] })).toBe('No rule findings.');
+    });
+
+    test('marks evaluator failures with kind "error", not as policy violations', async () => {
+        const rule: ConstraintRule = {
+            id: 'misconfigured',
+            description: 'bad config',
+            enabled: true,
+            severity: 'error',
+            evaluator: { type: 'forbidden-import' }, // no patterns/forbidden → throws
+        };
+        const result = await new RuleEngine().evaluate([rule], await makeTempProject());
+        expect(result.findings).toHaveLength(1);
+        expect(result.findings[0]?.kind).toBe('error');
+        expect(result.findings[0]?.code).toBe('evaluator:forbidden-import');
     });
 
     test('evaluates path, regex, secrets, exit-code, and evaluator errors', async () => {
@@ -371,7 +386,7 @@ describe('file utilities', () => {
 });
 
 async function makeTempProject(): Promise<string> {
-    const dir = join(import.meta.dir, '.tmp', `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const dir = join(tmpdir(), 'ts-libs-rule-engine', `${Date.now()}-${Math.random().toString(16).slice(2)}`);
     await mkdir(dir, { recursive: true });
     return dir;
 }
