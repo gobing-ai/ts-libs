@@ -198,7 +198,10 @@ export const ConstraintRuleSchema = z.object({
     id: z.string().min(1),
     description: z.string().default(''),
     enabled: z.boolean().default(true),
-    severity: z.enum(['error', 'warning', 'info']).default('error'),
+    // Severity is intentionally NOT defaulted here: an omitted rule severity must
+    // stay absent at parse time so the loader can apply the file-level default
+    // (`rule.severity ?? file.severity ?? 'error'`). Normalization always fills it.
+    severity: z.enum(['error', 'warning', 'info']).optional(),
     evaluator: z.object({
         type: z.string().min(1),
         config: z.record(z.string(), z.unknown()).optional(),
@@ -217,6 +220,23 @@ export const ConstraintRuleFileSchema = z.object({
     rules: z.array(ConstraintRuleSchema),
 });
 
+/**
+ * A relative module path a preset may load as an extension.
+ *
+ * Rejects absolute paths and `..` traversal: a preset is data, and a path that
+ * escapes the preset directory is a trust-boundary violation even when extension
+ * loading is explicitly allowed.
+ */
+const relativeExtensionPath = z
+    .string()
+    .min(1)
+    .refine((value) => !/^([/\\]|[A-Za-z]:[/\\])/.test(value), {
+        message: 'extension path must be relative (no absolute paths)',
+    })
+    .refine((value) => !value.split(/[/\\]/).includes('..'), {
+        message: 'extension path must not contain ".." traversal',
+    });
+
 /** Zod schema for a preset definition. */
 export const PresetDefinitionSchema = z.object({
     $schema: z.string().optional(),
@@ -228,10 +248,11 @@ export const PresetDefinitionSchema = z.object({
         .optional(),
     extensions: z
         .object({
-            resolvers: z.array(z.string()).optional(),
-            evaluators: z.array(z.string()).optional(),
-            fixers: z.array(z.string()).optional(),
-            formatters: z.array(z.string()).optional(),
+            resolvers: z.array(relativeExtensionPath).optional(),
+            evaluators: z.array(relativeExtensionPath).optional(),
+            fixers: z.array(relativeExtensionPath).optional(),
+            formatters: z.array(relativeExtensionPath).optional(),
         })
+        .strict()
         .optional(),
 });
