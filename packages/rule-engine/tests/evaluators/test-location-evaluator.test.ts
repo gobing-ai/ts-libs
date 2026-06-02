@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TestLocationEvaluator } from '../../src/evaluators/test-location-evaluator';
 import type { ConstraintRule } from '../../src/types';
@@ -16,7 +17,11 @@ function makeRule(config: Record<string, unknown>, overrides: Partial<Constraint
 }
 
 async function tempProject(files: Record<string, string>): Promise<string> {
-    const dir = join(import.meta.dir, '.tmp', `tloc-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const dir = join(
+        tmpdir(),
+        'ts-libs-rule-engine-test-location',
+        `tloc-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    );
     for (const [rel, content] of Object.entries(files)) {
         const full = join(dir, rel);
         await mkdir(join(full, '..'), { recursive: true });
