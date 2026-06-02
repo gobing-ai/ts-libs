@@ -5,7 +5,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
-import { discoverFiles, readWorkdirFile } from './file-utils';
+import { parseInlineFlags, scanFiles } from './file-utils';
 
 /**
  * Evaluates whether source files match or avoid a regex pattern.
@@ -31,11 +31,15 @@ export class RegexEvaluator implements RuleEvaluator {
         );
         const mode = stringConfig(config, 'mode', 'forbid');
         const regex = new RegExp(pattern, flags);
-        const files = await discoverFiles({ workdir: context.workdir, include: rule.include, exclude: rule.exclude });
+        const files = await scanFiles({
+            workdir: context.workdir,
+            include: rule.include,
+            exclude: rule.exclude,
+            matchMode: 'loose',
+        });
         const findings = [];
 
-        for (const file of files) {
-            const content = await readWorkdirFile(context.workdir, file);
+        for (const { file, content } of files) {
             if (mode === 'require') {
                 regex.lastIndex = 0;
                 if (!regex.test(content)) {
@@ -80,14 +84,8 @@ function normalizePattern(
     for (const flag of rawFlags) {
         if ('gimsuy'.includes(flag)) flagSet.add(flag);
     }
-    let pattern = rawPattern;
-    const inline = /^\(\?([a-z]+)\)/.exec(pattern);
-    if (inline) {
-        for (const flag of inline[1] ?? '') {
-            if ('imsu'.includes(flag)) flagSet.add(flag);
-        }
-        pattern = pattern.slice(inline[0].length);
-    }
+    const { flags: inlineFlags, rest: pattern } = parseInlineFlags(rawPattern);
+    for (const flag of inlineFlags) flagSet.add(flag);
     if (multiline) flagSet.add('s');
     return { pattern, flags: [...flagSet].join('') };
 }

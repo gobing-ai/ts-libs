@@ -34,6 +34,74 @@ export async function readWorkdirFile(workdir: string, filePath: string, fs = ne
     return await fs.readFile(resolve(workdir, filePath));
 }
 
+/** A discovered in-scope file paired with its contents. */
+export interface ScannedFile {
+    /** Workdir-relative path. */
+    readonly file: string;
+    /** Full file contents. */
+    readonly content: string;
+}
+
+/** How `scanFiles` matches `include` / `exclude` against discovered paths. */
+export type ScanMatchMode = 'loose' | 'glob';
+
+/** Options for {@link scanFiles}. */
+export interface ScanFilesOptions {
+    /** Working directory to walk. */
+    workdir: string;
+    /** Include patterns; semantics depend on `matchMode`. Undefined/empty = all files. */
+    include?: string[];
+    /** Exclude patterns; semantics depend on `matchMode`. */
+    exclude?: string[];
+    /**
+     * Scope matching policy:
+     * - `loose` — substring/suffix fragments via {@link matchesAny} (back-compat for
+     *   evaluators that historically accepted bare fragments like `.ts` or `src/`).
+     * - `glob` — anchored `**`/`*` globs via {@link matchesGlob}.
+     *
+     * The two are NOT interchangeable: a bare `src/` matches different sets under each.
+     * Each evaluator declares the mode that preserves its existing behavior.
+     */
+    matchMode: ScanMatchMode;
+    /** Filesystem adapter. */
+    fs?: FileSystem;
+}
+
+/**
+ * Discover in-scope files and read each once — the shared scaffolding behind the
+ * line-scanning evaluators. Owns discovery, scope filtering (per `matchMode`), and
+ * reads, so each evaluator is left with only its own matcher.
+ *
+ * Scope is a parameter, not assumed one-per-rule: callers that scan under several
+ * scopes (e.g. import boundaries) pass no `include` here and apply their own globs to
+ * the returned paths.
+ */
+export async function scanFiles(options: ScanFilesOptions): Promise<ScannedFile[]> {
+    const fs = options.fs ?? new NodeFileSystem();
+    const files =
+        options.matchMode === 'loose'
+            ? await discoverFiles({ workdir: options.workdir, include: options.include, exclude: options.exclude, fs })
+            : await discoverFilesByGlob(options.workdir, options.include, options.exclude, fs);
+    const scanned: ScannedFile[] = [];
+    for (const file of files) {
+        scanned.push({ file, content: await readWorkdirFile(options.workdir, file, fs) });
+    }
+    return scanned;
+}
+
+/** Discover files then filter with anchored globs (strict mode for {@link scanFiles}). */
+async function discoverFilesByGlob(
+    workdir: string,
+    include: string[] | undefined,
+    exclude: string[] | undefined,
+    fs: FileSystem,
+): Promise<string[]> {
+    const all = await discoverFiles({ workdir, fs });
+    return all
+        .filter((file) => include === undefined || include.length === 0 || include.some((g) => matchesGlob(file, g)))
+        .filter((file) => exclude === undefined || !exclude.some((g) => matchesGlob(file, g)));
+}
+
 /** Ensure a path is workdir-relative for findings. */
 export function relativeToWorkdir(workdir: string, path: string): string {
     return relative(workdir, resolve(path));
@@ -90,4 +158,28 @@ function matchSegment(segment: string, pattern: string): boolean {
     if (pattern.indexOf('*') === -1) return segment === pattern;
     const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll('*', '[^/]*');
     return new RegExp(`^${escaped}$`).test(segment);
+}
+
+/** Escape a string for safe literal use inside a `RegExp` source. */
+export function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Return the value as a `string[]` when every item is a string, otherwise undefined. */
+export function stringArray(value: unknown): string[] | undefined {
+    return Array.isArray(value) && value.every((item) => typeof item === 'string') ? (value as string[]) : undefined;
+}
+
+/**
+ * Split a leading ripgrep/PCRE-style `(?flags)` inline group off a regex source.
+ *
+ * Returns the JS-relevant flags found in the group (filtered to `imsu`) and the
+ * remaining source with the group removed. When no leading group is present, returns
+ * empty flags and the source unchanged. Shared by evaluators that accept inline flags.
+ */
+export function parseInlineFlags(source: string): { flags: string; rest: string } {
+    const match = /^\(\?([a-z]+)\)/.exec(source);
+    if (!match) return { flags: '', rest: source };
+    const flags = [...(match[1] ?? '')].filter((flag) => 'imsu'.includes(flag)).join('');
+    return { flags, rest: source.slice(match[0].length) };
 }
