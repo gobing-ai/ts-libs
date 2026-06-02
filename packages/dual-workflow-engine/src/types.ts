@@ -24,6 +24,8 @@ export interface GuardDef {
 /** One state in a state-machine workflow. */
 export interface StateDef {
     readonly id: string;
+    /** Optional human description of what this state does. */
+    readonly description?: string;
     readonly onEnter?: readonly ActionDef[];
     readonly onExit?: readonly ActionDef[];
 }
@@ -32,6 +34,8 @@ export interface StateDef {
 export interface TransitionDef {
     readonly from: string;
     readonly to: string;
+    /** Optional human description of when/why this transition is taken. */
+    readonly description?: string;
     readonly trigger?: string;
     readonly guard?: GuardDef;
 }
@@ -40,6 +44,10 @@ export interface TransitionDef {
 export interface StateMachineWorkflowDef {
     readonly kind?: 'state-machine';
     readonly name: string;
+    /** Optional behavior-free document version tag. */
+    readonly version?: string;
+    /** Optional human description of the workflow's purpose. */
+    readonly description?: string;
     readonly initialState: string;
     readonly terminalStates?: readonly string[];
     readonly iterationBound?: number;
@@ -52,6 +60,8 @@ export interface StateMachineWorkflowDef {
 /** Transition-flow node definition. */
 export interface FlowNodeDef {
     readonly id: string;
+    /** Optional human description of what this node does. */
+    readonly description?: string;
     readonly type?: 'action' | 'gate' | 'parallel' | 'decision';
     readonly action?: ActionDef;
 }
@@ -60,6 +70,8 @@ export interface FlowNodeDef {
 export interface FlowEdgeDef {
     readonly from: string;
     readonly to: string;
+    /** Optional human description of when/why this edge is taken. */
+    readonly description?: string;
     readonly condition?: GuardDef;
 }
 
@@ -67,6 +79,10 @@ export interface FlowEdgeDef {
 export interface TransitionFlowWorkflowDef {
     readonly kind: 'transition-flow';
     readonly name: string;
+    /** Optional behavior-free document version tag. */
+    readonly version?: string;
+    /** Optional human description of the workflow's purpose. */
+    readonly description?: string;
     readonly initialNode: string;
     readonly terminalNodes?: readonly string[];
     readonly iterationBound?: number;
