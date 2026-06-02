@@ -1,7 +1,7 @@
 # 00 ADR — ts-libs
 
 **Status:** Authoritative
-**Last Updated:** 2026-05-31
+**Last Updated:** 2026-06-02
 **Owner:** Robin Min
 
 Single source of truth for the architecture & release decisions that define this monorepo. Each
@@ -167,3 +167,29 @@ the subpath. A spur rule (`no-hand-written-ddl-for-drizzle-tables`) enforces "no
 beside a Drizzle table; derive it." `getTableConfig`-based generation is proven feasible at runtime
 (columns/types/constraints/composite-PK/FK all extractable). Implementation is tracked as a task under
 `docs/tasks/`.
+
+---
+
+## ADR-008: Runtime Selection Is the `getFs()` Global Swap, Not a `RuntimeFactory`
+
+**Status:** Accepted · **Date:** 2026-06-02 · **Targets:** `@gobing-ai/ts-runtime`
+
+**Context.** `ts-runtime` carried two parallel runtime-selection mechanisms that contradicted each
+other. (1) The `setFileSystem`/`getFs()` global swap is load-bearing and tested: `RuntimeContext`,
+`atomicWriteFile`, `walkDir`, and `schema-validation` all consume `getFs()`, and `CloudflareFileSystem`
+plugs into it. (2) A `RuntimeFactory` interface (`createFileSystem`/`loadConfig`/optional
+`createContext`) was declared as the portability seam but had **zero implementations** — no
+`node-bun` factory, no `cloudflare-workers` factory — and was consumed by nothing. By the "two
+adapters = real seam" test, the factory was a hypothetical seam; the global swap is the real one.
+Keeping both forced every reader (and every AI agent) to guess which path is supported.
+
+**Decision.** The `getFs()` global swap is the single runtime-selection seam. `RuntimeFactory` and the
+optional `RuntimeContext.createContext` hook are removed, along with the unused `factory?` option on
+`RuntimeContextOptions`. A Cloudflare Workers build is not imminent (YAGNI); when one lands, a factory
+may be reintroduced **with two real adapters** (node-bun + workers) that `RuntimeContext` is built
+from — not as an empty interface ahead of need.
+
+**Consequences.** One obvious extension point: swap the active `FileSystem` via `setFileSystem`.
+The config env accessors (`getNodeEnv`/`getProcessEnv`/`getDatabaseUrl`/`interpolateEnv`) reach
+`process.env` directly and are documented as node-bun-only; on Workers, callers must inject config
+rather than rely on `process`. Reintroducing a factory is a deliberate future ADR, not drift.
