@@ -31,9 +31,9 @@ describe('@gobing-ai/ts-infra barrel', () => {
         expect(infra.APIError).toBeDefined();
     });
 
-    test('exports job-queue types', () => {
-        // Types are exported — verify the module loads
-        expect(infra).toBeDefined();
+    test('exports job-queue symbols', () => {
+        expect(infra.DBJobQueue).toBeDefined();
+        expect(infra.DBQueueConsumer).toBeDefined();
     });
 
     test('exports events symbols', () => {
