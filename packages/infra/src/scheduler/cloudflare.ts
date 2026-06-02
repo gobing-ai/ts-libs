@@ -2,6 +2,7 @@
  * Cloudflare Workers scheduler adapter using Cron Triggers.
  * Uses minimal local type declarations — no @cloudflare/workers-types dependency.
  */
+import { getSchedulerJobExecutedTotal, getSchedulerJobFailedTotal } from '../telemetry/metrics';
 import type { ScheduledAction, SchedulerAdapter } from './types';
 
 interface CfScheduledEvent {
@@ -39,7 +40,13 @@ export class CloudflareSchedulerAdapter implements SchedulerAdapter {
     handleScheduledEvent(event: CfScheduledEvent, ctx: CfEventContext): void {
         const action = this.entries.get(event.cron);
         if (action) {
-            ctx.waitUntil(action());
+            getSchedulerJobExecutedTotal().add(1, { cron: event.cron });
+            ctx.waitUntil(
+                action().catch((error: unknown) => {
+                    getSchedulerJobFailedTotal().add(1, { cron: event.cron });
+                    throw error;
+                }),
+            );
         }
     }
 }
