@@ -1,4 +1,5 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirnamePath, getProcessCwd, joinPath, resolvePath } from './path';
 
 export interface FileStat {
     isFile(): boolean;
@@ -158,33 +159,32 @@ class LazyNodeLogStream implements LogStream {
         end: () => void;
     }>;
     private ended = false;
-    private readonly pending: string[] = [];
+    // Single serialized chain: every write/end is appended here, so the underlying stream observes
+    // them in call order regardless of how the resolving microtasks interleave. A per-write `shift()`
+    // off a shared buffer (the previous approach) could reorder writes that arrived in the same tick.
+    private tail: Promise<unknown>;
 
     constructor(path: string) {
         this.ready = nodeFs().then(({ createWriteStream, mkdirSync }) => {
             mkdirSync(dirnamePath(path), { recursive: true });
             const stream = createWriteStream(path, { flags: 'a' });
-            for (const chunk of this.pending.splice(0)) stream.write(chunk);
-            if (this.ended) stream.end();
             return {
                 write: (chunk: string) => stream.write(chunk),
                 end: () => stream.end(),
             };
         });
+        this.tail = this.ready;
     }
 
     write(chunk: string): void {
         if (this.ended) return;
-        this.pending.push(chunk);
-        void this.ready.then((stream) => {
-            const next = this.pending.shift();
-            if (next !== undefined) stream.write(next);
-        });
+        this.tail = this.tail.then(() => this.ready.then((stream) => stream.write(chunk)));
     }
 
     end(): void {
+        if (this.ended) return;
         this.ended = true;
-        void this.ready.then((stream) => stream.end());
+        this.tail = this.tail.then(() => this.ready.then((stream) => stream.end()));
     }
 }
 
@@ -268,7 +268,7 @@ export function ensureDirForFileSync(path: string, fs: SyncFileSystem): void {
 
 export async function atomicWriteFile(path: string, content: string, fs = getFs()): Promise<void> {
     await ensureDirForFile(path, fs);
-    const tempPath = `${path}.${getProcessPid()}.${Date.now()}.tmp`;
+    const tempPath = `${path}.${getProcessPid()}.${uniqueToken()}.tmp`;
     await fs.writeFile(tempPath, content);
     await fs.rename(tempPath, path);
 }
@@ -331,53 +331,8 @@ function getProcessPid(): number {
     return (globalThis as { process?: { pid?: number } }).process?.pid ?? 0;
 }
 
-function getProcessCwd(): string {
-    return (globalThis as { process?: { cwd?: () => string } }).process?.cwd?.() ?? '/';
-}
-
-function normalizeSeparators(path: string): string {
-    return path.replaceAll('\\', '/');
-}
-
-function isAbsolutePath(path: string): boolean {
-    return path.startsWith('/') || /^[A-Za-z]:\//.test(normalizeSeparators(path));
-}
-
-function dirnamePath(path: string): string {
-    const input = normalizeSeparators(path);
-    if (/^\/+$/.test(input)) return '/';
-    const normalized = input.replace(/\/+$/, '');
-    if (normalized === '' || normalized === '/') return normalized || '.';
-    const index = normalized.lastIndexOf('/');
-    if (index < 0) return '.';
-    if (index === 0) return '/';
-    return normalized.slice(0, index);
-}
-
-function joinPath(...segments: string[]): string {
-    const filtered = segments.filter((segment) => segment.length > 0).map(normalizeSeparators);
-    if (filtered.length === 0) return '.';
-    const absolute = isAbsolutePath(filtered[0] ?? '');
-    const joined = filtered.join('/').replace(/\/+/g, '/');
-    return absolute ? joined : joined.replace(/^\//, '');
-}
-
-function resolvePath(...segments: string[]): string {
-    const candidates = segments.length === 0 ? [getProcessCwd()] : segments;
-    let resolved = '';
-    for (const segment of candidates.map(normalizeSeparators)) {
-        if (segment.length === 0) continue;
-        resolved = isAbsolutePath(segment) ? segment : joinPath(resolved || getProcessCwd(), segment);
-    }
-    const parts: string[] = [];
-    const absolute = isAbsolutePath(resolved);
-    for (const part of resolved.split('/')) {
-        if (part === '' || part === '.') continue;
-        if (part === '..') {
-            parts.pop();
-            continue;
-        }
-        parts.push(part);
-    }
-    return `${absolute ? '/' : ''}${parts.join('/')}` || (absolute ? '/' : '.');
+// Two writers to the same path in the same millisecond must not share a temp name, or one clobbers
+// the other before rename. randomUUID disambiguates; Date.now keeps names sortable for debugging.
+function uniqueToken(): string {
+    return `${Date.now()}.${crypto.randomUUID()}`;
 }
