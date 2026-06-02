@@ -1,3 +1,5 @@
+import type { CapabilityRegistry } from '../host/capability-registry';
+import type { TestPathResolver } from '../resolvers/test-path-resolver';
 import {
     type ConstraintRule,
     createFinding,
@@ -12,6 +14,7 @@ interface TestLocationConfig {
     expected?: string;
     forbid?: string[];
     requireCorrespondingTest?: boolean;
+    resolver?: string;
 }
 
 /**
@@ -22,12 +25,16 @@ interface TestLocationConfig {
  * - `expected`: glob the test files must match (required)
  * - `forbid`: globs where tests must not live (e.g. `**\/__tests__/**`)
  * - `requireCorrespondingTest`: when true, flags source files (from `rule.include`)
- *   that lack a test at the TypeScript-conventional path
+ *   that lack a test at the resolver's conventional path
+ * - `resolver`: language resolver name (`typescript` default, or `python`/`go`/`rust`)
  *
  * Discovery walks the workdir and applies `**` globs precisely, so it stays
  * self-contained (no `rg --files` shell-out).
  */
 export class TestLocationEvaluator implements RuleEvaluator {
+    /** Optional resolver registry; when absent, the TypeScript convention is used. */
+    constructor(private readonly resolvers?: CapabilityRegistry<TestPathResolver>) {}
+
     /** Evaluate test-file placement and optional coverage of source files. */
     async evaluate(rule: ConstraintRule, context: RuleContext): Promise<RuleEvaluationResult> {
         const config = (rule.evaluator.config ?? {}) as TestLocationConfig;
@@ -49,20 +56,15 @@ export class TestLocationEvaluator implements RuleEvaluator {
             const violated = forbid.find((pattern) => matchesGlob(file, pattern));
             if (violated !== undefined) {
                 findings.push(
-                    createFinding(
-                        rule,
-                        `Test file "${file}" is in a forbidden location (matches "${violated}")`,
-                        file,
-                        {
-                            code: 'test-location:forbidden',
-                        },
-                    ),
+                    createFinding(rule, `test file in forbidden location (matches "${violated}")`, file, {
+                        code: 'test-location:forbidden',
+                    }),
                 );
                 continue;
             }
             if (!matchesGlob(file, expected)) {
                 findings.push(
-                    createFinding(rule, `Test file "${file}" does not match expected pattern "${expected}"`, file, {
+                    createFinding(rule, `test file outside expected location (expected "${expected}")`, file, {
                         code: 'test-location:unexpected',
                     }),
                 );
@@ -70,23 +72,19 @@ export class TestLocationEvaluator implements RuleEvaluator {
         }
 
         if (config.requireCorrespondingTest) {
+            const resolver = this.selectResolver(config.resolver);
             const srcPatterns = rule.include ?? ['**/*.ts', '**/*.tsx'];
             const testSet = new Set(testFiles);
             for (const srcFile of allFiles) {
                 if (!srcPatterns.some((pattern) => matchesGlob(srcFile, pattern))) continue;
                 if (exclude.some((pattern) => matchesGlob(srcFile, pattern))) continue;
-                const testPath = resolveTestPath(srcFile);
+                const testPath = resolver.resolveTestPath(srcFile);
                 if (testPath === srcFile) continue;
                 if (!testSet.has(testPath)) {
                     findings.push(
-                        createFinding(
-                            rule,
-                            `Source file "${srcFile}" has no corresponding test → ${testPath}`,
-                            srcFile,
-                            {
-                                code: 'test-location:missing',
-                            },
-                        ),
+                        createFinding(rule, `no corresponding test → ${testPath}`, srcFile, {
+                            code: 'test-location:missing',
+                        }),
                     );
                 }
             }
@@ -94,22 +92,36 @@ export class TestLocationEvaluator implements RuleEvaluator {
 
         return { findings, fixes: [] };
     }
+
+    /**
+     * Pick the resolver named in config (default `typescript`).
+     *
+     * Falls back to the built-in TypeScript convention when no registry was
+     * injected; throws if a named resolver is requested but not registered.
+     */
+    private selectResolver(name = 'typescript'): TestPathResolver {
+        if (this.resolvers === undefined) {
+            if (name !== 'typescript') {
+                throw new Error(`test-location resolver "${name}" requested but no resolver registry is available`);
+            }
+            return TYPESCRIPT_FALLBACK;
+        }
+        return this.resolvers.get(name);
+    }
 }
 
-/**
- * Map a TypeScript source path to its conventional test path.
- *
- *   packages/core/src/foo/bar.ts → packages/core/tests/foo/bar.test.ts
- *   src/foo/bar.ts               → tests/foo/bar.test.ts
- */
-function resolveTestPath(srcRelPath: string): string {
-    if (srcRelPath.includes('.test.') || srcRelPath.includes('.spec.')) return srcRelPath;
-    const srcIdx = srcRelPath.indexOf('/src/');
-    if (srcIdx !== -1) {
-        const pkg = srcRelPath.slice(0, srcIdx);
-        const rel = srcRelPath.slice(srcIdx + '/src/'.length).replace(/\.(ts|tsx|js|jsx)$/, '.test.ts');
-        return `${pkg}/tests/${rel}`;
-    }
-    const withoutExt = srcRelPath.replace(/\.(ts|tsx|js|jsx)$/, '');
-    return `tests/${withoutExt.replace(/^src\//, '')}.test.ts`;
-}
+/** Built-in TypeScript convention used when no resolver registry is injected. */
+const TYPESCRIPT_FALLBACK: TestPathResolver = {
+    name: 'typescript',
+    resolveTestPath(srcRelPath: string): string {
+        if (srcRelPath.includes('.test.') || srcRelPath.includes('.spec.')) return srcRelPath;
+        const srcIdx = srcRelPath.indexOf('/src/');
+        if (srcIdx !== -1) {
+            const pkg = srcRelPath.slice(0, srcIdx);
+            const rel = srcRelPath.slice(srcIdx + '/src/'.length).replace(/\.(ts|tsx|js|jsx)$/, '.test.ts');
+            return `${pkg}/tests/${rel}`;
+        }
+        const withoutExt = srcRelPath.replace(/\.(ts|tsx|js|jsx)$/, '');
+        return `tests/${withoutExt.replace(/^src\//, '')}.test.ts`;
+    },
+};
