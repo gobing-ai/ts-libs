@@ -14,31 +14,72 @@ export class RegexEvaluator implements RuleEvaluator {
     /** Evaluate regex-based presence or absence constraints. */
     async evaluate(rule: ConstraintRule, context: RuleContext): Promise<RuleEvaluationResult> {
         const config = rule.evaluator.config ?? {};
-        const pattern = stringConfig(config, 'pattern');
+        const { pattern, flags } = normalizePattern(
+            stringConfig(config, 'pattern'),
+            stringConfig(config, 'flags', ''),
+            config.multiline === true,
+        );
         const mode = stringConfig(config, 'mode', 'forbid');
-        const flags = stringConfig(config, 'flags', 'm');
         const regex = new RegExp(pattern, flags);
         const files = await discoverFiles({ workdir: context.workdir, include: rule.include, exclude: rule.exclude });
         const findings = [];
 
         for (const file of files) {
             const content = await readWorkdirFile(context.workdir, file);
-            regex.lastIndex = 0;
-            const match = regex.exec(content);
-            if (mode === 'require' && match === null) {
-                findings.push(
-                    createFinding(rule, `Required pattern not found: ${pattern}`, file, { code: 'regex:missing' }),
-                );
+            if (mode === 'require') {
+                regex.lastIndex = 0;
+                if (!regex.test(content)) {
+                    findings.push(
+                        createFinding(rule, `required pattern not found: ${pattern}`, file, { code: 'regex:missing' }),
+                    );
+                }
+                continue;
             }
-            if (mode !== 'require' && match !== null) {
-                findings.push(
-                    createFinding(rule, `Forbidden pattern found: ${pattern}`, file, { code: 'regex:found' }),
-                );
+            // forbid: report each matching line so findings carry precise locations.
+            for (const [index, line] of content.split('\n').entries()) {
+                regex.lastIndex = 0;
+                if (regex.test(line)) {
+                    findings.push(
+                        createFinding(rule, `forbidden pattern found: ${pattern}`, file, {
+                            line: index + 1,
+                            code: 'regex:found',
+                        }),
+                    );
+                }
             }
         }
 
         return { findings, fixes: [] };
     }
+}
+
+/**
+ * Normalize a pattern + flags for JS `RegExp`.
+ *
+ * Accepts a leading `(?i)`/`(?im)` inline flag group (ripgrep/PCRE style) and
+ * folds it into the JS flags. `multiline` adds the `s` (dotAll) flag so `.`
+ * spans newlines, matching the old `--multiline` behavior. `m` is always set so
+ * `^`/`$` work per line.
+ */
+function normalizePattern(
+    rawPattern: string,
+    rawFlags: string,
+    multiline: boolean,
+): { pattern: string; flags: string } {
+    const flagSet = new Set<string>(['m']);
+    for (const flag of rawFlags) {
+        if ('gimsuy'.includes(flag)) flagSet.add(flag);
+    }
+    let pattern = rawPattern;
+    const inline = /^\(\?([a-z]+)\)/.exec(pattern);
+    if (inline) {
+        for (const flag of inline[1] ?? '') {
+            if ('imsu'.includes(flag)) flagSet.add(flag);
+        }
+        pattern = pattern.slice(inline[0].length);
+    }
+    if (multiline) flagSet.add('s');
+    return { pattern, flags: [...flagSet].join('') };
 }
 
 function stringConfig(config: Record<string, unknown>, key: string, fallback?: string): string {
