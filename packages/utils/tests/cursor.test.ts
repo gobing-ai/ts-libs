@@ -76,6 +76,21 @@ describe('cursor encoding', () => {
     test('throws when decoded payload is not a valid cursor', () => {
         expect(() => decodeAndParseCursor('garbage')).toThrow();
     });
+
+    test('round-trips multibyte UTF-8 ids (TextEncoder path, not latin1)', () => {
+        const cursor = { id: '用户-🐉-42', createdAt: 1000 };
+        expect(decodeAndParseCursor(encodeCursor(cursor))).toEqual(cursor);
+    });
+
+    test('rejects input that is not valid base64url', () => {
+        // `!` is outside the base64url alphabet — must fail loudly, not silently decode garbage.
+        expect(() => decodeCursor('not!valid!base64')).toThrow('not valid base64url');
+    });
+
+    test('rejects an oversized encoded cursor before decoding', () => {
+        // Client-supplied tokens are bounded; an over-long one is hostile and rejected up front.
+        expect(() => decodeAndParseCursor('A'.repeat(2000))).toThrow('exceeds maximum length');
+    });
 });
 
 describe('buildCursorMeta', () => {
