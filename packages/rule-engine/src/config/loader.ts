@@ -63,9 +63,12 @@ export async function loadRuleFile(filePath: string): Promise<ConstraintRule[]> 
 }
 
 async function loadPresetEntry(merged: MergedRoots, entry: string, seen: Set<string>): Promise<ConstraintRule[]> {
-    // Sub-preset reference — recurse (cycle-guarded).
+    // Sub-preset reference — recurse, erroring on a genuine cycle.
     const presetPath = findMergedPreset(merged, entry);
-    if (presetPath !== null && !seen.has(entry)) {
+    if (presetPath !== null) {
+        if (seen.has(entry)) {
+            throw new Error(`Circular preset dependency detected: ${[...seen, entry].join(' → ')}`);
+        }
         seen.add(entry);
         const preset = PresetDefinitionSchema.safeParse(await readStructuredFile(presetPath));
         if (preset.success) {
@@ -200,12 +203,19 @@ function normalizeFileRules(file: ConstraintRuleFile, sourceDir: string): Constr
                 ...rule,
                 severity: rule.severity ?? file.severity ?? 'error',
                 include: rule.include ?? file.include,
-                exclude: rule.exclude ?? file.exclude,
+                // File-level excludes always apply; a rule's own excludes add to (not replace) them.
+                exclude: mergeExcludes(file.exclude, rule.exclude),
             },
             {},
             sourceDir,
         ),
     );
+}
+
+/** Union of file-level and rule-level excludes, de-duplicated. Returns undefined when both empty. */
+function mergeExcludes(fileExclude?: string[], ruleExclude?: string[]): string[] | undefined {
+    if (fileExclude === undefined && ruleExclude === undefined) return undefined;
+    return [...new Set([...(fileExclude ?? []), ...(ruleExclude ?? [])])];
 }
 
 function normalizeRule(rule: ConstraintRule, _defaults: Partial<ConstraintRule>, _sourceDir: string): ConstraintRule {
