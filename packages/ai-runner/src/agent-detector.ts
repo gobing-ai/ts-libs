@@ -43,19 +43,11 @@ export class AgentDetector {
 
     /** Probe one agent by name. */
     async detectOne(agent: string): Promise<DetectedAgent> {
-        if (!isAgentName(agent)) {
-            return { name: agent, installed: false, version: null, channels: [], error: `Unknown agent: ${agent}` };
-        }
+        if (!isAgentName(agent)) return unavailable(agent, `Unknown agent: ${agent}`);
         try {
             return this.parseResult(agent, await this.runner.runVersionCommand(agent, { timeout: this.timeout }));
         } catch (error) {
-            return {
-                name: agent,
-                installed: false,
-                version: null,
-                channels: [],
-                error: error instanceof Error ? error.message : String(error),
-            };
+            return unavailable(agent, error instanceof Error ? error.message : String(error));
         }
     }
 
@@ -64,41 +56,17 @@ export class AgentDetector {
         const output = `${result.stdout}\n${result.stderr}`.trim();
         const lower = output.toLowerCase();
         if (lower.includes('command not found') || lower.includes('enoent') || lower.includes('not recognized')) {
-            return {
-                name: agent,
-                installed: false,
-                version: null,
-                channels: [],
-                error: `${command}: command not found`,
-            };
+            return unavailable(agent, `${command}: command not found`);
         }
         if (result.signal !== undefined || result.exitCode === null) {
-            return {
-                name: agent,
-                installed: false,
-                version: null,
-                channels: [],
-                error: result.signal ?? 'Process timed out',
-            };
+            return unavailable(agent, result.signal ?? 'Process timed out');
         }
         if (result.exitCode !== 0) {
-            return {
-                name: agent,
-                installed: false,
-                version: null,
-                channels: [],
-                error: `Non-zero exit code ${result.exitCode}: ${result.stderr.slice(0, 200)}`,
-            };
+            return unavailable(agent, `Non-zero exit code ${result.exitCode}: ${result.stderr.slice(0, 200)}`);
         }
         const match = VERSION_PATTERN.exec(output);
         if (match?.groups?.version === undefined) {
-            return {
-                name: agent,
-                installed: false,
-                version: null,
-                channels: [],
-                error: 'Could not parse version output',
-            };
+            return unavailable(agent, 'Could not parse version output');
         }
         return {
             name: agent,
@@ -108,4 +76,9 @@ export class AgentDetector {
             error: null,
         };
     }
+}
+
+/** Build an "unavailable" detection result for an agent with the given error. */
+function unavailable(name: AgentName | string, error: string): DetectedAgent {
+    return { name, installed: false, version: null, channels: [], error };
 }
