@@ -34,6 +34,12 @@ describe('toMs', () => {
         expect(toMs(null)).toBeNull();
         expect(toMs(undefined)).toBeNull();
     });
+
+    test('rejects non-finite numbers instead of passing them through', () => {
+        expect(toMs(Number.POSITIVE_INFINITY)).toBeNull();
+        expect(toMs(Number.NEGATIVE_INFINITY)).toBeNull();
+        expect(toMs(Number.NaN)).toBeNull();
+    });
 });
 
 describe('fromMs', () => {
