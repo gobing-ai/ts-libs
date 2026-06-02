@@ -1,17 +1,8 @@
 import { sql } from 'drizzle-orm';
 import type { DbAdapter } from './adapter';
+import type { UpdateReturningDb } from './drizzle-builders';
 import { EntityDao } from './entity-dao';
 import { inboxMessages } from './schema/inbox-messages';
-
-type InboxUpdateReturningDb = {
-    update: (table: unknown) => {
-        set: (value: unknown) => {
-            where: (where: unknown) => {
-                returning: () => Promise<unknown[]>;
-            };
-        };
-    };
-};
 
 /** Row type inferred from the inbox_messages Drizzle schema. */
 export type InboxMessage = typeof inboxMessages.$inferSelect;
@@ -40,7 +31,7 @@ export class InboxMessageDao extends EntityDao<typeof inboxMessages, typeof inbo
 
     async drainPending(toId: string): Promise<InboxMessage[]> {
         const now = this.now();
-        const rows = await (this.db as InboxUpdateReturningDb)
+        const rows = await (this.db as UpdateReturningDb)
             .update(inboxMessages)
             .set({
                 status: 'injected',
