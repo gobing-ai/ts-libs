@@ -21,9 +21,9 @@ describe('telemetry SDK', () => {
         _resetTelemetry();
     });
 
-    test('initTelemetry with enabled config creates tracer', () => {
+    test('initTelemetry with enabled config exposes a tracer', () => {
         initTelemetry({ enabled: true, serviceName: 'test-sdk' });
-        // Even without OTLP exporter, local tracer should work
+        // Reads the global provider (no-op tracer when none registered).
         const tracer = getTracer();
         expect(tracer).toBeDefined();
         _resetTelemetry();
@@ -56,7 +56,7 @@ describe('telemetry SDK', () => {
         _resetTelemetry();
     });
 
-    test('shutdownTelemetry shuts down active tracerProvider', async () => {
+    test('shutdownTelemetry disables an initialised telemetry session', async () => {
         _resetTelemetry();
         initTelemetry({ enabled: true, serviceName: 'test-shutdown' });
         expect(isTelemetryEnabled()).toBeTrue();
