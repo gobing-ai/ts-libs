@@ -23,15 +23,6 @@ Runtime abstraction layer — environment detection, file system, process execut
 
 ```mermaid
 classDiagram
-    class RuntimeFactory {
-        <<interface>>
-        +RuntimeName runtimeName
-        +RuntimeCapabilities capabilities
-        +createFileSystem() FileSystem
-        +loadConfig() Promise~Config~
-        +createContext() RuntimeContext
-    }
-
     class RuntimeContext {
         +RuntimeScope scope
         +RuntimeName runtimeName
@@ -164,16 +155,15 @@ classDiagram
     RuntimeContext --> FileSystem : "fileSystem"
     RuntimeContext --> Config : "config"
     RuntimeContext --> ProcessExecutor : "processExecutor"
-    RuntimeFactory --> RuntimeContext : creates
-    RuntimeFactory --> FileSystem : creates
-    RuntimeFactory --> Config : loadConfig()
 ```
 
 ## How It Works
 
-### 1. Runtime detection
+### 1. Runtime selection
 
-At startup, a `RuntimeFactory` is selected based on the environment:
+The active `FileSystem` is a process-global swapped via `setFileSystem` (default: `NodeFileSystem`);
+`getFs()` returns it. A `RuntimeContext` is constructed directly with the scope, capabilities, and
+services for the current environment — there is no factory abstraction (see ADR-008):
 
 ```ts
 import { createRuntimeContext } from '@gobing-ai/ts-runtime';
