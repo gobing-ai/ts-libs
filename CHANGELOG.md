@@ -6,6 +6,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [0.2.7] — 2026-06-02
+
+### Added
+
+- **`ts-rule-engine` — Fix pipeline:** Added rule-level fix metadata, candidate `Fix` results, `RuleEngine.evaluateWithFixes()`, and `RuleEngine.applyFixes()` for dry-run or write-mode byte-range fixes. Built-in fixers now support regex replacements, forbidden-path deletion, and generated test stubs for missing-test findings.
+- **`ts-rule-engine` — Pluggable preset extensions:** Presets can now declare opt-in extension modules for resolvers, evaluators, and formatters. Extension loading is explicit via `allowExtensions: true` so preset-provided code is never imported silently.
+- **`ts-rule-engine` — Test-path resolvers:** Added exported resolver implementations for TypeScript, Python, Go, and Rust test-location conventions, enabling resolver-aware missing-test checks and generated test skeletons.
+- **`ts-rule-engine` — New evaluators:**
+  - **Import Boundary** (`import-boundary`): Enforces architectural import and usage boundaries in-process with scoped forbidden patterns and per-boundary excludes.
+  - **Schema Artifact** (`schema-artifact`): Validates JSON schema artifacts for existence, JSON validity, required title, required properties, `$defs` / `definitions`, and top-level `required`.
+  - **ast-grep** (`sg`): Runs `sg` patterns with include glob forwarding, exclude filtering, and JSON output parsing.
+
+### Changed
+
+- **`ts-rule-engine`:** Existing regex, path, forbidden-import, secrets-scanner, test-location, TSDoc, and exit-code evaluators now return richer structured findings and fixes where applicable.
+- **`ts-rule-engine`:** Rule preset loading now supports preset extension discovery, override parity, and additional edge-case validation.
+
+### Fixed
+
+- **`ts-rule-engine`:** Moved dynamic test fixtures out of repo-local `.tmp` directories so Bun coverage no longer instruments generated fixture modules.
+- **`ts-rule-engine`:** Covered Bun/V8 implicit-constructor coverage edge cases in new evaluator and resolver classes.
+
 ## [0.2.6] — 2026-06-01
 
 ### Added
@@ -114,7 +136,8 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[0.2.6]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.5...HEAD
+[0.2.7]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.6...HEAD
+[0.2.6]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.5...@gobing-ai/ts-libs-v0.2.6
 [0.2.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.3...@gobing-ai/ts-libs-v0.2.4
 [0.2.3]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.5...@gobing-ai/ts-libs-v0.2.3
 [0.1.5]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.4...@gobing-ai/ts-libs-v0.1.5
