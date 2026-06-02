@@ -4,13 +4,13 @@ Runtime abstraction layer — environment detection, file system, process execut
 
 ## Overview
 
-`ts-runtime` decouples application code from platform specifics. Instead of importing `node:fs` or `node:child_process` directly, consumers go through interfaces (`FileSystem`, `ProcessExecutor`) that resolve to the correct implementation at startup based on `RuntimeContext`.
+`ts-runtime` decouples application code from platform specifics. Instead of importing `node:fs` or `node:child_process` directly, consumers go through interfaces (`FileSystem`, `ProcessExecutor`) that resolve to the correct implementation at startup based on `RuntimeContext`. Node filesystem modules are loaded lazily by `NodeFileSystem`, so importing the package remains safe for Worker bundles that select `CloudflareFileSystem`.
 
 **Key abstractions:**
 
 | Concept | Interface | Bun/Node impl | Cloudflare impl |
 |---------|-----------|---------------|-----------------|
-| File system | `FileSystem` | `NodeFileSystem` | `CloudflareFileSystem` (stub) |
+| File system | `FileSystem` | `NodeFileSystem` | `CloudflareFileSystem` (unsupported filesystem facade) |
 | Process execution | `ProcessExecutor` | `NodeProcessExecutor` | — |
 | Configuration | `Config` (Zod schema) | YAML + env vars | YAML + env vars |
 | Context | `RuntimeContext` | service locator | service locator |

@@ -2,7 +2,7 @@
 
 A **drizzle-free database facade**: typed DAOs over Bun SQLite / Cloudflare D1, a small predicate query spec, single-source-of-truth tables, and migration tooling. Drizzle ORM powers it internally but never appears in your application code — so the storage layer is swappable without touching call sites.
 
-> **v0.2.3 is a breaking redesign.** The public `DbClient` interface and `adapter.getDb()` are removed; DAOs now take a `DbAdapter`; `where`/`orderBy` use a ts-db predicate spec instead of drizzle expressions. See [Migrating from 0.1.x](#migrating-from-01x).
+> **v0.2.x is a breaking redesign from 0.1.x.** The public `DbClient` interface and `adapter.getDb()` are removed; DAOs now take a `DbAdapter`; `where`/`orderBy` use a ts-db predicate spec instead of drizzle expressions. See [Migrating from 0.1.x](#migrating-from-01x).
 
 ## Overview
 

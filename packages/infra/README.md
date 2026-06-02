@@ -1,6 +1,6 @@
 # @gobing-ai/ts-infra
 
-Infrastructure backbone — typed event bus, job queue (types), cron scheduler, OpenTelemetry telemetry, HTTP API client, and structured logging. Designed to be wired together at bootstrap via `RuntimeContext`.
+Infrastructure backbone — typed event bus, DB-backed job queue, cron scheduler, OpenTelemetry telemetry, HTTP API client, and structured logging.
 
 ## Overview
 
@@ -10,10 +10,10 @@ Infrastructure backbone — typed event bus, job queue (types), cron scheduler, 
 |-----------|--------|---------|
 | **Event Bus** | `event-bus/` | Typed pub/sub with sync + async dispatch, lifecycle self-observability |
 | **Events** | `events/` | Typed event map pattern + system bus factory |
-| **Job Queue** | `job-queue/` | Types for DB-backed job processing (`JobQueue`, `QueueConsumer`, `Job`) |
+| **Job Queue** | `job-queue/` | DB-backed enqueue and consume flow (`DBJobQueue`, `DBQueueConsumer`) plus queue interfaces |
 | **Scheduler** | `scheduler/` | Cron-like scheduled actions — Node (interval), Cloudflare (Cron Triggers), Noop (test) |
 | **Telemetry** | `telemetry/` | OpenTelemetry SDK wrapper — tracing (`traceAsync`), metrics (17 instruments), SQL sanitizer |
-| **API Client** | `api-client.ts` | Typed HTTP client with OTel tracing, retry, timeout, error handling |
+| **API Client** | `api-client.ts` | Typed HTTP client with OTel tracing, timeout, and error handling |
 | **Logger** | `logger.ts` | Structured JSON logger with levels, child loggers, and mute toggle |
 
 ## Architecture
@@ -49,6 +49,18 @@ classDiagram
             +register(type, handler) void
             +start() Promise~void~
             +stop() Promise~void~
+            +stats() Promise~QueueStats~
+        }
+        class DBJobQueue~T~ {
+            +enqueue(type, payload, opts?) Promise~string~
+            +enqueueBatch(jobs) Promise~string[]~
+            +stats() Promise~QueueStats~
+        }
+        class DBQueueConsumer~T~ {
+            +register(type, handler) void
+            +start() Promise~void~
+            +stop() Promise~void~
+            +processOnce() Promise~number~
             +stats() Promise~QueueStats~
         }
         class Job~T~ {
@@ -141,6 +153,8 @@ classDiagram
     SchedulerFactory --> CloudflareSchedulerAdapter
     SchedulerFactory --> NoopSchedulerAdapter
     EventBus --> JobQueue : "async dispatch"
+    DBJobQueue --> JobQueue : "implements"
+    DBQueueConsumer --> QueueConsumer : "implements"
     EventBus --> Logger : "self-observability"
     APIClient --> Tracing : "traceAsync"
     APIClient --> Metrics : "counters + histograms"
@@ -182,7 +196,11 @@ bus.once('user.signed_up', () => console.log('one-time'));
 **Lifecycle events** — inject a second `EventBus` to observe bus internals:
 
 ```ts
-const lifecycleBus = new EventBus<BusLifecycleEvents>();
+type LifecycleEvents = {
+    'bus.emit.done': (detail: { event: string; syncCount: number; asyncCount: number; emitDurationMs: number }) => void;
+};
+
+const lifecycleBus = new EventBus<LifecycleEvents>();
 lifecycleBus.on('bus.emit.done', (detail) => {
     // { event, syncCount, asyncCount, emitDurationMs, errors }
     metrics.recordEmit(detail);
@@ -190,6 +208,45 @@ lifecycleBus.on('bus.emit.done', (detail) => {
 
 const bus = new EventBus<AppEvents>({ lifecycleBus });
 ```
+
+### Job Queue — DB-backed async work
+
+`DBJobQueue` and `DBQueueConsumer` run over `@gobing-ai/ts-db`'s `QueueJobDao`. Use this when event handlers, schedulers, or API handlers need durable background work with retries.
+
+```ts
+import { createDbAdapter, QueueJobDao } from '@gobing-ai/ts-db';
+import { DBJobQueue, DBQueueConsumer } from '@gobing-ai/ts-infra';
+
+const db = await createDbAdapter({ driver: 'bun-sqlite', url: './jobs.db' });
+const dao = new QueueJobDao(db);
+
+const queue = new DBJobQueue<{ to: string; subject: string }>(dao);
+await queue.enqueue(
+    'send-email',
+    { to: 'alice@example.com', subject: 'Welcome' },
+    { maxRetries: 5, delay: 1_000, ttlMs: 86_400_000 },
+);
+
+const consumer = new DBQueueConsumer<{ to: string; subject: string }>(dao, {
+    batchSize: 10,
+    maxConcurrency: 4,
+    visibilityTimeout: 30_000,
+});
+
+consumer.register('send-email', async (job) => {
+    await sendEmail(job.payload.to, job.payload.subject);
+});
+
+await consumer.start();
+```
+
+For scheduled drains and tests, call `processOnce()` instead of starting the polling loop:
+
+```ts
+const processed = await consumer.processOnce();
+```
+
+The consumer claims ready jobs, resets stuck processing jobs after the visibility timeout, retries failed jobs with exponential backoff, and marks expired jobs failed through `QueueJobDao`.
 
 ### Scheduler — cron-like actions
 
@@ -269,9 +326,7 @@ const reqLog = log.child({ requestId: 'req-123' });
 reqLog.error('Validation failed', { field: 'email' });
 // → {...,"category":"auth","requestId":"req-123","field":"email"}
 
-// Mute during tests
-import { setLoggerMuted } from './logger.js'; // internal import
-setLoggerMuted(true);
+// In tests, prefer injecting a logger boundary or initializing at a quiet level.
 ```
 
 ### Telemetry — OpenTelemetry
