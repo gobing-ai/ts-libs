@@ -28,6 +28,7 @@ export interface EnqueueOptions {
 export interface JobQueue<T = unknown> {
     enqueue(type: string, payload: T, options?: EnqueueOptions): Promise<string>;
     enqueueBatch(jobs: Array<{ type: string; payload: T } & EnqueueOptions>): Promise<string[]>;
+    stats(): Promise<QueueStats>;
 }
 
 export type JobHandler<T = unknown> = (job: Job<T>) => Promise<void>;
@@ -47,7 +48,6 @@ export interface QueueConsumerConfig {
     baseDelay?: number;
     maxDelay?: number;
     drainTimeoutMs?: number;
-    maxPollBackoff?: number;
 }
 
 export interface QueueConsumer<T = unknown> {
