@@ -100,8 +100,8 @@ export class CoverageGateEvaluator implements RuleEvaluator {
 function parseLcov(raw: string): Map<string, FileCoverage> {
     const result = new Map<string, FileCoverage>();
     let file: string | null = null;
-    let linesFound = 0;
-    let linesHit = 0;
+    let linesFound: number | null = 0;
+    let linesHit: number | null = 0;
     for (const line of raw.split('\n')) {
         const trimmed = line.trim();
         if (trimmed.startsWith('SF:')) {
@@ -109,15 +109,25 @@ function parseLcov(raw: string): Map<string, FileCoverage> {
             linesFound = 0;
             linesHit = 0;
         } else if (trimmed.startsWith('LF:')) {
-            linesFound = Number(trimmed.slice(3));
+            linesFound = parseCount(trimmed.slice(3));
         } else if (trimmed.startsWith('LH:')) {
-            linesHit = Number(trimmed.slice(3));
+            linesHit = parseCount(trimmed.slice(3));
         } else if (trimmed === 'end_of_record' && file !== null) {
-            result.set(file, { linesFound, linesHit });
+            // Skip records with malformed counts: a non-numeric LF:/LH: would
+            // otherwise yield NaN coverage and a spurious below-threshold finding.
+            if (linesFound !== null && linesHit !== null) {
+                result.set(file, { linesFound, linesHit });
+            }
             file = null;
         }
     }
     return result;
+}
+
+/** Parse an lcov count field; return null for non-finite or negative values. */
+function parseCount(raw: string): number | null {
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 /** Standard exclusions applied regardless of config (tests, generated, deps). */

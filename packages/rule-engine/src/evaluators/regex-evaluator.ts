@@ -7,8 +7,18 @@ import {
 } from '../types';
 import { discoverFiles, readWorkdirFile } from './file-utils';
 
-/** Evaluates whether source files match or avoid a regex pattern. */
+/**
+ * Evaluates whether source files match or avoid a regex pattern.
+ *
+ * Trust assumption: rule config is trusted input. The `pattern` is compiled with
+ * `new RegExp` and run per line without a backtracking bound, so a
+ * catastrophic-backtracking pattern is the rule author's responsibility. Runtime
+ * ReDoS hardening is deferred until rule packs are distributed across a wider trust
+ * boundary (see task 0003).
+ */
 export class RegexEvaluator implements RuleEvaluator {
+    // Explicit constructor: V8 function coverage counts only declared functions, so
+    // this method-light class needs it to clear the coverage-gate function threshold.
     constructor() {}
 
     /** Evaluate regex-based presence or absence constraints. */

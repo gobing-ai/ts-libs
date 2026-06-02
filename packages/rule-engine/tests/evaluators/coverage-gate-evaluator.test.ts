@@ -136,6 +136,24 @@ describe('CoverageGateEvaluator', () => {
         expect(result.findings).toHaveLength(0);
     });
 
+    test('skips records with malformed counts instead of reporting NaN coverage', async () => {
+        const dir = await tempDir();
+        await mkdir(join(dir, '.coverage'), { recursive: true });
+        // A non-numeric LF: must not yield NaN coverage and a spurious below-threshold
+        // finding; the record is skipped entirely. A well-formed record alongside it
+        // still reports, proving the parser recovers rather than aborting.
+        await writeFile(
+            join(dir, '.coverage', 'lcov.info'),
+            [
+                'SF:src/broken.ts\nLF:not-a-number\nLH:10\nend_of_record',
+                'SF:src/valid.ts\nLF:100\nLH:50\nend_of_record',
+            ].join('\n'),
+        );
+        const rule = makeRule({ lcovPath: '.coverage/lcov.info', threshold: 90, include: ['src/**'] });
+        const result = await new CoverageGateEvaluator().evaluate(rule, { workdir: dir, rule });
+        expect(result.findings.map((f) => f.filePath)).toEqual(['src/valid.ts']);
+    });
+
     test('relativizes absolute lcov source paths to workdir', async () => {
         const dir = await tempDir();
         await mkdir(join(dir, 'coverage'), { recursive: true });

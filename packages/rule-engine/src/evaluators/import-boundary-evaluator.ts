@@ -44,6 +44,11 @@ interface CompiledBoundary {
  *   - `scope` — glob pattern selecting files this boundary applies to.
  *   - `forbidden` — array of strings or `{ pattern, mode?, syntax? }` objects.
  *   - `exclude` — optional globs within the scope to ignore.
+ *
+ * Trust assumption: rule config is trusted input. A `pattern` is compiled with
+ * `new RegExp` and run per line without a backtracking bound, so a
+ * catastrophic-backtracking pattern is the rule author's responsibility. Runtime
+ * ReDoS hardening is deferred (see task 0003).
  */
 export class ImportBoundaryEvaluator implements RuleEvaluator {
     /** Evaluate import boundaries across all in-scope files. */
