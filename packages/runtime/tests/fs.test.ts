@@ -12,6 +12,7 @@ import {
     getFs,
     getProjectRoot,
     NodeFileSystem,
+    NodeSyncFileSystem,
     readJsonFile,
     resolveProjectPath,
     setFileSystem,
@@ -73,6 +74,20 @@ describe('NodeFileSystem', () => {
 
         await Bun.sleep(10);
         expect(await readFile(file, 'utf-8')).toBe('hello\n');
+    });
+});
+
+describe('NodeSyncFileSystem', () => {
+    test('reads, writes, lists, and unlinks synchronously', async () => {
+        const root = await createTempDir();
+        const fs = new NodeSyncFileSystem();
+        const file = join(root, 'sync', 'file.txt');
+
+        fs.writeFile(file, 'hello');
+        expect(fs.readFile(file)).toBe('hello');
+        expect(fs.readDir(join(root, 'sync'))).toEqual(['file.txt']);
+        fs.unlink(file);
+        expect(fs.readDir(join(root, 'sync'))).toEqual([]);
     });
 });
 
