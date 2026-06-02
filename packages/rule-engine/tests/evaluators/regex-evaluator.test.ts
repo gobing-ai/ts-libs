@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RegexEvaluator } from '../../src/evaluators/regex-evaluator';
 import type { ConstraintRule, RuleContext } from '../../src/types';
@@ -39,6 +39,27 @@ describe('RegexEvaluator', () => {
             const ctx = makeContext(tmpDir);
             const result = await evaluator.evaluate(ctx.rule, ctx);
             expect(result.findings).toEqual([]);
+        } finally {
+            rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
+    test('forbid mode matches multiline patterns across line boundaries', async () => {
+        const evaluator = new RegexEvaluator();
+        const tmpDir = join('/tmp', `rule-engine-multiline-${Date.now()}`);
+        mkdirSync(join(tmpDir, 'src'), { recursive: true });
+        try {
+            writeFileSync(join(tmpDir, 'src', 'index.ts'), 'const a = 1;\nconst b = 2;\n');
+            const rule = makeRule({
+                pattern: 'const a = 1;.*const b = 2;',
+                multiline: true,
+            });
+            const result = await evaluator.evaluate(rule, { workdir: tmpDir, rule });
+
+            expect(result.findings).toHaveLength(1);
+            expect(result.findings[0]?.filePath).toBe('src/index.ts');
+            expect(result.findings[0]?.line).toBe(1);
+            expect(result.findings[0]?.code).toBe('regex:found');
         } finally {
             rmSync(tmpDir, { recursive: true, force: true });
         }
