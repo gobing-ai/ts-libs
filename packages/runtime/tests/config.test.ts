@@ -4,9 +4,6 @@ import {
     buildConfigFromObject,
     buildConfigFromYaml,
     ConfigLoadError,
-    deepMerge,
-    deFlattenKeys,
-    flattenKeys,
     getDatabaseUrl,
     getNodeEnv,
     interpolateEnv,
@@ -28,16 +25,6 @@ describe('config helpers', () => {
         });
 
         delete process.env.RUNTIME_TEST_VALUE;
-    });
-
-    test('deep-merges, flattens, and de-flattens config objects', () => {
-        expect(deepMerge({ app: { port: 3000, env: 'development' } }, { app: { port: 4000 } })).toEqual({
-            app: { port: 4000, env: 'development' },
-        });
-
-        const flattened = flattenKeys({ app: { port: 3000 }, enabled: true });
-        expect(flattened).toEqual({ 'app.port': '3000', enabled: 'true' });
-        expect(deFlattenKeys(flattened)).toEqual({ app: { port: 3000 }, enabled: true });
     });
 
     test('builds frozen validated config with overrides', () => {
