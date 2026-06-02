@@ -1,6 +1,7 @@
 /**
  * Scheduler factory — selects adapter based on runtime.
  */
+import { NoopSchedulerAdapter } from './noop';
 import type { ScheduledAction, SchedulerAdapter } from './types';
 
 let runtimeAdapter: SchedulerAdapter | undefined;
@@ -30,7 +31,7 @@ export function getSchedulerAdapter(): SchedulerAdapter | undefined {
 export function initScheduler(cronEntries?: Array<[string, ScheduledAction]>): SchedulerAdapter {
     // Default: create a noop adapter. Apps inject their own via setSchedulerAdapter.
     if (!runtimeAdapter) {
-        runtimeAdapter = createNoopScheduler();
+        runtimeAdapter = new NoopSchedulerAdapter();
     }
 
     if (cronEntries) {
@@ -40,18 +41,4 @@ export function initScheduler(cronEntries?: Array<[string, ScheduledAction]>): S
     }
 
     return runtimeAdapter;
-}
-
-function createNoopScheduler(): SchedulerAdapter {
-    return {
-        register(): void {
-            /* noop */
-        },
-        start(): Promise<void> {
-            return Promise.resolve();
-        },
-        stop(): Promise<void> {
-            return Promise.resolve();
-        },
-    };
 }
