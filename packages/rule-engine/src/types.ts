@@ -56,6 +56,8 @@ export interface ConstraintRuleFile {
     severity?: RuleSeverity;
     /** Rule definitions. */
     rules: ConstraintRule[];
+    /** Custom capability modules contributed by this rule file (opt-in to load). */
+    extensions?: PresetExtensions;
 }
 
 /** Relative module paths a preset contributes per capability kind. */
@@ -211,21 +213,12 @@ export const ConstraintRuleSchema = z.object({
     fix: RuleFixConfigSchema.optional(),
 });
 
-/** Zod schema for a constraint rule file. */
-export const ConstraintRuleFileSchema = z.object({
-    $schema: z.string().optional(),
-    include: z.array(z.string()).optional(),
-    exclude: z.array(z.string()).optional(),
-    severity: z.enum(['error', 'warning', 'info']).optional(),
-    rules: z.array(ConstraintRuleSchema),
-});
-
 /**
- * A relative module path a preset may load as an extension.
+ * A relative module path a preset or rule file may load as an extension.
  *
- * Rejects absolute paths and `..` traversal: a preset is data, and a path that
- * escapes the preset directory is a trust-boundary violation even when extension
- * loading is explicitly allowed.
+ * Rejects absolute paths and `..` traversal: extension declarations are data, and a
+ * path that escapes the declaring file's directory is a trust-boundary violation even
+ * when extension loading is explicitly allowed.
  */
 const relativeExtensionPath = z
     .string()
@@ -237,6 +230,30 @@ const relativeExtensionPath = z
         message: 'extension path must not contain ".." traversal',
     });
 
+/**
+ * Shared zod schema for an `extensions` block, used by both preset and rule-file
+ * schemas so they validate identically. `.strict()` makes a typo'd or misplaced key
+ * a hard error rather than a silently-ignored field.
+ */
+export const ExtensionsSchema = z
+    .object({
+        resolvers: z.array(relativeExtensionPath).optional(),
+        evaluators: z.array(relativeExtensionPath).optional(),
+        fixers: z.array(relativeExtensionPath).optional(),
+        formatters: z.array(relativeExtensionPath).optional(),
+    })
+    .strict();
+
+/** Zod schema for a constraint rule file. */
+export const ConstraintRuleFileSchema = z.object({
+    $schema: z.string().optional(),
+    include: z.array(z.string()).optional(),
+    exclude: z.array(z.string()).optional(),
+    severity: z.enum(['error', 'warning', 'info']).optional(),
+    rules: z.array(ConstraintRuleSchema),
+    extensions: ExtensionsSchema.optional(),
+});
+
 /** Zod schema for a preset definition. */
 export const PresetDefinitionSchema = z.object({
     $schema: z.string().optional(),
@@ -246,13 +263,5 @@ export const PresetDefinitionSchema = z.object({
     overrides: z
         .record(z.string(), z.object({ fix: z.object({ mode: z.enum(['none', 'suggest', 'auto']) }).optional() }))
         .optional(),
-    extensions: z
-        .object({
-            resolvers: z.array(relativeExtensionPath).optional(),
-            evaluators: z.array(relativeExtensionPath).optional(),
-            fixers: z.array(relativeExtensionPath).optional(),
-            formatters: z.array(relativeExtensionPath).optional(),
-        })
-        .strict()
-        .optional(),
+    extensions: ExtensionsSchema.optional(),
 });

@@ -136,7 +136,9 @@ Load a rule file directly:
 ```ts
 import { loadRuleFile } from '@gobing-ai/ts-rule-engine';
 
-const rules = await loadRuleFile('.rules/typescript.yaml');
+// Returns { rules, extensions } — same shape as loadPreset(). A rule file may
+// declare an `extensions` block; the refs are gated by allowExtensions at load time.
+const { rules, extensions } = await loadRuleFile('.rules/typescript.yaml');
 ```
 
 ## Presets

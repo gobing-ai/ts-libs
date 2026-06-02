@@ -9,7 +9,7 @@ import {
     type PresetDefinition,
     PresetDefinitionSchema,
 } from '../types';
-import { collectPresetExtensions, type ExtensionRef } from './extensions';
+import { collectExtensions, type ExtensionRef } from './extensions';
 
 /** Options for loading rule presets. */
 export interface RuleLoaderOptions {
@@ -63,7 +63,7 @@ export async function loadPreset(name: string, options: RuleLoaderOptions): Prom
     if (presetPath === null) return { rules: [], extensions: [] };
     const preset = PresetDefinitionSchema.parse(await readStructuredFile(presetPath, options)) as PresetDefinition;
     const rules: ConstraintRule[] = [];
-    const extensions = collectPresetExtensions(preset.name, dirname(presetPath), preset.extensions);
+    const extensions = collectExtensions(preset.name, dirname(presetPath), preset.extensions);
     for (const entry of preset.extends) {
         const loaded = await loadPresetEntry(merged, entry, new Set([name]), options);
         rules.push(...loaded.rules);
@@ -105,10 +105,24 @@ export async function loadPresetRules(name: string, options: RuleLoaderOptions):
     return (await loadPreset(name, options)).rules;
 }
 
-/** Load a direct rule file from disk. */
-export async function loadRuleFile(filePath: string, options: RuleFileLoadOptions = {}): Promise<ConstraintRule[]> {
+/**
+ * Load a direct rule file from disk.
+ *
+ * Returns the normalized rules plus any extension modules the file declares in an
+ * `extensions` block, resolved to absolute paths. Rule-file extensions are treated
+ * exactly like preset extensions — pass the refs to {@link loadExtensionsIntoHost},
+ * which enforces the same `allowExtensions` trust gate. A single-rule file (one rule
+ * object, not a `rules:` array) cannot declare extensions and yields `extensions: []`.
+ */
+export async function loadRuleFile(filePath: string, options: RuleFileLoadOptions = {}): Promise<LoadedPreset> {
     const resolved = resolve(filePath);
-    return normalizeRuleFile(await readStructuredFile(resolved, options), resolved);
+    const raw = await readStructuredFile(resolved, options);
+    const rules = normalizeRuleFile(raw, resolved);
+    const parsed = ConstraintRuleFileSchema.safeParse(raw);
+    const extensions = parsed.success
+        ? collectExtensions(basename(resolved), dirname(resolved), parsed.data.extensions)
+        : [];
+    return { rules, extensions };
 }
 
 async function loadPresetEntry(
@@ -127,7 +141,7 @@ async function loadPresetEntry(
         const preset = PresetDefinitionSchema.safeParse(await readStructuredFile(presetPath, options));
         if (preset.success) {
             const rules: ConstraintRule[] = [];
-            const extensions = collectPresetExtensions(preset.data.name, dirname(presetPath), preset.data.extensions);
+            const extensions = collectExtensions(preset.data.name, dirname(presetPath), preset.data.extensions);
             for (const child of preset.data.extends) {
                 const loaded = await loadPresetEntry(merged, child, nextSeen, options);
                 rules.push(...loaded.rules);

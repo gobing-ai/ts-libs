@@ -52,7 +52,7 @@ describe('loadRuleFile', () => {
         );
 
         await expect(loadRuleFile(rulePath)).rejects.toThrow('failed JSON schema validation');
-        expect(await loadRuleFile(rulePath, { validateSchema: false })).toHaveLength(1);
+        expect((await loadRuleFile(rulePath, { validateSchema: false })).rules).toHaveLength(1);
     });
 });
 
