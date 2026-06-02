@@ -1,5 +1,6 @@
 import type { JobQueue } from '../job-queue/types';
 import { getLogger, type Logger } from '../logger';
+import { getEventbusEmitsTotal, getEventbusErrorsTotal } from '../telemetry/metrics';
 import type {
     AsyncEnqueuedDetail,
     BusLifecycleEvents,
@@ -143,6 +144,9 @@ export class EventBus<TEvents extends EventMap> {
 
         const durationMs = performance.now() - startMs;
         const detail = args.length === 1 ? args[0] : args.length > 1 ? args : undefined;
+
+        getEventbusEmitsTotal().add(1, { event: eventName });
+        if (errors > 0) getEventbusErrorsTotal().add(errors, { event: eventName });
 
         this.publishEmitDone({ event: eventName, syncCount, asyncCount, emitDurationMs: durationMs, errors, detail });
 
