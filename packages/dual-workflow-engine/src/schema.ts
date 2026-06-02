@@ -14,6 +14,7 @@ export const GuardDefSchema = z.object({
 
 /** Zod schema for state-machine workflow definitions. */
 export const StateMachineWorkflowDefSchema = z.object({
+    $schema: z.string().optional(),
     kind: z.literal('state-machine').optional(),
     name: z.string().min(1),
     initialState: z.string().min(1),
@@ -40,6 +41,7 @@ export const StateMachineWorkflowDefSchema = z.object({
 
 /** Zod schema for transition-flow workflow definitions. */
 export const TransitionFlowWorkflowDefSchema = z.object({
+    $schema: z.string().optional(),
     kind: z.literal('transition-flow'),
     name: z.string().min(1),
     initialNode: z.string().min(1),
