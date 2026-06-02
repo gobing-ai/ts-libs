@@ -4,9 +4,6 @@ export { APIClient, type APIClientConfig, APIError, type RequestOptions } from '
 // Event Bus
 export { EventBus, type EventMap, type SubscribeOptions } from './event-bus/index';
 
-// Events
-export type { AppEvents, AppInternalEvents } from './events/index';
-export { createSystemBus } from './events/index';
 export type {
     EnqueueOptions,
     Job,
@@ -40,17 +37,11 @@ export {
     addSpanEvent,
     extractSqlOperation,
     getActiveSpan,
-    getDbOperationDuration,
-    getDbOperationErrors,
-    getDbOperationTotal,
     getEventbusEmitsTotal,
     getEventbusErrorsTotal,
     getHttpClientRequestDuration,
     getHttpClientRequestErrors,
     getHttpClientRequestTotal,
-    getHttpServerRequestDuration,
-    getHttpServerRequestErrors,
-    getHttpServerRequestTotal,
     getQueueJobCompletedTotal,
     getQueueJobEnqueuedTotal,
     getQueueJobFailedTotal,
