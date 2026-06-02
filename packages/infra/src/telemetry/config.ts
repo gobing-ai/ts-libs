@@ -9,10 +9,6 @@ export interface TelemetryConfig {
     serviceName: string;
     /** Deployment environment (development, staging, production). */
     environment: string;
-    /** OTLP exporter endpoint (e.g. `http://localhost:4318/v1/traces`). */
-    exporterEndpoint?: string | undefined;
-    /** Export protocol — only `http` is supported in v1. */
-    exporterProtocol: 'http';
     /**
      * Debug-only DB statement capture.
      *
@@ -32,7 +28,6 @@ export interface TelemetryConfigPartial {
     enabled?: boolean | undefined;
     serviceName?: string | undefined;
     environment?: string | undefined;
-    exporterEndpoint?: string | undefined;
     dbStatementDebug?: boolean | undefined;
     /** Deployment environment fallback (from app.env). */
     appEnv?: string | undefined;
@@ -42,7 +37,6 @@ const DEFAULTS = {
     enabled: true as const,
     serviceName: 'ts-libs' as const,
     environment: 'development' as const,
-    exporterProtocol: 'http' as const,
 };
 
 /**
@@ -56,8 +50,6 @@ export function getTelemetryConfig(configPartial: TelemetryConfigPartial = {}): 
         enabled,
         serviceName,
         environment: configPartial.environment ?? configPartial.appEnv ?? DEFAULTS.environment,
-        exporterEndpoint: configPartial.exporterEndpoint,
-        exporterProtocol: DEFAULTS.exporterProtocol,
         dbStatementDebug: configPartial.dbStatementDebug ?? false,
     };
 }
