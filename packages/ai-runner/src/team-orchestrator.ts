@@ -87,14 +87,7 @@ export class TeamOrchestrator {
     async sendMessage(fromId: string | null, toId: string, body: string, inReplyTo?: string): Promise<string> {
         const msgId = await this.messageService.enqueue(fromId, toId, body, inReplyTo);
         const process = this.running.get(toId);
-        if (process !== undefined) {
-            const messages = await this.messageService.drain(toId);
-            for (const message of messages) {
-                const result = await process.send(MessageService.formatMessage(message));
-                if (result.ok) await this.messageService.deliver(message.id);
-                else await this.messageService.fail(message.id, 'live stdin injection failed');
-            }
-        }
+        if (process !== undefined) await this.flushInbox(process, 'live stdin injection failed');
         this.emit('message.sent', { id: msgId, fromId, toId });
         return msgId;
     }
@@ -136,12 +129,16 @@ export class TeamOrchestrator {
         return type;
     }
 
-    private async injectPendingMessages(process: TeamAgentProcess): Promise<void> {
+    private injectPendingMessages(process: TeamAgentProcess): Promise<void> {
+        return this.flushInbox(process, 'startup stdin injection failed');
+    }
+
+    private async flushInbox(process: TeamAgentProcess, failLabel: string): Promise<void> {
         const messages = await this.messageService.drain(process.agentId);
         for (const message of messages) {
             const result = await process.send(MessageService.formatMessage(message));
             if (result.ok) await this.messageService.deliver(message.id);
-            else await this.messageService.fail(message.id, 'startup stdin injection failed');
+            else await this.messageService.fail(message.id, failLabel);
         }
     }
 
