@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TsdocExportEvaluator } from '../../src/evaluators/tsdoc-export-evaluator';
 import type { ConstraintRule } from '../../src/types';
@@ -16,7 +17,11 @@ function makeRule(overrides: Partial<ConstraintRule> = {}): ConstraintRule {
 }
 
 async function tempProject(files: Record<string, string>): Promise<string> {
-    const dir = join(import.meta.dir, '.tmp', `tsdoc-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const dir = join(
+        tmpdir(),
+        'ts-libs-rule-engine-tsdoc-export',
+        `tsdoc-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    );
     for (const [rel, content] of Object.entries(files)) {
         const full = join(dir, rel);
         await mkdir(join(full, '..'), { recursive: true });
@@ -123,5 +128,27 @@ describe('TsdocExportEvaluator', () => {
         const result = await new TsdocExportEvaluator().evaluate(rule, { workdir: dir, rule });
         expect(result.findings).toHaveLength(1);
         expect(result.findings[0]?.message).toContain('missingFunc');
+    });
+
+    test('flags export default function and export async function', async () => {
+        const dir = await tempProject({
+            'src/edge.ts': ['export default function undocDefault() {}', 'export async function undocAsync() {}'].join(
+                '\n',
+            ),
+        });
+        const rule = makeRule({ include: ['**/*.ts'] });
+        const result = await new TsdocExportEvaluator().evaluate(rule, { workdir: dir, rule });
+        const names = result.findings.map((f) => f.message).join(' ');
+        expect(names).toContain('undocDefault');
+        expect(names).toContain('undocAsync');
+    });
+
+    test('does not flag a documented decorated class', async () => {
+        const dir = await tempProject({
+            'src/dec.ts': ['/** A documented service. */', '@Injectable()', 'export class Service {}'].join('\n'),
+        });
+        const rule = makeRule({ include: ['**/*.ts'] });
+        const result = await new TsdocExportEvaluator().evaluate(rule, { workdir: dir, rule });
+        expect(result.findings).toHaveLength(0);
     });
 });
