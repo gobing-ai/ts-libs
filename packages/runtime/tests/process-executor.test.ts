@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { NodeProcessExecutor } from '../src/process-executor';
+import { BunPipeProcessSpawner, BunSyncProcessExecutor, NodeProcessExecutor } from '../src/process-executor';
 
 describe('NodeProcessExecutor', () => {
     test('runs a command and captures stdout', async () => {
@@ -58,3 +58,42 @@ describe('NodeProcessExecutor', () => {
         expect(result.stdout).toMatch(/\/tmp$/);
     });
 });
+
+describe('BunSyncProcessExecutor', () => {
+    test('runs a command synchronously and captures output', () => {
+        const result = new BunSyncProcessExecutor().runSync({ command: 'echo', args: ['hello'] });
+        expect(result).toMatchObject({ exitCode: 0, stdout: 'hello', stderr: '' });
+        expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    test('throws on non-zero exit when rejectOnError is true', () => {
+        const executor = new BunSyncProcessExecutor();
+        expect(executor.runSync({ command: 'bash', args: ['-c', 'exit 9'] })).toMatchObject({ exitCode: 9 });
+        expect(() =>
+            executor.runSync({ command: 'bash', args: ['-c', 'echo boom >&2; exit 9'], rejectOnError: true }),
+        ).toThrow('boom');
+    });
+});
+
+describe('BunPipeProcessSpawner', () => {
+    test('starts a pipe process and writes stdin', async () => {
+        const process = new BunPipeProcessSpawner().spawn({
+            command: 'bun',
+            args: ['-e', "process.stdin.on('data', (chunk) => process.stdout.write(chunk));"],
+        });
+        const output = readFirstChunk(process.stdout);
+        process.writeStdin('hello\n');
+        process.endStdin();
+        expect(await output).toContain('hello');
+        expect(await process.exited).toBe(0);
+        expect(process.pid).toBeGreaterThan(0);
+    });
+});
+
+async function readFirstChunk(stream: ReadableStream<Uint8Array> | null): Promise<string> {
+    if (stream === null) throw new Error('Expected stdout stream');
+    const reader = stream.getReader();
+    const chunk = await reader.read();
+    reader.releaseLock();
+    return new TextDecoder().decode(chunk.value);
+}
