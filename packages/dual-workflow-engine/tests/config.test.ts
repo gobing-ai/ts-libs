@@ -90,6 +90,87 @@ transitions:
         expect(() => loadWorkflowDefFromText('bogus: true', 'my-file.yaml')).toThrow('my-file.yaml');
     });
 
+    test('preserves description on the workflow, states, and transitions', () => {
+        const yaml = `
+name: documented
+description: top-level purpose
+initialState: a
+terminalStates: [b]
+states:
+  - id: a
+    description: the start state
+  - id: b
+transitions:
+  - from: a
+    to: b
+    description: move when done
+`;
+        const def = loadWorkflowDefFromText(yaml) as StateMachineWorkflowDef;
+        expect(def.description).toBe('top-level purpose');
+        expect(def.states[0]?.description).toBe('the start state');
+        expect(def.transitions[0]?.description).toBe('move when done');
+    });
+
+    test('schema error names the offending field path, not a generic message', () => {
+        // initialState must be a non-empty string; an empty value should be pinpointed.
+        const invalid = 'name: x\ninitialState: ""\nstates: [{ id: a }]\ntransitions: []\n';
+        expect(() => loadWorkflowDefFromText(invalid)).toThrow(/initialState/);
+    });
+
+    test('W1: rejects duplicate state ids', () => {
+        const wf =
+            'name: w\ninitialState: a\nstates: [{id: a},{id: a},{id: b}]\nterminalStates: [b]\ntransitions: [{from: a, to: b}]\n';
+        expect(() => loadWorkflowDefFromText(wf)).toThrow(/declared more than once/);
+    });
+
+    test('W1: rejects an initial state that is also terminal', () => {
+        const wf = 'name: w\ninitialState: a\nstates: [{id: a}]\nterminalStates: [a]\ntransitions: []\n';
+        expect(() => loadWorkflowDefFromText(wf)).toThrow(/must not be a terminal state/);
+    });
+
+    test('W1: rejects an explicit terminal state that declares transitions', () => {
+        const wf =
+            'name: w\ninitialState: a\nstates: [{id: a},{id: b}]\nterminalStates: [b]\ntransitions: [{from: a, to: b},{from: b, to: a}]\n';
+        expect(() => loadWorkflowDefFromText(wf)).toThrow(/Terminal state "b" must not declare transitions/);
+    });
+
+    // `REF(x)` builds a literal `${x}` template placeholder without writing `${` in
+    // source (which would trip the noTemplateCurlyInString lint on these fixtures).
+    const REF = (expr: string) => `\${${expr}}`;
+
+    test('W1: rejects an unknown vars reference in action options', () => {
+        const message = `Implementing ${REF('vars.nope')}`;
+        const wf = `name: w\ninitialState: a\nstates: [{id: a, onEnter: [{kind: note, options: {message: "${message}"}}]},{id: b}]\nterminalStates: [b]\ntransitions: [{from: a, to: b}]\n`;
+        expect(() => loadWorkflowDefFromText(wf)).toThrow(/Unknown variable reference/);
+    });
+
+    test('W1: allows declared vars and reserved runtime namespaces (no placeholder)', () => {
+        const message = `${REF('vars.greeting')} ${REF('task')}`;
+        const wf = `name: w\ninitialState: a\nvars: {greeting: hi}\nstates: [{id: a, onEnter: [{kind: note, options: {message: "${message}"}}]},{id: b}]\nterminalStates: [b]\ntransitions: [{from: a, to: b}]\n`;
+        expect(loadWorkflowDefFromText(wf).name).toBe('w');
+    });
+
+    test('W2: rejects a reserved variable name', () => {
+        const wf = 'name: w\ninitialState: a\nvars: {task: x}\nstates: [{id: a}]\ntransitions: []\n';
+        expect(() => loadWorkflowDefFromText(wf)).toThrow(/reserved/);
+    });
+
+    test('W2: rejects an invalid variable identifier', () => {
+        const wf = 'name: w\ninitialState: a\nvars: {"1bad": x}\nstates: [{id: a}]\ntransitions: []\n';
+        expect(() => loadWorkflowDefFromText(wf)).toThrow(/valid identifier/);
+    });
+
+    test('R7: strict mode rejects an unknown top-level key (old field name)', () => {
+        // `initial` was the old field name; the new schema uses `initialState`.
+        const wf = 'name: w\ninitial: a\nstates: [{id: a}]\ntransitions: []\n';
+        expect(() => loadWorkflowDefFromText(wf)).toThrow();
+    });
+
+    test('accepts an optional top-level version tag', () => {
+        const wf = 'name: w\nversion: "2"\ninitialState: a\nstates: [{id: a}]\ntransitions: []\n';
+        expect(loadWorkflowDefFromText(wf).version).toBe('2');
+    });
+
     test('loadWorkflowDef honors $schema validation by default', async () => {
         const dir = await mkdtemp(join(tmpdir(), 'workflow-schema-'));
         const schemaPath = join(dir, 'workflow.schema.json');
@@ -109,9 +190,28 @@ transitions:
                 },
             }),
         );
+        // The referenced JSON Schema forbids the `extra` key (additionalProperties:false),
+        // so $schema validation must reject it; skipping $schema validation should not.
+        // (`extra` is also stripped by the engine's own strict Zod schema, so the file is
+        // authored without it and the JSON-Schema layer is what differentiates the two runs.)
+        await writeFile(
+            schemaPath,
+            JSON.stringify({
+                type: 'object',
+                additionalProperties: false,
+                required: ['name'],
+                properties: {
+                    $schema: { type: 'string' },
+                    name: { enum: ['expected-name'] },
+                    initialState: { type: 'string' },
+                    states: { type: 'array', items: { type: 'object' } },
+                    transitions: { type: 'array', items: { type: 'object' } },
+                },
+            }),
+        );
         await writeFile(
             workflowPath,
-            '$schema: ./workflow.schema.json\nname: invalid\ninitialState: start\nstates:\n  - id: start\ntransitions: []\nextra: nope\n',
+            '$schema: ./workflow.schema.json\nname: invalid\ninitialState: start\nstates:\n  - id: start\ntransitions: []\n',
         );
 
         await expect(loadWorkflowDef(workflowPath)).rejects.toThrow('failed JSON schema validation');
