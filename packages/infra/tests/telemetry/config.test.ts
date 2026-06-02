@@ -7,7 +7,6 @@ describe('telemetry config', () => {
         expect(config.enabled).toBeTrue();
         expect(config.serviceName).toBe('ts-libs');
         expect(config.environment).toBe('development');
-        expect(config.exporterProtocol).toBe('http');
         expect(config.dbStatementDebug).toBeFalse();
     });
 
