@@ -50,6 +50,26 @@ describe('ImportBoundaryEvaluator', () => {
         );
     });
 
+    test('throws actionable errors for malformed boundary declarations', async () => {
+        const evaluator = new ImportBoundaryEvaluator();
+        const missingScope = makeRule({ boundaries: [{ forbidden: ['@internal/db'] }] });
+        await expect(evaluator.evaluate(missingScope, makeContext('/tmp', missingScope))).rejects.toThrow(
+            'boundaries[0].scope',
+        );
+
+        const missingForbidden = makeRule({ boundaries: [{ scope: 'src/**/*.ts' }] });
+        await expect(evaluator.evaluate(missingForbidden, makeContext('/tmp', missingForbidden))).rejects.toThrow(
+            'boundaries[0].forbidden',
+        );
+
+        const badMode = makeRule({
+            boundaries: [{ scope: 'src/**/*.ts', forbidden: [{ pattern: 'legacy-api', mode: 'invalid' }] }],
+        });
+        await expect(evaluator.evaluate(badMode, makeContext('/tmp', badMode))).rejects.toThrow(
+            'boundaries[0].forbidden[0].mode',
+        );
+    });
+
     test('returns no findings for empty directory', async () => {
         await withTmpDir(async (dir) => {
             mkdirSync(join(dir, 'src'), { recursive: true });
