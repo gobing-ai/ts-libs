@@ -2,7 +2,7 @@ import type { Config } from './config';
 import { buildConfigFromObject } from './config';
 import type { FileSystem } from './fs';
 import { getFs } from './fs';
-import type { RuntimeCapabilities, RuntimeFactory, RuntimeName } from './types';
+import type { RuntimeCapabilities, RuntimeName } from './types';
 
 export type RuntimeScope = 'process' | 'server-request' | 'scheduled-event' | 'test';
 
@@ -17,7 +17,6 @@ export interface RuntimeContextOptions<TServices extends RuntimeServiceMap = Run
     runtimeName?: RuntimeName;
     capabilities?: RuntimeCapabilities;
     services?: Partial<TServices>;
-    factory?: RuntimeFactory;
 }
 
 export class RuntimeContext<TServices extends RuntimeServiceMap = RuntimeServiceMap> {
@@ -28,10 +27,9 @@ export class RuntimeContext<TServices extends RuntimeServiceMap = RuntimeService
 
     constructor(options: RuntimeContextOptions<TServices> = {}) {
         this.scope = options.scope ?? 'process';
-        this.runtimeName = options.runtimeName ?? options.factory?.runtimeName ?? 'node-bun';
+        this.runtimeName = options.runtimeName ?? 'node-bun';
         this.capabilities =
             options.capabilities ??
-            options.factory?.capabilities ??
             ({
                 hasFilesystem: true,
                 hasProcessExecution: true,
