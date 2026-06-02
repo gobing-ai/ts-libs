@@ -1,0 +1,60 @@
+import { describe, expect, test } from 'bun:test';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { deleteAgentSpec, loadAgentSpecs, saveAgentSpec, ValueError, validateAgentId } from '../src';
+
+describe('AgentSpec persistence', () => {
+    test('save/load/delete round-trips agent specs', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'agent-spec-'));
+        await saveAgentSpec(
+            {
+                id: 'coder',
+                name: 'Coder',
+                type: 'codex',
+                workspace: '/repo',
+                purpose: 'Implement changes',
+                tags: ['code', 'team'],
+                autoStart: true,
+                config: { model: 'gpt-5', systemPrompt: 'Be precise.', autonomy: { level: 'high' } },
+            },
+            dir,
+        );
+
+        const specs = loadAgentSpecs(dir);
+        expect(specs).toHaveLength(1);
+        expect(specs[0]).toMatchObject({
+            id: 'coder',
+            tags: ['code', 'team'],
+            config: { model: 'gpt-5', systemPrompt: 'Be precise.', autonomy: { level: 'high' } },
+            autoStart: true,
+        });
+
+        await deleteAgentSpec('coder', dir);
+        expect(loadAgentSpecs(dir)).toEqual([]);
+    });
+
+    test('validateAgentId rejects invalid ids', () => {
+        expect(validateAgentId('coder-1')).toBe('coder-1');
+        expect(() => validateAgentId('Coder')).toThrow(ValueError);
+        expect(() => validateAgentId('x')).toThrow(ValueError);
+    });
+
+    test('loadAgentSpecs rejects duplicate ids', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'agent-spec-dupe-'));
+        const source = [
+            'id: "coder"',
+            'name: "Coder"',
+            'type: "codex"',
+            'workspace: "/repo"',
+            'purpose: "Implement"',
+            'tags: ["code"]',
+            'config:',
+            '  model: "gpt-5"',
+            '',
+        ].join('\n');
+        writeFileSync(join(dir, 'a.yaml'), source);
+        writeFileSync(join(dir, 'b.yaml'), source);
+        expect(() => loadAgentSpecs(dir)).toThrow('Duplicate agent id "coder"');
+    });
+});
