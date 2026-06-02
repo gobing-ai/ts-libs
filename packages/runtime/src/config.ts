@@ -1,5 +1,5 @@
 import { deepMerge } from '@gobing-ai/ts-utils';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { type ZodIssue, z } from 'zod';
 
 export const configSchema = z.object({
@@ -29,6 +29,40 @@ export const configSchema = z.object({
 export type Config = z.output<typeof configSchema>;
 
 const ENV_INTERPOLATION_RE = /\$\{([A-Z_][A-Z0-9_]*)\}/g;
+
+/** Raised when a YAML text cannot be parsed as a plain object. */
+export class YamlParseError extends Error {
+    constructor(
+        message: string,
+        readonly innerError?: unknown,
+    ) {
+        super(message);
+        this.name = 'YamlParseError';
+    }
+}
+
+/** Parse YAML text into a plain object. Returns `{}` for null/undefined/empty input. */
+export function parseYamlObject(text: string): Record<string, unknown> {
+    let parsed: unknown;
+    try {
+        parsed = parseYaml(text);
+    } catch (error) {
+        throw new YamlParseError(
+            `YAML parsing failed: ${(error as Error).message}`,
+            error instanceof Error ? error : undefined,
+        );
+    }
+    if (parsed === null || parsed === undefined) return {};
+    if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new YamlParseError('YAML must parse to an object');
+    }
+    return parsed as Record<string, unknown>;
+}
+
+/** Serialize a plain object to a YAML string. */
+export function stringifyYamlObject(value: Record<string, unknown>): string {
+    return stringifyYaml(value);
+}
 
 export class ConfigLoadError extends Error {
     readonly issues: ZodIssue[];
@@ -90,12 +124,7 @@ export function buildConfigFromObject(
 
 export function parseConfigYaml(yamlText: string): Record<string, unknown> {
     try {
-        const parsed = parseYaml(yamlText);
-        if (parsed === null || parsed === undefined) return {};
-        if (!isPlainObject(parsed)) {
-            throw new ConfigLoadError('Config YAML must parse to an object');
-        }
-        return parsed;
+        return parseYamlObject(yamlText);
     } catch (error) {
         if (error instanceof ConfigLoadError) throw error;
         throw new ConfigLoadError(`Config YAML parsing failed: ${(error as Error).message}`);
