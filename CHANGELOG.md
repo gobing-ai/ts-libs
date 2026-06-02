@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [0.2.8] — 2026-06-01
+
+### Added
+
+- **`ts-runtime` — Structured config loader with JSON-schema validation:** New `loadStructuredConfig()` / `parseStructuredConfig()` read JSON or YAML and, when a file declares a top-level `$schema`, validate it against that schema before returning. Ships a dependency-free JSON Schema subset validator (`validateJsonSchema`) supporting `type`, `required`, `properties`, `additionalProperties`, `items`, `enum`, `const`, `oneOf`, `anyOf`, and `$ref`/`$defs`. Violations raise a `StructuredConfigSchemaError` carrying a structured `violations` list.
+- **`ts-runtime` — Bundled package-specifier schema refs:** `$schema` can reference a schema shipped inside an installed package — e.g. `"@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"` — resolved through `node_modules` with no network access. This is the recommended, default reference style.
+- **`ts-rule-engine` / `ts-dual-workflow-engine` — Bundled JSON schemas:** Each package now ships editor- and loader-usable JSON schemas under `schemas/` (`rule-file`, `preset`, `state-machine-workflow`, `transition-flow-workflow`) and exposes an optional `$schema` field on rule, preset, and workflow files.
+- **`ts-runtime` — Expanded `FileSystem` surface:** `NodeFileSystem` / `CloudflareFileSystem` gain `stat`, `realpath`, `copy`, `rename`, and recursive `mkdir`, with `CloudflareFileSystem` providing a consistent unsupported-filesystem facade.
+- **`ts-infra` — Database-backed job queue:** New `DBJobQueue` and `DBQueueConsumer` provide a durable, DB-persisted job queue alongside the existing in-memory queue.
+
+### Changed
+
+- **`ts-rule-engine` / `ts-dual-workflow-engine`:** Rule, preset, and workflow file loading now routes through `ts-runtime`'s structured config loader, honoring top-level `$schema` refs by default (opt out with `validateSchema: false`).
+
+### Security
+
+- **`ts-runtime` — Remote schema fetching off by default:** `http(s)://` `$schema` refs are refused unless the caller opts in via `{ allowRemote: true }` or supplies a `fetch` implementation, closing an SSRF/DoS surface for third-party-authored config files. The built-in remote fetch is time-bounded (5s). Bundled package-specifier refs remain fully local.
+
 ## [0.2.7] — 2026-06-02
 
 ### Added
