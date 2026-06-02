@@ -22,6 +22,15 @@ describe('loadRuleFile', () => {
         await expect(loadRuleFile(`/tmp/nonexistent-file-${Date.now()}.yaml`)).rejects.toThrow();
     });
 
+    test('invalid file error names the file and the offending field path', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'rule-bad-'));
+        const file = join(dir, 'broken.yaml');
+        // A rule missing the required `evaluator` key — the error should point at it.
+        await writeFile(file, 'rules:\n  - id: r\n    description: d\n');
+        await expect(loadRuleFile(file)).rejects.toThrow('broken.yaml');
+        await expect(loadRuleFile(file)).rejects.toThrow(/evaluator/);
+    });
+
     test('honors $schema validation by default', async () => {
         const dir = await mkdtemp(join(tmpdir(), 'rule-schema-'));
         await writeFile(
