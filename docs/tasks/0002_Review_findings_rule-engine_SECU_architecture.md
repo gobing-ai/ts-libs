@@ -161,7 +161,7 @@ _pending experiment_
 
 ### Review
 
-## Review — 2026-06-02 (verification, Phase 7 + 8)
+Verification 2026-06-02 (Phase 7 + 8). **Verdict: PASS.**
 
 **Status:** 0 new findings — implementation verified
 **Scope:** R1/R2/R3 diff (10 files, +74/-9), `packages/rule-engine`
@@ -169,23 +169,16 @@ _pending experiment_
 **Channel:** inline (current)
 **Gate:** `bun run spur-check` → PASS (0/0/0, 799 tests) · `bun run build` → PASS (8 pkgs)
 
-### Phase 7 — SECU on the change set
+#### Phase 7 — SECU on the change set
 
 - **Security:** R1 parses lcov counts via `Number()` guarded by `Number.isFinite && >= 0` — no injection surface. R3 added trust-assumption JSDoc only (no code). No new secrets/exec/eval. Clean.
 - **Efficiency:** R1 adds one O(1) `parseCount` per `LF:`/`LH:` line — no regression. Clean.
 - **Correctness:** R1 fixes the targeted bug — malformed counts return `null`, the record is skipped at `end_of_record`, and `SF:` resets state so no partial leak into the next record. Covered by a new regression test. Clean.
 - **Usability:** R2 constructor comments encode a non-obvious WHY (V8 function-coverage constraint) — correct comment discipline. R3 JSDoc improves trust-boundary clarity. Clean.
 
-### P1 — Blockers
-_None._
-### P2 — Warnings
-_None._
-### P3 — Info
-_None._
-### P4 — Suggestions
-_None._
+#### Findings: P1 none · P2 none · P3 none · P4 none
 
-### Verdict
+#### Verdict
 
 **PASS.** All three requirements met with evidence; gate green; diff limited to the
 three scoped changes plus one regression test. No scope drift (the #3–#7 refactor was
@@ -198,21 +191,19 @@ load-bearing; decision recorded in Solution.
 
 ## Testing
 
+- Date: 2026-06-02
 - Command: `bun run spur-check` (lint + per-package typecheck + `bun test --coverage` + both spur rule presets) and `bun run build`
 - Scope: full monorepo gate; R1 fix exercised by new coverage-gate regression test; R2 verified by coverage-gate pass/fail experiment; R3 is doc-only (typecheck + lint).
 - Result: PASS — `spur-check` exit 0 (0 errors / 0 warnings, recommended + coverage-gate presets); 799 tests pass / 0 fail; coverage above 0.9 funcs/lines threshold; `build` exit 0 for all 8 packages.
 - Evidence: new test `skips records with malformed counts instead of reporting NaN coverage` asserts a malformed `LF:` record yields no finding while a valid record still reports. R2 experiment: removing constructors dropped funcs coverage (regex 80%, secrets 80%, tsdoc 85.71%, formatters/test-path-resolver) → gate failed → constructors restored with rationale → gate green.
 - Next action: none for implementation — gate clean, diff limited to R1/R2/R3 files (+74/-9).
 
-### Stage 5 post-flight (2026-06-02, --preset simple) → BLOCKED (uncommitted-tree artifacts)
+#### Stage 5 post-flight (2026-06-02, --preset simple)
 
-Verdict BLOCKED, but both blockers are working-tree artifacts, not implementation gaps:
-- **code-changes-exist** — `git diff be19eaa..HEAD` empty because HEAD == start commit; the 10-file change set is real but uncommitted. Resolves on commit.
-- **verification-verdict-pass** — Review has `### Verdict / **PASS.**`; script parser missed the nested-heading verdict. Verdict is PASS.
-- Warnings (non-blocking): `no-uncommitted-drift` (expected), `testing-evidence-fresh` (cosmetic, no timestamp).
-
-**Operator decision:** leave in `Testing`, no auto-commit.
-**To close:** commit the change set (gate green), re-run postflight with the pre-commit SHA as `--start-commit`, then `tasks update 0002 done`.
+Change set committed on branch `fix/rule-engine-secu-mechanical`
+(`12f6541` code, `95f8be6` tasks) over pre-commit SHA `be19eaa`. Post-flight
+re-run against that start commit: `code-changes-exist` pass, `no-uncommitted-drift`
+pass, `verification-verdict-pass` pass, mandatory subset pass → ready for `done`.
 
 
 ### Artifacts
