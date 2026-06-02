@@ -13,6 +13,11 @@ export interface ProcessOptions {
     command: string;
     args?: string[];
     cwd?: string;
+    /**
+     * Environment forwarded verbatim to the child process. Caller-controlled — when launching an
+     * untrusted command, pass an explicit allowlist rather than the parent's full environment, so
+     * inherited secrets are not leaked into the subprocess.
+     */
     env?: Record<string, string>;
     timeout?: number;
     /** Maximum output buffer size in bytes (maps to execa `maxBuffer`). */
@@ -44,6 +49,7 @@ export interface PipeProcessOptions {
     command: string;
     args?: string[];
     cwd?: string;
+    /** Forwarded verbatim to the child — pass an allowlist for untrusted commands (see {@link ProcessOptions.env}). */
     env?: Record<string, string>;
 }
 
