@@ -11,10 +11,12 @@ describe('@gobing-ai/ts-db barrel', () => {
     test('exports DAO symbols', () => {
         expect(db.BaseDao).toBeDefined();
         expect(db.EntityDao).toBeDefined();
+        expect(db.InboxMessageDao).toBeDefined();
         expect(db.QueueJobDao).toBeDefined();
     });
 
     test('exports schema symbols', () => {
+        expect(db.inboxMessages).toBeDefined();
         expect(db.queueJobs).toBeDefined();
         expect(db.standardColumns).toBeDefined();
         expect(db.standardColumnsWithSoftDelete).toBeDefined();
