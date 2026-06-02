@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { BunSqliteAdapter } from '../src/adapters/bun-sqlite';
 import { embeddedMigrations } from '../src/embedded-migrations';
-import { applyMigrations, findProjectRoot } from '../src/migrate';
+import { applyMigrations, type MigrationLogger } from '../src/migrate';
 
 // Silence migration console output during tests
 const origInfo = console.info;
@@ -126,11 +126,68 @@ describe('applyMigrations', () => {
             tempAdapter.close();
         }
     });
-});
 
-describe('findProjectRoot', () => {
-    test('returns a string', () => {
-        const root = findProjectRoot('.');
-        expect(typeof root).toBe('string');
+    test('routes progress through an injected logger, not console', async () => {
+        // Why: ts-db can't import ts-infra's logger (package boundary), so consumers
+        // must be able to capture migration output via DI.
+        const tempAdapter = new BunSqliteAdapter({ databaseUrl: ':memory:' });
+        const lines: string[] = [];
+        const logger: MigrationLogger = {
+            info: (m) => lines.push(`info:${m}`),
+            warn: (m) => lines.push(`warn:${m}`),
+            error: (m) => lines.push(`error:${m}`),
+        };
+        try {
+            await applyMigrations(tempAdapter, { migrationsFolder: '/nonexistent/path', logger });
+            expect(lines.some((l) => l.startsWith('info:'))).toBe(true);
+        } finally {
+            tempAdapter.close();
+        }
+    });
+
+    test('an injected fs.exists=false short-circuits to embedded without attempting file-based', async () => {
+        // Why: fs.exists returns a Promise; a bare (un-awaited) check is always truthy
+        // and silently disables the gate. When fs reports the folder absent, the
+        // file-based migrator must never be invoked.
+        const tempAdapter = new BunSqliteAdapter({ databaseUrl: ':memory:' });
+        let existsCalled = false;
+        const fs = {
+            exists: async (_p: string) => {
+                existsCalled = true;
+                return false;
+            },
+        };
+        try {
+            // migrationsFolder points at a real dir; only fs.exists=false should send us to embedded.
+            await applyMigrations(tempAdapter, { migrationsFolder: process.cwd(), fs: fs as never });
+            expect(existsCalled).toBe(true);
+            // Embedded ran: queue_jobs exists.
+            const rows = await tempAdapter.queryAll<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='queue_jobs'",
+            );
+            expect(rows).toHaveLength(1);
+        } finally {
+            tempAdapter.close();
+        }
+    });
+
+    test('an injected fs.exists=true attempts the file-based path', async () => {
+        // Why: when fs confirms the folder, the file-based migrator is attempted
+        // (here it falls back to embedded because the folder has no journal, but the
+        // exists gate must have been consulted and returned true).
+        const tempAdapter = new BunSqliteAdapter({ databaseUrl: ':memory:' });
+        let existsResult: boolean | undefined;
+        const fs = {
+            exists: async (_p: string) => {
+                existsResult = true;
+                return true;
+            },
+        };
+        try {
+            await applyMigrations(tempAdapter, { migrationsFolder: '/tmp/ts-db-test-nonexistent', fs: fs as never });
+            expect(existsResult).toBe(true);
+        } finally {
+            tempAdapter.close();
+        }
     });
 });
