@@ -100,3 +100,4 @@ playwright-report/
 .agents/
 .pi-lens/
 vendors/
+.wolf/
