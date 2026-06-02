@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { collectPresetExtensions, loadExtensionsIntoHost } from '../../src/config/extensions';
-import { loadPreset, loadPresetRules } from '../../src/config/loader';
+import { collectExtensions, loadExtensionsIntoHost } from '../../src/config/extensions';
+import { loadPreset, loadPresetRules, loadRuleFile } from '../../src/config/loader';
 import { RuleEngineHost } from '../../src/host/rule-engine-host';
 
 export const extension = {
@@ -21,9 +21,9 @@ async function tempDir(): Promise<string> {
     return dir;
 }
 
-describe('collectPresetExtensions', () => {
+describe('collectExtensions', () => {
     test('resolves module paths relative to the preset directory, grouped by kind', () => {
-        const refs = collectPresetExtensions('p', '/presets', {
+        const refs = collectExtensions('p', '/presets', {
             evaluators: ['./eval.ts'],
             resolvers: ['res.ts'],
             formatters: ['fmt.ts'],
@@ -34,7 +34,7 @@ describe('collectPresetExtensions', () => {
     });
 
     test('returns no refs when extensions is undefined', () => {
-        expect(collectPresetExtensions('p', '/presets', undefined)).toEqual([]);
+        expect(collectExtensions('p', '/presets', undefined)).toEqual([]);
     });
 });
 
@@ -44,7 +44,7 @@ describe('loadExtensionsIntoHost', () => {
     });
 
     test('throws when extensions are present but not allowed', async () => {
-        const refs = collectPresetExtensions('p', '/presets', { evaluators: ['./e.ts'] });
+        const refs = collectExtensions('p', '/presets', { evaluators: ['./e.ts'] });
         await expect(loadExtensionsIntoHost(new RuleEngineHost(), refs)).rejects.toThrow('extensions are disabled');
     });
 
@@ -180,5 +180,107 @@ describe('loadPreset extensions', () => {
         const rules = await loadPresetRules('recommended', { roots: [root] });
 
         expect(rules.map((rule) => rule.id)).toEqual(['q']);
+    });
+});
+
+describe('loadRuleFile extensions', () => {
+    test('collects extension refs declared by a rule file, resolved to absolute paths', async () => {
+        const dir = await tempDir();
+        const file = join(dir, 'rules.yaml');
+        await writeFile(
+            file,
+            [
+                'extensions:',
+                '  evaluators:',
+                '    - ./custom-evaluator.ts',
+                'rules:',
+                '  - id: r',
+                '    description: r',
+                '    evaluator: { type: path, config: { paths: ["README.md"] } }',
+            ].join('\n'),
+        );
+
+        const loaded = await loadRuleFile(file);
+
+        // A rule file now behaves like a preset: rules + extensions, identical shape.
+        expect(loaded.rules.map((rule) => rule.id)).toEqual(['r']);
+        expect(loaded.extensions.map((ref) => ref.kind)).toEqual(['evaluators']);
+        expect(loaded.extensions[0]?.absPath).toBe(join(dir, 'custom-evaluator.ts'));
+    });
+
+    test('rule-file extensions flow through the same allowExtensions trust gate', async () => {
+        const dir = await tempDir();
+        const file = join(dir, 'rules.yaml');
+        await writeFile(
+            file,
+            [
+                'extensions:',
+                '  resolvers:',
+                '    - ./res.ts',
+                'rules:',
+                '  - id: r',
+                '    description: r',
+                '    evaluator: { type: path, config: { paths: ["README.md"] } }',
+            ].join('\n'),
+        );
+
+        const { extensions } = await loadRuleFile(file);
+        // allowExtensions defaults to false: a rule file must not be able to load code
+        // any more freely than a preset can.
+        await expect(loadExtensionsIntoHost(new RuleEngineHost(), extensions)).rejects.toThrow(
+            'extensions are disabled',
+        );
+    });
+
+    test('rejects a rule-file extension path that traverses out of the directory', async () => {
+        const dir = await tempDir();
+        const file = join(dir, 'rules.yaml');
+        await writeFile(
+            file,
+            [
+                'extensions:',
+                '  evaluators:',
+                '    - ../escape.ts',
+                'rules:',
+                '  - id: r',
+                '    description: r',
+                '    evaluator: { type: path, config: { paths: ["README.md"] } }',
+            ].join('\n'),
+        );
+
+        await expect(loadRuleFile(file)).rejects.toThrow('".." traversal');
+    });
+
+    test('rejects an unknown key inside a rule-file extensions block (strict)', async () => {
+        const dir = await tempDir();
+        const file = join(dir, 'rules.yaml');
+        await writeFile(
+            file,
+            [
+                'extensions:',
+                '  plugins:', // not a valid extension kind
+                '    - ./x.ts',
+                'rules:',
+                '  - id: r',
+                '    description: r',
+                '    evaluator: { type: path, config: { paths: ["README.md"] } }',
+            ].join('\n'),
+        );
+
+        await expect(loadRuleFile(file)).rejects.toThrow();
+    });
+
+    test('a single-rule file (no rules: array) declares no extensions', async () => {
+        const dir = await tempDir();
+        const file = join(dir, 'rule.yaml');
+        await writeFile(
+            file,
+            ['id: solo', 'description: solo', 'evaluator: { type: path, config: { paths: ["README.md"] } }'].join('\n'),
+        );
+
+        const loaded = await loadRuleFile(file);
+
+        expect(loaded.rules.map((rule) => rule.id)).toEqual(['solo']);
+        expect(loaded.extensions).toEqual([]);
     });
 });

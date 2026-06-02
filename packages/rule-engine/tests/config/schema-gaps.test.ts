@@ -33,7 +33,7 @@ describe('R1: severity inheritance', () => {
                 '    evaluator: { type: path, config: { paths: ["x"] } }',
             ].join('\n'),
         );
-        const rules = await loadRuleFile(file);
+        const { rules } = await loadRuleFile(file);
         expect(rules.find((r) => r.id === 'inherits')?.severity).toBe('warning');
         expect(rules.find((r) => r.id === 'explicit')?.severity).toBe('error');
     });
@@ -45,7 +45,7 @@ describe('R1: severity inheritance', () => {
             file,
             'rules:\n  - id: r\n    description: d\n    evaluator: { type: path, config: { paths: ["x"] } }\n',
         );
-        expect((await loadRuleFile(file))[0]?.severity).toBe('error');
+        expect((await loadRuleFile(file)).rules[0]?.severity).toBe('error');
     });
 });
 

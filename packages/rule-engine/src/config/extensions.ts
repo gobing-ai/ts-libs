@@ -36,21 +36,22 @@ const HOST_REGISTRY_BY_KIND: Partial<Record<ExtensionKind, 'resolvers' | 'evalua
 };
 
 /**
- * Collect extension refs declared by a preset's `extensions` block.
+ * Collect extension refs declared by a preset's or rule file's `extensions` block.
  *
- * Paths are resolved relative to the preset file's directory. Use the returned
- * refs with {@link loadExtensionsIntoHost}.
+ * Paths are resolved relative to the declaring file's directory. Use the returned
+ * refs with {@link loadExtensionsIntoHost}. Rule files and presets are treated
+ * identically — both flow through the same trust gate at load time.
  */
-export function collectPresetExtensions(
-    presetName: string,
-    presetDir: string,
+export function collectExtensions(
+    sourceName: string,
+    sourceDir: string,
     extensions: Partial<Record<ExtensionKind, string[] | undefined>> | undefined,
 ): ExtensionRef[] {
     if (extensions === undefined) return [];
     const refs: ExtensionRef[] = [];
     for (const kind of ['resolvers', 'evaluators', 'fixers', 'formatters'] as ExtensionKind[]) {
         for (const path of extensions[kind] ?? []) {
-            refs.push({ kind, presetName, absPath: resolve(presetDir, path) });
+            refs.push({ kind, presetName: sourceName, absPath: resolve(sourceDir, path) });
         }
     }
     return refs;

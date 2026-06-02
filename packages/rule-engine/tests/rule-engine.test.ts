@@ -370,7 +370,7 @@ describe('loadPresetRules', () => {
                 evaluator: { type: 'path', config: { paths: ['README.md'] } },
             }),
         );
-        expect((await loadRuleFile(rulePath))[0]?.id).toBe('direct');
+        expect((await loadRuleFile(rulePath)).rules[0]?.id).toBe('direct');
         const invalidPath = join(dir, 'invalid.yaml');
         await writeFile(invalidPath, 'not: a-rule');
         await expect(loadRuleFile(invalidPath)).rejects.toThrow('Invalid rule file');
