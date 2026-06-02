@@ -1,6 +1,4 @@
 import type { Config } from './config';
-import type { RuntimeContext } from './context';
-import type { FileSystem } from './fs';
 
 export type RuntimeName = 'node-bun' | 'cloudflare-workers' | 'test';
 
@@ -13,14 +11,6 @@ export interface RuntimeCapabilities {
 export interface LoadConfigOptions {
     overrides?: Partial<Config>;
     envBindings?: Record<string, unknown>;
-}
-
-export interface RuntimeFactory {
-    readonly runtimeName: RuntimeName;
-    readonly capabilities: RuntimeCapabilities;
-    createFileSystem(): FileSystem;
-    loadConfig(options?: LoadConfigOptions): Promise<Config>;
-    createContext?(options?: { scope?: string }): RuntimeContext;
 }
 
 export interface SpanContext {
