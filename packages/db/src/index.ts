@@ -15,7 +15,7 @@ export {
     type SoftDeletableTable,
 } from './entity-dao';
 export { type InboxMessage, InboxMessageDao } from './inbox-message-dao';
-export { applyMigrations, type MigrationOptions } from './migrate';
+export { applyMigrations, type MigrationLogger, type MigrationOptions } from './migrate';
 export {
     type ColRef,
     type ComparisonOp,
