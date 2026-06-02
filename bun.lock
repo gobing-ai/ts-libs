@@ -15,6 +15,7 @@
       "name": "@gobing-ai/ts-ai-runner",
       "version": "0.2.8",
       "dependencies": {
+        "@gobing-ai/ts-db": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
       },
       "devDependencies": {
@@ -92,6 +93,7 @@
       "version": "0.2.8",
       "dependencies": {
         "@gobing-ai/ts-ai-runner": "workspace:*",
+        "@gobing-ai/ts-db": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
         "yaml": "^2.7.0",
         "zod": "^4.1.0",
