@@ -25,6 +25,21 @@ describe('echo helpers', () => {
     });
 });
 
+describe('process-less runtime (e.g. Workers)', () => {
+    test('throws a guiding error when no target and no process stream is available', () => {
+        // Simulate a runtime where `process.stdout` is absent: the lazy resolver must fail with a
+        // clear message, not a raw `undefined.write` — and never at module load.
+        const proc = (globalThis as { process?: { stdout?: unknown } }).process;
+        const original = proc?.stdout;
+        if (proc) proc.stdout = undefined;
+        try {
+            expect(() => echo('x')).toThrow('No stdout target available');
+        } finally {
+            if (proc) proc.stdout = original;
+        }
+    });
+});
+
 describe('createBufferTarget', () => {
     test('captures chunks, concatenates text, and clears in place', () => {
         const buffer = createBufferTarget();
