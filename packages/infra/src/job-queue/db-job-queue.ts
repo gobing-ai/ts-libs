@@ -1,4 +1,10 @@
 import type { QueueJobDao, QueueJobRecord, QueueStats } from '@gobing-ai/ts-db';
+import {
+    getQueueJobCompletedTotal,
+    getQueueJobEnqueuedTotal,
+    getQueueJobFailedTotal,
+    getQueueJobProcessingDuration,
+} from '../telemetry/metrics';
 import type { EnqueueOptions, Job, JobHandler, JobQueue, QueueConsumer, QueueConsumerConfig } from './types';
 
 /** DB-backed job queue implementation over `@gobing-ai/ts-db`'s `QueueJobDao`. */
@@ -6,11 +12,15 @@ export class DBJobQueue<T = unknown> implements JobQueue<T> {
     constructor(readonly dao: QueueJobDao) {}
 
     async enqueue(type: string, payload: T, options?: EnqueueOptions): Promise<string> {
-        return this.dao.enqueue(type, payload, options);
+        const id = await this.dao.enqueue(type, payload, options);
+        getQueueJobEnqueuedTotal().add(1, { type });
+        return id;
     }
 
     async enqueueBatch(jobs: Array<{ type: string; payload: T } & EnqueueOptions>): Promise<string[]> {
-        return this.dao.enqueueBatch(jobs);
+        const ids = await this.dao.enqueueBatch(jobs);
+        getQueueJobEnqueuedTotal().add(jobs.length);
+        return ids;
     }
 
     async stats(): Promise<QueueStats> {
@@ -121,10 +131,14 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
             return;
         }
 
+        const startMs = performance.now();
         try {
             await handler(job);
             await this.dao.markCompleted(job.id);
+            getQueueJobCompletedTotal().add(1, { type: job.type });
+            getQueueJobProcessingDuration().record(performance.now() - startMs, { type: job.type });
         } catch (error) {
+            getQueueJobProcessingDuration().record(performance.now() - startMs, { type: job.type });
             await this.failOrRetry(job, error);
         }
     }
@@ -134,6 +148,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         const message = error instanceof Error ? error.message : String(error);
         if (attempts >= job.maxRetries) {
             await this.dao.markFailed(job.id, attempts, message);
+            getQueueJobFailedTotal().add(1, { type: job.type });
             return;
         }
 
