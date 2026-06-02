@@ -69,16 +69,7 @@ export async function loadPreset(name: string, options: RuleLoaderOptions): Prom
         rules.push(...loaded.rules);
         extensions.push(...loaded.extensions);
     }
-    const disabled = new Set(preset.disable ?? []);
-    const deduped = dedupeById(rules).filter((rule) => !disabled.has(rule.id));
-    for (const rule of deduped) {
-        const override = preset.overrides?.[rule.id];
-        if (override?.fix !== undefined) {
-            assertFixModeNotPromoted(name, rule, override.fix.mode);
-            rule.fix = { ...(rule.fix ?? { mode: 'none' }), ...override.fix };
-        }
-    }
-    return { rules: deduped, extensions };
+    return { rules: applyPresetControls(preset.name, rules, preset.disable, preset.overrides), extensions };
 }
 
 /** Collapse rules sharing an id to a single entry; later definitions win (last-wins merge). */
@@ -86,6 +77,25 @@ function dedupeById(rules: readonly ConstraintRule[]): ConstraintRule[] {
     const byId = new Map<string, ConstraintRule>();
     for (const rule of rules) byId.set(rule.id, rule);
     return [...byId.values()];
+}
+
+/** Apply a preset's local disable and override controls after composing its children. */
+function applyPresetControls(
+    presetName: string,
+    rules: readonly ConstraintRule[],
+    disabledIds: readonly string[] | undefined,
+    overrides: PresetDefinition['overrides'],
+): ConstraintRule[] {
+    const disabled = new Set(disabledIds ?? []);
+    const controlled = dedupeById(rules).filter((rule) => !disabled.has(rule.id));
+    for (const rule of controlled) {
+        const override = overrides?.[rule.id];
+        if (override?.fix !== undefined) {
+            assertFixModeNotPromoted(presetName, rule, override.fix.mode);
+            rule.fix = { ...(rule.fix ?? { mode: 'none' }), ...override.fix };
+        }
+    }
+    return controlled;
 }
 
 /** Fix-mode authority ordering; an override may lower but never raise a rule's mode. */
@@ -147,7 +157,10 @@ async function loadPresetEntry(
                 rules.push(...loaded.rules);
                 extensions.push(...loaded.extensions);
             }
-            return { rules: rules.filter((rule) => !(preset.data.disable ?? []).includes(rule.id)), extensions };
+            return {
+                rules: applyPresetControls(preset.data.name, rules, preset.data.disable, preset.data.overrides),
+                extensions,
+            };
         }
     }
 
