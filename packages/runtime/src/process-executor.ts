@@ -36,6 +36,31 @@ export interface ProcessExecutor {
     run(options: ProcessOptions): Promise<ProcessResult>;
 }
 
+export interface SyncProcessExecutor {
+    runSync(options: Omit<ProcessOptions, 'timeout'>): ProcessResult;
+}
+
+export interface PipeProcessOptions {
+    command: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+}
+
+export interface PipeProcess {
+    readonly pid: number | null;
+    readonly stdout: ReadableStream<Uint8Array> | null;
+    readonly stderr: ReadableStream<Uint8Array> | null;
+    readonly exited: Promise<number | null>;
+    writeStdin(input: string | Uint8Array): void;
+    endStdin(): void;
+    kill(signal?: ProcessSignal): void;
+}
+
+export interface PipeProcessSpawner {
+    spawn(options: PipeProcessOptions): PipeProcess;
+}
+
 export class NodeProcessExecutor implements ProcessExecutor {
     constructor(private readonly config: ProcessExecutorConfig = {}) {}
 
@@ -84,6 +109,95 @@ export class NodeProcessExecutor implements ProcessExecutor {
     }
 }
 
+export class BunSyncProcessExecutor implements SyncProcessExecutor {
+    runSync(options: Omit<ProcessOptions, 'timeout'>): ProcessResult {
+        const args = options.args ?? [];
+        const startedAt = Date.now();
+        const result = Bun.spawnSync({
+            cmd: [options.command, ...args],
+            stdout: 'pipe',
+            stderr: 'pipe',
+            stdin: 'ignore',
+            ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+            ...(options.env !== undefined ? { env: options.env } : {}),
+        });
+        if (options.rejectOnError === true && result.exitCode !== 0) {
+            throw new Error(
+                `${options.command} ${args.join(' ')} failed with exit code ${result.exitCode}: ${stripFinalNewline(
+                    asString(result.stderr),
+                )}`,
+            );
+        }
+        return {
+            command: options.command,
+            args,
+            exitCode: result.exitCode,
+            stdout: stripFinalNewline(asString(result.stdout)),
+            stderr: stripFinalNewline(asString(result.stderr)),
+            durationMs: Date.now() - startedAt,
+        };
+    }
+}
+
+export class BunPipeProcessSpawner implements PipeProcessSpawner {
+    spawn(options: PipeProcessOptions): PipeProcess {
+        const subprocess = Bun.spawn({
+            cmd: [options.command, ...(options.args ?? [])],
+            stdin: 'pipe',
+            stdout: 'pipe',
+            stderr: 'pipe',
+            ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+            ...(options.env !== undefined ? { env: options.env } : {}),
+        });
+        return new BunPipeProcess(subprocess);
+    }
+}
+
+type BunSubprocess = ReturnType<typeof Bun.spawn>;
+type ProcessSignal = Parameters<BunSubprocess['kill']>[0];
+type StdinSink = {
+    write: (data: string | Uint8Array) => unknown;
+    end?: () => unknown;
+    flush?: () => unknown;
+};
+
+class BunPipeProcess implements PipeProcess {
+    private readonly writer: StdinSink;
+
+    constructor(private readonly subprocess: BunSubprocess) {
+        this.writer = subprocess.stdin as StdinSink;
+    }
+
+    get pid(): number | null {
+        return this.subprocess.pid ?? null;
+    }
+
+    get stdout(): ReadableStream<Uint8Array> | null {
+        return isReadableStream(this.subprocess.stdout) ? this.subprocess.stdout : null;
+    }
+
+    get stderr(): ReadableStream<Uint8Array> | null {
+        return isReadableStream(this.subprocess.stderr) ? this.subprocess.stderr : null;
+    }
+
+    get exited(): Promise<number | null> {
+        return this.subprocess.exited;
+    }
+
+    writeStdin(input: string | Uint8Array): void {
+        this.writer.write(input);
+        this.writer.flush?.();
+    }
+
+    endStdin(): void {
+        this.writer.end?.();
+    }
+
+    kill(signal?: ProcessSignal): void {
+        this.subprocess.kill(signal);
+    }
+}
+
 function buildExecaOptions(opts: {
     cwd: string | undefined;
     env: Record<string, string> | undefined;
@@ -115,4 +229,12 @@ function asString(value: string | string[] | unknown[] | Uint8Array | undefined)
     if (value instanceof Uint8Array) return new TextDecoder().decode(value);
     if (Array.isArray(value)) return value.map(String).join('');
     return '';
+}
+
+function stripFinalNewline(value: string): string {
+    return value.endsWith('\r\n') ? value.slice(0, -2) : value.endsWith('\n') ? value.slice(0, -1) : value;
+}
+
+function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
+    return value instanceof ReadableStream;
 }
