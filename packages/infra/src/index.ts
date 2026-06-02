@@ -7,8 +7,6 @@ export { EventBus, type EventMap, type SubscribeOptions } from './event-bus/inde
 // Events
 export type { AppEvents, AppInternalEvents } from './events/index';
 export { createSystemBus } from './events/index';
-
-// Job Queue
 export type {
     EnqueueOptions,
     Job,
@@ -18,6 +16,8 @@ export type {
     QueueConsumerConfig,
     QueueStats,
 } from './job-queue/index';
+// Job Queue
+export { DBJobQueue, DBQueueConsumer } from './job-queue/index';
 
 // Logger
 export { getLogger, initializeLogger, type Logger, type LogLevel } from './logger';
