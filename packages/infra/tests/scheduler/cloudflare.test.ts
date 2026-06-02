@@ -30,4 +30,41 @@ describe('CloudflareSchedulerAdapter', () => {
         await s.stop();
         // Should not throw
     });
+
+    test('a failing action rejects the promise handed to waitUntil', async () => {
+        const s = new CloudflareSchedulerAdapter();
+        s.register('* * * * *', async () => {
+            throw new Error('action boom');
+        });
+
+        let scheduled: Promise<unknown> | undefined;
+        s.handleScheduledEvent(
+            { cron: '* * * * *', scheduledTime: Date.now(), waitUntil: (p: Promise<unknown>) => void p },
+            {
+                waitUntil: (p: Promise<unknown>) => {
+                    scheduled = p;
+                },
+            },
+        );
+
+        // The Worker awaits the waitUntil promise; the failure must surface so
+        // the runtime (and the scheduler-failed metric) sees it.
+        expect(scheduled).toBeDefined();
+        await expect(scheduled).rejects.toThrow('action boom');
+    });
+
+    test('unregistered cron does not dispatch', () => {
+        const s = new CloudflareSchedulerAdapter();
+        let called = false;
+        s.register('* * * * *', async () => {
+            called = true;
+        });
+
+        s.handleScheduledEvent(
+            { cron: '0 0 * * *', scheduledTime: Date.now(), waitUntil: (p: Promise<unknown>) => void p },
+            { waitUntil: (p: Promise<unknown>) => void p },
+        );
+
+        expect(called).toBeFalse();
+    });
 });
