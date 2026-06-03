@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { DbAdapter } from '@gobing-ai/ts-db';
 import { RunCollisionError } from '../src/errors';
 import {
     applyWorkflowEngineSchema,
@@ -28,19 +29,14 @@ describe('applyWorkflowEngineSchema', () => {
 
 describe('DbWorkflowPersistenceAdapter', () => {
     test('class exists and can be constructed with a mock db', () => {
-        const mockDb = {
+        const mockDb: DbAdapter = {
+            db: {} as DbAdapter['db'],
             exec: async (_sql: string) => {},
             run: async (..._args: unknown[]) => {},
             queryFirst: async <T>() => undefined as T | undefined,
             queryAll: async <T>() => [] as T[],
-            getDb: () => ({
-                insert: () => ({ values: async () => {} }),
-                select: () => ({ from: () => ({ where: async () => [] }) }),
-                update: () => ({ set: () => ({ where: async () => ({ changes: 0 }) }) }),
-                delete: () => ({ where: async () => ({ changes: 0 }) }),
-            }),
             close: () => {},
-        } as unknown as import('@gobing-ai/ts-db').DbAdapter;
+        };
         const adapter = new DbWorkflowPersistenceAdapter(mockDb);
         expect(adapter).toBeInstanceOf(DbWorkflowPersistenceAdapter);
     });
