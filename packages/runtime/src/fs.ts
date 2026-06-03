@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirnamePath, getProcessCwd, joinPath, resolvePath } from './path';
 
 export interface FileStat {
@@ -32,7 +32,9 @@ export interface SyncFileSystem {
     readFile(path: string): string;
     writeFile(path: string, content: string): void;
     mkdir(path: string): void;
+    exists(path: string): boolean;
     readDir(path: string): string[];
+    stat(path: string): FileStat | null;
     unlink(path: string): void;
 }
 
@@ -144,8 +146,30 @@ export class NodeSyncFileSystem implements SyncFileSystem {
         mkdirSync(path, { recursive: true });
     }
 
+    exists(path: string): boolean {
+        try {
+            return this.stat(path) !== null;
+        } catch {
+            return false;
+        }
+    }
+
     readDir(path: string): string[] {
         return readdirSync(path);
+    }
+
+    stat(path: string): FileStat | null {
+        try {
+            const value = statSync(path);
+            return {
+                isFile: () => value.isFile(),
+                isDirectory: () => value.isDirectory(),
+                size: value.size,
+                mtimeMs: value.mtimeMs,
+            };
+        } catch {
+            return null;
+        }
     }
 
     unlink(path: string): void {
