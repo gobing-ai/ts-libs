@@ -5,6 +5,7 @@
             "@gobing-ai/ts-db": ["../db/src/index"],
             "@gobing-ai/ts-runtime": ["../runtime/src/index"],
             "@gobing-ai/ts-runtime/bun-sqlite": ["../runtime/src/bun-sqlite"],
+            "@gobing-ai/ts-runtime/plugin": ["../runtime/src/plugin"],
             "@gobing-ai/ts-utils": ["../utils/src/index"]
         }
     },
