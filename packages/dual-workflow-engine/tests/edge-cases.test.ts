@@ -90,6 +90,22 @@ edges:
 
     test('covers transition-flow failure branches', async () => {
         const host = createDefaultWorkflowEngineHost();
+        await expect(
+            new TransitionFlowDriver({
+                host,
+                persistence: new MemoryWorkflowPersistenceAdapter(),
+            }).run(
+                {
+                    kind: 'transition-flow',
+                    name: 'bad-start-flow',
+                    initialNode: 'missing',
+                    nodes: [{ id: 'start' }],
+                    edges: [],
+                },
+                { runId: 'bad-flow-start-run' },
+            ),
+        ).rejects.toThrow(FSMError);
+
         const noEdge = await new TransitionFlowDriver({
             host,
             persistence: new MemoryWorkflowPersistenceAdapter(),
