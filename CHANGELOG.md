@@ -6,6 +6,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [0.3.0] — 2026-06-02
+
+### Added
+
+- **`ts-rule-engine` — Bundled default rule presets:** The package now ships a `rules/` asset tree with portable `recommended` and `spur-dev` presets plus TypeScript, structure, and quality rule files. Consumers can run a working baseline ruleset without authoring local rule files first.
+- **`ts-rule-engine` — Bundled rule discovery helpers:** Added `bundledRulesRoot()` and `listBundledRuleFiles()` to locate packaged rule assets and enumerate copyable preset/rule files at runtime.
+- **`ts-runtime` — Sync filesystem stat support:** `SyncFileSystem` and `NodeSyncFileSystem` now expose synchronous `exists()` and `stat()` methods so synchronous package-asset discovery can stay behind the runtime abstraction.
+
+### Changed
+
+- **`ts-rule-engine` — Published package assets:** The npm package now includes the bundled `rules/` directory in addition to `dist`, `schemas`, `src`, and docs.
+- **`ts-rule-engine` — Public exports:** The bundled-rule discovery helpers are exported from the main package barrel for direct consumer use.
+
+### Breaking Changes
+
+- **`ts-rule-engine` version line:** `@gobing-ai/ts-rule-engine` moves to `0.3.0` while the rest of the workspace remains on `0.2.9` in this commit range. Treat this as a rule-engine package release, not a lockstep workspace bump.
+
 ## [0.2.9] — 2026-06-02
 
 ### Added
@@ -186,7 +203,8 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[0.2.9]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.8...HEAD
+[0.3.0]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.9...HEAD
+[0.2.9]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.8...@gobing-ai/ts-libs-v0.2.9
 [0.2.8]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.7...@gobing-ai/ts-libs-v0.2.8
 [0.2.7]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.6...@gobing-ai/ts-libs-v0.2.7
 [0.2.6]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.5...@gobing-ai/ts-libs-v0.2.6
