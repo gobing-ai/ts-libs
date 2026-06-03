@@ -1,41 +1,9 @@
-/** Registry origin for a host capability. */
-export type CapabilityOrigin = 'builtin' | 'extension';
-
-/** Registry entry metadata. */
-export interface CapabilityEntry<TCapability> {
-    /** Capability implementation. */
-    capability: TCapability;
-    /** Registration origin. */
-    origin: CapabilityOrigin;
-}
-
-/** Typed registry used by the rule engine host. */
-export class CapabilityRegistry<TCapability> {
-    private readonly capabilities = new Map<string, CapabilityEntry<TCapability>>();
-
-    constructor(private readonly kind: string) {}
-
-    /** Register or replace a capability. */
-    register(name: string, capability: TCapability, origin: CapabilityOrigin = 'extension'): void {
-        this.capabilities.set(name, { capability, origin });
-    }
-
-    /** Return true when a capability exists. */
-    has(name: string): boolean {
-        return this.capabilities.has(name);
-    }
-
-    /** Get a registered capability or throw a clear error. */
-    get(name: string): TCapability {
-        const entry = this.capabilities.get(name);
-        if (entry === undefined) {
-            throw new Error(`Unknown ${this.kind}: ${name}`);
-        }
-        return entry.capability;
-    }
-
-    /** List registered capability names. */
-    list(): string[] {
-        return [...this.capabilities.keys()];
-    }
-}
+/**
+ * Compatibility re-export (ADR-010 / task 0008).
+ *
+ * The capability registry now lives in the shared plugin core
+ * (`@gobing-ai/ts-runtime/plugin`). This module re-exports it from the original
+ * path so the public barrel and existing importers keep working unchanged. New
+ * code should import from `@gobing-ai/ts-runtime/plugin` directly.
+ */
+export { type CapabilityEntry, type CapabilityOrigin, CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
