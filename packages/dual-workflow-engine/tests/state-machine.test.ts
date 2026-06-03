@@ -114,4 +114,53 @@ describe('StateMachineDriver', () => {
         expect(result.finalState).toBe('start');
         expect(result.transitionsTaken).toBe(0);
     });
+
+    test('resolves runtime builtin templates for actions', async () => {
+        const messages: unknown[] = [];
+        const host = new WorkflowEngineHost()
+            .registerAction({
+                kind: 'capture',
+                async execute(options) {
+                    messages.push(options.message);
+                    return { ok: true };
+                },
+            })
+            .registerGuard({ kind: 'always', evaluate: async () => true });
+        const driver = new StateMachineDriver({
+            host,
+            persistence: new MemoryWorkflowPersistenceAdapter(),
+        });
+
+        await driver.run(
+            simpleWorkflow({
+                name: 'builtin-wf',
+                states: [
+                    {
+                        id: 'start',
+                        onEnter: [
+                            {
+                                kind: 'capture',
+                                options: {
+                                    message:
+                                        '$' +
+                                        '{workflow}:$' +
+                                        '{runId}:$' +
+                                        '{task}:$' +
+                                        '{state}:$' +
+                                        '{node}:$' +
+                                        '{iteration}:$' +
+                                        '{run}:$' +
+                                        '{runtime}',
+                                },
+                            },
+                        ],
+                    },
+                    { id: 'done' },
+                ],
+            }),
+            { runId: 'builtin-run' },
+        );
+
+        expect(messages).toEqual(['builtin-wf:builtin-run:builtin-wf:start:start:0:builtin-run:state-machine']);
+    });
 });
