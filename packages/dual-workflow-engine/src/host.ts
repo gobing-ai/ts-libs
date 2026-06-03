@@ -1,36 +1,67 @@
 import { NodeProcessExecutor, type ProcessExecutor } from '@gobing-ai/ts-runtime';
+import { type CapabilityOrigin, CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
 import { WorkflowValidationError } from './errors';
 import type { ActionResult, ActionRunContext, ActionRunner, GuardContext, GuardRunner } from './types';
 
 /** Registry owner for workflow actions and guards. */
 export class WorkflowEngineHost {
-    private readonly actions = new Map<string, ActionRunner>();
-    private readonly guards = new Map<string, GuardRunner>();
+    private readonly actions = new CapabilityRegistry<ActionRunner>('workflow action');
+    private readonly guards = new CapabilityRegistry<GuardRunner>('workflow guard');
 
     /** Register or replace an action runner. */
-    registerAction(action: ActionRunner): this {
-        this.actions.set(action.kind, action);
+    registerAction(action: ActionRunner, origin: CapabilityOrigin = 'extension'): this {
+        this.actions.register(action.kind, action, origin);
         return this;
     }
 
     /** Register or replace a guard runner. */
-    registerGuard(guard: GuardRunner): this {
-        this.guards.set(guard.kind, guard);
+    registerGuard(guard: GuardRunner, origin: CapabilityOrigin = 'extension'): this {
+        this.guards.register(guard.kind, guard, origin);
         return this;
+    }
+
+    /** Return true when an action of `kind` is registered. */
+    hasAction(kind: string): boolean {
+        return this.actions.has(kind);
+    }
+
+    /** Return true when a guard of `kind` is registered. */
+    hasGuard(kind: string): boolean {
+        return this.guards.has(kind);
+    }
+
+    /** List registered action kinds in registration order. */
+    listActions(): string[] {
+        return this.actions.list();
+    }
+
+    /** List registered guard kinds in registration order. */
+    listGuards(): string[] {
+        return this.guards.list();
+    }
+
+    /** Origin of a registered action, or undefined if none. Lets 0010 distinguish builtin from extension overrides. */
+    actionOrigin(kind: string): CapabilityOrigin | undefined {
+        return this.actions.getEntry(kind)?.origin;
+    }
+
+    /** Origin of a registered guard, or undefined if none. */
+    guardOrigin(kind: string): CapabilityOrigin | undefined {
+        return this.guards.getEntry(kind)?.origin;
     }
 
     /** Execute a registered action. */
     async runAction(kind: string, options: Record<string, unknown>, context: ActionRunContext): Promise<ActionResult> {
-        const action = this.actions.get(kind);
-        if (action === undefined) throw new WorkflowValidationError(`Unknown workflow action "${kind}"`);
-        return await action.execute(options, context);
+        // Guard at the host boundary so unknown kinds surface as WorkflowValidationError,
+        // not the shared registry's generic Error (ADR-010 R13).
+        if (!this.actions.has(kind)) throw new WorkflowValidationError(`Unknown workflow action "${kind}"`);
+        return await this.actions.get(kind).execute(options, context);
     }
 
     /** Evaluate a registered guard. */
     async evaluateGuard(kind: string, options: Record<string, unknown>, context: GuardContext): Promise<boolean> {
-        const guard = this.guards.get(kind);
-        if (guard === undefined) throw new WorkflowValidationError(`Unknown workflow guard "${kind}"`);
-        return await guard.evaluate(options, context);
+        if (!this.guards.has(kind)) throw new WorkflowValidationError(`Unknown workflow guard "${kind}"`);
+        return await this.guards.get(kind).evaluate(options, context);
     }
 }
 
@@ -39,14 +70,17 @@ export function createDefaultWorkflowEngineHost(
     options: { processExecutor?: ProcessExecutor } = {},
 ): WorkflowEngineHost {
     const host = new WorkflowEngineHost();
-    host.registerAction(new NoteActionRunner());
-    host.registerAction(new ShellActionRunner(options.processExecutor ?? new NodeProcessExecutor()));
-    host.registerGuard({ kind: 'always', evaluate: async () => true });
-    host.registerGuard({ kind: 'never', evaluate: async () => false });
-    host.registerGuard({
-        kind: 'action-ok',
-        evaluate: async (_options, context) => context.lastActionResult?.ok === true,
-    });
+    host.registerAction(new NoteActionRunner(), 'builtin');
+    host.registerAction(new ShellActionRunner(options.processExecutor ?? new NodeProcessExecutor()), 'builtin');
+    host.registerGuard({ kind: 'always', evaluate: async () => true }, 'builtin');
+    host.registerGuard({ kind: 'never', evaluate: async () => false }, 'builtin');
+    host.registerGuard(
+        {
+            kind: 'action-ok',
+            evaluate: async (_options, context) => context.lastActionResult?.ok === true,
+        },
+        'builtin',
+    );
     return host;
 }
 
