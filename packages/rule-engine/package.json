@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-rule-engine",
-    "version": "0.2.9",
+    "version": "0.3.0",
     "description": "@gobing-ai/ts-rule-engine — Constraint rule schemas, loading, evaluation, and result formatting.",
     "keywords": [
         "typescript",
@@ -32,6 +32,7 @@
     },
     "files": [
         "dist",
+        "rules",
         "schemas",
         "src",
         "README.md"
