@@ -124,7 +124,103 @@ describe('WorkflowEngineHost', () => {
     });
 });
 
+describe('WorkflowEngineHost introspection', () => {
+    test('hasAction / hasGuard reflect registration', () => {
+        const host = new WorkflowEngineHost();
+        expect(host.hasAction('a')).toBe(false);
+        host.registerAction({
+            kind: 'a',
+            async execute() {
+                return { ok: true };
+            },
+        });
+        expect(host.hasAction('a')).toBe(true);
+        expect(host.hasGuard('g')).toBe(false);
+        host.registerGuard({
+            kind: 'g',
+            async evaluate() {
+                return true;
+            },
+        });
+        expect(host.hasGuard('g')).toBe(true);
+    });
+
+    test('listActions / listGuards return kinds in registration order', () => {
+        const host = new WorkflowEngineHost()
+            .registerAction({
+                kind: 'second',
+                async execute() {
+                    return { ok: true };
+                },
+            })
+            .registerAction({
+                kind: 'first',
+                async execute() {
+                    return { ok: true };
+                },
+            })
+            .registerGuard({
+                kind: 'gb',
+                async evaluate() {
+                    return true;
+                },
+            })
+            .registerGuard({
+                kind: 'ga',
+                async evaluate() {
+                    return false;
+                },
+            });
+        expect(host.listActions()).toEqual(['second', 'first']);
+        expect(host.listGuards()).toEqual(['gb', 'ga']);
+    });
+
+    test('re-registering the same kind replaces without duplicating the listing', () => {
+        const host = new WorkflowEngineHost()
+            .registerAction({
+                kind: 'x',
+                async execute() {
+                    return { ok: true };
+                },
+            })
+            .registerAction({
+                kind: 'x',
+                async execute() {
+                    return { ok: true };
+                },
+            });
+        expect(host.listActions()).toEqual(['x']);
+    });
+});
+
 describe('createDefaultWorkflowEngineHost', () => {
+    test('registers all built-ins with origin "builtin"', () => {
+        const host = createDefaultWorkflowEngineHost();
+        expect(host.listActions().sort()).toEqual(['note', 'shell']);
+        expect(host.listGuards().sort()).toEqual(['action-ok', 'always', 'never']);
+        for (const kind of host.listActions()) expect(host.actionOrigin(kind)).toBe('builtin');
+        for (const kind of host.listGuards()) expect(host.guardOrigin(kind)).toBe('builtin');
+    });
+
+    test('extension-registered capabilities carry origin "extension" by default', () => {
+        const host = new WorkflowEngineHost()
+            .registerAction({
+                kind: 'ext-action',
+                async execute() {
+                    return { ok: true };
+                },
+            })
+            .registerGuard({
+                kind: 'ext-guard',
+                async evaluate() {
+                    return true;
+                },
+            });
+        expect(host.actionOrigin('ext-action')).toBe('extension');
+        expect(host.guardOrigin('ext-guard')).toBe('extension');
+        expect(host.actionOrigin('nonexistent')).toBeUndefined();
+    });
+
     test('creates host with built-in actions and guards', async () => {
         const host = createDefaultWorkflowEngineHost();
 
