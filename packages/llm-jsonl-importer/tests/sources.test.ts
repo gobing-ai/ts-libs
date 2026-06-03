@@ -1,4 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createDbAdapter } from '@gobing-ai/ts-db';
+import { HistoryImportError, runJsonlImport } from '../src';
 import { getSourceDefinition, SOURCE_DEFINITIONS } from '../src/sources';
 
 describe('SOURCE_DEFINITIONS', () => {
@@ -35,5 +40,26 @@ describe('SOURCE_DEFINITIONS', () => {
         const claudeDef = getSourceDefinition('claude');
         expect(claudeDef.source).toBe('claude');
         expect(claudeDef.displayName).toBe('Claude Code');
+    });
+
+    test('rejects unsafe target table names with importer-specific error', async () => {
+        const original = SOURCE_DEFINITIONS.codex;
+        const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        const dir = await mkdtemp(join(tmpdir(), 'llm-jsonl-source-table-'));
+        const file = join(dir, 'history.jsonl');
+        await writeFile(file, `${JSON.stringify({ id: 'unsafe', content: 'payload' })}\n`);
+        try {
+            (SOURCE_DEFINITIONS as Record<string, unknown>).codex = {
+                ...original,
+                targetTable: 'history_etl_codex;DROP TABLE history_import_ledger',
+            };
+
+            await expect(runJsonlImport('codex', { db, files: [file], mode: 'full' })).rejects.toThrow(
+                HistoryImportError,
+            );
+        } finally {
+            (SOURCE_DEFINITIONS as Record<string, unknown>).codex = original;
+            db.close();
+        }
     });
 });
