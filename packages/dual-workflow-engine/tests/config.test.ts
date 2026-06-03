@@ -145,7 +145,7 @@ transitions:
     });
 
     test('W1: allows declared vars and reserved runtime namespaces (no placeholder)', () => {
-        const message = `${REF('vars.greeting')} ${REF('task')}`;
+        const message = `${REF('vars.greeting')} ${REF('workflow')} ${REF('runId')} ${REF('task')} ${REF('runtime')}`;
         const wf = `name: w\ninitialState: a\nvars: {greeting: hi}\nstates: [{id: a, onEnter: [{kind: note, options: {message: "${message}"}}]},{id: b}]\nterminalStates: [b]\ntransitions: [{from: a, to: b}]\n`;
         expect(loadWorkflowDefFromText(wf).name).toBe('w');
     });
