@@ -1,3 +1,4 @@
+import { assertRelativeExtensionPath } from '@gobing-ai/ts-runtime/plugin';
 import { z } from 'zod';
 
 /** Finding severity emitted by the rule engine. */
@@ -218,16 +219,22 @@ export const ConstraintRuleSchema = z.object({
  *
  * Rejects absolute paths and `..` traversal: extension declarations are data, and a
  * path that escapes the declaring file's directory is a trust-boundary violation even
- * when extension loading is explicitly allowed.
+ * when extension loading is explicitly allowed. The actual guard is the shared
+ * `assertRelativeExtensionPath` (ADR-010) so schema-time validation here and load-time
+ * validation in the shared loader use one source of truth.
  */
 const relativeExtensionPath = z
     .string()
     .min(1)
-    .refine((value) => !/^([/\\]|[A-Za-z]:[/\\])/.test(value), {
-        message: 'extension path must be relative (no absolute paths)',
-    })
-    .refine((value) => !value.split(/[/\\]/).includes('..'), {
-        message: 'extension path must not contain ".." traversal',
+    .superRefine((value, ctx) => {
+        try {
+            assertRelativeExtensionPath(value);
+        } catch (error) {
+            ctx.addIssue({
+                code: 'custom',
+                message: error instanceof Error ? error.message : 'invalid extension path',
+            });
+        }
     });
 
 /**
