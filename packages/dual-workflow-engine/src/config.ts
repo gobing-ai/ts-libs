@@ -178,7 +178,16 @@ function collectActionOptions(workflow: WorkflowDef): Record<string, unknown>[] 
 }
 
 /** Reserved template namespaces always available at runtime (not user-declared vars). */
-const RUNTIME_TEMPLATE_NAMESPACES = new Set(['task', 'state', 'node', 'iteration', 'run', 'runtime']);
+const RUNTIME_TEMPLATE_NAMESPACES = new Set([
+    'workflow',
+    'runId',
+    'task',
+    'state',
+    'node',
+    'iteration',
+    'run',
+    'runtime',
+]);
 
 /**
  * Check `${...}` template references inside action options resolve to something:
