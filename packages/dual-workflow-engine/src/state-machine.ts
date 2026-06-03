@@ -54,6 +54,7 @@ export class StateMachineDriver {
                 vars,
                 env,
                 options,
+                transitionsTaken,
             );
             if (lastActionResult?.ok === false)
                 return await this.fail(
@@ -103,6 +104,7 @@ export class StateMachineDriver {
                 vars,
                 env,
                 options,
+                transitionsTaken,
             );
             if (exitResult?.ok === false)
                 return await this.fail(runId, workflow.name, mode, current.id, transitionsTaken, exitResult.error);
@@ -139,13 +141,14 @@ export class StateMachineDriver {
         vars: Record<string, string>,
         env: Record<string, string>,
         options: WorkflowRunOptions,
+        transitionsTaken: number,
     ): Promise<ActionResult | undefined> {
         let last: ActionResult | undefined;
         for (const action of actions) {
             const resolved = resolveTemplates(action.options ?? {}, {
                 vars,
                 env,
-                builtins: { workflow: workflowName, state: stateId, runId },
+                builtins: runtimeBuiltins(workflowName, stateId, runId, transitionsTaken),
             });
             last = await this.options.host.runAction(action.kind, resolved, {
                 runId,
@@ -184,6 +187,25 @@ export class StateMachineDriver {
         await this.options.persistence.finalizeRun(runId, 'failed', new Date().toISOString());
         return { runId, workflowName, mode, status: 'failed', finalState, transitionsTaken, reason };
     }
+}
+
+/** Built-in bare template values available to state-machine action options. */
+function runtimeBuiltins(
+    workflowName: string,
+    stateId: string,
+    runId: string,
+    transitionsTaken: number,
+): Record<string, string | number> {
+    return {
+        workflow: workflowName,
+        runId,
+        task: workflowName,
+        state: stateId,
+        node: stateId,
+        iteration: transitionsTaken,
+        run: runId,
+        runtime: 'state-machine',
+    };
 }
 
 async function firstPassingTransition(
