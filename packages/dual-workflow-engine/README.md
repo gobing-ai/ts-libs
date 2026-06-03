@@ -42,10 +42,11 @@ import {
     type ActionRunner,
 } from '@gobing-ai/ts-dual-workflow-engine';
 
-const captureAction: ActionRunner = {
+const captureAction: ActionRunner & { seen: string[] } = {
     kind: 'capture',
+    seen: [],
     async execute(options) {
-        console.log(options.message);
+        this.seen.push(String(options.message ?? ''));
         return { ok: true };
     },
 };
@@ -74,7 +75,9 @@ const result = await driver.run(
     { runId: 'approval-1' },
 );
 
-console.log(result.status, result.finalState);
+result.status; // "done"
+result.finalState; // "done"
+captureAction.seen; // ["approved"]
 ```
 
 The driver persists each state snapshot, phase update, transition, and final run status through the configured persistence adapter.
@@ -105,7 +108,8 @@ const result = await service.run({
     edges: [{ from: 'start', to: 'done' }],
 });
 
-console.log(result);
+result.status; // "done"
+result.finalState; // "done"
 ```
 
 The default host includes built-in `note` and `shell` action runners plus an `always` guard. For production systems, register domain-specific runners and keep shell execution explicit.
