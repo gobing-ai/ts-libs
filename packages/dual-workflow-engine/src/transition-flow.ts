@@ -1,4 +1,5 @@
 import { getProcessEnv } from '@gobing-ai/ts-runtime';
+import { FSMError } from './errors';
 import type { WorkflowEngineHost } from './host';
 import type {
     ActionResult,
@@ -37,7 +38,7 @@ export class TransitionFlowDriver {
         const iterationBound = workflow.iterationBound ?? 50;
 
         if (current === undefined) {
-            throw new Error(`Initial node "${workflow.initialNode}" is not declared`);
+            throw new FSMError(`Initial node "${workflow.initialNode}" is not declared`);
         }
 
         while (true) {
@@ -50,7 +51,7 @@ export class TransitionFlowDriver {
                 const resolved = resolveTemplates(current.action.options ?? {}, {
                     vars,
                     env,
-                    builtins: { workflow: workflow.name, node: current.id, runId },
+                    builtins: runtimeBuiltins(workflow.name, current.id, runId, transitionsTaken),
                 });
                 lastActionResult = await this.options.host.runAction(current.action.kind, resolved, {
                     runId,
@@ -110,7 +111,7 @@ export class TransitionFlowDriver {
 
             // 7. Move to the target node and repeat.
             const nextNode = nodes.get(edge.to);
-            if (nextNode === undefined) throw new Error(`Edge target "${edge.to}" is not declared`);
+            if (nextNode === undefined) throw new FSMError(`Edge target "${edge.to}" is not declared`);
             current = nextNode;
         }
     }
@@ -139,6 +140,25 @@ export class TransitionFlowDriver {
         await this.options.persistence.finalizeRun(runId, 'failed', new Date().toISOString());
         return { runId, workflowName, mode, status: 'failed', finalState, transitionsTaken, reason };
     }
+}
+
+/** Built-in bare template values available to transition-flow action options. */
+function runtimeBuiltins(
+    workflowName: string,
+    nodeId: string,
+    runId: string,
+    transitionsTaken: number,
+): Record<string, string | number> {
+    return {
+        workflow: workflowName,
+        runId,
+        task: workflowName,
+        state: nodeId,
+        node: nodeId,
+        iteration: transitionsTaken,
+        run: runId,
+        runtime: 'transition-flow',
+    };
 }
 
 async function firstPassingEdge(
