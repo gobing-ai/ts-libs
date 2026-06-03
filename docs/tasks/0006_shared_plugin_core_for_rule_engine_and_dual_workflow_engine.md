@@ -14,6 +14,7 @@ impl_progress:
   implementation: pending
   review: pending
   testing: pending
+preset: complex
 ---
 
 ## 0006. "shared plugin core for rule-engine and dual-workflow-engine"
@@ -36,17 +37,30 @@ core that both engines use, then migrate both packages onto it. The goal is not 
 identical. The goal is to give both engines the same extension vocabulary, override semantics,
 diagnostics, and trust-gated module loading while preserving each engine's domain-specific contracts.
 
+> **Decision frozen (2026-06-03) — see ADR-010.** Architecture is settled as **Option A: share the
+> mechanism, not the concepts.** The shared core lives in **`@gobing-ai/ts-runtime`**, exported from the
+> subpath **`@gobing-ai/ts-runtime/plugin`** (not a new package). It exposes generic primitives only —
+> `CapabilityRegistry<T>` (with `origin` + `entries`/`getEntry`), a generic trust-gated extension loader
+> that calls an engine-provided registration callback, and a standalone `assertRelativeExtensionPath()`
+> validator. Domain concepts (evaluator/action/guard), `ExtensionKind` enums, `extensions` schemas,
+> kind→registry mapping, **error types**, and **override semantics** stay engine-owned. Unifying the
+> capability *contract* across engines is rejected (false commonality: query vs command). The workflow
+> driver registry, shell-action trust changes, and a shared template engine are explicitly deferred to
+> future ADRs. R2 below is now resolved by ADR-010; R13–R14 capture the two boundary refinements.
+
 This task is intentionally design-heavy and should be implemented later, not immediately. It exists to
 freeze the agreed destination and prevent implementation drift.
 
 ### Requirements
 
-- [ ] **R1 - ADR before implementation**: Add a new ADR to `docs/00_ADR.md` before code changes. It
-  must record the shared plugin-core decision, target package location, public API exposure, trust
-  boundary, migration strategy, and consequences for both engines.
-- [ ] **R2 - choose one shared-core location explicitly**: Decide and document whether the shared core
-  lives in `packages/runtime` (`@gobing-ai/ts-runtime`) or a new package. Default recommendation:
-  place it in `packages/runtime` unless the API grows beyond generic runtime/plugin primitives.
+- [x] **R1 - ADR before implementation (DONE — ADR-010)**: `docs/00_ADR.md` now records the shared
+  plugin-core decision (Option A), target package location (`@gobing-ai/ts-runtime/plugin`), public API
+  exposure, trust boundary, error-type/override ownership, migration strategy, deferred items, and
+  consequences for both engines.
+- [x] **R2 - shared-core location (RESOLVED by ADR-010)**: The shared core lives in
+  `packages/runtime` (`@gobing-ai/ts-runtime`), exported from the subpath `@gobing-ai/ts-runtime/plugin`.
+  A dedicated `packages/plugin-core` is explicitly rejected for this task (YAGNI; both engines already
+  depend on `ts-runtime`) and is a future ADR gated on a third consumer or real lifecycle features.
 - [ ] **R3 - shared core owns generic capability registry**: Move the rule-engine
   `CapabilityRegistry` concept into the shared core with at least `register`, `get`, `has`, `list`,
   and entry metadata including `origin: 'builtin' | 'extension'`.
@@ -78,6 +92,19 @@ freeze the agreed destination and prevent implementation drift.
   reasonable or document the breaking change explicitly.
 - [ ] **R12 - gates clean**: `bun run spur-check` and `bun run build` must pass. No `.skip`, no
   suppression-only `biome-ignore`, no bypassing spur rules.
+
+- [ ] **R13 - error types stay engine-owned (ADR-010)**: The shared `CapabilityRegistry.get` stays
+  generic and the shared core must not import an engine's error class. `WorkflowEngineHost` must
+  preserve `WorkflowValidationError` for unknown action/guard kinds (via `has()`-then-throw-own-error at
+  its boundary), and rule-engine must keep its existing `Error` messages unless a test deliberately
+  approves a clearer message.
+
+- [ ] **R14 - override semantics stay engine-owned (ADR-010)**: The shared loader must not bake any
+  override-warning string or override policy into the core. It either exposes a conflict/override
+  callback or returns what it registered; each engine decides whether replacing a capability is
+  meaningful and owns its warning. The generic relative-path/no-`..`-traversal guard must be a
+  standalone validator (`assertRelativeExtensionPath()`) the loader enforces at load time, independent
+  of any engine's zod schema (defense in depth).
 
 ### Q&A
 
@@ -392,9 +419,10 @@ must not silently change shell action behavior.
 
 ## Solution
 
-Implement Option D in phases:
+Implement the ADR-010 decision (Option A: share mechanism, not concepts) in phases. Phase 1 (the ADR)
+is already complete:
 
-1. Add an ADR that defines the shared plugin-core architecture and package location.
+1. ~~Add an ADR that defines the shared plugin-core architecture and package location.~~ **Done: ADR-010.**
 2. Extract the generic `CapabilityRegistry` and extension-loading primitives into the selected shared
    package, recommended `packages/runtime`.
 3. Migrate `packages/rule-engine` onto the shared registry and generic loader without changing
@@ -414,11 +442,12 @@ Implement Option D in phases:
   - [ ] Inspect current `tsconfig` path aliases for `rule-engine`, `dual-workflow-engine`, and
         `runtime`.
 
-- [ ] **Phase 1 - ADR**
-  - [ ] Append ADR-NNN to `docs/00_ADR.md`.
-  - [ ] Decide shared-core location: default `packages/runtime`.
-  - [ ] Record API surface, trust boundary, non-goals, migration order, and compatibility strategy.
-  - [ ] Record why driver registry is deferred.
+- [x] **Phase 1 - ADR (DONE 2026-06-03)**
+  - [x] Append ADR-010 to `docs/00_ADR.md`.
+  - [x] Decide shared-core location: `packages/runtime`, subpath `@gobing-ai/ts-runtime/plugin`.
+  - [x] Record API surface, trust boundary, error-type/override ownership, non-goals, migration order,
+        and compatibility strategy.
+  - [x] Record why driver registry is deferred.
 
 - [ ] **Phase 2 - shared core**
   - [ ] Add shared capability registry module under the selected package.
@@ -473,7 +502,7 @@ Implement Option D in phases:
 
 #### Acceptance Criteria
 
-- [ ] ADR exists and does not conflict with existing ADR-001 through ADR-009.
+- [x] ADR exists (ADR-010) and does not conflict with existing ADR-001 through ADR-009.
 - [ ] Shared registry and extension loader live in the ADR-approved package and are exported through
       stable public package paths.
 - [ ] Rule-engine behavior is unchanged from the caller perspective.
