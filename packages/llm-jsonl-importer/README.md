@@ -40,7 +40,8 @@ const result = await runJsonlImport('codex', {
     mode: 'incremental',
 });
 
-console.log(result.importedRecords, result.skippedDuplicates);
+result.importedRecords;
+result.skippedDuplicates;
 ```
 
 `runJsonlImport()` applies the package-owned schema automatically before processing. Use `applyHistoryImportSchema(db)` directly when your application has an explicit migration step.
