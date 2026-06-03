@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { getFs, walkDir } from '@gobing-ai/ts-runtime';
+import { HistoryImportError } from './errors';
 import { sha256 } from './hash';
 import { redactRecord } from './redaction';
 import { HISTORY_IMPORT_SCHEMA_SQL } from './schema-sql';
@@ -332,7 +333,7 @@ async function insertLedger(
 
 function targetTableFor(table: string): string {
     if (!VALID_TABLE_NAME.test(table)) {
-        throw new Error(`Invalid history ETL target table: ${table}`);
+        throw new HistoryImportError(`Invalid history ETL target table: ${table}`, { table });
     }
     return table;
 }
