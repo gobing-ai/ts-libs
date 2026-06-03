@@ -133,4 +133,51 @@ describe('TransitionFlowDriver', () => {
         expect(result.finalState).toBe('b');
         expect(result.transitionsTaken).toBe(1);
     });
+
+    test('resolves runtime builtin templates for node actions', async () => {
+        const messages: unknown[] = [];
+        const host = new WorkflowEngineHost()
+            .registerAction({
+                kind: 'capture',
+                async execute(options) {
+                    messages.push(options.message);
+                    return { ok: true };
+                },
+            })
+            .registerGuard({ kind: 'always', evaluate: async () => true });
+        const driver = new TransitionFlowDriver({
+            host,
+            persistence: new MemoryWorkflowPersistenceAdapter(),
+        });
+
+        await driver.run(
+            simpleFlow({
+                name: 'builtin-flow',
+                nodes: [
+                    {
+                        id: 'start',
+                        action: {
+                            kind: 'capture',
+                            options: {
+                                message:
+                                    '$' +
+                                    '{workflow}:$' +
+                                    '{runId}:$' +
+                                    '{task}:$' +
+                                    '{state}:$' +
+                                    '{node}:$' +
+                                    '{iteration}:$' +
+                                    '{run}:$' +
+                                    '{runtime}',
+                            },
+                        },
+                    },
+                    { id: 'done' },
+                ],
+            }),
+            { runId: 'builtin-run' },
+        );
+
+        expect(messages).toEqual(['builtin-flow:builtin-run:builtin-flow:start:start:0:builtin-run:transition-flow']);
+    });
 });
