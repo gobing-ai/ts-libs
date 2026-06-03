@@ -5,6 +5,7 @@ export * from './fixers/fixers';
 export * from './fixers/test-stub-fixer';
 export * from './formatters/json';
 export * from './formatters/text';
+export * from './host/bundled-rules';
 export * from './host/capability-registry';
 export * from './host/rule-engine-host';
 export * from './resolvers/test-path-resolver';
