@@ -417,7 +417,23 @@ must not silently change shell action behavior.
 
 ### Solution
 
-## Solution
+#### Subtasks (decomposed 2026-06-03)
+
+Decomposed by **deliverable boundary** (which package/capability ships), not by implementation phase.
+Docs and gates are folded into each child's acceptance criteria (R8/R9 per child), not split out as
+phase-tasks. Phase 1 (ADR-010) is already complete, so the parent's remaining work is these four:
+
+- [ ] [0007 - Shared plugin core in `ts-runtime/plugin`](0007_shared_plugin_core_in_ts-runtime_plugin_subpath.md) — foundation; registry + generic loader + path-guard + tests (~7h, **high risk: security primitive**)
+- [ ] [0008 - Migrate rule-engine onto shared core](0008_migrate_rule-engine_onto_shared_plugin_core.md) — zero behavior drift (~6h)
+- [ ] [0009 - Migrate workflow host onto shared registry](0009_migrate_dual-workflow-engine_host_onto_shared_registry.md) — actions/guards, origin, `WorkflowValidationError` preserved (~6h)
+- [ ] [0010 - Trust-gated workflow extension loading](0010_add_trust-gated_workflow_extension_loading_for_actions_and_guards.md) — actions/guards only (~6h, **high risk: new trust surface**)
+
+**Dependency order:** `0007 → (0008 || 0009) → 0010`
+**Estimated total effort:** 22–28 hours
+**Parent status:** remains non-terminal; execution continues on the child tasks above, in dependency
+order. Start with 0007.
+
+---
 
 Implement the ADR-010 decision (Option A: share mechanism, not concepts) in phases. Phase 1 (the ADR)
 is already complete:
