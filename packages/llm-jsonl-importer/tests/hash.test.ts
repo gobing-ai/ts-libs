@@ -37,4 +37,10 @@ describe('stableJson', () => {
         expect(stableJson(null)).toBe('null');
         expect(stableJson(true)).toBe('true');
     });
+
+    test('matches JSON undefined handling deterministically', () => {
+        expect(stableJson({ a: 1, b: undefined })).toBe('{"a":1}');
+        expect(stableJson([1, undefined, 3])).toBe('[1,null,3]');
+        expect(stableJson(undefined)).toBe('null');
+    });
 });
