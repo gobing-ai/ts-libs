@@ -1,0 +1,23 @@
+# No Biome suppression comments — disallow biome-ignore comments.
+# Lint issues must be fixed at the source, not silenced.
+include:
+  - "packages/**/src/**/*.ts"
+  - "packages/**/src/**/*.tsx"
+  - "apps/**/src/**/*.ts"
+  - "apps/**/src/**/*.tsx"
+  - "packages/**/tests/**/*.ts"
+  - "packages/**/tests/**/*.tsx"
+  - "apps/**/tests/**/*.ts"
+  - "apps/**/tests/**/*.tsx"
+exclude:
+  - "**/node_modules/**"
+rules:
+  - id: no-biome-suppressions
+    description: >
+      Do not use biome-ignore or biome-ignore-all comments to suppress lint
+      rules.  Fix the underlying issue instead.
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "biome-ignore"

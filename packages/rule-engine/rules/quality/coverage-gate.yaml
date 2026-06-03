@@ -1,0 +1,21 @@
+# Coverage gate — per-file line coverage must meet threshold.
+rules:
+  - id: coverage-gate
+    description: "Per-file line coverage meets threshold (read from lcov)"
+    severity: error
+    evaluator:
+      type: coverage-gate
+      config:
+        lcovPath: coverage/lcov.info
+        threshold: 90
+        include:
+          - "apps/**"
+          - "packages/**"
+        exclude:
+          - "**/*.test.ts"
+          - "**/*.test.tsx"
+          - "**/*.spec.ts"
+          - "**/*.spec.tsx"
+          - "**/node_modules/**"
+          - "**/drizzle/**"
+          - "scripts/**"

@@ -1,0 +1,10 @@
+# Recommended preset — portable rule categories for TypeScript projects.
+# Use with: spur rule run --preset recommended
+#
+# Bundled with @gobing-ai/ts-rule-engine. A project may override individual rule
+# files by placing same-named files under its local .spur/rules/ root.
+name: recommended
+extends:
+  - typescript
+  - structure
+  - quality

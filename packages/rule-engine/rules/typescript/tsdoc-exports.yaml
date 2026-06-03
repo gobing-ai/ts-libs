@@ -1,0 +1,24 @@
+# TSDoc export rules — every public export must carry a JSDoc comment.
+rules:
+  - id: every-export-has-tsdoc
+    description: "Every export (function, class, interface, type, const, enum) must have a /** ... */ JSDoc comment describing what it is and why."
+    severity: error
+    evaluator:
+      type: tsdoc-export
+      config:
+        kinds:
+          - function
+          - class
+          - interface
+          - type
+          - const
+          - enum
+    include:
+      - "packages/**/src/**/*.ts"
+      - "apps/**/src/**/*.ts"
+    exclude:
+      - "**/index.ts"
+      - "**/node_modules/**"
+      - "**/tests/**"
+      - "**/*.test.ts"
+      - "**/*.test.tsx"

@@ -1,0 +1,38 @@
+# Test location rules — tests must live in tests/ directories mirroring src/.
+# No __tests__ directories, no .test.ts files under src/.
+rules:
+  - id: no-tests-dir
+    description: "Tests must live in tests/ directories at the same level as src/, not in __tests__."
+    severity: error
+    evaluator:
+      type: test-location
+      config:
+        expected: "**/*.test.*"
+        forbid:
+          - "**/__tests__/**"
+          - "**/src/**/*.test.ts"
+          - "**/src/**/*.test.tsx"
+        requireCorrespondingTest: false
+    include:
+      - "packages/**/tests/**/*.test.ts"
+      - "apps/**/tests/**/*.test.ts"
+      - "packages/**/tests/**/*.test.tsx"
+      - "apps/**/tests/**/*.test.tsx"
+
+  - id: require-corresponding-test
+    description: "Every source file must have a corresponding test file in tests/."
+    severity: warning
+    evaluator:
+      type: test-location
+      config:
+        expected: "**/*.test.*"
+        requireCorrespondingTest: true
+    include:
+      - "packages/**/src/**/*.ts"
+      - "apps/**/src/**/*.ts"
+    exclude:
+      - "**/index.ts"
+      - "**/*.d.ts"
+      - "**/types.ts"
+      - "**/node_modules/**"
+      - "**/tests/**"
