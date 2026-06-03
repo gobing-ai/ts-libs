@@ -1,7 +1,7 @@
 # 00 ADR — ts-libs
 
 **Status:** Authoritative
-**Last Updated:** 2026-06-02
+**Last Updated:** 2026-06-03
 **Owner:** Robin Min
 
 Single source of truth for the architecture & release decisions that define this monorepo. Each
@@ -226,3 +226,93 @@ versions are decoupled — the app owns the exporter/collector matrix. A future 
 subpath (`/otel-workers`), not a change to the core. Containment is enforced by
 `tests/telemetry/optional-peers.test.ts`; a spur rule may later codify "no exporter import outside
 `otel-*` subpaths."
+
+---
+
+## ADR-010: Shared Plugin Mechanism Lives in `ts-runtime`; Engine Concepts Stay Separate
+
+**Status:** Accepted · **Date:** 2026-06-03 · **Targets:** `@gobing-ai/ts-runtime`, `@gobing-ai/ts-rule-engine`, `@gobing-ai/ts-dual-workflow-engine`
+
+**Context.** `ts-rule-engine` and `ts-dual-workflow-engine` both need the same extensibility grammar:
+a named, replace-by-key capability registry plus a trust-gated loader that imports arbitrary extension
+modules only when explicitly allowed. The rule engine already has a mature version of this
+(`CapabilityRegistry<T>` with `origin: 'builtin' | 'extension'` metadata; `loadExtensionsIntoHost`
+with a fail-closed `allowExtensions !== true` gate, a `moduleLoader` test seam, a default/named-
+`extension` export contract, and a relative-path/no-`..`-traversal guard). The workflow engine has the
+weaker form — private `Map`s for actions/guards, no origin metadata, no extension loader — and task
+0006 (R7/R8) is about to add exactly the loader the rule engine already has.
+
+Two failure modes were on the table. (1) **Under-share:** let the workflow engine grow its own loader
+independently — yields two trust gates, two `moduleLoader` seams, and two override behaviors to keep in
+sync, with copy-pasted fail-closed security logic that will drift. (2) **Over-share:** unify the
+*domain concepts* — define a common `Capability<TCtx, TResult>` supertype spanning evaluators, actions,
+and guards, with a shared `EngineContext`. Inspection of the code shows this is a false commonality: a
+`RuleEvaluator` is an idempotent *query* (`evaluate(rule, ctx) → {findings, fixes}`, `RuleContext =
+{ workdir, rule }`), while an `ActionRunner` is an effectful *command* in a stateful run
+(`execute(options, ctx) → ActionResult` with `terminal`, over `ActionRunContext = { runId,
+stateOrNodeId, vars, env, ... }`). Their contexts overlap only in `workdir` (required vs optional).
+Unifying them erases the command/query distinction and couples the rule engine to workflow run state
+it never uses — the premature-abstraction trap (and what 0006 R9 / Non-Goals already forbid).
+
+**Decision.** Share the **mechanism**, not the **concepts** (Option A from the 0006 brainstorm).
+
+1. **Shared core location: `@gobing-ai/ts-runtime`, exported from the subpath `@gobing-ai/ts-runtime/plugin`.**
+   Not a new `packages/plugin-core`. Both engines already depend on `ts-runtime`, the primitives are
+   generic runtime infrastructure, and a new package adds path aliases, release metadata, OIDC publish
+   surface, and docs for a ~150-line API (YAGNI, same posture as ADR-008). A dedicated package is a
+   deliberate **future** ADR, triggered only by a third consumer or real plugin-lifecycle features —
+   not by this task.
+
+2. **The shared core is domain-agnostic.** It exposes generic primitives only and must never import
+   either engine or know any engine vocabulary (`evaluator`/`resolver`/`fixer`/`formatter` or
+   `action`/`guard`/`driver`):
+   - `CapabilityRegistry<T>` — `register(name, capability, origin?)`, `has`, `get`, `list`, plus
+     `getEntry`/`entries` so `origin: 'builtin' | 'extension'` is inspectable (workflow introspection
+     and rule-engine diagnostics both need it).
+   - generic `ExtensionRef<TKind>`, `LoadExtensionsOptions` (`allowExtensions?`, `logger?`,
+     `moduleLoader?`), and a generic loader that imports + validates the default/named-`extension`
+     export, then invokes an **engine-provided registration callback** — the loader never decides which
+     registry receives a module.
+   - `assertRelativeExtensionPath()` extracted as a **standalone validator function** (not a zod
+     schema), so the loader enforces the no-absolute-path / no-`..`-traversal guard at load time even
+     if an engine forgets it in its own schema (defense in depth: validate at schema time *and* load
+     time).
+
+3. **Domain stays in each engine.** Each engine owns its `ExtensionKind` enum, its `extensions` zod
+   schema (composed from the shared path validator), its kind→registry mapping, and its override
+   *semantics* and warning strings — only the engine knows whether replacing a capability is meaningful.
+
+4. **Error types are engine-owned (the boundary 0006's API sketch glossed over).** The shared
+   `CapabilityRegistry.get` stays generic; the workflow host preserves `WorkflowValidationError` for
+   unknown action/guard kinds by doing `has()`-then-throw-own-error at its boundary rather than pushing
+   error types into the core. The rule engine keeps its existing generic `Error` message. The shared
+   core never imports an engine's error class.
+
+5. **Trust gate is verbatim and fail-closed.** The single most important invariant carried over: when
+   refs exist but `allowExtensions !== true`, the loader throws **before any `import()`**. A test must
+   assert the injected `moduleLoader` is never called when the gate is closed. No silent drop of
+   declared extensions; no dynamic import before the gate passes.
+
+6. **Migration order, no behavior drift.** rule-engine migrates first onto the shared registry/loader
+   with its public host shape, error messages, override warnings, schema semantics, and tests
+   unchanged (re-export `CapabilityRegistry` from the old path for one release if it is currently public
+   surface). Workflow migrates its action/guard maps to the shared registry next (built-ins register
+   `origin: 'builtin'`), then gains trust-gated `actions`/`guards` extension loading via the shared
+   loader. Dependencies + tsconfig path aliases stay in sync per ADR-002 / ADR-004.
+
+7. **Explicitly deferred (design-only, no implementation in 0006).** A workflow **driver registry**
+   abstracting `state-machine` vs `transition-flow` is *not* built; `WorkflowService` keeps explicit
+   dispatch until a third dialect or a real override use case appears. The shell-action trust model is a
+   separate security task. The workflow variable/template engine stays workflow-local — it is not a
+   shared util.
+
+**Consequences.** The genuinely duplicated, security-critical mechanism (registry + fail-closed loader
++ path guard + origin metadata) is defined and audited **once** in `ts-runtime/plugin`; the workflow
+engine gets origin metadata, introspection, and a trust-gated loader without re-deriving the trust
+gate. The shared core stays a small generic primitive because all domain knowledge — kinds, schemas,
+contexts, error types, override semantics — is held by the engines, structurally preventing the core
+from accreting engine specifics. This is an additive change to `ts-runtime` (new subpath) plus internal
+migrations in both engines with no caller-visible behavior change. A spur rule may later codify "the
+shared plugin core must not import either engine." Promoting the core to a dedicated `packages/plugin-core`,
+building a driver registry, or sharing the template engine are each future ADRs gated on real pressure,
+not drift. Implementation is tracked as task 0006 under `docs/tasks/`.
