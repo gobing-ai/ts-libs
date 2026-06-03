@@ -6,6 +6,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [0.2.9] — 2026-06-02
+
+### Added
+
+- **`ts-ai-runner` — Team-mode primitives:** Added agent spec loading/saving, identity preamble generation, durable message service integration, long-running agent subprocess management, and a `TeamOrchestrator` for starting agents and routing persisted/live messages.
+- **`ts-db` — Durable inbox persistence:** Added `InboxMessageDao`, the `inbox_messages` table, embedded migration support, and the `@gobing-ai/ts-db/inbox` subpath for inter-agent and workflow messaging.
+- **`ts-runtime` — Process and path primitives:** Added sync process execution, pipe-based subprocess spawning, sync filesystem support, and runtime-portable POSIX-style path helpers.
+- **`ts-utils` — Shared object/API helpers:** Added `isPlainObject`, `deepMerge`, `flattenKeys`, `deFlattenKeys`, and `toApiResponse()` for consistent object handling and domain-error-to-API-envelope mapping.
+- **Project planning docs:** Added task records for rule-engine review follow-ups, evaluator seam refactoring, and team-mode primitives.
+
+### Changed
+
+- **`ts-infra` — Telemetry export is opt-in:** Core telemetry now instruments against the globally registered OpenTelemetry provider and no longer owns exporter setup. Node OTLP export moved to the new `@gobing-ai/ts-infra/otel-node` subpath with optional exporter peers.
+- **`ts-runtime` — Runtime selection simplified:** Removed the unused `RuntimeFactory` path in favor of the existing `getFs()` / `setFileSystem()` global filesystem seam.
+- **`ts-rule-engine` — Rule-file extension parity:** Rule files can now declare the same trusted `extensions` block as presets, using the existing `allowExtensions` gate. Preset override handling now deduplicates by rule id and prevents overrides from raising fix authority.
+- **`ts-rule-engine` — Evaluator scanning consolidation:** Regex, forbidden-import, secrets, import-boundary, and TSDoc-export evaluators now share a single file-scanning seam with explicit loose/glob match modes, reducing duplicated file discovery logic while preserving evaluator behavior.
+- **`ts-dual-workflow-engine` — Stronger workflow validation:** Workflow loading now reports field-specific schema errors, aggregates semantic validation failures, validates duplicate states/nodes and edge/transition endpoints, rejects unreachable unguarded transition ordering, and checks template references against declared vars/env/runtime namespaces.
+- **`ts-llm-jsonl-importer` — Safer hashing/error surface:** Stable JSON hashing now handles `undefined` consistently, and invalid target table names raise `HistoryImportError` with structured details.
+- **`ts-utils` — Runtime portability hardening:** Cursor encoding now uses web-standard base64url APIs with a length guard, output streams resolve lazily for Worker-safe imports, and timestamp parsing rejects non-finite numbers.
+
+### Fixed
+
+- **`ts-rule-engine`:** Malformed `LF:` / `LH:` values in lcov input no longer produce `NaN` coverage findings.
+- **`ts-dual-workflow-engine`:** Runtime template built-ins and config-time reference validation now align, avoiding false validation failures for supported runtime namespaces.
+- **`ts-db`:** Drizzle internals are further quarantined behind shared builder helpers, and queue/inbox DAO behavior gained focused coverage.
+
+### Breaking Changes
+
+- **`ts-rule-engine`:** `loadRuleFile()` now returns `{ rules, extensions }` instead of a bare rule array, matching `loadPreset()`. Existing callers should destructure `rules`.
+- **`ts-infra`:** `TelemetryConfig.exporterEndpoint` / `exporterProtocol` and main-barrel exporter ownership were removed. Use BYO OpenTelemetry provider setup or import `initNodeTelemetry()` from `@gobing-ai/ts-infra/otel-node`.
+- **`ts-infra`:** HTTP-server and DB-specific metric getter exports were removed from the core metric surface as part of the instrumentation/export split.
+
 ## [0.2.8] — 2026-06-01
 
 ### Added
@@ -154,7 +186,9 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[0.2.7]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.6...HEAD
+[0.2.9]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.8...HEAD
+[0.2.8]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.7...@gobing-ai/ts-libs-v0.2.8
+[0.2.7]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.6...@gobing-ai/ts-libs-v0.2.7
 [0.2.6]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.5...@gobing-ai/ts-libs-v0.2.6
 [0.2.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.3...@gobing-ai/ts-libs-v0.2.4
 [0.2.3]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.5...@gobing-ai/ts-libs-v0.2.3
