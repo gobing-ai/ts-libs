@@ -6,6 +6,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+
+## [0.3.1] — 2026-06-04
+
+### Changed
+
+- **`ts-rule-engine` — Rule re-categorization:** Moved `tsdoc-exports` rule from `typescript/` to `quality/` category so it can run alongside `coverage-gate` in post-test checks without duplicating the full `typescript` category. The `spur-dev` preset now extends the full `quality` category instead of cherry-picking individual rule files.
+
 ## [0.3.0] — 2026-06-02
 
 ### Added

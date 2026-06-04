@@ -3,4 +3,4 @@
 name: spur-dev
 extends:
   - typescript
-  - quality/coverage-gate
+  - quality

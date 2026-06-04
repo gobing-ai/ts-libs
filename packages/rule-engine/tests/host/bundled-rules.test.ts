@@ -23,7 +23,7 @@ describe('listBundledRuleFiles', () => {
         // Presets live at the root; category rules live under their folders.
         expect(files).toContain('recommended.yaml');
         expect(files).toContain('spur-dev.yaml');
-        expect(files).toContain('typescript/tsdoc-exports.yaml');
+        expect(files).toContain('quality/tsdoc-exports.yaml');
         expect(files).toContain('structure/test-location.yaml');
         expect(files).toContain('quality/coverage-gate.yaml');
         // No absolute paths leak out — these are copy-source-relative.
