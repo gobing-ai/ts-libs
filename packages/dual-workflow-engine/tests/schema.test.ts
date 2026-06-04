@@ -27,10 +27,32 @@ describe('ActionDefSchema', () => {
         const result = ActionDefSchema.safeParse({ kind: '' });
         expect(result.success).toBe(false);
     });
-
     test('rejects missing kind', () => {
         const result = ActionDefSchema.safeParse({});
         expect(result.success).toBe(false);
+    });
+
+    test('accepts onError: "continue"', () => {
+        const result = ActionDefSchema.safeParse({ kind: 'shell', onError: 'continue' });
+        expect(result.success).toBe(true);
+        expect(result.data?.onError).toBe('continue');
+    });
+
+    test('accepts onError: "fail"', () => {
+        const result = ActionDefSchema.safeParse({ kind: 'shell', onError: 'fail' });
+        expect(result.success).toBe(true);
+        expect(result.data?.onError).toBe('fail');
+    });
+
+    test('rejects invalid onError value', () => {
+        const result = ActionDefSchema.safeParse({ kind: 'shell', onError: 'retry' });
+        expect(result.success).toBe(false);
+    });
+
+    test('omits onError by default', () => {
+        const result = ActionDefSchema.safeParse({ kind: 'shell' });
+        expect(result.success).toBe(true);
+        expect(result.data?.onError).toBeUndefined();
     });
 });
 
@@ -101,8 +123,30 @@ describe('StateMachineWorkflowDefSchema', () => {
         });
         expect(result.success).toBe(false);
     });
-});
 
+    test('accepts defaultOnError: "continue"', () => {
+        const result = StateMachineWorkflowDefSchema.safeParse({
+            name: 'wf',
+            initialState: 's',
+            defaultOnError: 'continue',
+            states: [{ id: 's' }, { id: 'done' }],
+            transitions: [{ from: 's', to: 'done' }],
+        });
+        expect(result.success).toBe(true);
+        expect(result.data?.defaultOnError).toBe('continue');
+    });
+
+    test('rejects invalid defaultOnError', () => {
+        const result = StateMachineWorkflowDefSchema.safeParse({
+            name: 'wf',
+            initialState: 's',
+            defaultOnError: 'skip',
+            states: [{ id: 's' }],
+            transitions: [],
+        });
+        expect(result.success).toBe(false);
+    });
+});
 describe('TransitionFlowWorkflowDefSchema', () => {
     const minimal = {
         kind: 'transition-flow' as const,
@@ -155,6 +199,15 @@ describe('TransitionFlowWorkflowDefSchema', () => {
             nodes: [{ id: 'a', type: 'invalid' }],
         });
         expect(result.success).toBe(false);
+    });
+
+    test('accepts defaultOnError: "continue"', () => {
+        const result = TransitionFlowWorkflowDefSchema.safeParse({
+            ...minimal,
+            defaultOnError: 'continue',
+        });
+        expect(result.success).toBe(true);
+        expect(result.data?.defaultOnError).toBe('continue');
     });
 });
 
