@@ -3,7 +3,8 @@ import type { Config } from './config';
 import { buildConfigFromObject } from './config';
 import { createCfFileSystem } from './file-system-cf';
 import type { ProcessExecutorConfig } from './process-executor';
-import type { LoadConfigOptions, RuntimeFactory } from './runtime-factory';
+import type { RuntimeFactory } from './runtime-factory';
+import type { LoadConfigOptions } from './types';
 
 /** Binding name for the YAML config text blob set in wrangler.toml. */
 const CONFIG_YAML_BINDING = 'CONFIG_YAML';
@@ -17,6 +18,7 @@ export const cloudflareWorkersFactory: RuntimeFactory = {
     capabilities: {
         hasFilesystem: false,
         hasProcessExecution: false,
+        hasPersistentStorage: false,
     },
 
     createFileSystem: () => createCfFileSystem(),
