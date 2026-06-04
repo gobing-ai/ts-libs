@@ -1,27 +1,7 @@
 import type { Config } from './config';
 import type { FileSystem } from './file-system';
 import type { ProcessExecutor, ProcessExecutorConfig } from './process-executor';
-
-/**
- * @internal — confined to packages/runtime/src/; not public API
- */
-export type RuntimeName = 'node-bun' | 'cloudflare-workers';
-
-/**
- * Describes what capabilities a runtime environment provides.
- */
-export interface RuntimeCapabilities {
-    readonly hasFilesystem: boolean;
-    readonly hasProcessExecution: boolean;
-}
-
-/** Options controlling config loading. */
-export interface LoadConfigOptions {
-    /** Partial overrides merged on top of the parsed config. */
-    overrides?: Partial<Config>;
-    /** Runtime request bindings/vars, used by Cloudflare Workers for CONFIG_YAML text blob. */
-    envBindings?: Record<string, unknown>;
-}
+import type { LoadConfigOptions, RuntimeCapabilities, RuntimeName } from './types';
 
 /**
  * Abstract factory for creating runtime-aware infrastructure.
