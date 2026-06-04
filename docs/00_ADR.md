@@ -415,3 +415,52 @@ statement of what a package directly needs, restoring the ADR-002 guarantee in b
 alias fails the type gate immediately). A future spur rule may codify "no declared `@gobing-ai/ts-*`
 dependency is unused in `src/**`" to enforce direction (1) at the gate rather than by review. Applied to
 `ts-rule-engine`, `ts-ai-runner`, and `ts-dual-workflow-engine` in this change.
+
+
+---
+
+## ADR-013: Workflow Run Lifecycle Is a Deep Module Built on `ts-infra` Observability
+
+**Status:** Accepted · **Date:** 2026-06-04 · **Targets:** `@gobing-ai/ts-dual-workflow-engine`
+
+**Context.** The two workflow drivers (`StateMachineDriver`, `TransitionFlowDriver`) each carried a
+verbatim copy of the run-level bookkeeping: run identity (`runId`/`startedAt`), the
+`createRun → saveWorkflowState → savePhase → saveTransition → finalizeRun` persistence sequence, and the
+`done`/`fail`/`runRecord`/`allowedEnv`/`runtimeBuiltins` helpers (~90 duplicated lines). The two copies had
+to stay byte-identical with nothing enforcing it — a latent drift bug. Separately, the engine emitted **no
+observability at all**: it executed shell actions, took transitions, and finalized runs silently, while the
+workspace already ships `ts-infra` (`getLogger`, OTel `traceAsync`/`addSpanEvent`). A workflow engine that
+cannot be observed in production is not robust. ADR-006 §7 deferred a **driver registry abstracting the two
+dialects' dispatch** "until a third dialect or a real override use case appears"; that deferral was being
+read more broadly than intended — as if the drivers' shared *bookkeeping* must also stay duplicated.
+
+**Decision.**
+
+1. **Run lifecycle is one deep module** (`src/run-lifecycle.ts`, `RunLifecycle`). It owns run identity, the
+   persistence sequence, and observability behind a small interface (`begin`-via-`RunLifecycle.run`,
+   `enter`, `recordTransition`, `done`, `fail`). Both drivers keep their **distinct dialect control loops**
+   and call into this for every persistence touch. `WorkflowService` keeps explicit dispatch.
+
+2. **ADR-006 §7 is clarified, not reversed.** The still-deferred item is a *driver registry that abstracts
+   `state-machine` vs `transition-flow` dispatch*. Consolidating the drivers' shared run-lifecycle
+   bookkeeping is **not** that abstraction and is explicitly permitted — the two control loops remain
+   separate and dialect-specific.
+
+3. **The engine consumes `ts-infra` for observability** (`dual-workflow-engine → ts-infra`, a direct
+   dependency per ADR-012; no cycle — `ts-infra` depends only on `ts-db`). `RunLifecycle` logs run
+   start/enter/transition/done/fail via a `child`-bound `getLogger('workflow')` (injectable) and wraps each
+   run in a `workflow.run` OTel span with per-step span events. Telemetry instruments against the global
+   provider (ADR-009): zero-config and no-op until a consumer initializes a provider.
+
+4. **Runtime builtin namespaces are single-sourced.** `RUNTIME_BUILTIN_KEYS` in `run-lifecycle.ts` is the
+   one definition consumed by both the resolver (`runtimeBuiltins`) and the config validator
+   (`RUNTIME_TEMPLATE_NAMESPACES`), so a reference the runtime would resolve can never be rejected by
+   validation, or vice-versa.
+
+**Consequences.** The "two files must never drift" invariant is gone — run bookkeeping changes once, in one
+place, tested once through the real `WorkflowPersistenceAdapter` interface. The engine is observable by
+default (structured logs) and traceable on demand (OTel spans) without forcing a telemetry provider on
+consumers. The drivers shrink to their actual algorithms. A future driver registry (ADR-006 §7) remains
+deferred and is now unambiguously scoped to *dispatch abstraction*, not lifecycle sharing. A future ADR
+would be required to make the workflow variable/template engine a shared util (ADR-006 §7 keeps it
+workflow-local).
