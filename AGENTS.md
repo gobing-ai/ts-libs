@@ -46,7 +46,8 @@ bun run bump-ver <x.y.z> [--push]   # lockstep version bump + release tags (rele
 ## Verification gate (all must pass before "done")
 
 1. `bun run spur-check` clean — Biome, per-package typecheck, tests (coverage), and **both** spur rule
-   presets (`recommended` + `spur-dev` coverage-gate), all `--fail-on warning`.
+   presets (`recommended-pre-check` before tests + `recommended-post-check` after tests), all
+   `--fail-on warning`.
 2. `bun run build` succeeds for every package.
 3. No test skipped/`.skip`'d/commented to go green. No `biome-ignore` added solely to silence the gate.
 4. `git status` shows only intentional changes.
