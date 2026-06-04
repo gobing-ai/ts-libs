@@ -19,7 +19,12 @@ export interface SourceDiscoveryOptions {
     fs?: FileSystem;
 }
 
-const DEFAULT_EXCLUDES = new Set(['.git', 'node_modules', 'dist', '.coverage', '.astro', '.wrangler']);
+/**
+ * Directory names pruned from every file walk — heavy or generated trees that no rule
+ * should scan. Shared so subprocess-backed evaluators (e.g. `sg`) can forward the same
+ * skip-list to the external tool instead of relying on each rule to remember it.
+ */
+export const DEFAULT_EXCLUDES = new Set(['.git', 'node_modules', 'dist', '.coverage', '.astro', '.wrangler']);
 
 /** Resolve source files for evaluators using conservative path-fragment matching. */
 export async function discoverFiles(options: SourceDiscoveryOptions): Promise<string[]> {
