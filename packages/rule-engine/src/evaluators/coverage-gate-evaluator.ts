@@ -1,5 +1,4 @@
-import { isAbsolute, relative, resolve } from 'node:path';
-import { NodeFileSystem } from '@gobing-ai/ts-runtime';
+import { isAbsolutePath, NodeFileSystem, relativePath, resolvePath } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -55,8 +54,8 @@ export class CoverageGateEvaluator implements RuleEvaluator {
     async evaluate(rule: ConstraintRule, context: RuleContext): Promise<RuleEvaluationResult> {
         const config = (rule.evaluator.config ?? {}) as CoverageGateConfig;
         const lcovPath = config.lcovPath
-            ? resolve(context.workdir, config.lcovPath)
-            : resolve(context.workdir, 'coverage', 'lcov.info');
+            ? resolvePath(context.workdir, config.lcovPath)
+            : resolvePath(context.workdir, 'coverage', 'lcov.info');
 
         if (!(await this.fs.exists(lcovPath))) {
             return {
@@ -142,6 +141,6 @@ function isAlwaysExcluded(filePath: string): boolean {
 
 /** Normalize an lcov `SF:` path to a workdir-relative forward-slash path. */
 function normalizeLcovSourcePath(workdir: string, filePath: string): string {
-    const normalized = isAbsolute(filePath) ? relative(workdir, filePath) : filePath;
+    const normalized = isAbsolutePath(filePath) ? relativePath(workdir, filePath) : filePath;
     return normalized.replaceAll('\\', '/');
 }
