@@ -1,7 +1,7 @@
 # 00 ADR — ts-libs
 
 **Status:** Authoritative
-**Last Updated:** 2026-06-03
+**Last Updated:** 2026-06-04
 **Owner:** Robin Min
 
 Single source of truth for the architecture & release decisions that define this monorepo. Each
@@ -84,8 +84,10 @@ built `dist/.d.ts`), which lags behind source — so cross-package breakage surf
 dependency (which governs runtime + publish), not a replacement for it.
 
 **Consequences.** `tsc` typechecks against live sibling **source**, catching cross-package breakage
-immediately. The `paths` entries must stay in sync with the declared dependencies; never remove a
-`dependency` in favour of only a path alias — paths do not affect runtime or publish.
+immediately. Never remove a `dependency` in favour of only a path alias — paths do not affect runtime
+or publish. The `paths` set and the `dependencies` set are **related but not identical** — see
+**ADR-012**, which refines the "stay in sync" rule into the precise model (`dependencies` = direct
+imports; `paths` = the full transitive source closure).
 
 ---
 
@@ -361,3 +363,55 @@ classes are deprecated but preserved for backward compatibility.
 
 Implementation is tracked as tasks 0012 (factory + FileSystem + ProcessExecutor) and 0013 (path
 utility consolidation + exemption elimination) under `docs/tasks/`.
+
+---
+
+## ADR-012: `dependencies` Track Direct Imports; `paths` Track the Transitive Source Closure
+
+**Status:** Accepted · **Date:** 2026-06-04 · **Targets:** every `@gobing-ai/ts-*` package · **Refines:** ADR-002, ADR-004
+
+**Context.** ADR-004's Consequences said the `compilerOptions.paths` set "must stay in sync with the
+declared dependencies." Read literally that implies `paths == dependencies`, and that reading caused a
+real drift in three packages: `ts-rule-engine` declared `ts-db` and `ts-utils` as `dependencies` but
+imported neither; `ts-ai-runner` and `ts-dual-workflow-engine` each declared `ts-utils` but never
+imported it. The drift has two distinct costs — (1) consumers install transitive packages (and their
+trees, e.g. `ts-db` → `drizzle-orm`) for code that never runs; (2) nothing flags a `dependency` that no
+source line actually needs, the same blind spot ADR-002 was written to kill, just in the other
+direction (present-but-unused rather than stale-range).
+
+The root cause is that the two sets answer **different questions**, because ADR-004 resolves cross-package
+imports to **source**, not built `.d.ts`:
+
+- A package's `dependencies` answer *"what must a consumer install for this package to run?"* — that is
+  exactly its **direct** `@gobing-ai/ts-*` imports. Transitive packages arrive automatically through the
+  direct dependency's own manifest (npm resolves the tree); re-declaring them is redundant and wrong.
+- A package's `tsconfig` `paths` answer *"what must `tsc` alias to typecheck this package against live
+  source?"* — that is the **full transitive source closure**: every `@gobing-ai/ts-*` module reachable
+  from this package's imports, *including* ones pulled in only via a dependency's source. Example:
+  `ts-rule-engine` imports `ts-ai-runner` (which imports `ts-db/inbox`) and `ts-runtime` (which imports
+  `ts-utils`), so its `paths` need `ts-db/inbox` and `ts-utils` aliases even though neither is a direct
+  dependency.
+
+These sets overlap (every direct dependency is also in the source closure) but are not equal.
+
+**Decision.**
+
+1. **`dependencies` = the package's direct `@gobing-ai/ts-*` imports — nothing more.** A declared internal
+   dependency that no `src/**` line imports is removed. Subpath imports (e.g. `ts-db/inbox`) are satisfied
+   by the bare package dependency (`ts-db`); declare the bare package, not the subpath.
+
+2. **`tsconfig` `paths` = the transitive source closure required for `tsc`.** Aliases for transitively-
+   reached modules are kept even when the module is not a direct dependency. A `paths` entry that resolves
+   nothing in the closure is removed (e.g. `ts-runtime/bun-sqlite` where no reachable source imports it).
+
+3. **ADR-004's "stay in sync" is restated as the directional rule it always meant:** never drop a *direct*
+   dependency in favour of only a path alias (paths do not affect runtime or publish). It does **not** mean
+   the two sets are identical.
+
+**Consequences.** Published manifests stop forcing consumers to install unused internal packages and their
+trees (notably `ts-rule-engine` no longer drags `ts-db`/`drizzle-orm`). `dependencies` becomes a truthful
+statement of what a package directly needs, restoring the ADR-002 guarantee in both directions. `tsconfig`
+`paths` remain the broader transitive set and are validated by each package's `tsc --noEmit` (a missing
+alias fails the type gate immediately). A future spur rule may codify "no declared `@gobing-ai/ts-*`
+dependency is unused in `src/**`" to enforce direction (1) at the gate rather than by review. Applied to
+`ts-rule-engine`, `ts-ai-runner`, and `ts-dual-workflow-engine` in this change.
