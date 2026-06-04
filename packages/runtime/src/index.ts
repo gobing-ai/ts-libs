@@ -36,12 +36,7 @@ export type {
 } from './process-executor';
 export { ProcessExecutor } from './process-executor';
 export { cloudflareWorkersFactory } from './runtime-cf';
-export type {
-    LoadConfigOptions,
-    RuntimeCapabilities,
-    RuntimeFactory,
-    RuntimeName,
-} from './runtime-factory';
+export type { RuntimeFactory } from './runtime-factory';
 export { _resetNodeFileSystem, nodeBunFactory } from './runtime-node-bun';
 export * from './schema-validation';
 export * from './types';
