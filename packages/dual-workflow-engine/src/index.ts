@@ -4,6 +4,7 @@ export {
     type LoadWorkflowExtensionsOptions,
     loadWorkflowExtensionsIntoHost,
     type WorkflowExtensionKind,
+    type WorkflowExtensionLogger,
     type WorkflowExtensionRef,
 } from './extensions';
 export {
@@ -17,6 +18,14 @@ export {
     DbWorkflowPersistenceAdapter,
     MemoryWorkflowPersistenceAdapter,
 } from './persistence';
+export {
+    allowedEnv,
+    RUNTIME_BUILTIN_KEYS,
+    RunLifecycle,
+    type RunLifecycleDeps,
+    runtimeBuiltins,
+    type WorkflowMode,
+} from './run-lifecycle';
 export {
     ActionDefSchema,
     GuardDefSchema,
