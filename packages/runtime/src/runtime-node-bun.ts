@@ -4,7 +4,8 @@ import { buildConfigFromObject } from './config';
 import type { FileSystem } from './file-system';
 import { createNodeFileSystem } from './file-system-node';
 import { ProcessExecutor, type ProcessExecutorConfig } from './process-executor';
-import type { LoadConfigOptions, RuntimeFactory } from './runtime-factory';
+import type { RuntimeFactory } from './runtime-factory';
+import type { LoadConfigOptions } from './types';
 
 // Lazy re-initialisable singleton for test isolation.
 let _nodeFileSystem: FileSystem | undefined;
@@ -27,6 +28,7 @@ export const nodeBunFactory: RuntimeFactory = {
     capabilities: {
         hasFilesystem: true,
         hasProcessExecution: true,
+        hasPersistentStorage: true,
     },
 
     createFileSystem: () => getNodeFileSystem(),
