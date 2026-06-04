@@ -31,7 +31,7 @@ erDiagram
 
 | Entity | One-line Description |
 |--------|----------------------|
-| `RuleEngine` | Orchestrates evaluation of enabled rules against a workspace directory. |
+| `RuleEngine` | Orchestrates evaluation of enabled rules against a workspace directory. Supports opt-in early exit via `stopOnFirst` parameter. |
 | `RuleEngineHost` | Capability host backed by `CapabilityRegistry` from `@gobing-ai/ts-runtime/plugin` — holds evaluators, resolvers, and formatters, each with origin tracking for safe override detection. |
 | `CapabilityRegistry<T>` | Generic named registry (shared with `ts-rule-engine`, `ts-dual-workflow-engine`) that tags each entry with its `origin` (`'builtin'`, `'extension'`, `'caller'`). |
 | `ConstraintRule` | Declarative policy unit: id, severity, include/exclude globs, evaluator type + config, and optional fix config. |
@@ -100,8 +100,8 @@ sequenceDiagram
     Registry-->>Host: (origin-tracked entry)
 
     Note over Caller,FS: 3. Evaluation
-    Caller->>Engine: evaluateWithFixes(rules, workdir, maxFixMode)
-    loop For each enabled rule
+    Caller->>Engine: evaluateWithFixes(rules, workdir, maxFixMode, stopOnFirst?)
+    loop For each enabled rule (exits early when stopOnFirst threshold met)
         Engine->>Host: host.evaluators.get(evaluator.type)
         Host->>Registry: get(type)
         Registry-->>Engine: RuleEvaluator
@@ -158,16 +158,41 @@ const rules: ConstraintRule[] = [
     },
   },
 ];
+```
+
+
+## Quick Start
+
+```ts
+import { RuleEngine, TextFormatter, type ConstraintRule } from '@gobing-ai/ts-rule-engine';
+
+const rules: ConstraintRule[] = [
+  {
+    id: 'no-console-log',
+    description: 'Do not commit console.log calls',
+    enabled: true,
+    severity: 'error',
+    include: ['src/**/*.ts'],
+    evaluator: {
+      type: 'regex',
+      config: {
+        mode: 'forbid',
+        pattern: 'console\\.log\\(',
+      },
+    },
+  },
+];
 
 const engine = new RuleEngine();
 const result = await engine.evaluate(rules, process.cwd());
 
+// Or stop early after the first error finding:
+const fastResult = await engine.evaluate(rules, process.cwd(), 'error');
+
 console.log(new TextFormatter().format(result));
-process.exitCode = result.findings.some((finding) => finding.severity === 'error') ? 1 : 0;
 ```
 
 ## Rule Files
-
 Rule files can be YAML, JSON, or a single rule object. File loads honor a top-level `$schema` ref by default, then validate the internal Zod schema. The `$schema` value is resolved from the bundled package schema (shipped under `node_modules/@gobing-ai/ts-rule-engine/schemas/`) — no network access. Quote the value, since YAML treats a leading `@` as reserved. Relative paths and (opt-in) remote URLs are also supported; see `@gobing-ai/ts-runtime` → *Structured config* for the full resolution rules. A multi-rule YAML file looks like this:
 
 ```yaml
@@ -696,7 +721,19 @@ Supported extension kinds:
 | `evaluators` | `host.evaluators` (`CapabilityRegistry<RuleEvaluator>`) | object with `name` and `evaluate()` | `'extension'` |
 | `formatters` | `host.formatters` (`CapabilityRegistry<ResultFormatter>`) | object with `name` and `format()` | `'extension'` |
 
-`fixers` can be declared in preset metadata but are not loaded into `RuleEngineHost` by `loadExtensionsIntoHost()` because fixer providers live on the engine's internal fixer `Map`.
+## Traversal Control (`stopOnFirst`)
+
+By default, the engine evaluates every enabled rule exhaustively. Pass `stopOnFirst: 'error' | 'warning' | 'info'` to break early when the severity threshold is met:
+
+```ts
+// Stop after the first error-level finding — skip remaining rules.
+await engine.evaluate(rules, workdir, 'error');
+
+// Same behavior via evaluateWithFixes.
+await engine.evaluateWithFixes(rules, workdir, 'auto', 'error');
+```
+
+The threshold compares findings against `SEVERITY_RANK` (`error: 3 > warning: 2 > info: 1`). Omitting the parameter preserves exhaustive evaluation.
 
 ## Formatting Results
 
