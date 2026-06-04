@@ -34,7 +34,8 @@
             "Bash(grep *)",
             "Bash(biome check *)",
             "Read(//tmp/**)",
-            "Bash(bunx spur *)"
+            "Bash(bunx spur *)",
+            "Bash(bunx tsc *)"
         ]
     }
 }
