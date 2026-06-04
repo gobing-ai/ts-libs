@@ -1,5 +1,5 @@
-import { resolve } from 'node:path';
 import type { FileSystem } from '@gobing-ai/ts-runtime';
+import { getProcessCwd, resolvePath } from '@gobing-ai/ts-runtime';
 
 import type { DbAdapter } from './adapter';
 import { embeddedMigrations } from './embedded-migrations';
@@ -135,7 +135,7 @@ export async function applyMigrations(adapter: DbAdapter, options?: MigrationOpt
 
     await ensureJournalTable(adapter, table);
 
-    const folder = options?.migrationsFolder ?? resolve(process.cwd(), 'drizzle');
+    const folder = options?.migrationsFolder ?? resolvePath(getProcessCwd(), 'drizzle');
 
     // File-based migrations: attempt only if the drizzle/ folder is present.
     // With an injected fs we get a definitive answer (await the Promise — a bare
