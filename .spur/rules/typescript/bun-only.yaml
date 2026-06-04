@@ -17,10 +17,11 @@ rules:
         pattern: "\\b(npm run|pnpm|yarn)\\b"
     include:
       - "package.json"
-      - ".spur/**/*.yaml"
       - "**/*.yml"
       - "**/*.yaml"
       - "**/*.lock"
+    exclude:
+      - ".spur/rules/"
 
   - id: enforce-bun-test
     description: "Test files must use bun:test, not Vitest, Jest, or Mocha."
