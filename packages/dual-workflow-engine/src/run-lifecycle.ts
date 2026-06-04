@@ -1,0 +1,172 @@
+import { addSpanEvent, getLogger, type Logger, traceAsync } from '@gobing-ai/ts-infra';
+import { getProcessEnv } from '@gobing-ai/ts-runtime';
+import type {
+    WorkflowPersistenceAdapter,
+    WorkflowRunOptions,
+    WorkflowRunRecord,
+    WorkflowRunResult,
+    WorkflowStatus,
+} from './types';
+
+/** Workflow dialect carried on every run, span, and persisted record. */
+export type WorkflowMode = WorkflowRunResult['mode'];
+
+/** Keys of the runtime builtin namespace, single-sourced for resolver + validator. */
+export const RUNTIME_BUILTIN_KEYS = [
+    'workflow',
+    'runId',
+    'task',
+    'state',
+    'node',
+    'iteration',
+    'run',
+    'runtime',
+] as const;
+
+/** Built-in bare template values available to action options (state-machine + transition-flow). */
+export function runtimeBuiltins(
+    workflowName: string,
+    stateOrNodeId: string,
+    runId: string,
+    transitionsTaken: number,
+    mode: WorkflowMode,
+): Record<(typeof RUNTIME_BUILTIN_KEYS)[number], string | number> {
+    return {
+        workflow: workflowName,
+        runId,
+        task: workflowName,
+        state: stateOrNodeId,
+        node: stateOrNodeId,
+        iteration: transitionsTaken,
+        run: runId,
+        runtime: mode,
+    };
+}
+
+/** Project the env allowlist over a source map, dropping unset names. */
+export function allowedEnv(
+    names: readonly string[],
+    source: Record<string, string | undefined> = getProcessEnv(),
+): Record<string, string> {
+    return Object.fromEntries(
+        names.flatMap((name) => (source[name] === undefined ? [] : [[name, source[name] as string]])),
+    );
+}
+
+/** Dependencies a driver hands to {@link RunLifecycle}. */
+export interface RunLifecycleDeps {
+    readonly persistence: WorkflowPersistenceAdapter;
+    /** Observability sink; defaults to the shared `workflow` category logger. */
+    readonly logger?: Logger;
+}
+
+/**
+ * Owns the run-level bookkeeping shared by both drivers: run identity, the
+ * create→phase→finalize persistence sequence, and observability (one OTel span
+ * per run plus structured log lines). The two driver control loops stay
+ * dialect-specific (ADR-006 §7) and call into this for every persistence touch.
+ */
+export class RunLifecycle {
+    readonly runId: string;
+    private readonly persistence: WorkflowPersistenceAdapter;
+    private readonly logger: Logger;
+    private readonly startedAt: string;
+
+    private constructor(
+        runId: string,
+        private readonly workflowName: string,
+        private readonly mode: WorkflowMode,
+        deps: RunLifecycleDeps,
+    ) {
+        this.runId = runId;
+        this.persistence = deps.persistence;
+        this.startedAt = new Date().toISOString();
+        this.logger = (deps.logger ?? getLogger('workflow')).child({ runId, workflow: workflowName, mode });
+    }
+
+    /**
+     * Create the run record and execute `loop` inside the run's OTel span. The
+     * driver's control loop is the body; it receives this lifecycle to drive
+     * per-step persistence and terminal results.
+     */
+    static async run(
+        workflowName: string,
+        mode: WorkflowMode,
+        deps: RunLifecycleDeps,
+        options: WorkflowRunOptions,
+        loop: (lifecycle: RunLifecycle) => Promise<WorkflowRunResult>,
+    ): Promise<WorkflowRunResult> {
+        const runId = options.runId ?? crypto.randomUUID();
+        const lifecycle = new RunLifecycle(runId, workflowName, mode, deps);
+        return await traceAsync(
+            'workflow.run',
+            async () => {
+                await lifecycle.persistence.createRun(lifecycle.runRecord(options.metadata));
+                lifecycle.logger.info('workflow run started');
+                return await loop(lifecycle);
+            },
+            { attributes: { 'workflow.name': workflowName, 'workflow.mode': mode, 'workflow.run_id': runId } },
+        );
+    }
+
+    /** Persist the current state/node snapshot and mark its phase running. */
+    async enter(stateOrNodeId: string, transitionsTaken: number): Promise<void> {
+        await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, { transitionsTaken });
+        await this.persistence.savePhase(this.runId, stateOrNodeId, 'running');
+        addSpanEvent('workflow.enter', { node: stateOrNodeId, transitionsTaken });
+        this.logger.debug('entered', { node: stateOrNodeId, transitionsTaken });
+    }
+
+    /** Persist a transition and emit its observability event. */
+    async recordTransition(from: string, to: string, trigger: string | null): Promise<void> {
+        await this.persistence.saveTransition(this.runId, from, to, trigger);
+        addSpanEvent('workflow.transition', { from, to, ...(trigger === null ? {} : { trigger }) });
+        this.logger.debug('transition', { from, to, trigger });
+    }
+
+    /** Finalize the run as succeeded and return its result. */
+    async done(finalState: string, transitionsTaken: number): Promise<WorkflowRunResult> {
+        await this.persistence.savePhase(this.runId, finalState, 'done');
+        await this.persistence.finalizeRun(this.runId, 'done', new Date().toISOString());
+        this.logger.info('workflow run done', { finalState, transitionsTaken });
+        return this.result('done', finalState, transitionsTaken);
+    }
+
+    /** Finalize the run as failed and return its result. */
+    async fail(finalState: string, transitionsTaken: number, reason = 'failed'): Promise<WorkflowRunResult> {
+        await this.persistence.savePhase(this.runId, finalState, 'failed');
+        await this.persistence.finalizeRun(this.runId, 'failed', new Date().toISOString());
+        addSpanEvent('workflow.fail', { finalState, reason });
+        this.logger.warn('workflow run failed', { finalState, transitionsTaken, reason });
+        return this.result('failed', finalState, transitionsTaken, reason);
+    }
+
+    private result(
+        status: WorkflowStatus,
+        finalState: string,
+        transitionsTaken: number,
+        reason?: string,
+    ): WorkflowRunResult {
+        return {
+            runId: this.runId,
+            workflowName: this.workflowName,
+            mode: this.mode,
+            status,
+            finalState,
+            transitionsTaken,
+            ...(reason === undefined ? {} : { reason }),
+        };
+    }
+
+    private runRecord(metadata: unknown): WorkflowRunRecord {
+        return {
+            id: this.runId,
+            workflow_name: this.workflowName,
+            mode: this.mode,
+            status: 'running',
+            started_at: this.startedAt,
+            metadata_json: JSON.stringify(metadata ?? {}),
+            completed_at: null,
+        };
+    }
+}
