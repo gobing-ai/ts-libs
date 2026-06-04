@@ -1,6 +1,6 @@
+import { CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
 import type { TestPathResolver } from '../resolvers/test-path-resolver';
 import type { ResultFormatter, RuleEvaluator } from '../types';
-import { CapabilityRegistry } from './capability-registry';
 
 /** Host container for rule-engine capabilities. */
 export class RuleEngineHost {
