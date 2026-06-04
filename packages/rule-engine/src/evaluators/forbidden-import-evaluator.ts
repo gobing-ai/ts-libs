@@ -5,7 +5,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
-import { escapeRegExp, scanFiles, stringArray } from './file-utils';
+import { configArray, escapeRegExp, scanFiles, stringArray } from './file-utils';
 
 /** A forbidden entry: either an exact import specifier or a raw source pattern. */
 type ForbiddenEntry =
@@ -49,7 +49,7 @@ export class ForbiddenImportEvaluator implements RuleEvaluator {
         context: RuleContext,
         config: Record<string, unknown>,
     ): Promise<RuleEvaluationResult> {
-        const forbidden = arrayConfig(config, 'patterns');
+        const forbidden = configArray(config, 'patterns', undefined, { evaluator: 'forbidden-import' });
         const files = await scanFiles({
             workdir: context.workdir,
             include: rule.include ?? ['.ts', '.tsx', '.js', '.jsx'],
@@ -129,11 +129,4 @@ function compileEntry(entry: ForbiddenEntry): ScanEntry {
         return { regex: new RegExp(source), label: entry.specifier };
     }
     return { regex: new RegExp(entry.pattern), label: entry.pattern };
-}
-
-function arrayConfig(config: Record<string, unknown>, key: string): string[] {
-    const value = config[key];
-    if (Array.isArray(value) && value.every((item) => typeof item === 'string')) return value;
-    if (typeof value === 'string') return [value];
-    throw new Error(`forbidden-import evaluator requires string[] config "${key}"`);
 }
