@@ -1,4 +1,5 @@
-import type { RuntimeFactory, RuntimeName } from './runtime-factory';
+import type { RuntimeFactory } from './runtime-factory';
+import type { RuntimeName } from './types';
 
 // Single authoritative source for runtime detection.
 // All other code MUST consume RuntimeFactory via loadRuntimeFactory().
