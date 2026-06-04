@@ -1,6 +1,7 @@
 import { parse as parseYaml } from 'yaml';
+import type { FileSystem } from './file-system';
 import { getFs } from './fs';
-import { dirnamePath, isAbsolutePath, joinPath } from './path';
+import { dirnamePath, getProcessCwd, isAbsolutePath, joinPath } from './path';
 
 /** Default time budget for a single remote schema fetch. */
 const REMOTE_SCHEMA_FETCH_TIMEOUT_MS = 5_000;
@@ -45,6 +46,13 @@ export interface StructuredConfigLoadOptions {
      * Injectable for testing.
      */
     resolve?: (specifier: string, from: string) => string;
+    /**
+     * File system used to read the config and local schema files. Defaults to the
+     * deprecated `getFs()` global; supply a {@link FileSystem} from the runtime factory
+     * (`createNodeFileSystem()`) to route reads through the factory path or to inject a
+     * virtual file system in tests.
+     */
+    fileSystem?: Pick<FileSystem, 'readFile'>;
 }
 
 /** Error thrown when structured config validation fails, carrying the list of {@link JsonSchemaViolation}s. */
@@ -60,7 +68,7 @@ export class StructuredConfigSchemaError extends Error {
 
 /** Reads a config file from disk, parses it (YAML or JSON), and validates against its declared `$schema`. */
 export async function loadStructuredConfig(path: string, options: StructuredConfigLoadOptions = {}): Promise<unknown> {
-    const content = await getFs().readFile(path);
+    const content = await (options.fileSystem ?? getFs()).readFile(path);
     return await parseStructuredConfig(content, path, options);
 }
 
@@ -317,7 +325,7 @@ function resolvePackageSchema(
             `Package schema ref "${specifier}" referenced by "${source}" must include a path within the package`,
         );
     }
-    const from = isRemoteRef(source) ? process.cwd() : dirnamePath(source);
+    const from = isRemoteRef(source) ? getProcessCwd() : dirnamePath(source);
     try {
         // Resolve the package root via its always-present package.json, then join the subpath.
         // This sidesteps `exports` gating on arbitrary JSON subpaths.
@@ -352,7 +360,7 @@ async function readSchema(schemaLocation: string, options: StructuredConfigLoadO
         }
         return await readBoundedBody(response, schemaLocation);
     }
-    return await getFs().readFile(schemaLocation);
+    return await (options.fileSystem ?? getFs()).readFile(schemaLocation);
 }
 
 /**
