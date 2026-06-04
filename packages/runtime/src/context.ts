@@ -2,8 +2,8 @@ import type { Config } from './config';
 import { buildConfigFromObject } from './config';
 import type { FileSystem } from './fs';
 import { getFs } from './fs';
+import { loadRuntimeFactory } from './platform';
 import type { RuntimeCapabilities, RuntimeName } from './types';
-
 /** Execution scope of a runtime context — determines service lifecycle and availability. */
 export type RuntimeScope = 'process' | 'server-request' | 'scheduled-event' | 'test';
 
@@ -92,7 +92,49 @@ function isDisposable(value: unknown): value is { dispose(): void | Promise<void
     return typeof value === 'object' && value !== null && 'dispose' in value && typeof value.dispose === 'function';
 }
 
-/** Convenience factory for {@link RuntimeContext}. */
+/**
+ * Create a {@link RuntimeContext} wired to the auto-detected runtime factory.
+ *
+ * Loads the platform-specific factory via {@link loadRuntimeFactory},
+ * auto-wires FileSystem, ProcessExecutor, and Config, then returns a
+ * ready-to-use context. Call this at the entry point of any app or worker.
+ *
+ * @example
+ * ```ts
+ * const ctx = await createRuntimeContextFromFactory();
+ * const fs = ctx.require('fileSystem');
+ * const config = ctx.require('config');
+ * ```
+ */
+export async function createRuntimeContextFromFactory<TServices extends RuntimeServiceMap = RuntimeServiceMap>(
+    options?: RuntimeContextOptions<TServices>,
+): Promise<RuntimeContext<TServices>> {
+    const factory = await loadRuntimeFactory();
+    const config = await factory.loadConfig();
+    const fileSystem = factory.createFileSystem();
+
+    return new RuntimeContext<TServices>({
+        scope: 'process',
+        runtimeName: factory.runtimeName,
+        capabilities: {
+            hasFilesystem: factory.capabilities.hasFilesystem,
+            hasProcessExecution: factory.capabilities.hasProcessExecution,
+            hasPersistentStorage: true,
+        },
+        services: {
+            config,
+            fileSystem,
+            ...options?.services,
+        },
+    } as RuntimeContextOptions<TServices>);
+}
+
+/**
+ * @deprecated Use {@link createRuntimeContextFromFactory} instead —
+ * it auto-detects the platform and wires the correct services from the factory.
+ * This function is kept for backward compatibility with synchronous callers
+ * that manually configure services.
+ */
 export function createRuntimeContext<TServices extends RuntimeServiceMap = RuntimeServiceMap>(
     options: RuntimeContextOptions<TServices> = {},
 ): RuntimeContext<TServices> {
