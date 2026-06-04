@@ -1,6 +1,4 @@
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { getProcessEnv, NodeFileSystem } from '@gobing-ai/ts-runtime';
+import { getProcessEnv, joinPath, NodeFileSystem } from '@gobing-ai/ts-runtime';
 import { AgentDetector, type DetectedAgent } from './agent-detector';
 import { type AgentName, isAgentName, TIER2_AGENTS } from './agents/shims';
 import { AiRunner } from './ai-runner';
@@ -90,8 +88,17 @@ export class DoctorRunner {
         // gemini/codex expose no auth-status command; treat a non-empty credential
         // file as authenticated. An empty/zero-byte file is a stale-credential
         // false positive, so existence alone is insufficient.
-        if (agent === 'gemini') return this.hasNonEmptyFile(join(homedir(), '.gemini', 'settings.json'));
-        if (agent === 'codex' && (await this.hasNonEmptyFile(join(homedir(), '.codex', 'auth.json')))) return true;
+        if (agent === 'gemini')
+            return this.hasNonEmptyFile(
+                joinPath(process.env.HOME || process.env.USERPROFILE || '', '.gemini', 'settings.json'),
+            );
+        if (
+            agent === 'codex' &&
+            (await this.hasNonEmptyFile(
+                joinPath(process.env.HOME || process.env.USERPROFILE || '', '.codex', 'auth.json'),
+            ))
+        )
+            return true;
         // pi reads provider keys from the environment; require a non-empty value
         // rather than mere presence (an empty export is not a usable credential).
         if (agent === 'pi' && (isNonEmpty(this.env.GOOGLE_API_KEY) || isNonEmpty(this.env.ANTHROPIC_API_KEY)))
