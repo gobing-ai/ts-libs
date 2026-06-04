@@ -1,8 +1,6 @@
 # @gobing-ai/ts-rule-engine
 
-Constraint rule loading, evaluation, formatting, and fix generation for Bun/TypeScript projects.
-
-This package is a library. It does not ship a CLI. Downstream tools can use it to load rule presets, evaluate a workspace, format findings, collect fix candidates, and optionally apply those fixes.
+Constraint rule loading, evaluation, formatting, and fix generation for Bun/TypeScript projects. Rules are defined as declarative YAML/JSON, evaluated through a typed evaluator host, and results are rendered or converted into candidate fixes. Preset composition, extension loading, and bundled rule categories make the engine zero-config ready out of the box.
 
 ## Install
 
@@ -17,58 +15,127 @@ bun add @gobing-ai/ts-rule-engine
 ```mermaid
 erDiagram
     RULE_ENGINE ||--|| RULE_ENGINE_HOST : uses
+    RULE_ENGINE_HOST ||--o{ CAPABILITY_REGISTRY : owns
+    CAPABILITY_REGISTRY ||--o{ EVALUATOR : registers
+    CAPABILITY_REGISTRY ||--o{ RESOLVER : registers
+    CAPABILITY_REGISTRY ||--o{ FORMATTER : registers
     RULE_ENGINE ||--o{ CONSTRAINT_RULE : evaluates
-    RULE_ENGINE_HOST ||--o{ EVALUATOR : registers
-    RULE_ENGINE_HOST ||--o{ RESOLVER : registers
-    RULE_ENGINE_HOST ||--o{ FORMATTER : registers
-    RULE_ENGINE ||--o{ FIXER : owns
+    RULE_ENGINE ||--o{ FIXER_PROVIDER : owns
     PRESET ||--o{ CONSTRAINT_RULE : composes
-    PRESET ||--o{ EXTENSION : declares
-    EXTENSION }o--|| RULE_ENGINE_HOST : loads_into
+    PRESET ||--o{ EXTENSION_REF : declares
+    EXTENSION_REF }o--|| RULE_ENGINE_HOST : loads_into
     EVALUATOR ||--o{ FINDING : emits
-    FIXER ||--o{ FIX : emits
+    FIXER_PROVIDER ||--o{ FIX : emits
     FORMATTER ||--|| RESULT : renders
 ```
 
 | Entity | One-line Description |
 |--------|----------------------|
-| `RuleEngine` | Orchestrates the evaluation workflow for enabled rules in a target workspace. |
-| `RuleEngineHost` | Holds named capability registries for evaluators, resolvers, and formatters. |
-| `ConstraintRule` | Declarative policy unit with matching scope, severity, evaluator config, and optional fix config. |
-| `Preset` | YAML/JSON composition unit that collects rule categories, other presets, disabled rules, and extension refs. |
-| `Evaluator` | Executes one rule type and emits findings plus any evaluator-native fixes. |
-| `Resolver` | Maps source paths to related test paths or skeletons for rules such as `test-location`. |
-| `Formatter` | Renders a `RuleEngineResult` as text, JSON, or a downstream custom report format. |
-| `Fixer` | Produces file edits from findings when a rule opts into manual or automatic fix modes. |
-| `Extension` | Trusted local module declared by presets to register custom resolvers, evaluators, or formatters. |
+| `RuleEngine` | Orchestrates evaluation of enabled rules against a workspace directory. |
+| `RuleEngineHost` | Capability host backed by `CapabilityRegistry` from `@gobing-ai/ts-runtime/plugin` — holds evaluators, resolvers, and formatters, each with origin tracking for safe override detection. |
+| `CapabilityRegistry<T>` | Generic named registry (shared with `ts-rule-engine`, `ts-dual-workflow-engine`) that tags each entry with its `origin` (`'builtin'`, `'extension'`, `'caller'`). |
+| `ConstraintRule` | Declarative policy unit: id, severity, include/exclude globs, evaluator type + config, and optional fix config. |
+| `Preset` | YAML/JSON composition: extends rule categories and other presets, declares `disable`/`overrides`, and exposes extension modules. |
+| `ExtensionRef` | Resolved extension: a capability kind (`resolvers` / `evaluators` / `fixers` / `formatters`), an absolute module path, and its source preset name. |
+| `Evaluator` | Implements one rule type (e.g. `regex`, `coverage-gate`, `import-boundary`), emitting findings and optional evaluator-native fixes. |
+| `Resolver` | Maps a source file path to an expected test path for rules such as `test-location`; supports TypeScript, Python, Go, and Rust conventions. |
+| `Formatter` | Renders a `RuleEngineResult` as text (for CLI) or JSON (for automation). |
+| `FixerProvider` | Produces byte-range file edits from findings and a fix config; invoked when a rule's fix mode is non-`none` and the caller's authority allows it. |
 | `Finding` | Structured policy violation or evaluator error with severity, location, and machine-readable code. |
-| `Fix` | Candidate byte-range or file-level edit returned separately from findings and applied only on request. |
-| `RuleEngineResult` | Aggregate output containing all findings and fixes for one evaluation run. |
-
+| `Fix` | Candidate byte-range replacement; collected separately from findings, written only on explicit `applyFixes()`. |
+| `RuleEngineResult` | Aggregate `{ findings, fixes }` returned from a single evaluation run. |
+| `bundledRulesRoot()` | Resolves the absolute path to the bundled `rules/` directory shipped with this package — portable defaults usable as the lowest-priority preset root. |
 ## Mental Model
 
 ```mermaid
 flowchart TD
-    Files["YAML / JSON rule files"] --> Loader["loadRuleFile() / loadPreset()"]
+    Bundled["bundled rules/ directory"] --> Loader["loadRuleFile() / loadPreset()"]
+    Files["project .spur/rules/ YAML/JSON"] --> Loader
     Loader --> Rules["ConstraintRule[]"]
-    Rules --> Engine["RuleEngine"]
-    Engine --> Host["RuleEngineHost registries"]
-    Host --> Evaluators["evaluators by type"]
-    Host --> Resolvers["test path resolvers"]
-    Host --> Formatters["text / json formatters"]
+    Presets["Preset extends + extensions"] --> Extensions["loadExtensionsIntoHost()"]
+    Extensions --> Host["RuleEngineHost registries"]
+    Rules --> Engine["RuleEngine.evaluateWithFixes()"]
+    Host --> Engine
     Engine --> Result["{ findings, fixes }"]
     Result --> Formatter["TextFormatter / JsonFormatter"]
-    Result --> Apply["applyFixes()"]
+    Result --> Apply["engine.applyFixes()"]
 ```
 
 Core concepts:
 
 - `ConstraintRule`: one policy check. It has an `id`, `severity`, evaluator type/config, optional include/exclude globs, and optional fix config.
-- `RuleEngine`: runs enabled rules against a `workdir`.
-- `RuleEngineHost`: registry container for evaluators, formatters, and test-path resolvers.
+- `RuleEngine`: runs enabled rules against a `workdir`. The constructor auto-registers built-in evaluators, formatters, and resolvers.
+- `RuleEngineHost`: capability container backed by three `CapabilityRegistry` instances from `@gobing-ai/ts-runtime/plugin`. Each entry tracks its origin (`'builtin'` / `'extension'` / `'caller'`) so the engine can detect and report conflicting registrations.
 - `RuleEvaluator`: implementation of one rule type, such as `regex`, `path`, or `coverage-gate`.
-- `Fix`: byte-range replacement candidate. Fixes are collected separately from findings and are only written when you call `applyFixes()`.
+- `Fix`: byte-range replacement candidate. Fixes are collected separately from findings and only written when you call `applyFixes()`.
 - Preset: YAML/JSON file that composes rule categories and can expose extension modules.
+- `bundledRulesRoot()`: resolves the path to the `rules/` directory shipped with this package. Pass it as the lowest-priority root to `loadPreset()` so project-local and user-global roots shadow individual files while inheriting the rest.
+
+## Execution Flow
+
+When a rule is evaluated, the following sequence shows how the loader, host, engine, evaluator, and (optionally) the fixer pipeline cooperate.
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Loader as loadPreset / loadRuleFile
+    participant Engine as RuleEngine
+    participant Host as RuleEngineHost
+    participant Registry as CapabilityRegistry
+    participant Evaluator as RuleEvaluator
+    participant Fixer as RuleFixerProvider
+    participant FS as FileSystem
+
+    Note over Caller,Loader: 1. Rule loading
+    Caller->>Loader: loadPreset("recommended", { roots })
+    Loader->>Loader: merge roots (project → user-global → bundled)
+    Loader->>Loader: walk categories, read YAML/JSON
+    Loader->>Loader: Zod-validate, normalize severities, dedupe
+    Loader-->>Caller: { rules: ConstraintRule[], extensions: ExtensionRef[] }
+
+    Note over Caller,Host: 2. Extension registration (optional)
+    Caller->>Host: loadExtensionsIntoHost(host, extensions, { allowExtensions })
+    Host->>Host: import each extension module
+    Host->>Registry: register(name, impl, "extension")
+    Registry-->>Host: (origin-tracked entry)
+
+    Note over Caller,FS: 3. Evaluation
+    Caller->>Engine: evaluateWithFixes(rules, workdir, maxFixMode)
+    loop For each enabled rule
+        Engine->>Host: host.evaluators.get(evaluator.type)
+        Host->>Registry: get(type)
+        Registry-->>Engine: RuleEvaluator
+        Engine->>Evaluator: evaluate(rule, { rule, workdir })
+        Evaluator->>FS: scan files, read content
+        FS-->>Evaluator: file content / paths
+        Evaluator-->>Engine: { findings: Finding[], fixes: Fix[] }
+
+        opt rule.fix mode ≠ none and findings exist
+            Engine->>Fixer: fixers.get(evaluatorType)
+            Fixer->>Fixer: resolve effective mode (min(rule, caller))
+            Fixer->>FS: read / write (dry-run or real)
+            Fixer-->>Engine: Fix[]
+        end
+    end
+    Engine-->>Caller: RuleEngineResult { findings, fixes }
+
+    Note over Caller,FS: 4. Output / fix application
+    alt Format for display
+        Caller->>Caller: new TextFormatter().format(result)
+    else Apply fixes
+        Caller->>Engine: applyFixes(workdir, fixes, dryRun)
+        Engine->>FS: write byte-range replacements
+        FS-->>Engine: FixApplicationResult { diff, applied, deferred }
+    end
+```
+
+The key design decisions visible in this flow:
+
+- **Rule loading is lazy**: `loadPreset()` resolves and validates rules at load time but does not evaluate. No filesystem scanning happens until `evaluate()`.
+- **Evaluators are stateless plugins**: each evaluator receives `(rule, context)` and returns findings. The engine owns the loop, error boundary, and fixer dispatch.
+- **Fixes are opt-in and authority-gated**: the effective fix mode is `min(rule.fix.mode, caller.maxFixMode)`. Fixes are never written during evaluation — only when the caller explicitly calls `applyFixes()`.
+- **Extension loading is trust-gated**: the `allowExtensions` flag must be explicitly `true`. Without it, `loadExtensionsIntoHost()` throws, preventing untrusted code from registering capabilities.
+- **Origins prevent silent override**: each `CapabilityRegistry` entry records its origin. A preset extension cannot silently replace a built-in evaluator — conflicts are surfaced.
 
 ## Quick Start
 
@@ -143,7 +210,32 @@ const { rules, extensions } = await loadRuleFile('.rules/typescript.yaml');
 
 ## Presets
 
-Presets compose category folders, other presets, and rule-file subpaths across one or more roots. Preset loads also honor top-level `$schema` refs by default, resolved from the bundled package schema (no network access).
+Presets compose category folders, other presets, and rule-file subpaths across one or more roots. Preset loads honor top-level `$schema` refs resolved from the bundled `schemas/` directory — no network access.
+
+### Bundled Rules
+
+The package ships a `rules/` directory with portable defaults. Call `bundledRulesRoot()` to get its absolute path and pass it as the lowest-priority root:
+
+```ts
+import { loadPreset, bundledRulesRoot } from '@gobing-ai/ts-rule-engine';
+
+const roots = ['.spur/rules', bundledRulesRoot()].filter(Boolean);
+const { rules, extensions } = await loadPreset('recommended', { roots });
+```
+
+Shipped categories:
+
+| Preset / Category | Path | What it covers |
+|-------------------|------|----------------|
+| `recommended` | `rules/recommended.yaml` | Extends `typescript` + `structure` + `quality` — general-use baseline. |
+| `spur-dev` | `rules/spur-dev.yaml` | Extends `typescript` + `quality` — stricter development preset, no `test-location`. |
+| `typescript/` | `rules/typescript/` | TypeScript hygiene rules (e.g. no `biome-ignore` suppressions). |
+| `structure/` | `rules/structure/` | Project structure rules (e.g. `test-location`). |
+| `quality/` | `rules/quality/` | Quality gates (e.g. `coverage-gate`, `tsdoc-exports`). |
+
+Use `listBundledRuleFiles()` to enumerate all shipped rule assets, useful for copying them into a writable user-global rules directory on first run.
+
+### Project-Local Presets
 
 Example layout:
 
@@ -248,13 +340,13 @@ rules:
       - "src/**/*.ts"
 ```
 
-Built-in fixer providers:
+Built-in fixer providers (`RegexFixerProvider`, `PathFixerProvider`, `TestStubFixer`):
 
 | Evaluator type | Fix behavior |
 | -------------- | ------------ |
-| `regex`, `rg` | Replaces line matches using `fix.replacement`. |
-| `path`, `file-exist` | Deletes files for `must: absent` rules in `auto` mode. |
-| `test-location` | Creates a missing test file using the selected resolver's skeleton when available. |
+| `regex`, `rg` | Replaces line matches using `fix.replacement` (`RegexFixerProvider`). |
+| `path`, `file-exist` | Deletes files for `must: absent` rules in `auto` mode (`PathFixerProvider`). |
+| `test-location` | Creates a missing test file using the selected resolver's skeleton (`TestStubFixer`). Never overwrites existing files. |
 
 ## Built-in Evaluators
 
@@ -501,7 +593,7 @@ const evaluator: RuleEvaluator & { name: string } = {
 export default evaluator;
 ```
 
-Load extensions:
+Load extensions (uses the shared `loadExtensionModules` from `@gobing-ai/ts-runtime/plugin`):
 
 ```ts
 const loaded = await loadPreset('local', { roots: ['.spur/rules'] });
@@ -515,13 +607,13 @@ await loadExtensionsIntoHost(engine.host, loaded.extensions, {
 
 Supported extension kinds:
 
-| Kind | Registry | Required shape |
-| ---- | -------- | -------------- |
-| `resolvers` | `host.resolvers` | object with `name` and `resolveTestPath()` |
-| `evaluators` | `host.evaluators` | object with `name` and `evaluate()` |
-| `formatters` | `host.formatters` | object with `name` and `format()` |
+| Kind | Host Registry | Required shape | Origin |
+| ---- | ------------ | -------------- | ------ |
+| `resolvers` | `host.resolvers` (`CapabilityRegistry<TestPathResolver>`) | object with `name` and `resolveTestPath()` | `'extension'` |
+| `evaluators` | `host.evaluators` (`CapabilityRegistry<RuleEvaluator>`) | object with `name` and `evaluate()` | `'extension'` |
+| `formatters` | `host.formatters` (`CapabilityRegistry<ResultFormatter>`) | object with `name` and `format()` | `'extension'` |
 
-`fixers` can be declared in preset metadata but are not loaded into `RuleEngineHost` by `loadExtensionsIntoHost()` because fixer providers live on the engine's fixer map.
+`fixers` can be declared in preset metadata but are not loaded into `RuleEngineHost` by `loadExtensionsIntoHost()` because fixer providers live on the engine's internal fixer `Map`.
 
 ## Formatting Results
 
@@ -557,11 +649,13 @@ const violations = result.findings.filter((finding) => finding.kind !== 'error')
 
 ## Package Boundary
 
-This package owns rule definitions, preset loading, evaluators, formatters, test-path resolvers, and fix application. It does not own:
+This package owns rule definitions, preset loading, evaluators, formatters, test-path resolvers, fixer providers, extension loading, the `CapabilityRegistry` re-export from `@gobing-ai/ts-runtime/plugin`, and bundled rule presets.
 
-- CLI argument parsing
-- process exit policy
-- repository-specific rule catalogs
-- publishing or CI integration
+It does **not** own:
 
-Those concerns should live in downstream tools that consume this library.
+- CLI argument parsing or process exit policy
+- `ProcessExecutor` implementation (injected via `RuleEngineOptions`)
+- Repository-specific rule catalogs (project rules live in `.spur/rules/`)
+- CI integration or publishing workflows
+
+Downstream tools (e.g. `spur`) consume the library and add their own CLI, config discovery, and execution policy.
