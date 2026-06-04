@@ -11,8 +11,7 @@
  * @module rule-engine/fixers/test-stub-fixer
  */
 
-import { isAbsolute, join } from 'node:path';
-import { NodeFileSystem, type ProcessExecutor } from '@gobing-ai/ts-runtime';
+import { isAbsolutePath, joinPath, NodeFileSystem, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { CapabilityRegistry } from '../host/capability-registry';
 import type { TestPathResolver } from '../resolvers/test-path-resolver';
 import type { Fix } from '../types';
@@ -39,7 +38,7 @@ export interface TestStubFixerDeps {
 
 /** Normalize a finding path to a repository-relative POSIX path, or return null when invalid. */
 function normalizeFindingPath(filePath: string): string | null {
-    if (!filePath || isAbsolute(filePath)) return null;
+    if (!filePath || isAbsolutePath(filePath)) return null;
     const normalized = filePath.replaceAll('\\', '/').replace(/^\.\//, '');
     if (normalized === '..' || normalized.startsWith('../') || normalized.includes('/../')) return null;
     return normalized;
@@ -94,7 +93,7 @@ export class TestStubFixer implements RuleFixerProvider {
                 continue;
             }
 
-            const absTestPath = join(context.workdir, testRelPath);
+            const absTestPath = joinPath(context.workdir, testRelPath);
             if (await this.fs.exists(absTestPath)) continue;
 
             // Export discovery is intentionally omitted — pass empty exports array.
