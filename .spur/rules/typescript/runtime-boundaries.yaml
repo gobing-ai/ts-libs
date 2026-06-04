@@ -1,15 +1,30 @@
-# Runtime boundary rules — keep platform-specific APIs behind runtime package seams.
+# ══════════════════════════════════════════════════════════════════════════
+# Runtime boundary rules
+# ══════════════════════════════════════════════════════════════════════════
+#
+# packages/runtime/ is the single seam for platform-specific APIs.
+# All other packages MUST route file I/O, process execution, path math,
+# environment access, and platform detection through @gobing-ai/ts-runtime.
+#
+# Background: ADR-008 (runtime selection), ADR-010 (plugin core), task 0012.
+#
+# Tests are excluded from all rules — test fixtures use platform APIs directly.
+# ══════════════════════════════════════════════════════════════════════════
+
 include:
   - "packages/**/*.ts"
 exclude:
   - "**/tests/**"
   - "**/*.test.ts"
+  - "**/*.spec.ts"
   - "**/node_modules/**"
   - "**/dist/**"
 
 rules:
+  # ── Process execution ──────────────────────────────────────────────────
+
   - id: no-direct-process-spawn
-    description: "Process spawning must stay behind @gobing-ai/ts-runtime's ProcessExecutor seam."
+    description: "Process spawning must go through @gobing-ai/ts-runtime's ProcessExecutor."
     severity: error
     evaluator:
       type: forbidden-import
@@ -28,12 +43,27 @@ rules:
             - "packages/**/*.ts"
           exclude:
             - "**/tests/**"
-            - "**/*.test.ts"
             - "**/dist/**"
             - "packages/runtime/src/process-executor.ts"
 
+  - id: no-direct-process-exit
+    description: "process.exit() must go through @gobing-ai/ts-utils output helpers."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "process\\.exit\\b"
+    include:
+      - "packages/**/src/**/*.ts"
+    exclude:
+      - "**/tests/**"
+      - "**/dist/**"
+      - "packages/utils/src/output.ts"
+
+  # ── File system I/O ────────────────────────────────────────────────────
+
   - id: no-direct-fs-io
-    description: "Node/Bun filesystem IO must stay behind @gobing-ai/ts-runtime's FileSystem seam."
+    description: "File I/O must go through @gobing-ai/ts-runtime's FileSystem abstraction."
     severity: error
     evaluator:
       type: forbidden-import
@@ -48,18 +78,111 @@ rules:
             - "packages/**/*.ts"
           exclude:
             - "**/tests/**"
-            - "**/*.test.ts"
             - "**/dist/**"
             - "packages/runtime/src/fs.ts"
+            - "packages/runtime/src/file-system.ts"
+            - "packages/runtime/src/file-system-node.ts"
+            - "packages/runtime/src/file-system-cf.ts"
+
+  # ── Path math ──────────────────────────────────────────────────────────
+
+  - id: no-direct-node-path
+    description: "Path math must go through @gobing-ai/ts-runtime path utilities."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "node:path"
+          - specifier: "path"
+        scope:
+          include:
+            - "packages/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/dist/**"
+            - "packages/runtime/src/fs.ts"
+            - "packages/runtime/src/file-system.ts"
+            - "packages/runtime/src/file-system-node.ts"
+            - "packages/runtime/src/file-system-cf.ts"
+            - "packages/runtime/src/path.ts"
+            - "packages/runtime/src/bun-sqlite.ts"
+            - "packages/runtime/src/plugin/extension-loader.ts"
+            - "packages/db/src/adapters/bun-sqlite.ts"
+            - "packages/db/src/migrate.ts"
+            - "packages/rule-engine/src/evaluators/coverage-gate-evaluator.ts"
+            - "packages/rule-engine/src/evaluators/file-utils.ts"
+            - "packages/rule-engine/src/fixers/fixers.ts"
+            - "packages/rule-engine/src/fixers/test-stub-fixer.ts"
+            - "packages/ai-runner/src/agent-spec.ts"
+            - "packages/ai-runner/src/doctor-runner.ts"
+
+  - id: no-direct-node-url
+    description: "fileURLToPath must go through @gobing-ai/ts-runtime when bundling-aware path resolution is needed."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "node:url"
+          - specifier: "url"
+        scope:
+          include:
+            - "packages/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/dist/**"
+            - "packages/rule-engine/src/config/extensions.ts"
+
+  # ── OS / platform ──────────────────────────────────────────────────────
+
+  - id: no-direct-node-os
+    description: "node:os must go through @gobing-ai/ts-runtime (or inline the specific call)."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "node:os"
+          - specifier: "os"
+        scope:
+          include:
+            - "packages/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/dist/**"
+            - "packages/ai-runner/src/doctor-runner.ts"
+
+  # ── Bun-specific APIs ──────────────────────────────────────────────────
+
+  - id: no-direct-bun-platform
+    description: "Bun platform APIs must go through @gobing-ai/ts-runtime."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        pattern: "\\bBun\\.(which|env|argv|sleep|semver|password|navigator|colorDepth|gc|unsafe|inspect|nanoseconds|deepEquals|escapeHTML|fileURLToPath|pathToFileURL|build|main|version_with_revision|rev)\\s*[\\(\\[]"
+    include:
+      - "packages/**/*.ts"
+    exclude:
+      - "**/tests/**"
+      - "**/dist/**"
+      - "packages/runtime/src/platform.ts"
+      - "packages/ai-runner/src/identity.ts"
+
+  # ── Environment variables ───────────────────────────────────────────────
 
   - id: no-direct-process-env
-    description: "Direct process.env access must stay behind @gobing-ai/ts-runtime config helpers."
+    description: "Direct process.env access must go through @gobing-ai/ts-runtime config helpers."
     severity: error
     evaluator:
       type: regex
       config:
         pattern: "process\\.env"
     include:
-      - "packages/**/src/**/*.ts"
+      - "packages/**/*.ts"
     exclude:
+      - "**/tests/**"
+      - "**/dist/**"
       - "packages/runtime/src/config.ts"
+      - "packages/runtime/src/bun-sqlite.ts"
