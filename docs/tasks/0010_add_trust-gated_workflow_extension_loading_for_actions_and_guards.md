@@ -1,9 +1,9 @@
 ---
 name: add trust-gated workflow extension loading for actions and guards
 description: add trust-gated workflow extension loading for actions and guards
-status: Testing
+status: Done
 created_at: 2026-06-03T22:52:17.688Z
-updated_at: 2026-06-04T00:13:08.640Z
+updated_at: 2026-06-04T00:21:29.993Z
 folder: docs/tasks
 type: task
 feature-id: ""
@@ -115,6 +115,8 @@ The shared loader handles the fail-closed gate (R4), relative-path enforcement (
 **Mode:** verify (full — SECU + traceability)
 **Channel:** inline
 **Gate:** `bun run lint` → pass | `bun test` → 149/149 pass | `bun run build` → pass | Coverage gate → PASS
+
+**Re-verification 2026-06-04:** Second pass with `--fix all --force`. 0 findings. All 18 test extensions pass at 100% coverage. No `console.*`, no secrets, no injection surfaces. No fixes required.
 
 ### SECU Analysis — Clean (0 findings)
 
