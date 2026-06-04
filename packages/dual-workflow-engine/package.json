@@ -49,6 +49,7 @@
     },
     "dependencies": {
         "@gobing-ai/ts-db": "workspace:*",
+        "@gobing-ai/ts-infra": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
         "zod": "^4.1.0"
     },
