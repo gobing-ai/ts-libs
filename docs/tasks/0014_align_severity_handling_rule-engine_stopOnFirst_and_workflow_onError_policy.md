@@ -1,0 +1,158 @@
+---
+name: align_severity_handling_rule-engine_stopOnFirst_and_workflow_onError_policy
+description: align_severity_handling_rule-engine_stopOnFirst_and_workflow_onError_policy
+status: Backlog
+created_at: 2026-06-04T22:24:26.829Z
+updated_at: 2026-06-04T22:24:26.829Z
+folder: docs/tasks
+type: task
+feature-id: ""
+priority: medium
+estimated_hours: 4
+dependencies: ["ADR-006","ADR-013"]
+tags: ["rule-engine","dual-workflow-engine","severity","error-policy","api","additive"]
+impl_progress:
+  planning: pending
+  design: pending
+  implementation: pending
+  review: pending
+  testing: pending
+preset: complex
+---
+
+## 0014. align_severity_handling_rule-engine_stopOnFirst_and_workflow_onError_policy
+
+### Background
+
+Two sibling engines handle step/rule failure differently today. ts-rule-engine: engine.ts:74 loops over ALL rules exhaustively, never breaks; each finding carries severity (error|warning|info); the verdict (exit code) is computed by the CONSUMER (spur rule-service.ts:196 via --fail-on), NOT the engine. ts-dual-workflow-engine: drivers halt on the first ActionResult.ok===false (state-machine.ts:67, transition-flow.ts:72); binary ok, no severity, fail-fast is hard-coded. The asymmetry is INTRINSIC to batch-linter vs sequential-pipeline (ADR-006 §4 keeps error semantics engine-local) and must be preserved, not unified. Goal: align the shared *vocabulary* (severity enum + config-default→runtime-override pattern) while keeping the *policy verb* honestly different (rule-engine traversal=stopOnFirst, workflow control-flow=onError). No shared code; conceptual symmetry only.
+
+
+### Requirements
+
+**Part A — rule-engine (traversal alignment)**
+
+- **R1**: Add opt-in `stopOnFirst?: 'error' | 'warning' | 'info'` param to `RuleEngine.evaluate` and `evaluateWithFixes`. When set, break the rule loop (`engine.ts:74`) after the first rule whose findings meet/exceed the threshold (via a `SEVERITY_RANK` comparison). → **Done when**: a test with 3 rules where rule 2 yields an `error` finding returns findings from rules 1–2 only and never invokes the rule-3 evaluator (assert via a spy/fake evaluator); the same rules with `stopOnFirst` omitted return all 3 (exhaustive, unchanged).
+- **R1a**: Default (`stopOnFirst` undefined) is exhaustive — today's behavior, zero breaking change. The verdict (exit code) is NOT computed by the engine. → **Done when**: every existing rule-engine test passes unmodified; no `exitCode`/verdict logic added to `RuleEngine`.
+
+**Part B — workflow-engine (control-flow alignment)**
+
+- **R2**: Add per-action `ActionDef.onError?: 'fail' | 'continue'` to `types.ts` + both `ActionDefSchema` consumers. → **Done when**: schema parses a workflow with `onError: 'continue'` on an action and rejects an invalid value with a `WorkflowValidationError`.
+- **R2a**: Add workflow-level `defaultOnError?: 'fail' | 'continue'` (default `'fail'`) to both `StateMachineWorkflowDef` and `TransitionFlowWorkflowDef` schemas + types. → **Done when**: an omitted `defaultOnError` resolves to `'fail'`; a workflow-level `'continue'` applies to actions that don't override it.
+- **R2b**: Add `WorkflowRunOptions.onError?: 'fail' | 'continue'` run-option override. → **Done when**: precedence `action.onError ?? workflow.defaultOnError ?? runOptions.onError ?? 'fail'` is exercised by a test asserting each level wins over the next.
+- **R3**: In both drivers, on `!ok` branch on the resolved policy. `'fail'` → current `lifecycle.fail()` (unchanged default). `'continue'` → `RunLifecycle` warn (reuse the ADR-013 observability seam) + retain `lastActionResult` + fall through to guard evaluation. Apply to all 4 `!ok` branches (state-machine onEnter/onExit/action at `state-machine.ts:67,103` + the action branch; transition-flow at `transition-flow.ts:72`). → **Done when**: a fail-vs-continue matrix test across both drivers shows `'continue'` advances to the next node/state using the failed step's result, and `'fail'` halts — for each of the 4 branches.
+- **R4**: Config validation — a `'continue'` node/state with no outbound edge/transition resolves to `done` (not infinite loop, not error). → **Done when**: a single-node `'continue'` workflow with no edges terminates with status `done`; covered by a regression test.
+
+**Cross-cutting**
+
+- **R5**: Append an ADR-013 addendum recording the deliberate design: severity-vocabulary aligned, policy-verb divergent, no shared code, verdict-stays-in-consumer. → **Done when**: `docs/00_ADR.md` carries the dated addendum and references both engines.
+- **R6**: Test coverage — rule-engine `stopOnFirst` (≥3 cases: threshold hit, threshold not met, omitted/exhaustive); workflow fail-vs-continue matrix across both drivers + precedence + R4 terminal case. → **Done when**: new tests added under each package's `tests/`, coverage gate (`coverage-gate` spur rule, ≥90%) stays green.
+- **R7**: Full gate green and lockstep-publishable. → **Done when**: `bun run spur-check` and `bun run build` both pass; `git status` shows only intentional changes; both packages remain releasable in one lockstep bump (unblocks spur-new#0017).
+
+
+### Q&A
+
+_Refined via `rd3:dev-refine 0014 --auto` (synthesis-only, no interactive Q&A). Decisions derived from existing Background/Solution:_
+
+- **Q: Preset?** → **complex**. Signals: 2 packages (rule-engine + dual-workflow-engine), 6+ files, a control-loop behavioral change in the most security-relevant code, an ADR addendum, and a cross-repo release gate. ≥2 complex-column signals; tiebreaker prefers higher to avoid under-scoping. Not `research` — the change is additive and well-understood.
+- **Q: Split compound R2?** → Yes. Original R2 packed three concepts (per-action field, workflow default, run-option override) into one item; split into R2 / R2a / R2b for independent testability.
+- **Q: Acceptance criteria?** → Added a "Done when" verification clause to every requirement; previously they stated intent only.
+- **Q: Constraints?** → Synthesized from Background's stated invariants (additive-only, no shared code, distinct verbs, verdict-in-consumer, lockstep-publishable) plus project gates (spur-check, runtime boundaries).
+- **Open (defer to design phase, not blocking):** exact `SEVERITY_RANK` reuse vs re-declaration between engines (must NOT share code — likely a tiny per-package const); whether `'continue'` should also surface in the `WorkflowRunResult` (e.g. a `warnings[]` field) or stay log-only — recommend log-only for v1 (YAGNI).
+
+
+### Design
+
+**Design invariants / constraints** (the "must / must NOT" that keep this change safe and on-target):
+
+- **Additive-only (must NOT break callers).** Every new field/param is optional with a default reproducing today's behavior: rule-engine `stopOnFirst` defaults `undefined` (exhaustive); workflow `onError`/`defaultOnError` default `'fail'` (fail-fast). No existing test may need editing to keep passing.
+- **No shared code between the two engines.** Alignment is conceptual (same `severity` enum + same config-default→runtime-override shape), not a shared module. ADR-006 §4 keeps error semantics engine-local; do NOT introduce a cross-engine policy util. `SEVERITY_RANK` is re-declared per package if needed, not shared.
+- **Keep the policy verbs distinct.** rule-engine = `stopOnFirst` (traversal); workflow = `onError` (control-flow). Do NOT collapse into one `default-behavior` name — false symmetry is worse than two honest names.
+- **Verdict stays in the consumer (rule-engine).** Must NOT move pass/fail into `RuleEngine`; `stopOnFirst` is traversal only. Exit-code/`--fail-on` logic stays in spur (`rule-service.ts:196`).
+- **Boundaries unchanged.** No new `node:*` imports outside ts-runtime (ADR-011); no new top-level dependency in either package; drizzle stays internal to ts-db.
+- **Lockstep-publishable.** Both packages must remain releasable in one lockstep bump so spur-new#0017 can consume `stopOnFirst` from a published version.
+- **Gate is non-negotiable.** `bun run spur-check` + `bun run build` must pass; no `--no-verify`, no gate-silencing `biome-ignore`, no `.skip`'d tests.
+
+**Resolution precedence (workflow onError):** `action.onError ?? workflow.defaultOnError ?? runOptions.onError ?? 'fail'` — implement as a single `resolvePolicy()` helper used by both drivers.
+
+**Open design questions (decide at implementation, non-blocking):** (1) whether `'continue'` surfaces in `WorkflowRunResult` (e.g. `warnings[]`) or stays log-only — recommend log-only for v1 (YAGNI); (2) exact threshold-met comparison for `stopOnFirst` (`>=` on `SEVERITY_RANK`).
+
+
+### Solution
+
+Part A rule-engine (~15 src + ~40 test, ~45min, Low risk): SEVERITY_RANK helper + 3-line post-rule guard in engine.ts:74 loop; optional param threaded through evaluate→evaluateWithFixes. Part B workflow-engine (~40 src + ~90 test, ~2-3hr, Medium risk): 2 schema fields, types.ts, resolvePolicy() helper, 4 driver branches, RunLifecycle.warn-on-continue, run-option override, config-validation rule, ADR-013 addendum. Keep policy verbs distinct (stopOnFirst vs onError) — same severity enum + same config-default/runtime-override shape = the alignment; different verb = honest difference.
+
+
+### Plan
+
+
+
+### Review
+
+## Review — 2026-06-04 (updated: all findings resolved)
+
+**Status:** 3 findings, ALL RESOLVED · verdict **PASS**
+**Scope:** Task 0014 — rule-engine `stopOnFirst` + workflow `onError`/`defaultOnError`
+**Mode:** verify (Phase 7 SECU + Phase 8 traceability) · **Channel:** current (dogfood)
+**Gate:** `bun run spur-check` → PASS (1087 tests, 34+2 rules); `bun run build` → PASS (8/8)
+
+### Phase 8 — Requirements Traceability: all 11 MET, no scope drift.
+
+### Findings — all resolved
+
+| # | Sev | Title | Resolution |
+|---|-----|-------|------------|
+| F1 | P2 | `continue` policy diverged across drivers: transition-flow retained the failed `lastActionResult`, state-machine nulled it to `undefined`. A downstream guard inspecting `.error`/`.data` would behave differently per dialect. | **FIXED.** state-machine `runActions` now returns a discriminated `{ outcome, result }` (`state-machine.ts:121-160`): the last action result is retained (including continued failures) so guards can inspect it, while `outcome` ('completed'\|'terminal'\|'fail') drives control flow. New cross-driver parity test `tests/onerror-parity.test.ts` asserts both drivers expose the identical continued-failure result to the downstream guard (would have failed pre-fix). |
+| F2 | P3 | Test name `'runOptions.onError has lowest precedence'` contradicted its assertion. | **FIXED.** Renamed to `'runOptions.onError applies when action and workflow defaults are absent'` (`state-machine.test.ts:253`). |
+| F3 | P3 | `warnActionFailed` lacked a span event (every other lifecycle method emits one). | **FIXED.** Added `addSpanEvent('workflow.action_failed_continue', …)` (`run-lifecycle.ts:145`). |
+
+### Notes
+- Security: closed enums (`onError`, `stopOnFirst`); no injection/secret/exposure paths.
+- Efficiency: `stopOnFirst` short-circuits (fix-loop perf win); the `runActions` discriminated return is allocation-trivial.
+- Design constraints honored: `SEVERITY_RANK` rule-engine-local; workflow `OnErrorPolicy` distinct; policy verbs kept distinct (stopOnFirst vs onError); the two drivers now share continue-semantics behaviorally without sharing code.
+
+
+### Phase 8 — Requirements Traceability
+
+| Req | Verdict | Evidence |
+|-----|---------|----------|
+| R1 rule-engine stopOnFirst param | **MET** | `engine.ts:50,73` (both signatures); loop guard `engine.ts:124` |
+| R1a default exhaustive, verdict in consumer | **MET** | `stopOnFirst?` optional; no exitCode logic in engine; 8 tests incl. exhaustive default |
+| R2 ActionDef.onError | **MET** | `types.ts:20`, `schema.ts:30` |
+| R2a workflow defaultOnError (default 'fail') | **MET** | `types.ts:60,97`, `schema.ts:51,90`; `resolveOnErrorPolicy` defaults 'fail' |
+| R2b WorkflowRunOptions.onError override | **MET** | `types.ts:153`; precedence tests SM lines 221-302 |
+| R3 driver !ok policy branch (4 branches) | **MET (w/ P2 note)** | SM `runActions` 149-154 (onEnter/onExit) + TF 73-79; see F1 |
+| R4 continue + no-edge terminates done | **MET** | SM test 325; TF equivalent |
+| R5 ADR-013 addendum | **MET** | `docs/00_ADR.md` (verify content) |
+| R6 test coverage | **MET** | rule-engine 8 stopOnFirst cases; workflow full precedence matrix + R4 + terminal-wins |
+| R7 gate + build green, lockstep-publishable | **MET** | spur-check + build pass; no new dep |
+
+All 11 requirements MET. No scope drift.
+
+### P2 — Warnings
+| # | Title | Dimension | Location | Recommendation |
+|---|-------|-----------|----------|----------------|
+| F1 | `continue` policy diverges across drivers: transition-flow RETAINS the failed `lastActionResult` (visible to downstream `action-ok`/data guards), state-machine NULLS it to `undefined` (`runActions` sets `last = undefined`, state-machine.ts:153). Same workflow concept, two behaviors. Tests don't catch it because they use `action-ok`-free transitions. | Correctness | `state-machine.ts:149-154` vs `transition-flow.ts:73-79` | Decide one semantic (recommend: retain the failed result, matching transition-flow) and align both drivers; add a guard-visibility test asserting a post-continue guard sees the failed result identically in both dialects. **Design decision — not auto-fixed.** |
+
+### P3 — Info
+| # | Title | Dimension | Location | Recommendation |
+|---|-------|-----------|----------|----------------|
+| F2 | Test name contradicts assertion: `'runOptions.onError has lowest precedence'` asserts runOptions WINS (status done) when other levels absent. Comment at line 266 contradicts the name. | Usability/Tests (R8) | `state-machine.test.ts:253` | Rename to `'runOptions.onError applies when action and workflow defaults are absent'`. |
+| F3 | `warnActionFailed` is the only RunLifecycle method without a span event (`addSpanEvent`), unlike enter/transition/fail — a continued failure is logged but not traced. | Usability/Observability | `run-lifecycle.ts:144-147` | Add `addSpanEvent('workflow.action_failed_continue', {...})` for trace parity with the other lifecycle events. |
+
+### Notes
+- Security: no new attack surface; `onError` is a closed enum, `stopOnFirst` a closed enum; no injection/secret/exposure paths.
+- Efficiency: no new hot-path cost; `stopOnFirst` short-circuits (a perf *win* for the fix-loop).
+- R2 constraint (no shared code) satisfied: `SEVERITY_RANK` is rule-engine-local (`types.ts:8`); workflow `OnErrorPolicy` is its own type. Policy verbs kept distinct (stopOnFirst vs onError) per design.
+
+
+### Testing
+
+
+
+### Artifacts
+
+| Type | Path | Agent | Date |
+| ---- | ---- | ----- | ---- |
+
+### References
+
