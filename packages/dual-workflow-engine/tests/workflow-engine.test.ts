@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDbAdapter } from '@gobing-ai/ts-db';
+import { setLoggerMuted } from '@gobing-ai/ts-infra';
 import {
     type ActionRunner,
     applyWorkflowEngineSchema,
@@ -18,6 +19,9 @@ import {
     WorkflowService,
     WorkflowValidationError,
 } from '../src';
+
+// Workflow runs emit structured run-lifecycle logs by design; mute them in tests.
+setLoggerMuted(true);
 
 class CaptureAction implements ActionRunner {
     readonly kind = 'capture';
