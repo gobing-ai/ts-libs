@@ -1,5 +1,4 @@
-import { resolve } from 'node:path';
-import { getFs, walkDir } from '@gobing-ai/ts-runtime';
+import { getFs, resolvePath, walkDir } from '@gobing-ai/ts-runtime';
 import { HistoryImportError } from './errors';
 import { sha256 } from './hash';
 import { redactRecord } from './redaction';
@@ -213,11 +212,11 @@ async function discoverFiles(
     files: readonly string[] | undefined,
 ): Promise<readonly string[]> {
     if (files !== undefined && files.length > 0) {
-        return files.map((file) => resolve(file)).sort();
+        return files.map((file) => resolvePath(file)).sort();
     }
 
     const fs = getFs();
-    const resolvedRoots = (roots ?? definition.defaultRoots).map((root) => resolve(root));
+    const resolvedRoots = (roots ?? definition.defaultRoots).map((root) => resolvePath(root));
     const found = new Set<string>();
     for (const root of resolvedRoots) {
         if (!(await fs.exists(root))) continue;
