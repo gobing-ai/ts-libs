@@ -1,5 +1,4 @@
-import { resolve } from 'node:path';
-import { NodeFileSystem } from '@gobing-ai/ts-runtime';
+import { joinPath, NodeFileSystem } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -86,7 +85,7 @@ export class PathEvaluator implements RuleEvaluator {
         const mode = stringConfig(config, 'mode', 'require');
         const findings = [];
         for (const path of paths) {
-            const exists = await this.fs.exists(resolve(context.workdir, path));
+            const exists = await this.fs.exists(joinPath(context.workdir, path));
             if (mode === 'forbid' && exists) {
                 findings.push(createFinding(rule, `Forbidden path exists: ${path}`, path, { code: 'path:forbidden' }));
             }
