@@ -15,7 +15,7 @@ export interface LogStream {
     end(): void;
 }
 
-/** Asynchronous, runtime-portable file system abstraction. Implementations exist for Node/Bun and Cloudflare Workers. */
+/** @deprecated Use {@link import('./file-system').FileSystem} instead — the new interface has union return types and does not require a separate SyncFileSystem. */
 export interface FileSystem {
     readFile(path: string): Promise<string>;
     writeFile(path: string, content: string): Promise<void>;
@@ -31,7 +31,7 @@ export interface FileSystem {
     createLogStream(path: string): LogStream;
 }
 
-/** Synchronous file system abstraction for Node/Bun. Not available on Cloudflare Workers. */
+/** @deprecated Use {@link import('./file-system').FileSystem} instead — its union return types make a separate sync interface unnecessary. */
 export interface SyncFileSystem {
     readFile(path: string): string;
     writeFile(path: string, content: string): void;
@@ -59,6 +59,7 @@ function nodeFs(): Promise<NodeFs> {
 }
 
 /** {@link FileSystem} backed by `node:fs/promises`. Lazy-loads the module to avoid top-level import cost. */
+/** @deprecated Use createNodeFileSystem() from './file-system-node' instead. */
 export class NodeFileSystem implements FileSystem {
     async readFile(path: string): Promise<string> {
         const { readFile } = await nodeFsPromises();
@@ -138,6 +139,7 @@ export class NodeFileSystem implements FileSystem {
 }
 
 /** {@link SyncFileSystem} backed by `node:fs` synchronous APIs. */
+/** @deprecated Use createNodeFileSystem() from './file-system-node' instead — its FileSystem interface has union return types, eliminating the need for a separate sync implementation. */
 export class NodeSyncFileSystem implements SyncFileSystem {
     readFile(path: string): string {
         return readFileSync(path, 'utf-8');
@@ -221,6 +223,7 @@ class LazyNodeLogStream implements LogStream {
 const CLOUDFLARE_FS_ERROR = 'FileSystem is not available on Cloudflare Workers. Use D1, KV, or R2.';
 
 /** {@link FileSystem} stub for Cloudflare Workers — all file operations throw. Use D1, KV, or R2 instead. */
+/** @deprecated Use createCfFileSystem() from './file-system-cf' instead. */
 export class CloudflareFileSystem implements FileSystem {
     async readFile(path: string): Promise<string> {
         throw unsupportedCloudflareFs('readFile', path);
@@ -278,6 +281,7 @@ function unsupportedCloudflareFs(operation: string, path: string): Error {
 let activeFileSystem: FileSystem = new NodeFileSystem();
 
 /** Swaps the active global file system, returning a restore function for the previous instance. */
+/** @deprecated Use RuntimeFactory.createFileSystem() or ctx.require('fileSystem') instead. The global swap is replaced by factory-based DI. */
 export function setFileSystem(fileSystem: FileSystem): () => void {
     const previous = activeFileSystem;
     activeFileSystem = fileSystem;
@@ -287,6 +291,7 @@ export function setFileSystem(fileSystem: FileSystem): () => void {
 }
 
 /** Returns the currently active global {@link FileSystem} instance. */
+/** @deprecated Use RuntimeFactory.createFileSystem() or ctx.require('fileSystem') instead. */
 export function getFs(): FileSystem {
     return activeFileSystem;
 }
@@ -297,6 +302,7 @@ export async function ensureDirForFile(path: string, fs = getFs()): Promise<void
 }
 
 /** Synchronous variant of {@link ensureDirForFile}. */
+/** @deprecated The new createNodeFileSystem() handles parent-directory creation internally. */
 export function ensureDirForFileSync(path: string, fs: SyncFileSystem): void {
     fs.mkdir(dirnamePath(path));
 }
