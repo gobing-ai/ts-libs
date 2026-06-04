@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { setLoggerMuted } from '@gobing-ai/ts-infra';
 import { createDefaultWorkflowEngineHost } from '../src/host';
 import { MemoryWorkflowPersistenceAdapter } from '../src/persistence';
 import { WorkflowService } from '../src/service';
 import type { WorkflowDef, WorkflowRunRecord } from '../src/types';
+
+// Workflow runs emit structured run-lifecycle logs by design; mute them in tests.
+setLoggerMuted(true);
 
 function makeService() {
     const host = createDefaultWorkflowEngineHost();
