@@ -31,6 +31,8 @@ The package exposes:
 | `validateWorkflowDef()` | Semantic invariant checking beyond Zod schema |
 | `loadWorkflowExtensionsIntoHost()` | Trust-gated extension module loading for actions and guards |
 | `mergeVars()` / `resolveTemplates()` / `resolveTemplateString()` | Variable merging and `${...}` template resolution |
+| `resolveOnErrorPolicy()` | Resolves effective `OnErrorPolicy` from action, workflow default, and run options |
+| `OnErrorPolicy` | Type: `'fail' | 'continue'` — action error-handling strategy |
 | `allowedEnv()` / `runtimeBuiltins()` | Environment allowlist projection and built-in template injection |
 | `StateMachineWorkflowDefSchema` / `TransitionFlowWorkflowDefSchema` / `WorkflowDefSchema` | Zod schemas for workflow definition validation |
 | `ActionDefSchema` / `GuardDefSchema` | Zod schemas for action and guard definitions |
@@ -77,7 +79,6 @@ The package exposes:
 ```
 
 ### State-Machine Step Execution
-
 The state-machine driver runs a loop until reaching a terminal state, failure, or iteration bound. Each iteration:
 
 1. Persists the state snapshot and marks its phase `running`
@@ -86,6 +87,10 @@ The state-machine driver runs a loop until reaching a terminal state, failure, o
 4. Evaluates transition guards in declaration order; picks the first passing one
 5. Executes the state's `onExit` actions
 6. Persists the transition and moves to the target state
+
+If an action fails and the resolved `onError` policy is `'fail'` (default), the run stops immediately with
+`status: 'failed'`. When `'continue'`, a non-fatal warning is logged via `RunLifecycle.warnActionFailed()`
+and the run advances to the next guard evaluation or transition.
 
 ```mermaid
 sequenceDiagram
@@ -304,6 +309,29 @@ const result = await driver.run(
 result.status; // "done"
 result.finalState; // "done"
 captureAction.seen; // ["approved"]
+
+// A workflow with error resilience — non-fatal failures log and continue.
+const host2 = new WorkflowEngineHost()
+    .registerAction(failableAction)
+    .registerGuard({ kind: 'always', evaluate: async () => true });
+
+const resilientDriver = new StateMachineDriver({
+    host: host2,
+    persistence: new MemoryWorkflowPersistenceAdapter(),
+});
+
+const resilientResult = await resilientDriver.run({
+    name: 'resilient-approval',
+    initialState: 'draft',
+    terminalStates: ['done'],
+    defaultOnError: 'continue', // workflow-level default
+    states: [
+        { id: 'draft', onEnter: [{ kind: 'audit', onError: 'fail' }] }, // overrides to fail-fast for audits
+        { id: 'done' },
+    ],
+    transitions: [{ from: 'draft', to: 'done', guard: { kind: 'always' } }],
+});
+
 ```
 
 The driver persists each state snapshot, phase update, transition, and final run status through the configured persistence adapter.
@@ -642,7 +670,7 @@ resolveTemplateString('Run ${runId} in ${runtime}', {
 - **Run identity** — generates a `runId` (or honors caller-provided), timestamps, and run record
 - **Persistence sequencing** — `createRun` → `savePhase`/`saveWorkflowState` per step → `finalizeRun` at the end
 - **Observability** — wraps the full run in an OTel span, emits `workflow.enter`, `workflow.transition`, and `workflow.fail` span events, and logs each lifecycle event through `@gobing-ai/ts-infra` logger
-
+- **Error resilience** — `warnActionFailed()` logs non-fatal warnings for `onError: 'continue'` actions, using the same structured-logging observability seam as `fail()`
 ```ts
 import { RunLifecycle, type RunLifecycleDeps } from '@gobing-ai/ts-dual-workflow-engine';
 
@@ -669,6 +697,16 @@ const result = await RunLifecycle.run(
 | `RunCollisionError` | Duplicate `runId` when creating a new run |
 
 Run failures caused by actions or guards are returned as `WorkflowRunResult` with `status: 'failed'`, preserving the run record — they do not throw.
+
+### Error Policy (`onError`)
+
+Actions, workflow definitions, and `WorkflowRunOptions` accept `onError?: 'fail' | 'continue'`.
+The resolved policy follows precedence `action.onError ?? workflow.defaultOnError ?? runOptions.onError ?? 'fail'`.
+
+- **`'fail'`** (default): the run halts immediately with `status: 'failed'` — today's behavior.
+- **`'continue'`**: logs a structured warning through `RunLifecycle.warnActionFailed()` and advances to the next
+  state, node, guard, or edge evaluation. A node with no outbound edges that fails with `'continue'` still
+  terminates as `done`.
 
 ## Boundary Notes
 
