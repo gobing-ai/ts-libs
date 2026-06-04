@@ -4,12 +4,13 @@ import { allowedEnv, RunLifecycle, runtimeBuiltins } from './run-lifecycle';
 import type {
     ActionDef,
     ActionResult,
+    OnErrorPolicy,
     StateMachineWorkflowDef,
     WorkflowPersistenceAdapter,
     WorkflowRunOptions,
     WorkflowRunResult,
 } from './types';
-import { mergeVars, resolveTemplates } from './variables';
+import { mergeVars, resolveOnErrorPolicy, resolveTemplates } from './variables';
 
 /** Dependencies required by the state-machine driver. */
 export interface StateMachineDriverOptions {
@@ -46,6 +47,7 @@ export class StateMachineDriver {
         let transitionsTaken = 0;
         let lastActionResult: ActionResult | undefined;
         const iterationBound = workflow.iterationBound ?? 50;
+        const defaultOnError = workflow.defaultOnError;
 
         if (current === undefined) throw new FSMError(`Initial state "${workflow.initialState}" is not declared`);
 
@@ -54,7 +56,7 @@ export class StateMachineDriver {
             await lifecycle.enter(current.id, transitionsTaken);
 
             // 2. Execute this state's on-enter actions in declaration order.
-            lastActionResult = await this.runActions(
+            const enter = await this.runActions(
                 current.onEnter ?? [],
                 workflow.name,
                 current.id,
@@ -63,16 +65,22 @@ export class StateMachineDriver {
                 env,
                 options,
                 transitionsTaken,
+                lifecycle,
+                defaultOnError,
             );
-            if (lastActionResult?.ok === false)
-                return await lifecycle.fail(current.id, transitionsTaken, lastActionResult.error);
-
+            // Retain the last action result (including failures the policy continued
+            // past) so downstream guards can inspect it — matching the transition-flow
+            // driver's `continue` semantics.
+            lastActionResult = enter.result;
             // 3. Stop immediately when an action explicitly declares terminal success.
-            if (lastActionResult?.terminal === true) {
+            if (enter.outcome === 'terminal') {
                 return await lifecycle.done(current.id, transitionsTaken);
             }
+            // 4. Halt only when an action failed under a 'fail' policy.
+            if (enter.outcome === 'fail') {
+                return await lifecycle.fail(current.id, transitionsTaken, lastActionResult?.error);
+            }
 
-            // 4. Stop when the current state is terminal or has no outbound transitions.
             const outbound = workflow.transitions.filter((transition) => transition.from === current?.id);
             if (terminal.has(current.id) || outbound.length === 0) {
                 return await lifecycle.done(current.id, transitionsTaken);
@@ -90,7 +98,7 @@ export class StateMachineDriver {
             }
 
             // 6. Execute this state's on-exit actions before changing state.
-            const exitResult = await this.runActions(
+            const exit = await this.runActions(
                 current.onExit ?? [],
                 workflow.name,
                 current.id,
@@ -99,8 +107,10 @@ export class StateMachineDriver {
                 env,
                 options,
                 transitionsTaken,
+                lifecycle,
+                defaultOnError,
             );
-            if (exitResult?.ok === false) return await lifecycle.fail(current.id, transitionsTaken, exitResult.error);
+            if (exit.outcome === 'fail') return await lifecycle.fail(current.id, transitionsTaken, exit.result?.error);
 
             // 7. Persist transition and move to the target state.
             transitionsTaken += 1;
@@ -114,6 +124,12 @@ export class StateMachineDriver {
         }
     }
 
+    /**
+     * Run a state's actions in order. Returns the last action result (retained even
+     * when a failure was continued past, so downstream guards can inspect it) plus an
+     * `outcome` discriminator: `terminal` (an action declared terminal success),
+     * `fail` (a failure under a 'fail' policy — caller must halt), or `completed`.
+     */
     private async runActions(
         actions: readonly ActionDef[],
         workflowName: string,
@@ -123,7 +139,9 @@ export class StateMachineDriver {
         env: Record<string, string>,
         options: WorkflowRunOptions,
         transitionsTaken: number,
-    ): Promise<ActionResult | undefined> {
+        lifecycle: RunLifecycle,
+        defaultOnError: OnErrorPolicy | undefined,
+    ): Promise<RunActionsOutcome> {
         let last: ActionResult | undefined;
         for (const action of actions) {
             const resolved = resolveTemplates(action.options ?? {}, {
@@ -139,10 +157,21 @@ export class StateMachineDriver {
                 env,
                 metadata: options.metadata,
             });
-            if (!last.ok || last.terminal === true) return last;
+            if (last.terminal === true) return { outcome: 'terminal', result: last };
+            if (!last.ok) {
+                const policy = resolveOnErrorPolicy(action.onError, defaultOnError, options.onError);
+                if (policy === 'fail') return { outcome: 'fail', result: last };
+                lifecycle.warnActionFailed(stateId, transitionsTaken, last.error);
+            }
         }
-        return last;
+        return { outcome: 'completed', result: last };
     }
+}
+
+/** Result of running a state's actions: the last action result plus a control-flow discriminator. */
+interface RunActionsOutcome {
+    readonly outcome: 'completed' | 'terminal' | 'fail';
+    readonly result: ActionResult | undefined;
 }
 
 async function firstPassingTransition(
