@@ -1,9 +1,9 @@
 ---
 name: "shared plugin core for rule-engine and dual-workflow-engine"
 description: "Extract a shared plugin/capability core used by rule-engine and dual-workflow-engine"
-status: Backlog
+status: Done
 created_at: 2026-06-03T00:36:54.000Z
-updated_at: 2026-06-03T00:36:54.000Z
+updated_at: 2026-06-04T02:29:40.400Z
 folder: docs/tasks
 type: task
 feature-id: ""
@@ -53,58 +53,28 @@ freeze the agreed destination and prevent implementation drift.
 
 ### Requirements
 
-- [x] **R1 - ADR before implementation (DONE — ADR-010)**: `docs/00_ADR.md` now records the shared
-  plugin-core decision (Option A), target package location (`@gobing-ai/ts-runtime/plugin`), public API
-  exposure, trust boundary, error-type/override ownership, migration strategy, deferred items, and
-  consequences for both engines.
-- [x] **R2 - shared-core location (RESOLVED by ADR-010)**: The shared core lives in
-  `packages/runtime` (`@gobing-ai/ts-runtime`), exported from the subpath `@gobing-ai/ts-runtime/plugin`.
-  A dedicated `packages/plugin-core` is explicitly rejected for this task (YAGNI; both engines already
-  depend on `ts-runtime`) and is a future ADR gated on a third consumer or real lifecycle features.
-- [ ] **R3 - shared core owns generic capability registry**: Move the rule-engine
-  `CapabilityRegistry` concept into the shared core with at least `register`, `get`, `has`, `list`,
-  and entry metadata including `origin: 'builtin' | 'extension'`.
-- [ ] **R4 - shared core owns generic extension loading primitives**: Extract trust-gated module
-  loading into reusable primitives without embedding rule-engine-specific or workflow-specific kinds.
-  Extension loading must remain disabled by default and must throw when extension refs exist but
-  `allowExtensions !== true`.
-- [ ] **R5 - rule-engine migrated without behavior drift**: `RuleEngineHost` must use the shared
-  registry. Existing rule-engine extension behavior, override warnings, schema semantics, trust gate,
-  and test results must remain unchanged.
-- [ ] **R6 - dual-workflow-engine migrated to the same registry model**:
-  `WorkflowEngineHost` must use the shared registry for actions and guards while preserving existing
-  public methods: `registerAction`, `registerGuard`, `runAction`, and `evaluateGuard`.
-- [ ] **R7 - workflow extension loading added only for real current seams**:
-  Add workflow extension loading for actions and guards. Do not add driver/loader/validator/formatter
-  extension surfaces in this task unless an ADR explicitly justifies them.
-- [ ] **R8 - workflow extensions are trust-gated**: Workflow extension refs must use the same
-  fail-closed trust behavior as rule-engine extensions. Loading arbitrary workflow extension modules
-  is never implicit.
-- [ ] **R9 - no premature unification of engine loops**: Do not abstract state-machine and
-  transition-flow into a common execution loop. A driver registry may be designed in the ADR as a
-  future extension point, but implementation should defer it until a third workflow dialect or a real
-  override use case exists.
-- [ ] **R10 - package boundaries remain valid**: Internal dependencies must use `workspace:*`, and
-  TypeScript path aliases must be updated for any new cross-package dependency. No package may import
-  through private source paths of another package.
-- [ ] **R11 - compatibility and migration documented**: Public API changes must be documented in the
-  package READMEs or API docs. If any exported symbol moves, keep a compatibility re-export where
-  reasonable or document the breaking change explicitly.
-- [ ] **R12 - gates clean**: `bun run spur-check` and `bun run build` must pass. No `.skip`, no
-  suppression-only `biome-ignore`, no bypassing spur rules.
+## Requirements — 2026-06-04 (re-audit, --force)
 
-- [ ] **R13 - error types stay engine-owned (ADR-010)**: The shared `CapabilityRegistry.get` stays
-  generic and the shared core must not import an engine's error class. `WorkflowEngineHost` must
-  preserve `WorkflowValidationError` for unknown action/guard kinds (via `has()`-then-throw-own-error at
-  its boundary), and rule-engine must keep its existing `Error` messages unless a test deliberately
-  approves a clearer message.
+All 14 requirements MET. All 5 child tasks Done (0007–0011). `spur-check` passes.
 
-- [ ] **R14 - override semantics stay engine-owned (ADR-010)**: The shared loader must not bake any
-  override-warning string or override policy into the core. It either exposes a conflict/override
-  callback or returns what it registered; each engine decides whether replacing a capability is
-  meaningful and owns its warning. The generic relative-path/no-`..`-traversal guard must be a
-  standalone validator (`assertRelativeExtensionPath()`) the loader enforces at load time, independent
-  of any engine's zod schema (defense in depth).
+- [x] **R1 — ADR before implementation**: Done — ADR-010 in `docs/00_ADR.md` (2026-06-03).
+- [x] **R2 — Shared-core location**: Resolved — `@gobing-ai/ts-runtime/plugin` (ADR-010).
+- [x] **R3 — Shared core owns generic capability registry**: ✅ 0007 — `CapabilityRegistry<T>` with `register`/`get`/`has`/`list`/`getEntry`/`entries` + `origin` metadata.
+- [x] **R4 — Shared core owns generic extension loading primitives**: ✅ 0007 — `loadExtensionModules<K>` with fail-closed trust gate, `ExtensionRef<K>` (path+baseDir), `assertRelativeExtensionPath`.
+- [x] **R5 — Rule-engine migrated without behavior drift**: ✅ 0008 (registry + path-guard), 0011 (loader delegation). 219 tests unchanged. Compat re-export at old path.
+- [x] **R6 — Dual-workflow-engine migrated to same registry model**: ✅ 0009 — host maps → `CapabilityRegistry<ActionRunner/GuardRunner>`. `WorkflowValidationError` preserved. 149 tests pass.
+- [x] **R7 — Workflow extension loading for actions/guards only**: ✅ 0010 — `loadWorkflowExtensionsIntoHost` with `WorkflowExtensionKind = 'actions' | 'guards'`. No driver/loader/validator/formatter surfaces.
+- [x] **R8 — Workflow extensions trust-gated**: ✅ 0010 — delegates to shared `loadExtensionModules` (fail-closed). Pre-adaptation `..` guard on `absPath`.
+- [x] **R9 — No premature unification of engine loops**: ✅ Driver registry deferred per ADR-010. `WorkflowService` dispatch remains explicit. No driver extension surface.
+- [x] **R10 — Package boundaries remain valid**: ✅ All internal deps `workspace:*`. tsconfig path aliases on all consuming packages (rule-engine, dual-workflow-engine). No private-source path imports.
+- [x] **R11 — Compatibility and migration documented**: ✅ Compat re-export at `rule-engine/src/host/capability-registry.ts` → shared. `origin` param additive. No breaking changes to public APIs.
+- [x] **R12 — Gates clean**: ✅ `spur-check` pass (30 rules + 948 tests + 8× typecheck + TSDoc + coverage-gate). `bun run build` green (8/8 packages).
+- [x] **R13 — Error types stay engine-owned**: ✅ Shared `CapabilityRegistry.get` throws generic `Error`. Rule-engine preserves error messages. Workflow host preserves `WorkflowValidationError` at boundary (`has()`-then-throw). 0010 uses `WorkflowValidationError` for extension shape mismatches.
+- [x] **R14 — Override semantics stay engine-owned**: ✅ Rule-engine override warnings in 0008 adapter callback. Workflow override warnings in 0010 `warnIfOverride` (only warns on built-in overrides). Shared core bakes in no override policy.
+
+### Scope Drift
+None detected. All code maps to the ADR-010 architecture. No driver registry, no lifecycle hooks, no DI containers introduced.
+
 
 ### Q&A
 
@@ -535,16 +505,46 @@ is already complete:
 
 ### Review
 
-Not started.
+## Review — 2026-06-04 (re-audit, --force)
 
-Review focus when implemented:
+**Verdict: PASS** — All 5 child tasks Done. All 14 requirements MET. No integration-level SECU findings.
+**Scope:** Cross-package: `packages/runtime/src/plugin/` + `packages/rule-engine/src/` + `packages/dual-workflow-engine/src/`
+**Mode:** verify (Phase 7 SECU + Phase 8 traceability)
+**Channel:** current
+**Gate:** `bun run spur-check` → pass (30 rules + 948 tests + 8× typecheck)
 
-- Check that shared core is genuinely generic and does not import either engine.
-- Check that trust gate fails before dynamic import.
-- Check that rule-engine extension behavior did not drift.
-- Check that workflow unknown action/guard errors remain `WorkflowValidationError`.
-- Check that dependency and tsconfig path changes follow ADR-002 and ADR-004.
-- Check that no broad plugin lifecycle abstraction was introduced without a real use case.
+### Child Task Status
+
+| WBS | Task | Status |
+|-----|------|--------|
+| 0007 | Shared plugin core in ts-runtime/plugin | Done |
+| 0008 | Migrate rule-engine onto shared core | Done |
+| 0009 | Migrate workflow host onto shared registry | Done |
+| 0010 | Trust-gated workflow extension loading | Done |
+| 0011 | Align loaders on shared ExtensionRef | Done |
+
+### P1 — Blockers
+No findings.
+
+### P2 — Warnings
+No findings.
+
+### P3 — Info
+No findings.
+
+### P4 — Suggestions
+No findings.
+
+#### Integration-level SECU analysis
+
+- **Security — Trust boundary**: The shared fail-closed gate (`allowExtensions !== true` throws before any import) governs all extension loading across both engines. The shared `assertRelativeExtensionPath` provides defense-in-depth path validation. Both engine adapters (0008 `extensions.ts:96-103`, 0010 `extensions.ts:76-83`) add pre-adaptation `..` checks on caller-supplied `absPath` before `dirname`/`basename` decomposition. No `import()` reachable before the gate in any path.
+- **Security — Shared core isolation**: `packages/runtime/src/plugin/` imports neither `ts-rule-engine` nor `ts-dual-workflow-engine`. Zero engine vocabulary in the shared core. The `moduleLoader` is required (not optional), keeping the shared core free of ambient code-loading capability.
+- **Correctness — Error-type ownership (ADR-010 R13)**: `WorkflowEngineHost.runAction/evaluateGuard` use `has()`-then-throw-`WorkflowValidationError` (0009). 0010's `registerExtensionOnHost` throws `WorkflowValidationError` for shape mismatches. No engine error class leaks into the shared core.
+- **Correctness — Override semantics (ADR-010 R14)**: Rule-engine override warnings live in 0008's adapter callback. Workflow override warnings live in 0010's `warnIfOverride`. The shared core bakes in no override policy.
+- **Correctness — Developer contract compliance (R9)**: No driver registry implementation. `WorkflowExtensionKind` restricted to `'actions' | 'guards'`. `WorkflowService` dispatch remains explicit.
+- **Efficiency**: O(n) single-pass over refs; Map-backed registries O(1). `dirname`/`basename` decomposition is string-only. No N+1, no unbounded growth.
+- **Usability**: Compat re-exports preserve rule-engine's public surface. `origin` param is additive and backward-compatible. Introspection methods expose registry metadata.
+
 
 ### Testing
 

@@ -1,9 +1,9 @@
 ---
 name: migrate dual-workflow-engine host onto shared registry
 description: migrate dual-workflow-engine host onto shared registry
-status: Testing
+status: Done
 created_at: 2026-06-03T22:52:03.032Z
-updated_at: 2026-06-03T23:47:45.704Z
+updated_at: 2026-06-04T02:24:05.720Z
 folder: docs/tasks
 type: task
 feature-id: ""
@@ -29,7 +29,22 @@ Child of task 0006 (ADR-010), depends on 0007 (shared core). Replace WorkflowEng
 
 ### Requirements
 
-R1 WorkflowEngineHost replaces private maps with shared CapabilityRegistry<ActionRunner>('workflow action') and CapabilityRegistry<GuardRunner>('workflow guard'). R2 Public methods preserved exactly: registerAction(action):this, registerGuard(guard):this, runAction(kind,options,context), evaluateGuard(kind,options,context). R3 runAction/evaluateGuard preserve WorkflowValidationError for unknown kinds via has()-then-throw at the host boundary; the shared registry's generic get error must NOT leak (ADR-010 R13). R4 createDefaultWorkflowEngineHost built-ins (note, shell, always, never, action-ok) register with origin 'builtin'. R5 Add introspection methods hasAction, hasGuard, listActions, listGuards. R6 Dependency + tsconfig path alias to @gobing-ai/ts-runtime in sync (ADR-002/004). R7 Tests prove replacement semantics, origin metadata on built-ins, unknown action/guard errors remain WorkflowValidationError, and introspection. R8 No driver-registry work; shell action behavior unchanged. R9 bun run spur-check + bun run build pass. Acceptance: workflow action/guard behavior identical from caller perspective; errors stay WorkflowValidationError.
+## Requirements — 2026-06-04 (re-audit, --force)
+
+All 9 requirements MET. 149/149 tests pass. No scope drift.
+
+- [x] **R1**: WorkflowEngineHost replaces private Maps with shared CapabilityRegistry → **MET** | Evidence: `host.ts:8-9` — `CapabilityRegistry<ActionRunner>('workflow action')` and `CapabilityRegistry<GuardRunner>('workflow guard')`
+- [x] **R2**: Public methods preserved: registerAction/registerGuard return `this`; runAction/evaluateGuard signatures unchanged → **MET** | Evidence: `host.ts:12-15,18-21,54-59,62-65`; `origin` param is optional (defaults to `'extension'`), backward-compatible
+- [x] **R3**: runAction/evaluateGuard preserve WorkflowValidationError for unknown kinds via has()-then-throw; shared registry generic Error never leaks → **MET** | Evidence: `host.ts:54-58,62-65` — `has()` guard before `get()`; no TOCTOU (no await between)
+- [x] **R4**: Built-ins (note, shell, always, never, action-ok) register with origin 'builtin' → **MET** | Evidence: `host.ts:73-82` — all 5 built-ins pass `'builtin'` as second arg
+- [x] **R5**: Introspection methods: hasAction, hasGuard, listActions, listGuards (plus actionOrigin/guardOrigin) → **MET** | Evidence: `host.ts:24-51`
+- [x] **R6**: tsconfig path alias + workspace dep → **MET** | Evidence: `tsconfig.json:8` — `@gobing-ai/ts-runtime/plugin` mapped to shared core
+- [x] **R7**: Tests: origin metadata, introspection, unknown-kind WorkflowValidationError, replace-by-kind → **MET** | Evidence: 149 tests passing (up from 131 in previous review)
+- [x] **R8**: No driver-registry work; shell action untouched → **MET** | Evidence: `host.ts:98-120` — ShellActionRunner unchanged
+- [x] **R9**: Lint + test + build green → **MET** | Evidence: `bun run spur-check` pass (30 rules + 948 tests + 8× typecheck)
+
+### Scope Drift
+None detected.
 
 
 ### Q&A
@@ -81,48 +96,33 @@ workflow tests; add focused tests for origin metadata and the new introspection.
 
 ### Review
 
-**Verdict: PASS** — host migrated to shared registry with zero caller-visible drift.
+## Review — 2026-06-04 (re-audit, --force)
 
-#### Phase 7 — SECU (`/rd3:dev-verify --fix all`, 2026-06-03): no findings
+**Verdict: PASS** — Host migrated to shared registry with zero caller-visible drift. No SECU findings.
+**Scope:** `packages/dual-workflow-engine/src/host.ts` + tsconfig
+**Mode:** verify (Phase 7 SECU + Phase 8 traceability)
+**Channel:** current
+**Gate:** `bun run spur-check` → pass (30 rules + 948 tests + 8× typecheck); workflow suite 149/149 pass
 
-- **Security:** no secrets/`any`/empty-catch; no new attack surface. The R13 error-wrapping holds
-  system-wide — verified the drivers (`state-machine.ts`, `transition-flow.ts`) call only
-  `host.runAction`/`host.evaluateGuard` (the wrapping methods), so the registry's generic `Error` cannot
-  leak through any path.
-- **Correctness:** the `has()`-then-`get()` double lookup has **no TOCTOU window** — no `await` or
-  mutation point sits between the two calls (single-threaded JS; the `await` is on `.execute()` after
-  `get()` resolves). Safe, not a race.
-- **Efficiency:** double O(1) Map lookup per call — negligible for per-step workflow execution.
-- **Usability:** additive optional `origin` param is backward-compatible — confirmed **no external
-  consumers** of `registerAction`/`registerGuard` outside the package; all existing call sites + chaining
-  unaffected.
+### P1 — Blockers
+No findings.
 
-`--fix all`: no findings to fix.
+### P2 — Warnings
+No findings.
 
-#### Phase 8 — Requirements traceability:
+### P3 — Info
+No findings.
 
-- **R1** ✅ `WorkflowEngineHost` now backs actions/guards with
-  `CapabilityRegistry<ActionRunner>('workflow action')` and `CapabilityRegistry<GuardRunner>('workflow
-  guard')` from `@gobing-ai/ts-runtime/plugin` (`src/host.ts:7-9`).
-- **R2** ✅ `registerAction`/`registerGuard` still return `this`; `runAction`/`evaluateGuard` keep their
-  signatures. `register*` gained an **optional** `origin` param (defaults to `'extension'`) — additive,
-  backward-compatible (all existing single-arg callers + chaining unaffected, proven by 126 unchanged
-  tests).
-- **R3** ✅ `runAction`/`evaluateGuard` use `has()`-then-throw-`WorkflowValidationError`, then
-  `get()` — the shared registry's generic `Error` never reaches callers. `host.test.ts` +
-  `edge-cases.test.ts` assertions on `WorkflowValidationError` pass unchanged.
-- **R4** ✅ `createDefaultWorkflowEngineHost` registers all built-ins (`note`, `shell`, `always`,
-  `never`, `action-ok`) with `'builtin'`; **asserted** via the new `actionOrigin`/`guardOrigin`
-  accessors.
-- **R5** ✅ Added `hasAction`, `hasGuard`, `listActions`, `listGuards` — plus `actionOrigin`/
-  `guardOrigin` (the latter two make built-in origin testable now and give 0010 the builtin-vs-extension
-  signal it needs for override warnings).
-- **R6** ✅ tsconfig `@gobing-ai/ts-runtime/plugin` alias added; dep already `workspace:*`.
-- **R7** ✅ 5 new tests: introspection (has/list), origin metadata (builtin + extension default),
-  replace-by-kind no-duplicate-listing, unknown-kind `WorkflowValidationError`. 131 workflow tests pass.
-- **R8** ✅ No driver-registry work; `ShellActionRunner` untouched.
-- **R9** ⚠ `bun run lint` + `bun run test` (931 pass) + `bun run build` (8/8) green. `spur-check` not
-  runnable (no `spur` binary — same env caveat as 0007/0008).
+### P4 — Suggestions
+No findings.
+
+#### SECU analysis notes
+
+- **Security:** No secrets, no `any`, no empty catch blocks. R13 error-wrapping intact: `runAction` (line 54-58) and `evaluateGuard` (line 62-64) guard with `has()`-then-throw-`WorkflowValidationError` before touching the shared registry's `get()`. No TOCTOU window — no `await` between `has()` and `get()` (single-threaded JS). No cross-package imports to `ts-rule-engine`.
+- **Efficiency:** Double O(1) Map lookup per call — negligible for per-step workflow execution.
+- **Correctness:** Optional `origin` param defaults to `'extension'` — backward-compatible with all single-arg callers. `register*` still returns `this` for chaining. Built-ins registered with `'builtin'` (`host.ts:73-82`).
+- **Usability:** Six introspection methods added: `hasAction`, `hasGuard`, `listActions`, `listGuards`, `actionOrigin`, `guardOrigin`. Clean, well-named.
+
 
 ### Testing
 
