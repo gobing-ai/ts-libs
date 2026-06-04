@@ -141,6 +141,16 @@ export class RunLifecycle {
         return this.result('failed', finalState, transitionsTaken, reason);
     }
 
+    /** Log and trace a non-fatal action failure for the 'continue' error policy (ADR-013 observability seam). */
+    warnActionFailed(stateOrNodeId: string, transitionsTaken: number, error?: string): void {
+        addSpanEvent('workflow.action_failed_continue', {
+            node: stateOrNodeId,
+            transitionsTaken,
+            ...(error === undefined ? {} : { error }),
+        });
+        this.logger.warn('action failed (continuing)', { node: stateOrNodeId, transitionsTaken, error });
+    }
+
     private result(
         status: WorkflowStatus,
         finalState: string,
