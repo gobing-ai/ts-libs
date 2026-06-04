@@ -118,9 +118,10 @@ without touching call sites. `drizzle-zod` + `zod` are **optional** peers (only 
 **Context.** Consistency across packages erodes without an enforced gate.
 
 **Decision.** `bun run spur-check` is the canonical gate: Biome + per-package `tsc` typecheck +
-`bun test` (coverage) + `spur rule run` (the `recommended` and `spur-dev` presets, `--fail-on
-warning`). Architectural invariants (drizzle containment, DB boundaries, runtime/output/http
-boundaries) live as spur rules under `.spur/rules/` and must stay green.
+`spur rule run --preset recommended-pre-check` (static/structural rules before tests) + `bun test`
+(coverage) + `spur rule run --preset recommended-post-check` (public export TSDoc and coverage gate
+after tests), all `--fail-on warning`. Architectural invariants (drizzle containment, DB boundaries,
+runtime/output/http boundaries) live as spur rules under `.spur/rules/` and must stay green.
 
 **Consequences.** A change that violates a boundary fails the gate, turning architecture into a
 checked guarantee. New cross-cutting invariants are added as spur rules, not just review habits.
