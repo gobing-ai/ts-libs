@@ -1,5 +1,13 @@
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
-import { loadStructuredConfig, NodeFileSystem } from '@gobing-ai/ts-runtime';
+import {
+    basenamePath,
+    dirnamePath,
+    joinPath,
+    loadStructuredConfig,
+    NodeFileSystem,
+    relativePath,
+    resolvePath,
+    SEP,
+} from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     type ConstraintRuleFile,
@@ -59,12 +67,12 @@ interface MergedRoots {
  * the rest of a preset's categories from the lower-priority roots.
  */
 export async function loadPreset(name: string, options: RuleLoaderOptions): Promise<LoadedPreset> {
-    const merged = await buildMergedRoots(options.roots.map((root) => resolve(root)));
+    const merged = await buildMergedRoots(options.roots.map((root) => resolvePath(root)));
     const presetPath = findMergedPreset(merged, name);
     if (presetPath === null) return { rules: [], extensions: [] };
     const preset = PresetDefinitionSchema.parse(await readStructuredFile(presetPath, options)) as PresetDefinition;
     const rules: ConstraintRule[] = [];
-    const extensions = collectExtensions(preset.name, dirname(presetPath), preset.extensions);
+    const extensions = collectExtensions(preset.name, dirnamePath(presetPath), preset.extensions);
     for (const entry of preset.extends) {
         const loaded = await loadPresetEntry(merged, entry, new Set([name]), options);
         rules.push(...loaded.rules);
@@ -132,12 +140,12 @@ export async function loadPresetRules(name: string, options: RuleLoaderOptions):
  * object, not a `rules:` array) cannot declare extensions and yields `extensions: []`.
  */
 export async function loadRuleFile(filePath: string, options: RuleFileLoadOptions = {}): Promise<LoadedPreset> {
-    const resolved = resolve(filePath);
+    const resolved = resolvePath(filePath);
     const raw = await readStructuredFile(resolved, options);
     const rules = normalizeRuleFile(raw, resolved);
     const parsed = ConstraintRuleFileSchema.safeParse(raw);
     const extensions = parsed.success
-        ? collectExtensions(basename(resolved), dirname(resolved), parsed.data.extensions)
+        ? collectExtensions(basenamePath(resolved), dirnamePath(resolved), parsed.data.extensions)
         : [];
     return { rules, extensions };
 }
@@ -158,7 +166,7 @@ async function loadPresetEntry(
         const preset = PresetDefinitionSchema.safeParse(await readStructuredFile(presetPath, options));
         if (preset.success) {
             const rules: ConstraintRule[] = [];
-            const extensions = collectExtensions(preset.data.name, dirname(presetPath), preset.data.extensions);
+            const extensions = collectExtensions(preset.data.name, dirnamePath(presetPath), preset.data.extensions);
             for (const child of preset.data.extends) {
                 const loaded = await loadPresetEntry(merged, child, nextSeen, options);
                 rules.push(...loaded.rules);
@@ -203,7 +211,7 @@ async function buildMergedRoots(roots: readonly string[]): Promise<MergedRoots> 
     const categories = new Set<string>();
     for (const root of roots) {
         for (const absPath of await walkYamlFiles(fs, root)) {
-            const relPath = relative(root, absPath).split(sep).join('/');
+            const relPath = relativePath(root, absPath).split(SEP).join('/');
             const slashIdx = relPath.indexOf('/');
             if (slashIdx > 0) categories.add(relPath.slice(0, slashIdx));
             if (!files.has(relPath)) files.set(relPath, absPath);
@@ -256,7 +264,7 @@ async function walkYamlFiles(fs: NodeFileSystem, dir: string, depth = 0): Promis
     const acc: string[] = [];
     for (const entry of (await fs.readDir(dir)).sort()) {
         if (depth === 0 && entry === 'presets') continue;
-        const fullPath = join(dir, entry);
+        const fullPath = joinPath(dir, entry);
         const entryStat = await fs.stat(fullPath);
         if (entryStat?.isDirectory()) {
             acc.push(...(await walkYamlFiles(fs, fullPath, depth + 1)));
@@ -274,7 +282,7 @@ async function listImmediateDirs(fs: NodeFileSystem, dir: string): Promise<strin
     const dirs: string[] = [];
     for (const entry of await fs.readDir(dir)) {
         if (entry === 'presets') continue;
-        const entryStat = await fs.stat(join(dir, entry));
+        const entryStat = await fs.stat(joinPath(dir, entry));
         if (entryStat?.isDirectory()) dirs.push(entry);
     }
     return dirs;
@@ -294,7 +302,7 @@ async function readStructuredFile(
 type ParsedRule = Omit<ConstraintRule, 'severity'> & { severity?: ConstraintRule['severity'] };
 
 function normalizeRuleFile(raw: unknown, filePath: string): ConstraintRule[] {
-    const sourceDir = dirname(filePath);
+    const sourceDir = dirnamePath(filePath);
     const maybeFile = ConstraintRuleFileSchema.safeParse(raw);
     if (maybeFile.success) return normalizeFileRules(maybeFile.data, sourceDir);
     const maybeRule = ConstraintRuleSchema.safeParse(raw);
@@ -304,7 +312,7 @@ function normalizeRuleFile(raw: unknown, filePath: string): ConstraintRule[] {
     // single-rule schema. Include field paths so the offending key is obvious.
     const isRuleFileShape = typeof raw === 'object' && raw !== null && 'rules' in raw;
     const issues = (isRuleFileShape ? maybeFile.error : maybeRule.error).issues;
-    throw new Error(`Invalid rule file "${basename(filePath)}": ${formatIssues(issues)}`);
+    throw new Error(`Invalid rule file "${basenamePath(filePath)}": ${formatIssues(issues)}`);
 }
 
 /** Render Zod issues as `path: message` fragments for actionable diagnostics. */
