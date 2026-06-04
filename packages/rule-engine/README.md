@@ -4,6 +4,12 @@ Constraint rule loading, evaluation, formatting, and fix generation for Bun/Type
 
 This package is a library. It does not ship a CLI. Downstream tools can use it to load rule presets, evaluate a workspace, format findings, collect fix candidates, and optionally apply those fixes.
 
+## Install
+
+```bash
+bun add @gobing-ai/ts-rule-engine
+```
+
 ## Briefing
 
 `ts-rule-engine` is a policy workflow engine: loaders turn rule files and presets into `ConstraintRule` objects, `RuleEngine` dispatches each rule to a matching evaluator through `RuleEngineHost`, and the result can be formatted for users or converted into fix candidates for controlled application.
@@ -38,12 +44,6 @@ erDiagram
 | `Finding` | Structured policy violation or evaluator error with severity, location, and machine-readable code. |
 | `Fix` | Candidate byte-range or file-level edit returned separately from findings and applied only on request. |
 | `RuleEngineResult` | Aggregate output containing all findings and fixes for one evaluation run. |
-
-## Install
-
-```bash
-bun add @gobing-ai/ts-rule-engine
-```
 
 ## Mental Model
 
