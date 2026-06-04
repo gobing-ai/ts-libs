@@ -87,8 +87,6 @@ Key changes:
 3. **Run full test suite + spur-check + build** — verify zero regressions
 
 
-### Review
-
 ## Review
 
 **Date:** 2026-06-04
@@ -130,8 +128,6 @@ Key changes:
 
 **Verdict: PASS** — 6/6 requirements MET, 0 findings, zero regressions, zero test rewrites.
 
-
-### Testing
 
 ### Testing
 
