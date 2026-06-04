@@ -8,7 +8,7 @@ import type {
     WorkflowRunOptions,
     WorkflowRunResult,
 } from './types';
-import { mergeVars, resolveTemplates } from './variables';
+import { mergeVars, resolveOnErrorPolicy, resolveTemplates } from './variables';
 
 /** Dependencies required by the transition-flow driver. */
 export interface TransitionFlowDriverOptions {
@@ -45,6 +45,7 @@ export class TransitionFlowDriver {
         let transitionsTaken = 0;
         let lastActionResult: ActionResult | undefined;
         const iterationBound = workflow.iterationBound ?? 50;
+        const defaultOnError = workflow.defaultOnError;
 
         if (current === undefined) {
             throw new FSMError(`Initial node "${workflow.initialNode}" is not declared`);
@@ -70,7 +71,11 @@ export class TransitionFlowDriver {
                     metadata: options.metadata,
                 });
                 if (!lastActionResult.ok) {
-                    return await lifecycle.fail(current.id, transitionsTaken, lastActionResult.error);
+                    const policy = resolveOnErrorPolicy(current.action.onError, defaultOnError, options.onError);
+                    if (policy === 'fail') {
+                        return await lifecycle.fail(current.id, transitionsTaken, lastActionResult.error);
+                    }
+                    lifecycle.warnActionFailed(current.id, transitionsTaken, lastActionResult.error);
                 }
                 if (lastActionResult.terminal === true) {
                     return await lifecycle.done(current.id, transitionsTaken);
