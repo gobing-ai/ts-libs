@@ -44,7 +44,7 @@ describe('PathEvaluator', () => {
         const evaluator = new PathEvaluator();
         const rule = makeRule({});
         const ctx = { ...makeContext(), rule };
-        await expect(evaluator.evaluate(rule, ctx)).rejects.toThrow('path evaluator requires config "paths"');
+        await expect(evaluator.evaluate(rule, ctx)).rejects.toThrow('path evaluator requires string[] config "paths"');
     });
 
     test('accepts single string as paths config', async () => {
