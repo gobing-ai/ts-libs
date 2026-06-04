@@ -1,9 +1,9 @@
 ---
 name: align rule-engine and workflow extension loaders on shared loader and unified ExtensionRef
 description: align rule-engine and workflow extension loaders on shared loader and unified ExtensionRef
-status: Testing
+status: Done
 created_at: 2026-06-03T23:31:27.801Z
-updated_at: 2026-06-04T00:47:51.990Z
+updated_at: 2026-06-04T00:51:27.576Z
 folder: docs/tasks
 type: task
 feature-id: ""
