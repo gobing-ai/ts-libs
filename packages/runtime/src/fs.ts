@@ -309,14 +309,15 @@ export async function writeJsonFile(path: string, value: unknown, fs = getFs()):
     await fs.writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-export async function walkDir(path: string, fs = getFs()): Promise<string[]> {
+export async function walkDir(path: string, fs = getFs(), exclude?: Set<string>): Promise<string[]> {
     const entries = (await fs.readDir(path)).sort();
     const result: string[] = [];
     for (const entry of entries) {
+        if (exclude?.has(entry)) continue;
         const fullPath = joinPath(path, entry);
         const entryStat = await fs.stat(fullPath);
         if (entryStat?.isDirectory()) {
-            result.push(...(await walkDir(fullPath, fs)));
+            result.push(...(await walkDir(fullPath, fs, exclude)));
         } else if (entryStat?.isFile()) {
             result.push(fullPath);
         }
