@@ -108,14 +108,6 @@ rules:
             - "packages/runtime/src/path.ts"
             - "packages/runtime/src/bun-sqlite.ts"
             - "packages/runtime/src/plugin/extension-loader.ts"
-            - "packages/db/src/adapters/bun-sqlite.ts"
-            - "packages/db/src/migrate.ts"
-            - "packages/rule-engine/src/evaluators/coverage-gate-evaluator.ts"
-            - "packages/rule-engine/src/evaluators/file-utils.ts"
-            - "packages/rule-engine/src/fixers/fixers.ts"
-            - "packages/rule-engine/src/fixers/test-stub-fixer.ts"
-            - "packages/ai-runner/src/agent-spec.ts"
-            - "packages/ai-runner/src/doctor-runner.ts"
 
   - id: no-direct-node-url
     description: "fileURLToPath must go through @gobing-ai/ts-runtime when bundling-aware path resolution is needed."
@@ -151,7 +143,6 @@ rules:
           exclude:
             - "**/tests/**"
             - "**/dist/**"
-            - "packages/ai-runner/src/doctor-runner.ts"
 
   # ── Bun-specific APIs ──────────────────────────────────────────────────
 
