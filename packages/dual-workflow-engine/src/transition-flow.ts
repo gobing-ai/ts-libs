@@ -1,12 +1,11 @@
-import { getProcessEnv } from '@gobing-ai/ts-runtime';
 import { FSMError } from './errors';
 import type { WorkflowEngineHost } from './host';
+import { allowedEnv, RunLifecycle, runtimeBuiltins } from './run-lifecycle';
 import type {
     ActionResult,
     TransitionFlowWorkflowDef,
     WorkflowPersistenceAdapter,
     WorkflowRunOptions,
-    WorkflowRunRecord,
     WorkflowRunResult,
 } from './types';
 import { mergeVars, resolveTemplates } from './variables';
@@ -23,15 +22,25 @@ export class TransitionFlowDriver {
 
     /** Run a transition-flow workflow to completion or failure. */
     async run(workflow: TransitionFlowWorkflowDef, options: WorkflowRunOptions = {}): Promise<WorkflowRunResult> {
-        const runId = options.runId ?? crypto.randomUUID();
-        const startedAt = new Date().toISOString();
-        const mode = 'transition-flow';
-        await this.options.persistence.createRun(runRecord(runId, workflow.name, mode, startedAt, options.metadata));
+        return await RunLifecycle.run(
+            workflow.name,
+            'transition-flow',
+            { persistence: this.options.persistence },
+            options,
+            (lifecycle) => this.loop(workflow, options, lifecycle),
+        );
+    }
 
+    private async loop(
+        workflow: TransitionFlowWorkflowDef,
+        options: WorkflowRunOptions,
+        lifecycle: RunLifecycle,
+    ): Promise<WorkflowRunResult> {
+        const runId = lifecycle.runId;
         const nodes = new Map(workflow.nodes.map((node) => [node.id, node]));
         const terminal = new Set(workflow.terminalNodes ?? []);
         const vars = mergeVars(workflow.vars, options.vars);
-        const env = allowedEnv(workflow.env?.allow ?? [], options.env ?? getProcessEnv());
+        const env = allowedEnv(workflow.env?.allow ?? [], options.env);
         let current = nodes.get(workflow.initialNode);
         let transitionsTaken = 0;
         let lastActionResult: ActionResult | undefined;
@@ -43,15 +52,14 @@ export class TransitionFlowDriver {
 
         while (true) {
             // 1. Persist current node snapshot before action execution.
-            await this.options.persistence.saveWorkflowState(runId, current.id, { transitionsTaken });
-            await this.options.persistence.savePhase(runId, current.id, 'running');
+            await lifecycle.enter(current.id, transitionsTaken);
 
             // 2. Execute the node action when one is configured.
             if (current.action !== undefined) {
                 const resolved = resolveTemplates(current.action.options ?? {}, {
                     vars,
                     env,
-                    builtins: runtimeBuiltins(workflow.name, current.id, runId, transitionsTaken),
+                    builtins: runtimeBuiltins(workflow.name, current.id, runId, transitionsTaken, 'transition-flow'),
                 });
                 lastActionResult = await this.options.host.runAction(current.action.kind, resolved, {
                     runId,
@@ -62,24 +70,17 @@ export class TransitionFlowDriver {
                     metadata: options.metadata,
                 });
                 if (!lastActionResult.ok) {
-                    return await this.fail(
-                        runId,
-                        workflow.name,
-                        mode,
-                        current.id,
-                        transitionsTaken,
-                        lastActionResult.error,
-                    );
+                    return await lifecycle.fail(current.id, transitionsTaken, lastActionResult.error);
                 }
                 if (lastActionResult.terminal === true) {
-                    return await this.done(runId, workflow.name, mode, current.id, transitionsTaken);
+                    return await lifecycle.done(current.id, transitionsTaken);
                 }
             }
 
             // 3. Stop when the node is terminal or no outgoing edge exists.
             const outbound = workflow.edges.filter((edge) => edge.from === current?.id);
             if (terminal.has(current.id) || outbound.length === 0) {
-                return await this.done(runId, workflow.name, mode, current.id, transitionsTaken);
+                return await lifecycle.done(current.id, transitionsTaken);
             }
 
             // 4. Evaluate edge conditions in declaration order and pick the first passing edge.
@@ -90,23 +91,16 @@ export class TransitionFlowDriver {
                 lastActionResult,
             });
             if (edge === undefined) {
-                return await this.fail(runId, workflow.name, mode, current.id, transitionsTaken, 'no-passing-edge');
+                return await lifecycle.fail(current.id, transitionsTaken, 'no-passing-edge');
             }
 
             // 5. Persist the edge transition.
             transitionsTaken += 1;
-            await this.options.persistence.saveTransition(runId, current.id, edge.to, edge.condition?.kind ?? null);
+            await lifecycle.recordTransition(current.id, edge.to, edge.condition?.kind ?? null);
 
             // 6. Enforce the iteration bound after taking the transition.
             if (transitionsTaken > iterationBound) {
-                return await this.fail(
-                    runId,
-                    workflow.name,
-                    mode,
-                    current.id,
-                    transitionsTaken,
-                    'iteration-bound-exceeded',
-                );
+                return await lifecycle.fail(current.id, transitionsTaken, 'iteration-bound-exceeded');
             }
 
             // 7. Move to the target node and repeat.
@@ -115,50 +109,6 @@ export class TransitionFlowDriver {
             current = nextNode;
         }
     }
-
-    private async done(
-        runId: string,
-        workflowName: string,
-        mode: 'transition-flow',
-        finalState: string,
-        transitionsTaken: number,
-    ): Promise<WorkflowRunResult> {
-        await this.options.persistence.savePhase(runId, finalState, 'done');
-        await this.options.persistence.finalizeRun(runId, 'done', new Date().toISOString());
-        return { runId, workflowName, mode, status: 'done', finalState, transitionsTaken };
-    }
-
-    private async fail(
-        runId: string,
-        workflowName: string,
-        mode: 'transition-flow',
-        finalState: string,
-        transitionsTaken: number,
-        reason = 'failed',
-    ): Promise<WorkflowRunResult> {
-        await this.options.persistence.savePhase(runId, finalState, 'failed');
-        await this.options.persistence.finalizeRun(runId, 'failed', new Date().toISOString());
-        return { runId, workflowName, mode, status: 'failed', finalState, transitionsTaken, reason };
-    }
-}
-
-/** Built-in bare template values available to transition-flow action options. */
-function runtimeBuiltins(
-    workflowName: string,
-    nodeId: string,
-    runId: string,
-    transitionsTaken: number,
-): Record<string, string | number> {
-    return {
-        workflow: workflowName,
-        runId,
-        task: workflowName,
-        state: nodeId,
-        node: nodeId,
-        iteration: transitionsTaken,
-        run: runId,
-        runtime: 'transition-flow',
-    };
 }
 
 async function firstPassingEdge(
@@ -171,28 +121,4 @@ async function firstPassingEdge(
         if (await host.evaluateGuard(edge.condition.kind, edge.condition.options ?? {}, context)) return edge;
     }
     return undefined;
-}
-
-function allowedEnv(names: readonly string[], source: Record<string, string | undefined>): Record<string, string> {
-    return Object.fromEntries(
-        names.flatMap((name) => (source[name] === undefined ? [] : [[name, source[name] as string]])),
-    );
-}
-
-function runRecord(
-    runId: string,
-    workflowName: string,
-    mode: string,
-    startedAt: string,
-    metadata: unknown,
-): WorkflowRunRecord {
-    return {
-        id: runId,
-        workflow_name: workflowName,
-        mode,
-        status: 'running',
-        started_at: startedAt,
-        completed_at: null,
-        metadata_json: JSON.stringify(metadata ?? {}),
-    };
 }
