@@ -1,6 +1,8 @@
 import { isatty } from 'node:tty';
 import { type Options as ExecaOptions, execa } from 'execa';
 
+// ── Types ────────────────────────────────────────────────────────────────
+
 /** Controls how stdout/stderr is captured: buffered in memory or streamed to the caller's terminal. */
 export type OutputPolicy = { mode: 'buffered' } | { mode: 'stream'; isTTY?: boolean };
 
@@ -16,14 +18,8 @@ export interface ProcessOptions {
     command: string;
     args?: string[];
     cwd?: string;
-    /**
-     * Environment forwarded verbatim to the child process. Caller-controlled — when launching an
-     * untrusted command, pass an explicit allowlist rather than the parent's full environment, so
-     * inherited secrets are not leaked into the subprocess.
-     */
     env?: Record<string, string>;
     timeout?: number;
-    /** Maximum output buffer size in bytes (maps to execa `maxBuffer`). */
     maxOutput?: number;
     label?: string;
     rejectOnError?: boolean;
@@ -41,24 +37,19 @@ export interface ProcessResult {
     durationMs: number;
 }
 
-/** Asynchronous process executor — spawns a child process and returns a {@link ProcessResult}. */
-export interface ProcessExecutor {
-    run(options: ProcessOptions): Promise<ProcessResult>;
-}
-
-/** Synchronous process executor for Bun — blocks until the child process exits. */
-export interface SyncProcessExecutor {
-    runSync(options: Omit<ProcessOptions, 'timeout'>): ProcessResult;
-}
-
-/** Options for spawning a long-running pipe process with streaming I/O. */
+/** Options for spawning a long-running interactive process. */
 export interface PipeProcessOptions {
     command: string;
     args?: string[];
     cwd?: string;
-    /** Forwarded verbatim to the child — pass an allowlist for untrusted commands (see {@link ProcessOptions.env}). */
     env?: Record<string, string>;
 }
+
+/** Signal values accepted by subprocess kill. */
+type BunSubprocess = ReturnType<typeof Bun.spawn>;
+
+/** Signal values accepted by subprocess kill (e.g. 'SIGTERM', 'SIGKILL'). */
+export type ProcessSignal = Parameters<BunSubprocess['kill']>[0];
 
 /** Handle to a running pipe process with streaming stdout/stderr and stdin write support. */
 export interface PipeProcess {
@@ -71,15 +62,25 @@ export interface PipeProcess {
     kill(signal?: ProcessSignal): void;
 }
 
-/** Factory for spawning {@link PipeProcess} instances. */
-export interface PipeProcessSpawner {
-    spawn(options: PipeProcessOptions): PipeProcess;
-}
+// ── ProcessExecutor ───────────────────────────────────────────────────────
 
-/** {@link ProcessExecutor} backed by the `execa` library for Node.js. */
-export class NodeProcessExecutor implements ProcessExecutor {
-    constructor(private readonly config: ProcessExecutorConfig = {}) {}
+/**
+ * Runtime-agnostic process executor wrapping `execa`.
+ *
+ * Every invocation supports timeout enforcement, output capture, and
+ * configurable output policy (buffered vs streamed).
+ */
+export class ProcessExecutor {
+    private readonly config: ProcessExecutorConfig;
 
+    constructor(config: ProcessExecutorConfig = {}) {
+        this.config = config;
+    }
+
+    /**
+     * Run a command, buffered by default. Returns a structured {@link ProcessResult}.
+     * Does NOT throw on non-zero exit codes unless `rejectOnError` is set.
+     */
     async run(options: ProcessOptions): Promise<ProcessResult> {
         const args = options.args ?? [];
         const execaOptions = buildExecaOptions({
@@ -123,42 +124,14 @@ export class NodeProcessExecutor implements ProcessExecutor {
             };
         }
     }
-}
 
-/** {@link SyncProcessExecutor} backed by `Bun.spawnSync`. */
-export class BunSyncProcessExecutor implements SyncProcessExecutor {
-    runSync(options: Omit<ProcessOptions, 'timeout'>): ProcessResult {
-        const args = options.args ?? [];
-        const startedAt = Date.now();
-        const result = Bun.spawnSync({
-            cmd: [options.command, ...args],
-            stdout: 'pipe',
-            stderr: 'pipe',
-            stdin: 'ignore',
-            ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-            ...(options.env !== undefined ? { env: options.env } : {}),
-        });
-        if (options.rejectOnError === true && result.exitCode !== 0) {
-            throw new Error(
-                `${options.command} ${args.join(' ')} failed with exit code ${result.exitCode}: ${stripFinalNewline(
-                    asString(result.stderr),
-                )}`,
-            );
-        }
-        return {
-            command: options.command,
-            args,
-            exitCode: result.exitCode,
-            stdout: stripFinalNewline(asString(result.stdout)),
-            stderr: stripFinalNewline(asString(result.stderr)),
-            durationMs: Date.now() - startedAt,
-        };
-    }
-}
-
-/** {@link PipeProcessSpawner} backed by `Bun.spawn`. */
-export class BunPipeProcessSpawner implements PipeProcessSpawner {
-    spawn(options: PipeProcessOptions): PipeProcess {
+    /**
+     * Spawn a long-running interactive process with streaming I/O.
+     *
+     * Uses `Bun.spawn` for bidirectional pipe communication (stdin write,
+     * stdout/stderr as ReadableStreams). Returns a {@link PipeProcess} handle.
+     */
+    runStreaming(options: PipeProcessOptions): PipeProcess {
         const subprocess = Bun.spawn({
             cmd: [options.command, ...(options.args ?? [])],
             stdin: 'pipe',
@@ -171,8 +144,8 @@ export class BunPipeProcessSpawner implements PipeProcessSpawner {
     }
 }
 
-type BunSubprocess = ReturnType<typeof Bun.spawn>;
-type ProcessSignal = Parameters<BunSubprocess['kill']>[0];
+// ── BunPipeProcess (internal) ─────────────────────────────────────────────
+
 type StdinSink = {
     write: (data: string | Uint8Array) => unknown;
     end?: () => unknown;
@@ -215,6 +188,69 @@ class BunPipeProcess implements PipeProcess {
         this.subprocess.kill(signal);
     }
 }
+
+// ── Deprecated backward-compatible subclasses ─────────────────────────────
+
+/**
+ * @deprecated Use {@link ProcessExecutor} directly.
+ * This subclass is kept for backward compatibility.
+ */
+export class NodeProcessExecutor extends ProcessExecutor {}
+
+/**
+ * @deprecated Use `Bun.spawnSync` or `child_process.spawnSync` directly.
+ * Synchronous process execution is no longer recommended from ts-runtime.
+ * This class is kept for backward compatibility.
+ */
+export class BunSyncProcessExecutor {
+    runSync(options: Omit<ProcessOptions, 'timeout'>): ProcessResult {
+        const args = options.args ?? [];
+        const startedAt = Date.now();
+        const result = Bun.spawnSync({
+            cmd: [options.command, ...args],
+            stdout: 'pipe',
+            stderr: 'pipe',
+            stdin: 'ignore',
+            ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+            ...(options.env !== undefined ? { env: options.env } : {}),
+        });
+        if (options.rejectOnError === true && result.exitCode !== 0) {
+            throw new Error(
+                `${options.command} ${args.join(' ')} failed with exit code ${result.exitCode}: ${stripFinalNewline(
+                    asString(result.stderr),
+                )}`,
+            );
+        }
+        return {
+            command: options.command,
+            args,
+            exitCode: result.exitCode,
+            stdout: stripFinalNewline(asString(result.stdout)),
+            stderr: stripFinalNewline(asString(result.stderr)),
+            durationMs: Date.now() - startedAt,
+        };
+    }
+}
+
+/**
+ * @deprecated Use {@link ProcessExecutor.runStreaming} instead.
+ * This class is kept for backward compatibility.
+ */
+export class BunPipeProcessSpawner {
+    spawn(options: PipeProcessOptions): PipeProcess {
+        const subprocess = Bun.spawn({
+            cmd: [options.command, ...(options.args ?? [])],
+            stdin: 'pipe',
+            stdout: 'pipe',
+            stderr: 'pipe',
+            ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+            ...(options.env !== undefined ? { env: options.env } : {}),
+        });
+        return new BunPipeProcess(subprocess);
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
 
 function buildExecaOptions(opts: {
     cwd: string | undefined;
