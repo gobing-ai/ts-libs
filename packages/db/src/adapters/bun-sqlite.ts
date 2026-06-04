@@ -1,4 +1,4 @@
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolutePath, resolvePath } from '@gobing-ai/ts-runtime';
 import { Database } from '@gobing-ai/ts-runtime/bun-sqlite';
 import { type BunSQLiteDatabase, drizzle } from 'drizzle-orm/bun-sqlite';
 import type { DbAdapter, InternalDb } from '../adapter';
@@ -61,8 +61,8 @@ export class BunSqliteAdapter implements DbAdapter {
         const pragmas = { ...DEFAULT_PRAGMAS, ...options?.pragmas };
 
         // Resolve relative paths
-        if (dbPath !== ':memory:' && !isAbsolute(dbPath)) {
-            dbPath = resolve(dbPath);
+        if (dbPath !== ':memory:' && !isAbsolutePath(dbPath)) {
+            dbPath = resolvePath(dbPath);
         }
 
         this.sqlite = new Database(dbPath, { create: true });
