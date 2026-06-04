@@ -4,14 +4,17 @@ import type { FileSystem } from './fs';
 import { getFs } from './fs';
 import type { RuntimeCapabilities, RuntimeName } from './types';
 
+/** Execution scope of a runtime context — determines service lifecycle and availability. */
 export type RuntimeScope = 'process' | 'server-request' | 'scheduled-event' | 'test';
 
+/** Map of named services available to a runtime context, including the required `config` and `fileSystem`. */
 export interface RuntimeServiceMap {
     config: Config;
     fileSystem: FileSystem;
     [serviceName: string]: unknown;
 }
 
+/** Options for constructing a {@link RuntimeContext}. */
 export interface RuntimeContextOptions<TServices extends RuntimeServiceMap = RuntimeServiceMap> {
     scope?: RuntimeScope;
     runtimeName?: RuntimeName;
@@ -19,6 +22,7 @@ export interface RuntimeContextOptions<TServices extends RuntimeServiceMap = Run
     services?: Partial<TServices>;
 }
 
+/** Injectable service container scoped to a runtime environment (process, request, event, or test). */
 export class RuntimeContext<TServices extends RuntimeServiceMap = RuntimeServiceMap> {
     readonly scope: RuntimeScope;
     readonly runtimeName: RuntimeName;
@@ -88,6 +92,7 @@ function isDisposable(value: unknown): value is { dispose(): void | Promise<void
     return typeof value === 'object' && value !== null && 'dispose' in value && typeof value.dispose === 'function';
 }
 
+/** Convenience factory for {@link RuntimeContext}. */
 export function createRuntimeContext<TServices extends RuntimeServiceMap = RuntimeServiceMap>(
     options: RuntimeContextOptions<TServices> = {},
 ): RuntimeContext<TServices> {

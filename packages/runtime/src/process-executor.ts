@@ -1,14 +1,17 @@
 import { isatty } from 'node:tty';
 import { type Options as ExecaOptions, execa } from 'execa';
 
+/** Controls how stdout/stderr is captured: buffered in memory or streamed to the caller's terminal. */
 export type OutputPolicy = { mode: 'buffered' } | { mode: 'stream'; isTTY?: boolean };
 
+/** Shared configuration for a process executor (default timeout, output buffering, output policy). */
 export interface ProcessExecutorConfig {
     defaultTimeout?: number;
     defaultMaxOutput?: number;
     output?: OutputPolicy;
 }
 
+/** Options for spawning a child process. */
 export interface ProcessOptions {
     command: string;
     args?: string[];
@@ -27,6 +30,7 @@ export interface ProcessOptions {
     forceBuffered?: boolean;
 }
 
+/** Result of a completed child process, including exit code, captured output, and duration. */
 export interface ProcessResult {
     command: string;
     args: string[];
@@ -37,14 +41,17 @@ export interface ProcessResult {
     durationMs: number;
 }
 
+/** Asynchronous process executor — spawns a child process and returns a {@link ProcessResult}. */
 export interface ProcessExecutor {
     run(options: ProcessOptions): Promise<ProcessResult>;
 }
 
+/** Synchronous process executor for Bun — blocks until the child process exits. */
 export interface SyncProcessExecutor {
     runSync(options: Omit<ProcessOptions, 'timeout'>): ProcessResult;
 }
 
+/** Options for spawning a long-running pipe process with streaming I/O. */
 export interface PipeProcessOptions {
     command: string;
     args?: string[];
@@ -53,6 +60,7 @@ export interface PipeProcessOptions {
     env?: Record<string, string>;
 }
 
+/** Handle to a running pipe process with streaming stdout/stderr and stdin write support. */
 export interface PipeProcess {
     readonly pid: number | null;
     readonly stdout: ReadableStream<Uint8Array> | null;
@@ -63,10 +71,12 @@ export interface PipeProcess {
     kill(signal?: ProcessSignal): void;
 }
 
+/** Factory for spawning {@link PipeProcess} instances. */
 export interface PipeProcessSpawner {
     spawn(options: PipeProcessOptions): PipeProcess;
 }
 
+/** {@link ProcessExecutor} backed by the `execa` library for Node.js. */
 export class NodeProcessExecutor implements ProcessExecutor {
     constructor(private readonly config: ProcessExecutorConfig = {}) {}
 
@@ -115,6 +125,7 @@ export class NodeProcessExecutor implements ProcessExecutor {
     }
 }
 
+/** {@link SyncProcessExecutor} backed by `Bun.spawnSync`. */
 export class BunSyncProcessExecutor implements SyncProcessExecutor {
     runSync(options: Omit<ProcessOptions, 'timeout'>): ProcessResult {
         const args = options.args ?? [];
@@ -145,6 +156,7 @@ export class BunSyncProcessExecutor implements SyncProcessExecutor {
     }
 }
 
+/** {@link PipeProcessSpawner} backed by `Bun.spawn`. */
 export class BunPipeProcessSpawner implements PipeProcessSpawner {
     spawn(options: PipeProcessOptions): PipeProcess {
         const subprocess = Bun.spawn({

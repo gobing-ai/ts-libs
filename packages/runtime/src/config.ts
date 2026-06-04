@@ -2,6 +2,7 @@ import { deepMerge } from '@gobing-ai/ts-utils';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { type ZodIssue, z } from 'zod';
 
+/** Zod schema for the application configuration object, providing defaults for app, database, and logging sections. */
 export const configSchema = z.object({
     app: z
         .object({
@@ -26,6 +27,7 @@ export const configSchema = z.object({
         .default({ level: 'info', console: true, file: false, json: false }),
 });
 
+/** Inferred TypeScript type of a validated configuration object, derived from {@link configSchema}. */
 export type Config = z.output<typeof configSchema>;
 
 const ENV_INTERPOLATION_RE = /\$\{([A-Z_][A-Z0-9_]*)\}/g;
@@ -64,6 +66,7 @@ export function stringifyYamlObject(value: Record<string, unknown>): string {
     return stringifyYaml(value);
 }
 
+/** Error thrown when configuration validation fails, carrying the Zod validation issues for diagnostics. */
 export class ConfigLoadError extends Error {
     readonly issues: ZodIssue[];
 
@@ -77,18 +80,21 @@ export class ConfigLoadError extends Error {
 // These accessors read `process.env` directly and are node-bun only (ADR-008). On
 // `cloudflare-workers` there is no `process`; inject config explicitly rather than calling these.
 
+/** Returns the value of `process.env.NODE_ENV`, or `"development"` as default. Node/Bun only. */
 export function getNodeEnv(): string {
     return process.env.NODE_ENV ?? 'development';
 }
-
+/** Returns `true` when `NODE_ENV` is `"test"`. Node/Bun only. */
 export function isTestEnv(): boolean {
     return getNodeEnv() === 'test';
 }
 
+/** Returns `process.env` as a plain object. Node/Bun only. */
 export function getProcessEnv(): Record<string, string | undefined> {
     return process.env;
 }
 
+/** Returns `process.env.DATABASE_URL`, or `undefined` if not set. Node/Bun only. */
 export function getDatabaseUrl(): string | undefined {
     return process.env.DATABASE_URL;
 }
@@ -98,6 +104,7 @@ export function interpolateEnv(value: string): string {
     return value.replace(ENV_INTERPOLATION_RE, (_match, name: string) => process.env[name] ?? `\${${name}}`);
 }
 
+/** Recursively interpolates `${VAR}` environment variables in all string leaves of a nested object or array. Node/Bun only. */
 export function interpolateTree(value: unknown): unknown {
     if (typeof value === 'string') return interpolateEnv(value);
     if (Array.isArray(value)) return value.map(interpolateTree);
@@ -106,7 +113,7 @@ export function interpolateTree(value: unknown): unknown {
     }
     return value;
 }
-
+/** Interpolates env vars, merges overrides, validates against {@link configSchema}, and returns a frozen {@link Config}. */
 export function buildConfigFromObject(
     raw: Record<string, unknown>,
     options: { overrides?: Partial<Config> } = {},
@@ -121,7 +128,7 @@ export function buildConfigFromObject(
     }
     return deepFreeze(result.data);
 }
-
+/** Parses a YAML configuration string into a raw object, throwing {@link ConfigLoadError} on failure. */
 export function parseConfigYaml(yamlText: string): Record<string, unknown> {
     try {
         return parseYamlObject(yamlText);
@@ -130,7 +137,7 @@ export function parseConfigYaml(yamlText: string): Record<string, unknown> {
         throw new ConfigLoadError(`Config YAML parsing failed: ${(error as Error).message}`);
     }
 }
-
+/** Parses YAML text and builds a validated {@link Config}, equivalent to `buildConfigFromObject(parseConfigYaml(…))`. */
 export function buildConfigFromYaml(yamlText: string, options: { overrides?: Partial<Config> } = {}): Config {
     return buildConfigFromObject(parseConfigYaml(yamlText), options);
 }

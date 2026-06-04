@@ -5,6 +5,7 @@
  * `DBJobQueue` and `DBQueueConsumer`.
  */
 
+/** A queued job with status tracking, retry metadata, and timestamps. */
 export interface Job<T = unknown> {
     id: string;
     type: string;
@@ -19,20 +20,24 @@ export interface Job<T = unknown> {
     processingAt: number | null;
 }
 
+/** Options for enqueuing a job: retry policy, delay, and TTL. */
 export interface EnqueueOptions {
     maxRetries?: number;
     delay?: number;
     ttlMs?: number;
 }
 
+/** Producer interface for the job queue — enqueue single jobs or batches. */
 export interface JobQueue<T = unknown> {
     enqueue(type: string, payload: T, options?: EnqueueOptions): Promise<string>;
     enqueueBatch(jobs: Array<{ type: string; payload: T } & EnqueueOptions>): Promise<string[]>;
     stats(): Promise<QueueStats>;
 }
 
+/** Async handler that processes a single job. */
 export type JobHandler<T = unknown> = (job: Job<T>) => Promise<void>;
 
+/** Aggregate statistics for a job queue: counts by status. */
 export interface QueueStats {
     pending: number;
     processing: number;
@@ -40,6 +45,7 @@ export interface QueueStats {
     failed: number;
 }
 
+/** Configuration for a queue consumer: polling, concurrency, and backoff. */
 export interface QueueConsumerConfig {
     pollInterval?: number;
     batchSize?: number;
@@ -50,6 +56,7 @@ export interface QueueConsumerConfig {
     drainTimeoutMs?: number;
 }
 
+/** Consumer interface for the job queue — register handlers and control the processing loop. */
 export interface QueueConsumer<T = unknown> {
     register(type: string, handler: JobHandler<T>): void;
     start(): Promise<void>;

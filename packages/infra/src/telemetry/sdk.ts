@@ -17,6 +17,7 @@ const TRACER_VERSION = '0.1.0';
 let telemetryInitialized = false;
 let resolvedConfig: TelemetryConfig = getTelemetryConfig();
 
+/** Get the resolved telemetry configuration (defaults + overrides). */
 export function getResolvedConfig(): TelemetryConfig {
     return resolvedConfig;
 }
@@ -31,6 +32,7 @@ export function initTelemetry(config?: Partial<TelemetryConfig>): void {
     telemetryInitialized = true;
 }
 
+/** Mark telemetry as uninitialized. Does not shut down the OTel provider. */
 export function shutdownTelemetry(): Promise<void> {
     telemetryInitialized = false;
     return Promise.resolve();
@@ -41,10 +43,12 @@ export function getTracer(): Tracer {
     return trace.getTracer(TRACER_NAME, TRACER_VERSION);
 }
 
+/** Whether telemetry is initialized and enabled. */
 export function isTelemetryEnabled(): boolean {
     return telemetryInitialized && resolvedConfig.enabled;
 }
 
+/** Reset the telemetry subsystem to its uninitialized state. For testing. */
 export function _resetTelemetry(): void {
     telemetryInitialized = false;
     resolvedConfig = getTelemetryConfig();

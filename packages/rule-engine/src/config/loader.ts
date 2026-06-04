@@ -27,6 +27,7 @@ export interface RuleLoaderOptions {
     fetch?: (input: string) => Promise<Response>;
 }
 
+/** Options for loading a single rule file directly from disk. */
 export interface RuleFileLoadOptions {
     /** When true, honor top-level `$schema` refs. Defaults to true. */
     validateSchema?: boolean;
@@ -111,6 +112,12 @@ function assertFixModeNotPromoted(presetName: string, rule: ConstraintRule, over
     }
 }
 
+/**
+ * Load a preset's resolved rules (convenience wrapper).
+ *
+ * Shortcut for `(await loadPreset(name, options)).rules` — returns only the
+ * normalized rule set without the extension module refs.
+ */
 export async function loadPresetRules(name: string, options: RuleLoaderOptions): Promise<ConstraintRule[]> {
     return (await loadPreset(name, options)).rules;
 }

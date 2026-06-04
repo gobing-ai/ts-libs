@@ -1,5 +1,6 @@
 import type { InboxMessage, InboxMessageDao } from '@gobing-ai/ts-db/inbox';
 
+/** Thin wrapper around `InboxMessageDao` that provides enqueue/drain/deliver/fail/inbox semantics for agent-to-agent messaging. */
 export class MessageService {
     constructor(private readonly dao: InboxMessageDao) {}
 

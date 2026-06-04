@@ -36,6 +36,10 @@ interface ScheduledEntry {
     timer?: ReturnType<typeof setInterval>;
 }
 
+/**
+ * Scheduler adapter for Node.js using a setInterval-based approach.
+ * No external cron library dependency — cron expressions are parsed minimally.
+ */
 export class NodeSchedulerAdapter implements SchedulerAdapter {
     private readonly entries: ScheduledEntry[] = [];
     private running = false;

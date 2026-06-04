@@ -1,3 +1,4 @@
+/** SQL DDL for the dual-workflow engine's persistent schema — runs, phase_runs, transition_runs, and workflow_states tables. */
 export const WORKFLOW_ENGINE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS runs (
     id TEXT PRIMARY KEY,

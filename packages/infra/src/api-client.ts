@@ -16,6 +16,7 @@ import { traceAsync } from './telemetry/tracing';
 
 // ── Types ───────────────────────────────────────────────────────────
 
+/** Configuration for {@link APIClient}: base URL, default headers, timeout, and optional custom fetch. */
 export interface APIClientConfig {
     baseUrl: string;
     defaultHeaders?: Record<string, string>;
@@ -23,6 +24,7 @@ export interface APIClientConfig {
     fetch?: typeof globalThis.fetch;
 }
 
+/** Per-request overrides: headers, timeout, operation name, and abort signal. */
 export interface RequestOptions {
     headers?: Record<string, string>;
     timeout?: number;
@@ -30,6 +32,7 @@ export interface RequestOptions {
     signal?: AbortSignal;
 }
 
+/** HTTP error with status code and response body text. */
 export class APIError extends Error {
     constructor(
         public readonly status: number,
@@ -42,6 +45,16 @@ export class APIError extends Error {
 
 // ── Client ──────────────────────────────────────────────────────────
 
+/**
+ * Typed HTTP client builder wrapping fetch with automatic JSON serialization,
+ * timeout support, and OpenTelemetry tracing on every request.
+ *
+ * @example
+ * ```ts
+ * const client = new APIClient({ baseUrl: 'https://api.example.com' });
+ * const data = await client.get<User>('/users/1');
+ * ```
+ */
 export class APIClient {
     private readonly baseUrl: string;
     private readonly defaultHeaders: Record<string, string>;

@@ -3,6 +3,7 @@ import { BunPipeProcessSpawner, type PipeProcess, type PipeProcessSpawner } from
 import type { AgentSpec } from './agent-spec';
 import { buildIdentityPreamble } from './identity';
 
+/** Options for spawning a team agent subprocess. */
 export interface AgentProcessOptions {
     spec: AgentSpec;
     command: string[];
@@ -13,6 +14,10 @@ export interface AgentProcessOptions {
 
 type ProcessStatus = 'running' | 'stopped' | 'errored';
 
+/**
+ * Manages the lifecycle of a single agent subprocess — start, stop, message send, and stdout/stderr subscription.
+ * Injects the agent identity preamble into the process on construction.
+ */
 export class TeamAgentProcess {
     readonly agentId: string;
     readonly identityPreamble: string;

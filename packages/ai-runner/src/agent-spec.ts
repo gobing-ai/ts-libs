@@ -1,6 +1,7 @@
 import { basename, join } from 'node:path';
 import { NodeSyncFileSystem, parseYamlObject, type SyncFileSystem, stringifyYamlObject } from '@gobing-ai/ts-runtime';
 
+/** Specification for an AI agent defined in the configuration directory. */
 export interface AgentSpec {
     id: string;
     name: string;
@@ -12,6 +13,7 @@ export interface AgentSpec {
     autoStart?: boolean;
 }
 
+/** Validation error thrown when agent spec data is malformed or invalid. */
 export class ValueError extends Error {
     constructor(message: string) {
         super(message);
@@ -19,6 +21,7 @@ export class ValueError extends Error {
     }
 }
 
+/** Validate that `id` matches the agent ID format: 2-64 chars, lowercase alphanumeric with `_` or `-`. Returns the id on success, throws `ValueError` otherwise. */
 export function validateAgentId(id: string): string {
     if (!/^[a-z][a-z0-9_-]{1,63}$/.test(id)) {
         throw new ValueError(`Invalid agent id "${id}": expected 2-64 chars, lowercase alphanumeric, "_" or "-"`);
@@ -26,6 +29,7 @@ export function validateAgentId(id: string): string {
     return id;
 }
 
+/** Load and validate all YAML agent spec files from `configDir`. Throws `ValueError` on parse failures or duplicate IDs. */
 export function loadAgentSpecs(configDir: string, fs: SyncFileSystem = new NodeSyncFileSystem()): AgentSpec[] {
     const entries = safeReadDir(configDir, fs)
         .filter((entry) => entry.endsWith('.yaml') || entry.endsWith('.yml'))
@@ -40,6 +44,7 @@ export function loadAgentSpecs(configDir: string, fs: SyncFileSystem = new NodeS
     return specs;
 }
 
+/** Serialize `spec` to YAML and write it to `configDir/<id>.yaml`. Creates the directory if missing. */
 export async function saveAgentSpec(
     spec: AgentSpec,
     configDir: string,
@@ -50,6 +55,7 @@ export async function saveAgentSpec(
     fs.writeFile(join(configDir, `${spec.id}.yaml`), serializeAgentSpec(spec));
 }
 
+/** Remove the YAML file for agent `id` from `configDir`. Does nothing if the file doesn't exist. */
 export async function deleteAgentSpec(
     id: string,
     configDir: string,

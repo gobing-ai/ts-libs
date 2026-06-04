@@ -1,5 +1,6 @@
 import { BunSyncProcessExecutor, type SyncProcessExecutor } from '@gobing-ai/ts-runtime';
 
+/** Context used to construct the identity preamble injected into agent prompts. */
 export interface IdentityContext {
     agentId: string;
     agentType: string;
@@ -14,6 +15,7 @@ export interface IdentityContext {
     guardrails?: string[];
 }
 
+/** Build a human-readable identity preamble string that describes the agent, its task, peers, guardrails, and git context. */
 export function buildIdentityPreamble(ctx: IdentityContext): string {
     const sections: string[] = [
         `You are agent \`${ctx.agentId}\` (${ctx.agentType}) in workspace \`${ctx.workspace}\`.`,
@@ -62,6 +64,7 @@ export function buildIdentityPreamble(ctx: IdentityContext): string {
     return `${sections.join('\n\n')}\n`;
 }
 
+/** Query git for the current branch name and dirty file count in `workspacePath`. Returns a pre-formatted "Git context" block, or `null` if git is unavailable or the directory is not a repo. */
 export function getGitContext(
     workspacePath: string,
     executor: SyncProcessExecutor = new BunSyncProcessExecutor(),

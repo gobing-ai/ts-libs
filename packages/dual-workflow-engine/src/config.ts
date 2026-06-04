@@ -3,6 +3,7 @@ import { WorkflowValidationError } from './errors';
 import { StateMachineWorkflowDefSchema, TransitionFlowWorkflowDefSchema } from './schema';
 import type { WorkflowDef } from './types';
 
+/** Loading options for {@link loadWorkflowDef}. */
 export interface WorkflowLoadOptions {
     /** When true, honor a top-level `$schema` ref. Defaults to true for file loads. */
     validateSchema?: boolean;

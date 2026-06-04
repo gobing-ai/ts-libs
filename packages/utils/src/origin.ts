@@ -22,6 +22,7 @@ export function matchOriginPattern(origin: string, pattern: string): boolean {
     return false;
 }
 
+/** Check whether a request origin matches any entry in an allowlist. Delegates to {@link matchOriginPattern} per entry. */
 export function isAllowedOrigin(origin: string | undefined | null, allowedOrigins: string[]): boolean {
     if (!origin) return false;
     if (!allowedOrigins || allowedOrigins.length === 0) return false;
@@ -29,6 +30,7 @@ export function isAllowedOrigin(origin: string | undefined | null, allowedOrigin
     return allowedOrigins.some((pattern) => matchOriginPattern(origin, pattern));
 }
 
+/** Return the request origin if it is in the allowlist; otherwise return a safe `fallback` origin. */
 export function getValidatedOrigin(
     origin: string | undefined | null,
     allowedOrigins: string[],

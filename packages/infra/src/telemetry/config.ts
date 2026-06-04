@@ -2,6 +2,10 @@
  * Telemetry configuration interface.
  */
 
+/**
+ * Full telemetry configuration: master enable switch, service name,
+ * environment, and debug-level DB statement capture.
+ */
 export interface TelemetryConfig {
     /** Master switch — when false, all tracing degrades to no-ops. */
     enabled: boolean;

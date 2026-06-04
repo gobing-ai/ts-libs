@@ -40,6 +40,7 @@ export function hasRole(profile: Record<string, unknown> | null | undefined, rol
     return false;
 }
 
+/** Collect every role name from a profile — Zitadel IAM roles, `roles` arrays, and object-based role maps — into a deduplicated `string[]`. */
 export function getRoles(profile: Record<string, unknown> | null | undefined): string[] {
     if (!profile) return [];
 

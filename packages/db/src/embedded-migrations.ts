@@ -7,12 +7,14 @@
  * DO NOT EDIT MANUALLY. Regenerate with: bun run scripts/embed-migrations.ts
  */
 
+/** A single embedded migration with its identifying tag, SQL, and content hash. */
 export interface EmbeddedMigration {
     tag: string;
     sql: string;
     hash: string;
 }
 
+/** Auto-generated array of all embedded migrations, ordered by tag. */
 export const embeddedMigrations: EmbeddedMigration[] = [
     {
         tag: '0000_init',

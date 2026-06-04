@@ -1,3 +1,4 @@
+/** DDL string that creates the history import checkpoint, ledger, and per-source ETL tables. */
 export const HISTORY_IMPORT_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS history_import_checkpoint (
     source TEXT NOT NULL,

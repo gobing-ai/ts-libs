@@ -427,9 +427,15 @@ phase-tasks. Phase 1 (ADR-010) is already complete, so the parent's remaining wo
 - [ ] [0008 - Migrate rule-engine onto shared core](0008_migrate_rule-engine_onto_shared_plugin_core.md) — zero behavior drift (~6h)
 - [ ] [0009 - Migrate workflow host onto shared registry](0009_migrate_dual-workflow-engine_host_onto_shared_registry.md) — actions/guards, origin, `WorkflowValidationError` preserved (~6h)
 - [ ] [0010 - Trust-gated workflow extension loading](0010_add_trust-gated_workflow_extension_loading_for_actions_and_guards.md) — actions/guards only (~6h, **high risk: new trust surface**)
+- [ ] [0011 - Align both loaders on shared loader + unified ExtensionRef](0011_align_rule-engine_and_workflow_extension_loaders_on_shared_loader_and_unified_ExtensionRef.md) — follow-up split from 0008; resolves the absPath-vs-baseDir loader-delegation conflict (~5h)
 
-**Dependency order:** `0007 → (0008 || 0009) → 0010`
-**Estimated total effort:** 22–28 hours
+**Dependency order:** `0007 → (0008 || 0009) → 0010 → 0011`
+**Estimated total effort:** 27–33 hours
+
+> **Note (2026-06-03):** 0008 migrated rule-engine's registry + path-guard onto the shared core cleanly
+> (zero drift), but deferred full loader delegation — rule-engine's public `ExtensionRef.absPath`
+> conflicts with the shared loader's `baseDir`-resolve security model. That delegation is now task 0011,
+> sequenced after 0010 so the unified ref contract is decided once.
 **Parent status:** remains non-terminal; execution continues on the child tasks above, in dependency
 order. Start with 0007.
 

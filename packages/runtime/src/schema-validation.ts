@@ -8,11 +8,13 @@ const REMOTE_SCHEMA_FETCH_TIMEOUT_MS = 5_000;
 /** Upper bound on a remote schema body. A timeout alone lets a slow multi-GB drip exhaust memory. */
 const REMOTE_SCHEMA_MAX_BYTES = 5 * 1024 * 1024;
 
+/** A single JSON Schema validation failure — records the JSON pointer path and a human-readable message. */
 export interface JsonSchemaViolation {
     path: string;
     message: string;
 }
 
+/** Subset of JSON Schema 2020-12 keywords used for runtime configuration validation. */
 export interface JsonSchema {
     type?: string | string[];
     required?: string[];
@@ -27,6 +29,7 @@ export interface JsonSchema {
     $defs?: Record<string, JsonSchema>;
 }
 
+/** Options for loading and validating structured configuration files (YAML/JSON with `$schema`). */
 export interface StructuredConfigLoadOptions {
     validateSchema?: boolean;
     /**
@@ -44,6 +47,7 @@ export interface StructuredConfigLoadOptions {
     resolve?: (specifier: string, from: string) => string;
 }
 
+/** Error thrown when structured config validation fails, carrying the list of {@link JsonSchemaViolation}s. */
 export class StructuredConfigSchemaError extends Error {
     constructor(
         message: string,
@@ -54,11 +58,13 @@ export class StructuredConfigSchemaError extends Error {
     }
 }
 
+/** Reads a config file from disk, parses it (YAML or JSON), and validates against its declared `$schema`. */
 export async function loadStructuredConfig(path: string, options: StructuredConfigLoadOptions = {}): Promise<unknown> {
     const content = await getFs().readFile(path);
     return await parseStructuredConfig(content, path, options);
 }
 
+/** Parses a config string (YAML or JSON) and validates against its declared `$schema` if present. */
 export async function parseStructuredConfig(
     content: string,
     source: string,
@@ -71,6 +77,7 @@ export async function parseStructuredConfig(
     return parsed;
 }
 
+/** Extracts the `$schema` reference from a parsed config object, resolves and fetches the schema, then validates. */
 export async function validateDeclaredJsonSchema(
     value: unknown,
     source: string,
@@ -108,6 +115,7 @@ export async function validateDeclaredJsonSchema(
     }
 }
 
+/** Validates a value against a {@link JsonSchema}, returning a list of {@link JsonSchemaViolation}s. Does not throw. */
 export function validateJsonSchema(
     value: unknown,
     schema: JsonSchema,

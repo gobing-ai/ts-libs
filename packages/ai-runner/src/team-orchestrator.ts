@@ -9,10 +9,15 @@ type TeamEvent = 'agent.started' | 'agent.stopped' | 'message.sent';
 type TeamListener = (payload: unknown) => void;
 type AgentProcessFactory = (options: ConstructorParameters<typeof TeamAgentProcess>[0]) => TeamAgentProcess;
 
+/** Configuration options for `TeamOrchestrator`. */
 export interface TeamOrchestratorOptions {
     processFactory?: AgentProcessFactory;
 }
 
+/**
+ * Orchestrates a team of AI agents — loads specs, starts/stops agent processes, routes messages between them,
+ * and emits lifecycle events. Agents in the same workspace see each other as peers.
+ */
 export class TeamOrchestrator {
     private specs: AgentSpec[] = [];
     private readonly running = new Map<string, TeamAgentProcess>();

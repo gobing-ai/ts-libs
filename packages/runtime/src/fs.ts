@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirnamePath, getProcessCwd, joinPath, resolvePath } from './path';
 
+/** Portable file stat interface — mirrors the subset of `node:fs.Stats` used by the runtime. */
 export interface FileStat {
     isFile(): boolean;
     isDirectory(): boolean;
@@ -8,11 +9,13 @@ export interface FileStat {
     mtimeMs: number;
 }
 
+/** Write-only append stream for log output. */
 export interface LogStream {
     write(chunk: string): void;
     end(): void;
 }
 
+/** Asynchronous, runtime-portable file system abstraction. Implementations exist for Node/Bun and Cloudflare Workers. */
 export interface FileSystem {
     readFile(path: string): Promise<string>;
     writeFile(path: string, content: string): Promise<void>;
@@ -28,6 +31,7 @@ export interface FileSystem {
     createLogStream(path: string): LogStream;
 }
 
+/** Synchronous file system abstraction for Node/Bun. Not available on Cloudflare Workers. */
 export interface SyncFileSystem {
     readFile(path: string): string;
     writeFile(path: string, content: string): void;
@@ -54,6 +58,7 @@ function nodeFs(): Promise<NodeFs> {
     return fsModule;
 }
 
+/** {@link FileSystem} backed by `node:fs/promises`. Lazy-loads the module to avoid top-level import cost. */
 export class NodeFileSystem implements FileSystem {
     async readFile(path: string): Promise<string> {
         const { readFile } = await nodeFsPromises();
@@ -132,6 +137,7 @@ export class NodeFileSystem implements FileSystem {
     }
 }
 
+/** {@link SyncFileSystem} backed by `node:fs` synchronous APIs. */
 export class NodeSyncFileSystem implements SyncFileSystem {
     readFile(path: string): string {
         return readFileSync(path, 'utf-8');
@@ -214,6 +220,7 @@ class LazyNodeLogStream implements LogStream {
 
 const CLOUDFLARE_FS_ERROR = 'FileSystem is not available on Cloudflare Workers. Use D1, KV, or R2.';
 
+/** {@link FileSystem} stub for Cloudflare Workers — all file operations throw. Use D1, KV, or R2 instead. */
 export class CloudflareFileSystem implements FileSystem {
     async readFile(path: string): Promise<string> {
         throw unsupportedCloudflareFs('readFile', path);
@@ -270,6 +277,7 @@ function unsupportedCloudflareFs(operation: string, path: string): Error {
 
 let activeFileSystem: FileSystem = new NodeFileSystem();
 
+/** Swaps the active global file system, returning a restore function for the previous instance. */
 export function setFileSystem(fileSystem: FileSystem): () => void {
     const previous = activeFileSystem;
     activeFileSystem = fileSystem;
@@ -278,18 +286,22 @@ export function setFileSystem(fileSystem: FileSystem): () => void {
     };
 }
 
+/** Returns the currently active global {@link FileSystem} instance. */
 export function getFs(): FileSystem {
     return activeFileSystem;
 }
 
+/** Creates parent directories for a file path before writing. */
 export async function ensureDirForFile(path: string, fs = getFs()): Promise<void> {
     await fs.mkdir(dirnamePath(path));
 }
 
+/** Synchronous variant of {@link ensureDirForFile}. */
 export function ensureDirForFileSync(path: string, fs: SyncFileSystem): void {
     fs.mkdir(dirnamePath(path));
 }
 
+/** Atomically writes a file by writing to a temp path then renaming, avoiding partial writes on crash. */
 export async function atomicWriteFile(path: string, content: string, fs = getFs()): Promise<void> {
     await ensureDirForFile(path, fs);
     const tempPath = `${path}.${getProcessPid()}.${uniqueToken()}.tmp`;
@@ -297,18 +309,22 @@ export async function atomicWriteFile(path: string, content: string, fs = getFs(
     await fs.rename(tempPath, path);
 }
 
+/** Atomically writes a value as JSON with trailing newline. */
 export async function atomicWriteJson(path: string, value: unknown, fs = getFs()): Promise<void> {
     await atomicWriteFile(path, `${JSON.stringify(value, null, 2)}\n`, fs);
 }
 
+/** Reads and parses a JSON file. */
 export async function readJsonFile<T = unknown>(path: string, fs = getFs()): Promise<T> {
     return JSON.parse(await fs.readFile(path)) as T;
 }
 
+/** Writes a value as JSON with 2-space indentation and trailing newline. */
 export async function writeJsonFile(path: string, value: unknown, fs = getFs()): Promise<void> {
     await fs.writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+/** Recursively walks a directory, returning sorted paths to all files, optionally excluding entries by name. */
 export async function walkDir(path: string, fs = getFs(), exclude?: Set<string>): Promise<string[]> {
     const entries = (await fs.readDir(path)).sort();
     const result: string[] = [];
@@ -325,6 +341,7 @@ export async function walkDir(path: string, fs = getFs(), exclude?: Set<string>)
     return result;
 }
 
+/** Walks up from `startDir` looking for a `package.json` or `bun.lock` to locate the project root. */
 export function getProjectRoot(startDir = getProcessCwd()): string {
     let current = resolvePath(startDir);
     for (let i = 0; i < 12; i++) {
@@ -338,10 +355,12 @@ export function getProjectRoot(startDir = getProcessCwd()): string {
     return startDir;
 }
 
+/** Resolves path segments relative to the project root. */
 export function resolveProjectPath(...segments: string[]): string {
     return resolvePath(getProjectRoot(), ...segments);
 }
 
+/** Creates a {@link LogStream} at the given path using the active file system. */
 export function createLogStream(path: string, fs = getFs()): LogStream {
     return fs.createLogStream(path);
 }

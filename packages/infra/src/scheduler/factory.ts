@@ -6,6 +6,7 @@ import type { ScheduledAction, SchedulerAdapter } from './types';
 
 let runtimeAdapter: SchedulerAdapter | undefined;
 
+/** Set the runtime scheduler adapter. Call before {@link initScheduler}. */
 export function setSchedulerAdapter(adapter: SchedulerAdapter): void {
     runtimeAdapter = adapter;
 }
@@ -15,6 +16,7 @@ export function resetSchedulerAdapter(): void {
     runtimeAdapter = undefined;
 }
 
+/** Get the currently configured scheduler adapter, or `undefined` if not set. */
 export function getSchedulerAdapter(): SchedulerAdapter | undefined {
     return runtimeAdapter;
 }

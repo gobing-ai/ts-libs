@@ -4,6 +4,7 @@
  * No external dependencies — console-based implementation.
  */
 
+/** Log severity levels in ascending order: trace → debug → info → warn → error → fatal. */
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
@@ -15,6 +16,10 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
     fatal: 5,
 };
 
+/**
+ * Structured JSON logger interface with level-filtered methods
+ * and context inheritance via {@link Logger.child}.
+ */
 export interface Logger {
     trace(msg: string, data?: Record<string, unknown>): void;
     debug(msg: string, data?: Record<string, unknown>): void;

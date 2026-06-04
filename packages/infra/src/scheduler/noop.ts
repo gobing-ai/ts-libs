@@ -3,6 +3,7 @@
  */
 import type { ScheduledAction, SchedulerAdapter } from './types';
 
+/** Scheduler adapter that discards all registrations — for testing and environments without scheduling. */
 export class NoopSchedulerAdapter implements SchedulerAdapter {
     constructor() {}
 

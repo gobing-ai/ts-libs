@@ -58,6 +58,25 @@ export interface CursorListSpec {
 }
 
 /**
+ * A structural validator (e.g. a zod schema). Kept structural so EntityDao never
+ * imports zod/drizzle-zod — consumers wire `defineTable().insertSchema` here when
+ * they want boundary validation.
+ */
+export interface DaoValidator {
+    parse(input: unknown): unknown;
+}
+
+/** Optional EntityDao configuration. */
+export interface EntityDaoOptions {
+    /** Schema used to validate input before `create`/`createMany`/`upsert`. */
+    insertSchema?: DaoValidator;
+    /** Schema used to validate input before `update`. Falls back to `insertSchema` when absent. */
+    updateSchema?: DaoValidator;
+    /** Which write operations validate. Default: all (`create`, `createMany`, `upsert`, `update`) when a schema is present. */
+    validateOn?: ('create' | 'createMany' | 'upsert' | 'update')[];
+}
+
+/**
  * Generic CRUD base class for entity DAOs — the STRUCTURED tier of the facade.
  *
  * Extends {@link BaseDao} (raw tier) with typed create/read/update/delete over a
@@ -80,25 +99,6 @@ export interface CursorListSpec {
  * }
  * ```
  */
-/**
- * A structural validator (e.g. a zod schema). Kept structural so EntityDao never
- * imports zod/drizzle-zod — consumers wire `defineTable().insertSchema` here when
- * they want boundary validation.
- */
-export interface DaoValidator {
-    parse(input: unknown): unknown;
-}
-
-/** Optional EntityDao configuration. */
-export interface EntityDaoOptions {
-    /** Schema used to validate input before `create`/`createMany`/`upsert`. */
-    insertSchema?: DaoValidator;
-    /** Schema used to validate input before `update`. Falls back to `insertSchema` when absent. */
-    updateSchema?: DaoValidator;
-    /** Which write operations validate. Default: all (`create`, `createMany`, `upsert`, `update`) when a schema is present. */
-    validateOn?: ('create' | 'createMany' | 'upsert' | 'update')[];
-}
-
 export class EntityDao<TTable extends EntityTable, TPK extends SQLiteColumn> extends BaseDao {
     readonly table: TTable;
     /** Primary key columns. A single-element array for single-PK tables, multiple for composite. */

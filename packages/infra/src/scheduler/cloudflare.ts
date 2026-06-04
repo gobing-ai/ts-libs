@@ -15,6 +15,12 @@ interface CfEventContext {
     waitUntil(promise: Promise<unknown>): void;
 }
 
+/**
+ * Scheduler adapter for Cloudflare Workers Cron Triggers.
+ *
+ * Register cron→action pairs, then call {@link CloudflareSchedulerAdapter.handleScheduledEvent}
+ * from the Worker's `scheduled()` export.
+ */
 export class CloudflareSchedulerAdapter implements SchedulerAdapter {
     private readonly entries = new Map<string, ScheduledAction>();
 

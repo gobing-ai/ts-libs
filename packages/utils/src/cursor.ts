@@ -1,5 +1,6 @@
 import { toMs } from './date';
 
+/** Data embedded in a cursor-based pagination token. */
 export interface CursorData {
     id: string;
     createdAt?: number;
@@ -12,6 +13,7 @@ export interface CursorData {
  */
 const MAX_ENCODED_CURSOR_LENGTH = 1024;
 
+/** Build a {@link CursorData} record from raw fields. */
 export function createCursor(id: string, createdAt?: Date | number, offset?: number): CursorData {
     const cursor: CursorData = { id };
     if (createdAt !== undefined) {
@@ -26,6 +28,7 @@ export function createCursor(id: string, createdAt?: Date | number, offset?: num
     return cursor;
 }
 
+/** Parse a raw cursor payload (JSON string or parsed object) into validated {@link CursorData}. */
 export function parseCursor(data: string | Record<string, unknown>): CursorData {
     const parsed = typeof data === 'string' ? (JSON.parse(data) as Record<string, unknown>) : data;
 
@@ -47,18 +50,22 @@ export function parseCursor(data: string | Record<string, unknown>): CursorData 
     return result;
 }
 
+/** Encode {@link CursorData} into an opaque base64url cursor string. */
 export function encodeCursor(cursor: CursorData): string {
     return base64UrlEncode(JSON.stringify(cursor));
 }
 
+/** Decode a base64url cursor string back to its JSON representation. */
 export function decodeCursor(encoded: string): string {
     return base64UrlDecode(encoded);
 }
 
+/** One-shot: create a cursor from item fields and encode it immediately. */
 export function encodeCursorFromItem(id: string, createdAt?: Date | number, offset?: number): string {
     return encodeCursor(createCursor(id, createdAt, offset));
 }
 
+/** Decode a base64url cursor string and parse it into validated {@link CursorData}. Enforces a size cap to reject hostile input. */
 export function decodeAndParseCursor(encoded: string): CursorData {
     if (encoded.length > MAX_ENCODED_CURSOR_LENGTH) {
         throw new Error('Invalid cursor: exceeds maximum length');
@@ -66,6 +73,7 @@ export function decodeAndParseCursor(encoded: string): CursorData {
     return parseCursor(decodeCursor(encoded));
 }
 
+/** Generate pagination metadata (`nextCursor`, `hasMore`, `limit`) for a list result. Uses the last item's `id` and `createdAt` as the cursor anchor. */
 export function buildCursorMeta<T extends { id: string; createdAt?: number | Date }>(
     items: T[],
     limit: number,

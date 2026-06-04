@@ -1,3 +1,4 @@
+/** Minimal write sink: anything that accepts a string chunk. */
 export interface WriteTarget {
     write(chunk: string): unknown;
 }
@@ -20,14 +21,21 @@ function writeLine(message: string, target: WriteTarget): void {
     target.write(`${message}\n`);
 }
 
+/** Write a line to a target, defaulting to stdout. */
 export function echo(message: string, target: WriteTarget = defaultStdoutTarget ?? processStream('stdout')): void {
     writeLine(message, target);
 }
 
+/** Write a line to a target, defaulting to stderr. */
 export function echoError(message: string, target: WriteTarget = defaultStderrTarget ?? processStream('stderr')): void {
     writeLine(message, target);
 }
 
+/**
+ * Override the default stdout/stderr targets.
+ *
+ * Returns a rollback function that restores the previous targets.
+ */
 export function setDefaultOutputTargets(opts: { stdout?: WriteTarget; stderr?: WriteTarget }): () => void {
     const prevStdout = defaultStdoutTarget;
     const prevStderr = defaultStderrTarget;
@@ -39,12 +47,14 @@ export function setDefaultOutputTargets(opts: { stdout?: WriteTarget; stderr?: W
     };
 }
 
+/** In-memory `WriteTarget` that records all chunks for later retrieval. */
 export interface BufferTarget extends WriteTarget {
     readonly chunks: string[];
     text(): string;
     clear(): void;
 }
 
+/** Create an in-memory {@link BufferTarget} for capturing output during tests or tooling. */
 export function createBufferTarget(): BufferTarget {
     const chunks: string[] = [];
     return {
