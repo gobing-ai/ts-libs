@@ -13,7 +13,7 @@ import {
     relativePath,
     resolvePath,
 } from '@gobing-ai/ts-runtime';
-import type { CapabilityRegistry } from '../host/capability-registry';
+import type { CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
 import type { TestPathResolver } from '../resolvers/test-path-resolver';
 import type { ConstraintFinding, ConstraintRule, Fix, FixMode, RuleContext } from '../types';
 import { TestStubFixer } from './test-stub-fixer';
