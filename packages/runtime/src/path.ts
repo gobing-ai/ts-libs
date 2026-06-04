@@ -7,6 +7,10 @@ export function normalizeSeparators(path: string): string {
     return path.replaceAll('\\', '/');
 }
 
+/** Platform-specific path segment separator (`'/'` on POSIX, `'\\'` on Windows). */
+export const SEP: string =
+    (globalThis as { process?: { platform?: string } }).process?.platform === 'win32' ? '\\' : '/';
+
 /** Returns `true` for POSIX absolute paths and Windows drive paths (`C:/…`). */
 export function isAbsolutePath(path: string): boolean {
     return path.startsWith('/') || /^[A-Za-z]:\//.test(normalizeSeparators(path));
@@ -22,6 +26,33 @@ export function dirnamePath(path: string): string {
     if (index < 0) return '.';
     if (index === 0) return '/';
     return normalized.slice(0, index);
+}
+
+/** Return the last segment of a path. Optionally strip a trailing extension. */
+export function basenamePath(p: string, ext?: string): string {
+    const normalized = normalizeSeparators(p).replace(/\/+$/, '');
+    const index = normalized.lastIndexOf('/');
+    let base = index < 0 ? normalized : normalized.slice(index + 1);
+    if (ext !== undefined && base !== ext && base.endsWith(ext)) {
+        base = base.slice(0, -ext.length);
+    }
+    return base;
+}
+
+/** Compute a platform-independent relative path from `from` to `to`. Both paths should be absolute. */
+export function relativePath(from: string, to: string): string {
+    const fromParts = resolvePath(from).split('/').filter(Boolean);
+    const toParts = resolvePath(to).split('/').filter(Boolean);
+
+    // Strip common prefix.
+    let i = 0;
+    const minLen = Math.min(fromParts.length, toParts.length);
+    while (i < minLen && fromParts[i] === toParts[i]) i++;
+
+    const up = fromParts.slice(i).map(() => '..');
+    const down = toParts.slice(i);
+    const result = [...up, ...down].join('/');
+    return result || '.';
 }
 
 /** Joins path segments with `/`, normalizing separators and collapsing redundant slashes. */
