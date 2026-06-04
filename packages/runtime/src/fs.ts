@@ -1,4 +1,5 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { findProjectRoot } from './file-system-node';
 import { dirnamePath, getProcessCwd, joinPath, resolvePath } from './path';
 
 /** Portable file stat interface — mirrors the subset of `node:fs.Stats` used by the runtime. */
@@ -347,18 +348,14 @@ export async function walkDir(path: string, fs = getFs(), exclude?: Set<string>)
     return result;
 }
 
-/** Walks up from `startDir` looking for a `package.json` or `bun.lock` to locate the project root. */
+/**
+ * Walks up from `startDir` looking for a `package.json` or `bun.lock` to locate the project root.
+ *
+ * @deprecated Use {@link import('./file-system-node').findProjectRoot} (or `createNodeFileSystem().getProjectRoot()`).
+ * This delegates to the single shared implementation.
+ */
 export function getProjectRoot(startDir = getProcessCwd()): string {
-    let current = resolvePath(startDir);
-    for (let i = 0; i < 12; i++) {
-        if (hasBunFile(joinPath(current, 'bun.lock')) || hasBunFile(joinPath(current, 'package.json'))) {
-            return current;
-        }
-        const parent = dirnamePath(current);
-        if (parent === current) return startDir;
-        current = parent;
-    }
-    return startDir;
+    return findProjectRoot(startDir);
 }
 
 /** Resolves path segments relative to the project root. */
@@ -369,12 +366,6 @@ export function resolveProjectPath(...segments: string[]): string {
 /** Creates a {@link LogStream} at the given path using the active file system. */
 export function createLogStream(path: string, fs = getFs()): LogStream {
     return fs.createLogStream(path);
-}
-
-function hasBunFile(path: string): boolean {
-    const bun = (globalThis as { Bun?: { file: (path: string) => { size: number } } }).Bun;
-    if (bun === undefined) return false;
-    return bun.file(path).size !== 0;
 }
 
 function getProcessPid(): number {
