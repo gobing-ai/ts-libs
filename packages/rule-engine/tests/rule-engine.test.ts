@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
+import { ProcessExecutor, type ProcessOptions, type ProcessResult } from '@gobing-ai/ts-runtime';
 import {
     CapabilityRegistry,
     type ConstraintRule,
@@ -17,17 +17,24 @@ import { AgentDetectionEvaluator } from '../src/evaluators/agent-detection-evalu
 import { matchesAny, relativeParent, relativeToWorkdir } from '../src/evaluators/file-utils';
 import { RuleEngineHost } from '../src/host/rule-engine-host';
 
-class FakeExecutor implements ProcessExecutor {
-    constructor(private readonly exitCode: number) {}
+class FakeExecutor extends ProcessExecutor {
+    readonly calls: ProcessOptions[] = [];
 
-    async run(options: ProcessOptions): Promise<ProcessResult> {
+    constructor(private readonly responder: (options: ProcessOptions) => Partial<ProcessResult> = () => ({})) {
+        super();
+    }
+
+    override async run(options: ProcessOptions): Promise<ProcessResult> {
+        this.calls.push(options);
+        const response = this.responder(options);
         return {
             command: options.command,
             args: options.args ?? [],
-            exitCode: this.exitCode,
+            exitCode: 0,
             stdout: '',
             stderr: '',
             durationMs: 1,
+            ...response,
         };
     }
 }
@@ -118,7 +125,10 @@ describe('RuleEngine', () => {
                 evaluator: { type: 'missing' },
             },
         ];
-        const result = await new RuleEngine({ processExecutor: new FakeExecutor(1) }).evaluate(rules, dir);
+        const result = await new RuleEngine({ processExecutor: new FakeExecutor(() => ({ exitCode: 1 })) }).evaluate(
+            rules,
+            dir,
+        );
         expect(result.findings.map((finding) => finding.ruleId)).toEqual([
             'path-required',
             'regex-required',
@@ -138,7 +148,12 @@ describe('RuleEngine', () => {
             evaluator: { type: 'exit-code', config: { command: 'true', args: ['--version'] } },
         };
         expect(
-            (await new RuleEngine({ processExecutor: new FakeExecutor(0) }).evaluate([okRule], dir)).findings,
+            (
+                await new RuleEngine({ processExecutor: new FakeExecutor(() => ({ exitCode: 0 })) }).evaluate(
+                    [okRule],
+                    dir,
+                )
+            ).findings,
         ).toEqual([]);
 
         const badRule: ConstraintRule = {
