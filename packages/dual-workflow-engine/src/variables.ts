@@ -1,5 +1,5 @@
 import { WorkflowValidationError } from './errors';
-import type { Vars } from './types';
+import type { OnErrorPolicy, Vars } from './types';
 
 const TEMPLATE_REF = /\$\{([^}]+)\}/g;
 
@@ -54,4 +54,16 @@ export function resolveTemplateString(value: string, context: VariableContext): 
         if (resolved === undefined) throw new WorkflowValidationError(`Workflow builtin "${name}" is not defined`);
         return String(resolved);
     });
+}
+
+/**
+ * Resolve the effective error policy via fixed precedence:
+ * `action.onError ?? workflow.defaultOnError ?? runOptions.onError ?? 'fail'`.
+ */
+export function resolveOnErrorPolicy(
+    actionOnError: OnErrorPolicy | undefined,
+    workflowDefault: OnErrorPolicy | undefined,
+    runOptionOverride: OnErrorPolicy | undefined,
+): OnErrorPolicy {
+    return actionOnError ?? workflowDefault ?? runOptionOverride ?? 'fail';
 }
