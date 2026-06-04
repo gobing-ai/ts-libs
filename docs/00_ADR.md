@@ -171,30 +171,19 @@ beside a Drizzle table; derive it." `getTableConfig`-based generation is proven 
 
 ---
 
-## ADR-008: Runtime Selection Is the `getFs()` Global Swap, Not a `RuntimeFactory`
+## ADR-008: Runtime Selection Is the `getFs()` Global Swap, Not a `RuntimeFactory` — **SUPERSEDED by ADR-011**
 
-**Status:** Accepted · **Date:** 2026-06-02 · **Targets:** `@gobing-ai/ts-runtime`
+**Status:** Superseded · **Date:** 2026-06-02 · **Superseded by:** ADR-011 · **Targets:** `@gobing-ai/ts-runtime`
 
-**Context.** `ts-runtime` carried two parallel runtime-selection mechanisms that contradicted each
-other. (1) The `setFileSystem`/`getFs()` global swap is load-bearing and tested: `RuntimeContext`,
-`atomicWriteFile`, `walkDir`, and `schema-validation` all consume `getFs()`, and `CloudflareFileSystem`
-plugs into it. (2) A `RuntimeFactory` interface (`createFileSystem`/`loadConfig`/optional
-`createContext`) was declared as the portability seam but had **zero implementations** — no
-`node-bun` factory, no `cloudflare-workers` factory — and was consumed by nothing. By the "two
-adapters = real seam" test, the factory was a hypothetical seam; the global swap is the real one.
-Keeping both forced every reader (and every AI agent) to guess which path is supported.
+**Context.** `ts-runtime` carried two parallel runtime-selection mechanisms. The `setFileSystem`/`getFs()`
+global swap was load-bearing; a `RuntimeFactory` interface was declared but had zero implementations.
+The decision was to keep the global swap and remove the unused factory.
 
-**Decision.** The `getFs()` global swap is the single runtime-selection seam. `RuntimeFactory` and the
-optional `RuntimeContext.createContext` hook are removed, along with the unused `factory?` option on
-`RuntimeContextOptions`. A Cloudflare Workers build is not imminent (YAGNI); when one lands, a factory
-may be reintroduced **with two real adapters** (node-bun + workers) that `RuntimeContext` is built
-from — not as an empty interface ahead of need.
-
-**Consequences.** One obvious extension point: swap the active `FileSystem` via `setFileSystem`.
-The config env accessors (`getNodeEnv`/`getProcessEnv`/`getDatabaseUrl`/`interpolateEnv`) reach
-`process.env` directly and are documented as node-bun-only; on Workers, callers must inject config
-rather than rely on `process`. Reintroducing a factory is a deliberate future ADR, not drift.
-
+**Supersession.** Task 0012 reintroduced the factory pattern with two real implementations
+(`nodeBunFactory`, `cloudflareWorkersFactory`), a single `FileSystem` interface with union return types
+(eliminating the `SyncFileSystem` split), a consolidated `ProcessExecutor` class, and expanded
+runtime-portable path utilities. The `getFs()` global swap and `SyncFileSystem` are deprecated in
+favor of `loadRuntimeFactory()` → `factory.createFileSystem()`. See ADR-011 for the full design.
 ---
 
 ## ADR-009: `ts-infra` Telemetry Instruments Against the Global Provider; Export Is an Opt-In Subpath
@@ -317,3 +306,58 @@ migrations in both engines with no caller-visible behavior change. A spur rule m
 shared plugin core must not import either engine." Promoting the core to a dedicated `packages/plugin-core`,
 building a driver registry, or sharing the template engine are each future ADRs gated on real pressure,
 not drift. Implementation is tracked as task 0006 under `docs/tasks/`.
+
+
+---
+
+## ADR-011: Runtime Factory Pattern + Path Utility Consolidation + Runtime Boundary Rules
+
+**Status:** Accepted · **Date:** 2026-06-04 · **Targets:** `@gobing-ai/ts-runtime`, `.spur/rules/`
+
+**Context.** ADR-008 kept the `getFs()` global swap and removed the unused `RuntimeFactory`. However,
+inspection of the original `spur-old` codebase revealed a more cohesive design: the old project had a
+working `loadRuntimeFactory()` with two real implementations (`nodeBunFactory`, `cloudflareWorkersFactory`),
+a single `FileSystem` interface with union return types, and a `ProcessExecutor` class wrapping `execa`.
+The migration inadvertently fragmented these into split interfaces (`FileSystem` + `SyncFileSystem`,
+`ProcessExecutor` + `SyncProcessExecutor` + `PipeProcessSpawner`) and lost the factory auto-detection.
+
+Separately, 16 source files across 6 packages imported `node:path` directly, and `node:os` and
+`Bun.which()` were used outside the runtime package. These are platform-specific APIs that should be
+behind the `ts-runtime` seam per the package's design contract.
+
+**Decision.**
+
+1. **Reintroduce the factory pattern with two real implementations.** `loadRuntimeFactory()` detects the
+   platform via `isCloudflareWorkerRuntime()` and returns `nodeBunFactory` or `cloudflareWorkersFactory`.
+   Each factory provides `createFileSystem()`, `createProcessExecutor()`, and `loadConfig()`.
+   `createRuntimeContextFromFactory()` is the async entry point that auto-wires everything.
+
+2. **Replace split FileSystem interfaces with a single interface using union return types.**
+   `FileSystem.readFile()` returns `string | Promise<string>` — sync implementations (Node/Bun) return
+   strings directly, stubs (Workers) throw. `SyncFileSystem` is marked `@deprecated`. The new entry
+   points are `createNodeFileSystem(root?)` and `createCfFileSystem()`.
+
+3. **Consolidate process execution into a single `ProcessExecutor` class.** `run()` wraps `execa` for
+   buffered execution; `runStreaming()` wraps `Bun.spawn` for interactive subprocesses. `SyncProcessExecutor`,
+   `PipeProcessSpawner`, and the interface/impl split are removed (old classes kept as `@deprecated` shims).
+
+4. **Expand runtime-portable path utilities.** `basenamePath`, `dirnamePath` (already present), `SEP`,
+   and `relativePath` added to `packages/runtime/src/path.ts`. All use zero `node:*` imports, making them
+   safe for Cloudflare Workers. This enabled migrating all 16 `node:path` exemptions to `ts-runtime` utilities.
+
+5. **Consolidate runtime boundary rules into `.spur/rules/typescript/runtime-boundaries.yaml`.**
+   New strict rules added: `no-direct-node-path`, `no-direct-node-url`, `no-direct-node-os`,
+   `no-direct-bun-platform`, `no-direct-process-exit`. These enforce that all platform-specific APIs
+   (`node:fs`, `node:path`, `node:os`, `node:child_process`, `Bun.spawn`, `Bun.which`, `process.exit`,
+   `process.env`) are only imported within `packages/runtime/src/` (or explicitly sanctioned files).
+   `no-direct-node-path` has zero source-code exemptions outside `packages/runtime/src/`.
+
+**Consequences.** The factory pattern provides a single, testable entry point for platform detection.
+The union-return-type `FileSystem` eliminates the sync/async dual-interface complexity.
+`ProcessExecutor` as a class simplifies the three-interface/three-implementation matrix.
+Runtime boundary rules are checked at the gate (`spur-check`), structurally preventing new
+platform-specific imports from leaking outside `ts-runtime`. The `getFs()` global swap and old
+classes are deprecated but preserved for backward compatibility.
+
+Implementation is tracked as tasks 0012 (factory + FileSystem + ProcessExecutor) and 0013 (path
+utility consolidation + exemption elimination) under `docs/tasks/`.
