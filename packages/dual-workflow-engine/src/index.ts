@@ -1,6 +1,12 @@
 export { loadWorkflowDef, loadWorkflowDefFromText, validateWorkflowDef } from './config';
 export { FSMError, RunCollisionError, WorkflowValidationError } from './errors';
 export {
+    type LoadWorkflowExtensionsOptions,
+    loadWorkflowExtensionsIntoHost,
+    type WorkflowExtensionKind,
+    type WorkflowExtensionRef,
+} from './extensions';
+export {
     createDefaultWorkflowEngineHost,
     NoteActionRunner,
     ShellActionRunner,

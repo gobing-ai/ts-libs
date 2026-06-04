@@ -267,6 +267,102 @@ const service = new WorkflowService(
 
 Use `service.listRuns()` to read persisted run records. The adapter stores run status, phase snapshots, state snapshots, and transitions.
 
+## Custom Actions and Guards
+
+Register domain-specific runners directly on the host:
+
+```ts
+import { WorkflowEngineHost } from '@gobing-ai/ts-dual-workflow-engine';
+
+const host = new WorkflowEngineHost();
+
+// Custom action
+host.registerAction({
+  kind: 'send-email',
+  async execute(options, context) {
+    await mailer.send(String(options.to), String(options.subject));
+    return { ok: true };
+  },
+});
+
+// Custom guard
+host.registerGuard({
+  kind: 'isBusinessHours',
+  async evaluate() {
+    const hour = new Date().getHours();
+    return hour >= 9 && hour < 17;
+  },
+});
+```
+
+Registered actions and guards are available to any workflow definition by their `kind` string.
+
+## Extension Loading
+
+For modules that bundle multiple actions and/or guards together, use the trust-gated extension loader. Each extension module must export an object with a string `name` and an `actions[]` and/or `guards[]` array:
+
+```ts
+// my-extension.ts — extension module (compiled separately or in-project)
+export default {
+  name: 'my-workflow-extensions',
+  actions: [
+    {
+      kind: 'audit-log',
+      async execute(options) {
+        console.log('AUDIT', options.event);
+        return { ok: true };
+      },
+    },
+  ],
+  guards: [
+    {
+      kind: 'feature-flag',
+      async evaluate(options) {
+        return featureFlags.isEnabled(String(options.flag));
+      },
+    },
+  ],
+};
+```
+
+```ts
+import {
+  loadWorkflowExtensionsIntoHost,
+  WorkflowEngineHost,
+} from '@gobing-ai/ts-dual-workflow-engine';
+
+const host = new WorkflowEngineHost();
+
+await loadWorkflowExtensionsIntoHost(
+  host,
+  [{ kind: 'actions', absPath: '/path/to/my-extension.ts', sourceName: 'my-config' }],
+  {
+    allowExtensions: true,        // required — disabled by default
+    moduleLoader: (absPath) => import(absPath),
+  },
+);
+```
+
+Each entry in `actions[]` is registered via `host.registerAction(..., 'extension')`; entries in `guards[]` are registered via `host.registerGuard(..., 'extension')`. When a ref has `kind: 'actions'`, only the module's `actions[]` entries are registered; `guards[]` entries in the same module are ignored (and vice versa).
+
+Override warnings are emitted through an optional `logger.warn` callback when an extension replaces a built-in capability:
+
+```ts
+await loadWorkflowExtensionsIntoHost(host, refs, {
+  allowExtensions: true,
+  moduleLoader: (absPath) => import(absPath),
+  logger: { warn: (msg) => console.warn(msg) },
+});
+```
+
+### Security
+
+**Extension modules execute arbitrary code.** The trust gate is fail-closed:
+
+- `allowExtensions` defaults to `false`. When refs are present and loading is not explicitly allowed, the loader throws **before any import** — a declared extension is never silently dropped.
+- Extension paths are validated at load time; `..` traversal is rejected.
+- The caller controls the `moduleLoader` function. Tests use a stub; production callers use `(absPath) => import(absPath)`. The loader itself has no ambient code-loading capability.
+
 ## Error Handling
 
 Validation failures throw `WorkflowValidationError`. Runtime finite-state-machine errors throw `FSMError`. Run failures caused by actions or guards are returned as `WorkflowRunResult` with `status: 'failed'`, preserving the run record.
