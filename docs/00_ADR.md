@@ -464,3 +464,30 @@ consumers. The drivers shrink to their actual algorithms. A future driver regist
 deferred and is now unambiguously scoped to *dispatch abstraction*, not lifecycle sharing. A future ADR
 would be required to make the workflow variable/template engine a shared util (ADR-006 §7 keeps it
 workflow-local).
+
+---
+### ADR-013 Addendum — Error Policy Alignment (2026-06-04)
+
+**Context.** Task 0014 aligned the error-handling vocabulary and configuration pattern across the two
+sibling engines while preserving their intrinsic behavioral differences. The rule engine's exhaustive
+traversal (`for`-loop over all rules) gained an opt-in `stopOnFirst?: 'error' | 'warning' | 'info'`
+parameter; the workflow engine gained a per-action, per-workflow, and per-run `onError?: 'fail' |
+'continue'` policy with resolved precedence `action.onError ?? workflow.defaultOnError ?? runOptions.onError
+?? 'fail'`.
+
+**Decision.** Align the shared *vocabulary* (severity enum + config-default→runtime-override pattern) while
+keeping the *policy verb* honestly different between the engines:
+
+- **rule-engine** uses `stopOnFirst` (traversal control). Undefined default → exhaustive (today's behavior);
+  when set, breaks the rule loop after the first finding matching or exceeding the threshold.
+- **workflow-engine** uses `onError` (control-flow branching). Default `'fail'` → fail-fast (today's
+  behavior); `'continue'` → log a non-fatal warning via the `RunLifecycle` observability seam (ADR-013
+  §3) and continue to the next state/node/action.
+
+No shared code was introduced between the two engines — the policy is resolved per-package, per-driver.
+The rule engine's verdict (exit code) remains in the consumer (spur `rule-service.ts`); the engine only
+controls traversal, never pass/fail.
+
+**Consequences.** Both packages remain releasable in one lockstep bump for spur-new#0017. The workflow
+engine now supports resilient workflows where non-fatal action failures log and continue. The rule engine
+supports early exit for noisy linter runs. Policy verbs stay distinct and honest.
