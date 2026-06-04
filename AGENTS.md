@@ -10,7 +10,7 @@ TypeScript libraries under `packages/*`:
 | Package | Role |
 |---------|------|
 | `ts-utils` | output, errors, api-response, cursor, date, access helpers |
-| `ts-runtime` | runtime context, FileSystem, ProcessExecutor, config loader |
+| `ts-runtime` | platform detection, factory, FileSystem, ProcessExecutor, path utilities, plugin core |
 | `ts-db` | drizzle-free DB facade: adapters, `BaseDao`/`EntityDao`, predicate spec, `defineTable` |
 | `ts-infra` | logger, EventBus, telemetry, scheduler, job-queue, API client |
 | `ts-ai-runner` | coding-agent detection, doctor, prompt execution |
@@ -64,6 +64,10 @@ If a check fails, fix the root cause — never bypass with `--no-verify`, `--for
   Consume the ts-db facade (`BaseDao`/`EntityDao` + predicate spec), not drizzle.
 - **Architectural invariants are spur rules**, not just review habits — add new cross-cutting boundaries
   as rules under `.spur/rules/` (ADR-006).
+- **Platform APIs are confined to `ts-runtime`** — no other package may import `node:fs`, `node:path`,
+  `node:os`, `node:child_process`, `Bun.spawn`, `Bun.which`, or `process.env` directly. Enforced by
+  `runtime-boundaries` spur rules (ADR-011). Use `@gobing-ai/ts-runtime` path utilities, `FileSystem`,
+  and `ProcessExecutor` instead.
 - Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `build:`, ...). Breaking changes in a
   `BREAKING CHANGE:` footer.
 - Each package: source in `src/`, tests in `tests/`, builds to `dist/`. Tests live in `tests/`, not under `src/`.
