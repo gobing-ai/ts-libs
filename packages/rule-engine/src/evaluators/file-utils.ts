@@ -18,7 +18,7 @@ const DEFAULT_EXCLUDES = new Set(['.git', 'node_modules', 'dist', '.coverage', '
 /** Resolve source files for evaluators using conservative path-fragment matching. */
 export async function discoverFiles(options: SourceDiscoveryOptions): Promise<string[]> {
     const fs = options.fs ?? new NodeFileSystem();
-    const allFiles = await walkDir(options.workdir, fs);
+    const allFiles = await walkDir(options.workdir, fs, DEFAULT_EXCLUDES);
     return allFiles
         .map((path) => relative(options.workdir, path))
         .filter((path) => !path.split('/').some((segment) => DEFAULT_EXCLUDES.has(segment)))
