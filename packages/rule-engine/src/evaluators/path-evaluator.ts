@@ -6,7 +6,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
-import { discoverFiles, matchesGlob } from './file-utils';
+import { configArray, configString, discoverFiles, matchesGlob } from './file-utils';
 
 /**
  * Evaluates file/directory presence constraints.
@@ -81,8 +81,8 @@ export class PathEvaluator implements RuleEvaluator {
         context: RuleContext,
         config: Record<string, unknown>,
     ): Promise<RuleEvaluationResult> {
-        const paths = arrayConfig(config, 'paths');
-        const mode = stringConfig(config, 'mode', 'require');
+        const paths = configArray(config, 'paths', undefined, { evaluator: 'path' });
+        const mode = configString(config, 'mode', 'require');
         const findings = [];
         for (const path of paths) {
             const exists = await this.fs.exists(joinPath(context.workdir, path));
@@ -95,16 +95,4 @@ export class PathEvaluator implements RuleEvaluator {
         }
         return { findings, fixes: [] };
     }
-}
-
-function arrayConfig(config: Record<string, unknown>, key: string): string[] {
-    const value = config[key];
-    if (Array.isArray(value) && value.every((item) => typeof item === 'string')) return value;
-    if (typeof value === 'string') return [value];
-    throw new Error(`path evaluator requires config "${key}" (string[]) or "must" (present|absent)`);
-}
-
-function stringConfig(config: Record<string, unknown>, key: string, fallback: string): string {
-    const value = config[key];
-    return typeof value === 'string' ? value : fallback;
 }
