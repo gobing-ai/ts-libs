@@ -1,5 +1,11 @@
-import { basename, join } from 'node:path';
-import { NodeSyncFileSystem, parseYamlObject, type SyncFileSystem, stringifyYamlObject } from '@gobing-ai/ts-runtime';
+import {
+    basenamePath,
+    joinPath,
+    NodeSyncFileSystem,
+    parseYamlObject,
+    type SyncFileSystem,
+    stringifyYamlObject,
+} from '@gobing-ai/ts-runtime';
 
 /** Specification for an AI agent defined in the configuration directory. */
 export interface AgentSpec {
@@ -34,7 +40,7 @@ export function loadAgentSpecs(configDir: string, fs: SyncFileSystem = new NodeS
     const entries = safeReadDir(configDir, fs)
         .filter((entry) => entry.endsWith('.yaml') || entry.endsWith('.yml'))
         .sort();
-    const specs = entries.map((entry) => parseAgentSpec(fs.readFile(join(configDir, entry)), entry));
+    const specs = entries.map((entry) => parseAgentSpec(fs.readFile(joinPath(configDir, entry)), entry));
     const seen = new Set<string>();
     for (const spec of specs) {
         validateAgentId(spec.id);
@@ -52,7 +58,7 @@ export async function saveAgentSpec(
 ): Promise<void> {
     validateAgentId(spec.id);
     fs.mkdir(configDir);
-    fs.writeFile(join(configDir, `${spec.id}.yaml`), serializeAgentSpec(spec));
+    fs.writeFile(joinPath(configDir, `${spec.id}.yaml`), serializeAgentSpec(spec));
 }
 
 /** Remove the YAML file for agent `id` from `configDir`. Does nothing if the file doesn't exist. */
@@ -62,7 +68,7 @@ export async function deleteAgentSpec(
     fs: SyncFileSystem = new NodeSyncFileSystem(),
 ): Promise<void> {
     validateAgentId(id);
-    fs.unlink(join(configDir, `${id}.yaml`));
+    fs.unlink(joinPath(configDir, `${id}.yaml`));
 }
 
 function safeReadDir(configDir: string, fs: SyncFileSystem = new NodeSyncFileSystem()): string[] {
@@ -108,7 +114,7 @@ function serializeAgentSpec(spec: AgentSpec): string {
 function requireString(source: Record<string, unknown>, key: keyof AgentSpec, fileName: string): string {
     const value = source[key];
     if (typeof value !== 'string' || value.trim() === '') {
-        throw new ValueError(`${basename(fileName)}: "${key}" must be a non-empty string`);
+        throw new ValueError(`${basenamePath(fileName)}: "${key}" must be a non-empty string`);
     }
     return value;
 }
@@ -116,7 +122,7 @@ function requireString(source: Record<string, unknown>, key: keyof AgentSpec, fi
 function requireStringArray(source: Record<string, unknown>, key: keyof AgentSpec, fileName: string): string[] {
     const value = source[key];
     if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
-        throw new ValueError(`${basename(fileName)}: "${key}" must be a string array`);
+        throw new ValueError(`${basenamePath(fileName)}: "${key}" must be a string array`);
     }
     return value;
 }
@@ -128,7 +134,7 @@ function requireRecord(
 ): Record<string, unknown> {
     const value = source[key];
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-        throw new ValueError(`${basename(fileName)}: "${key}" must be an object`);
+        throw new ValueError(`${basenamePath(fileName)}: "${key}" must be an object`);
     }
     return value as Record<string, unknown>;
 }
