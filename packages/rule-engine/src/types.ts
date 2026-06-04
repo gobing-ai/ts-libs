@@ -4,6 +4,13 @@ import { z } from 'zod';
 /** Finding severity emitted by the rule engine. */
 export type RuleSeverity = 'error' | 'warning' | 'info';
 
+/** Numeric rank for severity comparison; higher = more severe. */
+export const SEVERITY_RANK: Record<RuleSeverity, number> = {
+    error: 3,
+    warning: 2,
+    info: 1,
+};
+
 /** Fix authority level for candidate fixes. */
 export type FixMode = 'none' | 'suggest' | 'auto';
 
