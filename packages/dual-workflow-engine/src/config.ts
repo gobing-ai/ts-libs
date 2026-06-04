@@ -1,5 +1,6 @@
 import { loadStructuredConfig, parseYamlObject } from '@gobing-ai/ts-runtime';
 import { WorkflowValidationError } from './errors';
+import { RUNTIME_BUILTIN_KEYS } from './run-lifecycle';
 import { StateMachineWorkflowDefSchema, TransitionFlowWorkflowDefSchema } from './schema';
 import type { WorkflowDef } from './types';
 
@@ -178,17 +179,12 @@ function collectActionOptions(workflow: WorkflowDef): Record<string, unknown>[] 
     return optionSets;
 }
 
-/** Reserved template namespaces always available at runtime (not user-declared vars). */
-const RUNTIME_TEMPLATE_NAMESPACES = new Set([
-    'workflow',
-    'runId',
-    'task',
-    'state',
-    'node',
-    'iteration',
-    'run',
-    'runtime',
-]);
+/**
+ * Reserved template namespaces always available at runtime (not user-declared vars).
+ * Single-sourced from {@link RUNTIME_BUILTIN_KEYS} so the validator can never drift
+ * from the builtins the drivers actually inject at run time.
+ */
+const RUNTIME_TEMPLATE_NAMESPACES = new Set<string>(RUNTIME_BUILTIN_KEYS);
 
 /**
  * Check `${...}` template references inside action options resolve to something:
