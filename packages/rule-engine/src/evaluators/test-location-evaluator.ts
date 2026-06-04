@@ -1,5 +1,5 @@
-import type { CapabilityRegistry } from '../host/capability-registry';
-import type { TestPathResolver } from '../resolvers/test-path-resolver';
+import type { CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
+import { type TestPathResolver, TypeScriptTestPathResolver } from '../resolvers/test-path-resolver';
 import {
     type ConstraintRule,
     createFinding,
@@ -111,17 +111,4 @@ export class TestLocationEvaluator implements RuleEvaluator {
 }
 
 /** Built-in TypeScript convention used when no resolver registry is injected. */
-const TYPESCRIPT_FALLBACK: TestPathResolver = {
-    name: 'typescript',
-    resolveTestPath(srcRelPath: string): string {
-        if (srcRelPath.includes('.test.') || srcRelPath.includes('.spec.')) return srcRelPath;
-        const srcIdx = srcRelPath.indexOf('/src/');
-        if (srcIdx !== -1) {
-            const pkg = srcRelPath.slice(0, srcIdx);
-            const rel = srcRelPath.slice(srcIdx + '/src/'.length).replace(/\.(ts|tsx|js|jsx)$/, '.test.ts');
-            return `${pkg}/tests/${rel}`;
-        }
-        const withoutExt = srcRelPath.replace(/\.(ts|tsx|js|jsx)$/, '');
-        return `tests/${withoutExt.replace(/^src\//, '')}.test.ts`;
-    },
-};
+const TYPESCRIPT_FALLBACK: TestPathResolver = new TypeScriptTestPathResolver();
