@@ -294,18 +294,32 @@ describe('createNodeFileSystem', () => {
 // ── findProjectRoot ────────────────────────────────────────────────────────
 
 describe('findProjectRoot', () => {
-    test('finds root via bun.lock in current project', () => {
-        // The repo root has a bun.lock, so walking up from
-        // any test file should find it.
+    test('finds the nearest directory carrying a project marker', () => {
+        // Walking up from a test file lands on the nearest dir with a bun.lock or package.json.
+        // In this monorepo that is packages/runtime, which carries a package.json.
         const root = findProjectRoot(__dirname);
-        expect(existsSync(join(root, 'bun.lock'))).toBe(true);
+        const hasMarker = existsSync(join(root, 'bun.lock')) || existsSync(join(root, 'package.json'));
+        expect(hasMarker).toBe(true);
     });
 
-    test('returns startDir when no bun.lock is found', () => {
+    test('returns startDir when no marker is found', () => {
         const dir = tempDir();
         try {
             const root = findProjectRoot(dir);
             expect(root).toBe(dir);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('finds root via package.json when no bun.lock is present', () => {
+        // A Node repo may have package.json but no bun.lock — that marker alone must locate the root.
+        const dir = tempDir();
+        try {
+            writeFileSync(join(dir, 'package.json'), '{}');
+            const nested = join(dir, 'a', 'b');
+            mkdirSync(nested, { recursive: true });
+            expect(findProjectRoot(nested)).toBe(dir);
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }
