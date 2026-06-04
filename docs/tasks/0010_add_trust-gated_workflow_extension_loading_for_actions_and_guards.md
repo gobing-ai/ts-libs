@@ -67,8 +67,6 @@ Child of task 0006 (ADR-010), depends on 0009 (workflow host on shared registry)
 
 ### Design
 
-### Design
-
 **Extension ref source (R5):** host-construction options first. Caller passes `WorkflowExtensionRef[]` explicitly via options. Workflow-file-declared refs deferred — add a comment noting the future path. Reasoning: caller opts into code-loading explicitly at construction time, matching the rule-engine's `allowExtensions` gate where the host owner controls the trust decision.
 
 **Shared loader reuse (R2):** Call `loadExtensionModules<WorkflowExtensionKind>` from `@gobing-ai/ts-runtime/plugin`, passing a workflow-specific registration callback that routes `ref.kind` to `host.registerAction`/`host.registerGuard`.
@@ -81,8 +79,6 @@ Child of task 0006 (ADR-010), depends on 0009 (workflow host on shared registry)
 
 **File layout:** `packages/dual-workflow-engine/src/config/extensions.ts` alongside existing `config.ts`. Export wiring in `src/index.ts`.
 
-
-### Solution
 
 ### Solution
 
@@ -99,8 +95,6 @@ The shared loader handles the fail-closed gate (R4), relative-path enforcement (
 
 ### Plan
 
-### Plan
-
 1. **Create `src/config/extensions.ts`** — `WorkflowExtensionKind`, `WorkflowExtensionRef`, `loadWorkflowExtensionsIntoHost()` calling shared `loadExtensionModules` with workflow registration callback, `collectWorkflowExtensions()` helper for future workflow-file-declared use.
 
 2. **Create `tests/extensions.test.ts`** — R7 test coverage: disabled gate throws before load, valid action-extension registration, valid guard-extension registration, invalid module shape rejection, wrong-kind rejection, override warning. Use `moduleLoader` stub (never real `import()`).
@@ -112,9 +106,9 @@ The shared loader handles the fail-closed gate (R4), relative-path enforcement (
 5. **Gate:** `bun run spur-check` + `bun run build` clean.
 
 
-### Review
+## Review
 
-## Review — 2026-06-04
+**Date:** 2026-06-04
 
 **Status:** 0 findings
 **Scope:** `packages/dual-workflow-engine/src/extensions.ts`, `tests/extensions.test.ts`, `README.md`, `src/index.ts`
@@ -136,7 +130,7 @@ no hardcoded secrets, no injection surfaces, no ambient code-loading capability 
 
 ### Testing
 
-### Testing
+**Date:** 2026-06-04T17:30:00Z
 
 **Test file:** `packages/dual-workflow-engine/tests/extensions.test.ts` — 17 tests, all pass.
 
@@ -163,6 +157,7 @@ no hardcoded secrets, no injection surfaces, no ambient code-loading capability 
 | `does not warn when extension adds a new capability` | R4 | No false override warnings |
 | `does not warn when extension overrides a previously extension-registered capability` | R4 | Extension-on-extension silent |
 | `rejects absPath containing .. traversal` | R6 | Shared guard enforcement |
+| `rejects .. traversal in deep paths` | R6 | Deep traversal rejection |
 
 **Gate results:**
 - Biome: clean ✓
