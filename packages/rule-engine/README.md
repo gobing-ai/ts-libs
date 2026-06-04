@@ -352,7 +352,8 @@ Built-in fixer providers (`RegexFixerProvider`, `PathFixerProvider`, `TestStubFi
 
 | Type | Purpose | Notes |
 | ---- | ------- | ----- |
-| `regex`, `rg` | Match or require text patterns in files. | Pure JS file scanning. Supports inline `(?i)` flags and `multiline`. |
+| `regex` | Match or require text patterns in files (JS `RegExp` engine). | Pure JS file scanning. Supports lookbehind/backreferences, inline `(?i)` flags, and `multiline`. Not ReDoS-bounded. |
+| `rg` | Match or require text patterns in files (real ripgrep engine). | Runs the `rg` CLI: ReDoS-immune, parallel, prunes heavy trees (`node_modules`, `dist`, …) during traversal. Ripgrep dialect — **no** lookbehind/backreferences. Requires the `rg` CLI. See [Rules Migration](#rules-migration). |
 | `path`, `file-exist` | Check required or forbidden paths. | Supports explicit `paths` or glob-style `must: present/absent`. |
 | `exit-code` | Run a command and evaluate its exit code. | Uses `ProcessExecutor`; inject one through `new RuleEngine({ processExecutor })` for tests. |
 | `forbidden-import` | Block forbidden imports/usages. | Useful for package boundary rules. |
@@ -476,6 +477,88 @@ rules:
         language: typescript
     include: ["src/**/*.ts"]
 ```
+
+## Rules Migration
+
+The `rg` evaluator now runs the **real ripgrep CLI** instead of being a JS-`RegExp` alias of `regex`. Ripgrep's Rust regex engine is ReDoS-immune, runs in parallel, and prunes heavy trees (`node_modules`, `dist`, …) during traversal — a meaningful speedup on large workspaces. The trade-off is a stricter dialect: ripgrep has **no lookbehind and no backreferences**.
+
+This section explains how to move existing `regex` rules onto `rg` safely.
+
+### What changed
+
+| | `regex` (JS `RegExp`) | `rg` (ripgrep) |
+| --- | --- | --- |
+| Engine | In-process `new RegExp(...)` | `rg` CLI subprocess |
+| Performance | Walks files in-process | Parallel, prunes `node_modules`/`dist`/… during traversal |
+| ReDoS | Not bounded — a pathological pattern can hang | Linear-time — immune |
+| Lookbehind `(?<=…)` / `(?<!…)` | Supported | **Not supported** |
+| Backreferences `\1`, `\k<name>` | Supported | **Not supported** |
+| Inline `(?i)` flags, `multiline` | Supported | Supported (`(?i)` is native; `multiline` → `rg -U --multiline-dotall`) |
+| `mode: forbid` / `mode: require` | Supported | Supported (`require` → `rg --files-without-match`) |
+
+The rule config shape is identical (`pattern`, `mode`, `multiline`, `include`, `exclude`), so most rules migrate by changing one word: `type: regex` → `type: rg`.
+
+### The migration guard: `rg-evaluator-patterns-are-ripgrep-dialect`
+
+A built-in meta rule scans your `.spur/rules/**/*.yaml` and **fails the gate** if any `type: rg` rule uses a construct ripgrep cannot compile (lookbehind or backreference). This catches an incompatible migration at lint time instead of letting it explode at scan time. A violation looks like:
+
+```text
+INVALID: .spur/rules/typescript/my-rule.yaml: rules[0] rg pattern uses lookbehind (unsupported by ripgrep) — use type: regex
+```
+
+The fix is exactly what the message says: keep that rule on `type: regex`. The two evaluators coexist — use `rg` for the speed/safety win where the pattern allows, and `regex` where you genuinely need lookbehind/backreferences.
+
+### Migration steps
+
+1. **Ensure `rg` is installed** in every environment that runs the gate (CI included), the same way `sg` is required. A missing `rg` makes the rule fail loud, not silently pass.
+
+2. **Convert eligible rules.** For each `type: regex` rule, change it to `type: rg` *unless* its `pattern` uses lookbehind or a backreference:
+
+   ```yaml
+   # Before — JS RegExp engine
+   - id: no-debugger
+     description: Do not commit debugger statements
+     evaluator:
+       type: regex
+       config:
+         mode: forbid
+         pattern: "\\bdebugger\\b"
+     include: ["src/**/*.ts"]
+
+   # After — real ripgrep (pattern is dialect-compatible)
+   - id: no-debugger
+     description: Do not commit debugger statements
+     evaluator:
+       type: rg
+       config:
+         mode: forbid
+         pattern: "\\bdebugger\\b"
+     include: ["src/**/*.ts"]
+   ```
+
+3. **Leave incompatible rules on `regex`.** A pattern such as `(?<=const\s)X` (lookbehind) or `(\w+)\s+\1` (backreference) stays `type: regex`. The migration guard will flag it if you convert it by mistake.
+
+4. **Run the gate.** `rg-evaluator-patterns-are-ripgrep-dialect` runs as part of `spur rule run` (the pre-check preset). A clean run means every `rg` rule is dialect-safe.
+
+   ```bash
+   spur rule run --preset recommended-pre-check --fail-on warning
+   ```
+
+### Automated conversion
+
+`@gobing-ai/ts-rule-engine` exports `isRipgrepCompatiblePattern(pattern)` so a downstream tool can decide per rule whether to rewrite `type: regex` → `type: rg`:
+
+```ts
+import { isRipgrepCompatiblePattern } from "@gobing-ai/ts-rule-engine";
+
+const verdict = isRipgrepCompatiblePattern("(?<=foo)bar");
+// → { compatible: false, feature: "lookbehind" }  → keep this rule on `type: regex`
+
+isRipgrepCompatiblePattern("\\bdebugger\\b");
+// → { compatible: true }  → safe to rewrite to `type: rg`
+```
+
+This is the same check the migration guard uses, so a converter built on it and the spur rule never disagree.
 
 ## Test-Path Resolvers
 
