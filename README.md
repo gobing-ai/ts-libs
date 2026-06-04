@@ -50,7 +50,7 @@ graph TD
 ### Core Packages
 
 - **[@gobing-ai/ts-utils](packages/utils/README.md)** — Zero-dependency utilities: error types, date helpers, cursor-based pagination, role-based access control, API response envelopes, and output helpers.
-- **[@gobing-ai/ts-runtime](packages/runtime/README.md)** — Runtime abstraction decoupling application code from Bun/Node vs Cloudflare Workers. Provides `RuntimeContext` (service locator), `FileSystem` interface, `ProcessExecutor`, Zod-validated `Config` loader, and `SpanContext` for distributed tracing.
+- **[@gobing-ai/ts-runtime](packages/runtime/README.md)** — Platform detection via `RuntimeFactory`, file system (`createNodeFileSystem`/`createCfFileSystem`), process execution (`ProcessExecutor` class with `run()`/`runStreaming()`), runtime-portable path utilities (zero `node:*` deps), Zod-validated `Config` loader, service-locator `RuntimeContext`, and a shared plugin/capability core (`CapabilityRegistry`, trust-gated extension loader). Works on Node.js, Bun, and Cloudflare Workers.
 - **[@gobing-ai/ts-db](packages/db/README.md)** — **Drizzle-free** database facade. Adapters for Bun SQLite and Cloudflare D1. `BaseDao` (raw-tier queries over predicate spec), `EntityDao` (typed CRUD), `defineTable` (single-source-of-truth table + Zod schemas), migration tooling, and `QueueJobDao`. Drizzle is an internal detail — consumers never import it. **v0.2.0 — breaking facade rewrite.**
 - **[@gobing-ai/ts-infra](packages/infra/README.md)** — Infrastructure backbone: typed event bus, job queue types, cron scheduler, OpenTelemetry telemetry, HTTP API client, and structured logging.
 
