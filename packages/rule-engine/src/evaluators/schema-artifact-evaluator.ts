@@ -6,6 +6,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
+import { stringArray } from './file-utils';
 
 /**
  * Evaluates JSON schema artifact files for structural integrity.
@@ -125,9 +126,4 @@ export class SchemaArtifactEvaluator implements RuleEvaluator {
 
         return { findings, fixes: [] };
     }
-}
-
-/** Return a string array if value is a string array, otherwise undefined. */
-function stringArray(value: unknown): string[] | undefined {
-    return Array.isArray(value) && value.every((item) => typeof item === 'string') ? (value as string[]) : undefined;
 }
