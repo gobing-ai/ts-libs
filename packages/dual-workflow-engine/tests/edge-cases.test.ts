@@ -3,6 +3,8 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DbAdapter } from '@gobing-ai/ts-db';
+import type { ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
+import { ProcessExecutor } from '@gobing-ai/ts-runtime';
 import {
     createDefaultWorkflowEngineHost,
     DbWorkflowPersistenceAdapter,
@@ -159,18 +161,20 @@ edges:
             host.evaluateGuard('action-ok', {}, { runId: 'r', current: 's', vars: {}, lastActionResult: { ok: true } }),
         ).resolves.toBe(true);
 
-        const shell = new ShellActionRunner({
-            async run(options) {
-                return {
-                    command: options.command,
-                    args: options.args ?? [],
-                    exitCode: options.command === 'fail' ? 2 : 0,
-                    stdout: 'out',
-                    stderr: 'err',
-                    durationMs: 1,
-                };
-            },
-        });
+        const shell = new ShellActionRunner(
+            new (class extends ProcessExecutor {
+                override async run(options: ProcessOptions): Promise<ProcessResult> {
+                    return {
+                        command: options.command,
+                        args: options.args ?? [],
+                        exitCode: options.command === 'fail' ? 2 : 0,
+                        stdout: 'out',
+                        stderr: 'err',
+                        durationMs: 1,
+                    };
+                }
+            })(),
+        );
         await expect(shell.execute({ command: 'ok', args: ['a'] }, context)).resolves.toMatchObject({ ok: true });
         await expect(shell.execute({ command: 'fail' }, context)).resolves.toMatchObject({ ok: false });
         await expect(shell.execute({ args: ['a'] }, context)).rejects.toThrow(WorkflowValidationError);
