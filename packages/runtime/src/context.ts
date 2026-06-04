@@ -116,11 +116,7 @@ export async function createRuntimeContextFromFactory<TServices extends RuntimeS
     return new RuntimeContext<TServices>({
         scope: 'process',
         runtimeName: factory.runtimeName,
-        capabilities: {
-            hasFilesystem: factory.capabilities.hasFilesystem,
-            hasProcessExecution: factory.capabilities.hasProcessExecution,
-            hasPersistentStorage: true,
-        },
+        capabilities: factory.capabilities,
         services: {
             config,
             fileSystem,
