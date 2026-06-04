@@ -1,10 +1,13 @@
 # @gobing-ai/ts-runtime
 
-Runtime abstraction layer — environment detection, file system, process execution, configuration, and context management. Works on Bun/Node and Cloudflare Workers.
+Runtime abstraction layer — environment detection, file system, process execution, configuration,
+context management, path utilities, and a shared plugin/capability core. Works on Bun/Node and
+Cloudflare Workers.
+
+`ts-runtime` decouples application code from platform specifics. Instead of importing `node:fs` or `node:child_process` directly, consumers go through interfaces (`FileSystem`, `SyncFileSystem`, `ProcessExecutor`, `SyncProcessExecutor`, `PipeProcessSpawner`) that resolve to the correct implementation at startup based on `RuntimeContext`. Node filesystem modules are loaded lazily by `NodeFileSystem`, so importing the package remains safe for Worker bundles that select `CloudflareFileSystem`.
 
 ## Overview
 
-`ts-runtime` decouples application code from platform specifics. Instead of importing `node:fs` or `node:child_process` directly, consumers go through interfaces (`FileSystem`, `SyncFileSystem`, `ProcessExecutor`, `SyncProcessExecutor`, `PipeProcessSpawner`) that resolve to the correct implementation at startup based on `RuntimeContext`. Node filesystem modules are loaded lazily by `NodeFileSystem`, so importing the package remains safe for Worker bundles that select `CloudflareFileSystem`.
 
 **Key abstractions:**
 
@@ -17,6 +20,9 @@ Runtime abstraction layer — environment detection, file system, process execut
 | Pipe process spawning | `PipeProcessSpawner` | `BunPipeProcessSpawner` | — |
 | Configuration | `Config` (Zod schema) | YAML + env vars | YAML + env vars |
 | Context | `RuntimeContext` | service locator | service locator |
+| Path utilities | `normalizeSeparators`, `joinPath`, … | runtime-portable (zero `node:*`) | runtime-portable (zero `node:*`) |
+| Schema validation | `loadStructuredConfig` | JSON-Schema + YAML | JSON-Schema + YAML |
+| Plugin core (subpath `./plugin`) | `CapabilityRegistry`, `loadExtensionModules`, … | trust-gated module loading | — |
 | Tracing | `SpanContext` | `{ traceId, spanId }` | `{ traceId, spanId }` |
 
 ## Architecture
@@ -258,8 +264,99 @@ await loadStructuredConfig('rules.yaml', { fetch: myFetch });           // or in
 > `node_modules` keeps validation entirely local — no outbound request, no dependency on a schema host's
 > availability, and no chance for a malicious config to point validation at an internal URL.
 
-### 5. File system abstraction
 
+### 5. Path utilities
+
+Runtime-portable path math that avoids `node:path` so the same logic works on Cloudflare Workers
+(ADR-008). All functions use POSIX-style separators; Windows drive paths are normalized and treated
+as absolute.
+
+```ts
+import { normalizeSeparators, isAbsolutePath, joinPath, resolvePath, dirnamePath, getProcessCwd } from '@gobing-ai/ts-runtime';
+
+normalizeSeparators('C:\\Users\\x\\file');  // 'C:/Users/x/file'
+isAbsolutePath('/abs');                       // true
+isAbsolutePath('C:/abs');                     // true
+dirnamePath('/a/b/c.ts');                     // '/a/b'
+joinPath('/a', 'b', 'c');                     // '/a/b/c'
+resolvePath('/a/b', '../c');                  // '/a/c'
+getProcessCwd();                              // process.cwd() or '/' on Workers
+```
+
+### 6. Plugin core (`@gobing-ai/ts-runtime/plugin`)
+
+The `./plugin` subpath exposes a generic, domain-agnostic plugin/capability core used by both
+`ts-rule-engine` and `ts-dual-workflow-engine` (ADR-010). It shares the mechanism — a typed registry
+with origin metadata, a trust-gated extension loader, and a path guard — without knowing anything
+about evaluators, resolvers, actions, or guards. Each engine owns its domain-specific kinds,
+schemas, error types, and override semantics.
+#### Capability registry
+
+```ts
+import { CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
+
+interface Widget { execute(): void; }
+const registry = new CapabilityRegistry<Widget>('widget');
+
+// Register built-ins and extensions with origin metadata.
+registry.register('core', coreWidget, 'builtin');
+registry.register('ext',  extWidget,  'extension');   // default
+
+registry.has('core');          // true
+registry.list();               // ['core', 'ext']          (insertion order)
+registry.get('core').execute(); // ok
+registry.get('missing');        // throws: Unknown widget: missing
+
+// Introspect origin without throwing.
+registry.getEntry('core')?.origin;   // 'builtin'
+registry.entries();                   // [['core', { capability, origin: 'builtin' }], ...]
+```
+
+#### Extension loading (trust-gated)
+
+Extension modules are arbitrary code — the loader is disabled by default and fails closed:
+
+```ts
+import { loadExtensionModules, type ExtensionRef } from '@gobing-ai/ts-runtime/plugin';
+
+const refs: ExtensionRef<'actions'>[] = [{
+    kind: 'actions',
+    path: './ext/slack.ts',
+    baseDir: '/abs/path/to/configs',
+    sourceName: 'my-config',
+}];
+
+// Throws before any import: "declares actions extension … but extensions are disabled"
+await loadExtensionModules(refs, { moduleLoader: (p) => import(p) }, register);
+
+// Explicitly opt in.
+await loadExtensionModules(refs, {
+    allowExtensions: true,
+    moduleLoader: (p) => import(p),
+}, (ref, extension) => {
+    // Engine-provided callback — the loader never chooses a target registry.
+    myHost.actions.register(extension.name, extension, 'extension');
+});
+```
+
+The loader validates both the default export and the named `extension` export. Invalid modules
+throw with source name, kind, and path context. `moduleLoader` is required — the shared core has
+no ambient `import()` capability of its own.
+
+#### Path guard
+
+`assertRelativeExtensionPath` rejects absolute paths and `..` traversal at load time, independent
+of any engine's zod schema (defense in depth):
+
+```ts
+import { assertRelativeExtensionPath } from '@gobing-ai/ts-runtime/plugin';
+
+assertRelativeExtensionPath('./ext/my.ts');    // ok
+assertRelativeExtensionPath('/etc/evil.ts');   // throws: must be relative
+assertRelativeExtensionPath('../escape.ts');   // throws: must not contain ".."
+```
+
+### 7. File system abstraction
 Most file operations go through the async `FileSystem` interface. Swap implementations for testing:
 
 ```ts
@@ -282,11 +379,11 @@ fs.writeFile('agents/coder.yaml', 'id: coder\n');
 const files = fs.readDir('agents');
 ```
 
-### 6. Graceful disposal
+
+### 8. Graceful disposal
 
 `RuntimeContext.dispose()` calls `dispose()` on every registered service that implements the pattern:
 
-```ts
 process.on('SIGTERM', async () => {
     await ctx.dispose();
     process.exit(0);
