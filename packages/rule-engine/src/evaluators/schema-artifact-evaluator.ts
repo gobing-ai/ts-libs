@@ -1,5 +1,4 @@
-import { resolve } from 'node:path';
-import { NodeFileSystem } from '@gobing-ai/ts-runtime';
+import { joinPath, NodeFileSystem } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -42,7 +41,7 @@ export class SchemaArtifactEvaluator implements RuleEvaluator {
         const requireRequiredArray = config.requireRequiredArray === true;
 
         // Check existence.
-        const absolutePath = resolve(context.workdir, file);
+        const absolutePath = joinPath(context.workdir, file);
         const exists = await this.fs.exists(absolutePath);
         if (!exists) {
             return {
