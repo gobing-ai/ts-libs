@@ -185,3 +185,82 @@ describe('TransitionFlowDriver', () => {
         expect(messages).toEqual(['builtin-flow:builtin-run:builtin-flow:start:start:0:builtin-run:transition-flow']);
     });
 });
+
+describe('TransitionFlowDriver — onError policy', () => {
+    function makeFailsDriver() {
+        const host = new WorkflowEngineHost()
+            .registerAction({
+                kind: 'failer',
+                async execute() {
+                    return { ok: false, error: 'intentional' };
+                },
+            })
+            .registerAction({
+                kind: 'passer',
+                async execute() {
+                    return { ok: true };
+                },
+            });
+        return new TransitionFlowDriver({
+            host,
+            persistence: new MemoryWorkflowPersistenceAdapter(),
+        });
+    }
+
+    test('default onError="fail" on action failure halts', async () => {
+        const driver = makeFailsDriver();
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'fail-flow',
+            initialNode: 'start',
+            nodes: [{ id: 'start', action: { kind: 'failer' } }],
+            edges: [],
+        });
+        expect(result.status).toBe('failed');
+        expect(result.reason).toBe('intentional');
+    });
+
+    test('onError="continue" on action advances past failure', async () => {
+        const driver = makeFailsDriver();
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'continue-flow',
+            initialNode: 'start',
+            terminalNodes: ['done'],
+            defaultOnError: 'continue',
+            nodes: [{ id: 'start', action: { kind: 'failer' } }, { id: 'done' }],
+            edges: [{ from: 'start', to: 'done' }],
+        });
+        expect(result.status).toBe('done');
+        expect(result.finalState).toBe('done');
+        expect(result.transitionsTaken).toBe(1);
+    });
+
+    test('per-action onError overrides workflow default', async () => {
+        const driver = makeFailsDriver();
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'override-flow',
+            initialNode: 'start',
+            defaultOnError: 'continue',
+            nodes: [{ id: 'start', action: { kind: 'failer', onError: 'fail' } }],
+            edges: [],
+        });
+        expect(result.status).toBe('failed');
+    });
+
+    test('R4: single-node continue flow terminates done', async () => {
+        const driver = makeFailsDriver();
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'single-node',
+            initialNode: 'start',
+            defaultOnError: 'continue',
+            nodes: [{ id: 'start', action: { kind: 'failer' } }],
+            edges: [],
+        });
+        expect(result.status).toBe('done');
+        expect(result.finalState).toBe('start');
+        expect(result.transitionsTaken).toBe(0);
+    });
+});
