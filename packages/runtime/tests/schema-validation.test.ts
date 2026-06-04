@@ -27,6 +27,34 @@ describe('loadStructuredConfig', () => {
         expect(await loadStructuredConfig(configPath, { validateSchema: false })).toMatchObject({ name: 'demo' });
     });
 
+    test('reads config and local schema through an injected fileSystem instead of the global', async () => {
+        // Both reads (config + relative schema) must route through the injected FS, so a test can
+        // supply a virtual file system without touching the deprecated getFs() global.
+        const reads: string[] = [];
+        const files: Record<string, string> = {
+            '/virtual/config.yaml': '$schema: ./schema.json\nname: demo\n',
+            // The relative ref is resolved against the config's directory; joinPath preserves the `./` segment.
+            '/virtual/./schema.json': JSON.stringify({
+                type: 'object',
+                required: ['name'],
+                properties: { $schema: { type: 'string' }, name: { type: 'string' } },
+            }),
+        };
+        const fileSystem = {
+            readFile: (path: string): string => {
+                reads.push(path);
+                const content = files[path];
+                if (content === undefined) throw new Error(`unexpected read: ${path}`);
+                return content;
+            },
+        };
+
+        const parsed = await loadStructuredConfig('/virtual/config.yaml', { fileSystem });
+
+        expect(parsed).toMatchObject({ name: 'demo' });
+        expect(reads).toEqual(['/virtual/config.yaml', '/virtual/./schema.json']);
+    });
+
     test('refuses remote schema refs by default and allows opt-in via allowRemote', async () => {
         const config = '$schema: https://schemas.example/config.json\nname: demo\n';
 
