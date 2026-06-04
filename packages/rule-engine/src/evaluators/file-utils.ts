@@ -1,5 +1,11 @@
-import { dirname, relative, resolve } from 'node:path';
-import { type FileSystem, NodeFileSystem, walkDir } from '@gobing-ai/ts-runtime';
+import {
+    dirnamePath,
+    type FileSystem,
+    NodeFileSystem,
+    relativePath,
+    resolvePath,
+    walkDir,
+} from '@gobing-ai/ts-runtime';
 
 /** Options for source-file discovery. */
 export interface SourceDiscoveryOptions {
@@ -20,7 +26,7 @@ export async function discoverFiles(options: SourceDiscoveryOptions): Promise<st
     const fs = options.fs ?? new NodeFileSystem();
     const allFiles = await walkDir(options.workdir, fs, DEFAULT_EXCLUDES);
     return allFiles
-        .map((path) => relative(options.workdir, path))
+        .map((path) => relativePath(options.workdir, path))
         .filter((path) => !path.split('/').some((segment) => DEFAULT_EXCLUDES.has(segment)))
         .filter(
             (path) =>
@@ -31,7 +37,7 @@ export async function discoverFiles(options: SourceDiscoveryOptions): Promise<st
 
 /** Read a file from a workdir-relative path. */
 export async function readWorkdirFile(workdir: string, filePath: string, fs = new NodeFileSystem()): Promise<string> {
-    return await fs.readFile(resolve(workdir, filePath));
+    return await fs.readFile(resolvePath(workdir, filePath));
 }
 
 /** A discovered in-scope file paired with its contents. */
@@ -104,12 +110,12 @@ async function discoverFilesByGlob(
 
 /** Ensure a path is workdir-relative for findings. */
 export function relativeToWorkdir(workdir: string, path: string): string {
-    return relative(workdir, resolve(path));
+    return relativePath(workdir, resolvePath(path));
 }
 
 /** Return parent directory for a workdir-relative path. */
 export function relativeParent(path: string): string {
-    const parent = dirname(path);
+    const parent = dirnamePath(path);
     return parent === '.' ? '' : parent;
 }
 
