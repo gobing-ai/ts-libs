@@ -6,6 +6,7 @@ import { ForbiddenImportEvaluator } from '../evaluators/forbidden-import-evaluat
 import { ImportBoundaryEvaluator } from '../evaluators/import-boundary-evaluator';
 import { PathEvaluator } from '../evaluators/path-evaluator';
 import { RegexEvaluator } from '../evaluators/regex-evaluator';
+import { RipgrepEvaluator } from '../evaluators/ripgrep-evaluator';
 import { SchemaArtifactEvaluator } from '../evaluators/schema-artifact-evaluator';
 import { SecretsScannerEvaluator } from '../evaluators/secrets-scanner-evaluator';
 import { SgEvaluator } from '../evaluators/sg-evaluator';
@@ -23,10 +24,11 @@ import type { RuleEngineHost } from './rule-engine-host';
 
 /** Register bundled evaluators and formatters on a host. */
 export function registerBuiltins(host: RuleEngineHost, executor?: ProcessExecutor): void {
-    const regex = new RegexEvaluator();
     const path = new PathEvaluator();
-    host.evaluators.register('regex', regex, 'builtin');
-    host.evaluators.register('rg', regex, 'builtin');
+    // `regex` = JS RegExp engine; `rg` = real ripgrep engine (ReDoS-immune, prunes during
+    // traversal). The two are honestly named distinct engines, not aliases.
+    host.evaluators.register('regex', new RegexEvaluator(), 'builtin');
+    host.evaluators.register('rg', new RipgrepEvaluator(executor), 'builtin');
     host.evaluators.register('path', path, 'builtin');
     host.evaluators.register('file-exist', path, 'builtin');
     host.evaluators.register('forbidden-import', new ForbiddenImportEvaluator(), 'builtin');
