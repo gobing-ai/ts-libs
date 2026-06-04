@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DbAdapter } from '@gobing-ai/ts-db';
+import { setLoggerMuted } from '@gobing-ai/ts-infra';
 import type { ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import { ProcessExecutor } from '@gobing-ai/ts-runtime';
 import {
@@ -21,6 +22,9 @@ import {
     WorkflowService,
     WorkflowValidationError,
 } from '../src';
+
+// Workflow runs emit structured run-lifecycle logs by design; mute them in tests.
+setLoggerMuted(true);
 
 describe('dual workflow edge cases', () => {
     test('rejects malformed JSON and undeclared transition endpoints', () => {
