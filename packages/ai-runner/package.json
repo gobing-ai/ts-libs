@@ -48,8 +48,7 @@
     },
     "dependencies": {
         "@gobing-ai/ts-db": "workspace:*",
-        "@gobing-ai/ts-runtime": "workspace:*",
-        "@gobing-ai/ts-utils": "workspace:*"
+        "@gobing-ai/ts-runtime": "workspace:*"
     },
     "devDependencies": {
         "@types/bun": "1.3.14"
