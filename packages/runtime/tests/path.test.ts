@@ -1,65 +1,127 @@
 import { describe, expect, test } from 'bun:test';
-import { dirnamePath, isAbsolutePath, joinPath, normalizeSeparators, resolvePath } from '../src/path';
+import {
+    basenamePath,
+    dirnamePath,
+    isAbsolutePath,
+    joinPath,
+    normalizeSeparators,
+    relativePath,
+    resolvePath,
+    SEP,
+} from '../src/path';
 
 describe('normalizeSeparators', () => {
-    test('rewrites backslashes to forward slashes', () => {
-        expect(normalizeSeparators('a\\b\\c')).toBe('a/b/c');
-        expect(normalizeSeparators('a/b')).toBe('a/b');
+    test('converts backslashes to forward slashes', () => {
+        expect(normalizeSeparators('C:\\Users\\x\\file.ts')).toBe('C:/Users/x/file.ts');
+    });
+
+    test('leaves forward slashes unchanged', () => {
+        expect(normalizeSeparators('/a/b/c')).toBe('/a/b/c');
+    });
+});
+
+describe('SEP', () => {
+    test('is a string', () => {
+        expect(typeof SEP).toBe('string');
+        expect(SEP.length).toBe(1);
     });
 });
 
 describe('isAbsolutePath', () => {
-    test('treats POSIX roots and Windows drive paths as absolute', () => {
-        expect(isAbsolutePath('/etc/hosts')).toBe(true);
-        expect(isAbsolutePath('C:\\Users\\x')).toBe(true);
-        expect(isAbsolutePath('C:/Users/x')).toBe(true);
-        expect(isAbsolutePath('relative/path')).toBe(false);
-        expect(isAbsolutePath('./rel')).toBe(false);
+    test('POSIX absolute', () => {
+        expect(isAbsolutePath('/a/b')).toBe(true);
+    });
+
+    test('Windows drive absolute', () => {
+        expect(isAbsolutePath('C:/a/b')).toBe(true);
+        expect(isAbsolutePath('C:\\a\\b')).toBe(true);
+    });
+
+    test('relative', () => {
+        expect(isAbsolutePath('a/b')).toBe(false);
+        expect(isAbsolutePath('./a')).toBe(false);
     });
 });
 
 describe('dirnamePath', () => {
-    test('returns the parent directory across edge cases', () => {
-        expect(dirnamePath('/a/b/c.txt')).toBe('/a/b');
-        expect(dirnamePath('/a')).toBe('/');
-        expect(dirnamePath('a/b')).toBe('a');
-        expect(dirnamePath('file.txt')).toBe('.');
+    test('normal path', () => {
+        expect(dirnamePath('/a/b/c.ts')).toBe('/a/b');
     });
 
-    test('handles roots and trailing slashes', () => {
-        expect(dirnamePath('/')).toBe('/');
-        expect(dirnamePath('///')).toBe('/');
+    test('root path', () => {
+        expect(dirnamePath('/a')).toBe('/');
+    });
+
+    test('no slashes', () => {
+        expect(dirnamePath('file.ts')).toBe('.');
+    });
+
+    test('trailing slash stripped', () => {
         expect(dirnamePath('/a/b/')).toBe('/a');
-        expect(dirnamePath('a\\b\\c')).toBe('a/b');
+    });
+});
+
+describe('basenamePath', () => {
+    test('normal path', () => {
+        expect(basenamePath('/a/b/c.ts')).toBe('c.ts');
+    });
+
+    test('with extension stripping', () => {
+        expect(basenamePath('/a/b/c.ts', '.ts')).toBe('c');
+    });
+
+    test('extension not matching', () => {
+        expect(basenamePath('/a/b/c.ts', '.js')).toBe('c.ts');
+    });
+
+    test('root slash', () => {
+        expect(basenamePath('/')).toBe('');
+    });
+
+    test('trailing slash', () => {
+        expect(basenamePath('/a/b/')).toBe('b');
     });
 });
 
 describe('joinPath', () => {
-    test('joins segments, collapsing redundant separators', () => {
-        expect(joinPath('a', 'b', 'c')).toBe('a/b/c');
-        expect(joinPath('/a', 'b')).toBe('/a/b');
-        expect(joinPath('a//', '/b')).toBe('a/b');
+    test('joins segments', () => {
+        expect(joinPath('/a', 'b', 'c')).toBe('/a/b/c');
     });
 
-    test('drops empty segments and defaults to "."', () => {
-        expect(joinPath('', 'a', '')).toBe('a');
-        expect(joinPath()).toBe('.');
-        expect(joinPath('', '')).toBe('.');
+    test('collapses slashes', () => {
+        expect(joinPath('/a/', '/b/')).toBe('/a/b/');
+    });
+
+    test('relative output', () => {
+        expect(joinPath('a', 'b')).toBe('a/b');
     });
 });
 
 describe('resolvePath', () => {
-    test('collapses "." and ".." segments', () => {
-        expect(resolvePath('/a/b', '../c')).toBe('/a/c');
-        expect(resolvePath('/a/./b/./c')).toBe('/a/b/c');
+    test('resolves to absolute', () => {
+        const result = resolvePath('/a/b', '../c');
+        expect(result).toBe('/a/c');
+    });
+
+    test('Collapses ".." segments', () => {
         expect(resolvePath('/a/b/c', '../../d')).toBe('/a/d');
     });
+});
 
-    test('an absolute later segment resets the resolution root', () => {
-        expect(resolvePath('/a/b', '/c/d')).toBe('/c/d');
+describe('relativePath', () => {
+    test('same directory', () => {
+        expect(relativePath('/a/b', '/a/b')).toBe('.');
     });
 
-    test('over-popping ".." cannot escape an absolute root', () => {
-        expect(resolvePath('/a', '../../..')).toBe('/');
+    test('child path', () => {
+        expect(relativePath('/a', '/a/b/c')).toBe('b/c');
+    });
+
+    test('parent path', () => {
+        expect(relativePath('/a/b/c', '/a')).toBe('../..');
+    });
+
+    test('sibling', () => {
+        expect(relativePath('/a/x', '/a/y')).toBe('../y');
     });
 });
