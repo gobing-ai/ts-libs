@@ -6,6 +6,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
+import { configArray, configNumber, configString } from './file-utils';
 
 /** Evaluates a rule by running a subprocess and checking its exit code. */
 export class ExitCodeEvaluator implements RuleEvaluator {
@@ -14,10 +15,10 @@ export class ExitCodeEvaluator implements RuleEvaluator {
     /** Run configured command and emit a finding unless the exit code matches `successCode`. */
     async evaluate(rule: ConstraintRule, context: RuleContext): Promise<RuleEvaluationResult> {
         const config = rule.evaluator.config ?? {};
-        const command = stringConfig(config, 'command');
-        const args = arrayConfig(config, 'args', []);
-        const successCode = numberConfig(config, 'successCode', 0);
-        const timeout = numberConfig(config, 'timeout', 60_000);
+        const command = configString(config, 'command', undefined, { evaluator: 'exit-code' });
+        const args = configArray(config, 'args', []);
+        const successCode = configNumber(config, 'successCode', 0);
+        const timeout = configNumber(config, 'timeout', 60_000);
         const result = await this.executor.run({
             command,
             args,
@@ -28,7 +29,7 @@ export class ExitCodeEvaluator implements RuleEvaluator {
         });
         if (result.exitCode === successCode) return { findings: [], fixes: [] };
 
-        const template = stringConfig(
+        const template = configString(
             config,
             'message',
             `Command failed (exit {code}): ${command} ${args.join(' ')}`.trim(),
@@ -39,22 +40,4 @@ export class ExitCodeEvaluator implements RuleEvaluator {
             fixes: [],
         };
     }
-}
-
-function numberConfig(config: Record<string, unknown>, key: string, fallback: number): number {
-    const value = config[key];
-    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function stringConfig(config: Record<string, unknown>, key: string, fallback?: string): string {
-    const value = config[key];
-    if (typeof value === 'string') return value;
-    if (fallback !== undefined) return fallback;
-    throw new Error(`exit-code evaluator requires string config "${key}"`);
-}
-
-function arrayConfig(config: Record<string, unknown>, key: string, fallback: string[]): string[] {
-    const value = config[key];
-    if (Array.isArray(value) && value.every((item) => typeof item === 'string')) return value;
-    return fallback;
 }
