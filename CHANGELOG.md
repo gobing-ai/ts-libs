@@ -12,6 +12,9 @@ versioned in **lockstep** — a single version number covers every package in th
 ### Changed
 
 - **`ts-rule-engine` — Rule re-categorization:** Moved `tsdoc-exports` rule from `typescript/` to `quality/` category so it can run alongside `coverage-gate` in post-test checks without duplicating the full `typescript` category. The `spur-dev` preset now extends the full `quality` category instead of cherry-picking individual rule files.
+- **`ts-rule-engine` — `stopOnFirst` traversal control:** `RuleEngine.evaluate()` and `evaluateWithFixes()` accept an optional `stopOnFirst?: 'error' | 'warning' | 'info'` parameter. When set, the rule loop breaks after the first rule whose findings meet/exceed the severity threshold. Undefined default preserves exhaustive evaluation.
+- **`ts-dual-workflow-engine` — Per-action `onError` policy:** `ActionDef`, `StateMachineWorkflowDef`, `TransitionFlowWorkflowDef`, and `WorkflowRunOptions` gained an `onError?: 'fail' | 'continue'` field. The resolved policy follows precedence `action.onError ?? workflow.defaultOnError ?? runOptions.onError ?? 'fail'`. `'continue'` logs a non-fatal warning via `RunLifecycle.warnActionFailed()` and advances to the next node/state; `'fail'` halts (unchanged default).
+- **`docs/00_ADR.md` — ADR-013 addendum:** Documents the deliberate design: severity-vocabulary aligned across engines, policy verbs distinct (`stopOnFirst` vs `onError`), no shared code, verdict stays in the consumer.
 
 ## [0.3.0] — 2026-06-02
 
