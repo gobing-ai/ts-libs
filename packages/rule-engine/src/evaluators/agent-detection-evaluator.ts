@@ -6,6 +6,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
+import { configArray } from './file-utils';
 
 /** Evaluates local availability of configured coding agents. */
 export class AgentDetectionEvaluator implements RuleEvaluator {
@@ -13,7 +14,7 @@ export class AgentDetectionEvaluator implements RuleEvaluator {
 
     /** Probe required agents and emit findings for missing CLIs. */
     async evaluate(rule: ConstraintRule, _context: RuleContext): Promise<RuleEvaluationResult> {
-        const agents = arrayConfig(rule.evaluator.config ?? {}, 'agents');
+        const agents = configArray(rule.evaluator.config ?? {}, 'agents', undefined, { evaluator: 'agent-detection' });
         const findings = [];
         for (const agent of agents) {
             if (!isAgentName(agent)) {
@@ -27,11 +28,4 @@ export class AgentDetectionEvaluator implements RuleEvaluator {
         }
         return { findings, fixes: [] };
     }
-}
-
-function arrayConfig(config: Record<string, unknown>, key: string): string[] {
-    const value = config[key];
-    if (Array.isArray(value) && value.every((item) => typeof item === 'string')) return value;
-    if (typeof value === 'string') return [value];
-    throw new Error(`agent-detection evaluator requires string[] config "${key}"`);
 }
