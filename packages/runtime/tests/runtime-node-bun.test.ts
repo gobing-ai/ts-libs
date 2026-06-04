@@ -49,6 +49,7 @@ describe('nodeBunFactory', () => {
             expect(nodeBunFactory.capabilities).toEqual({
                 hasFilesystem: true,
                 hasProcessExecution: true,
+                hasPersistentStorage: true,
             });
         });
     });
