@@ -122,16 +122,52 @@ describe('SgEvaluator', () => {
         expect(result.findings[0]?.filePath).toBe('src/a.ts');
     });
 
-    test('include globs are forwarded to sg as --glob args (executor receives them)', async () => {
-        let capturedArgs: string[] = [];
-        const executor: ProcessExecutor = {
+    /** Capture the args handed to the sg subprocess so we can assert on glob forwarding. */
+    function captureArgs(): { executor: ProcessExecutor; args: () => string[] } {
+        let captured: string[] = [];
+        const executor = {
             run: async (opts: ProcessOptions) => {
-                capturedArgs = opts.args ?? [];
+                captured = opts.args ?? [];
                 return { exitCode: 0, stdout: '', stderr: '', command: opts.command, args: opts.args ?? [] };
             },
         } as unknown as ProcessExecutor;
+        return { executor, args: () => captured };
+    }
+
+    /** Read the values of every `--globs <value>` pair from a flat arg list. */
+    function globValues(args: string[]): string[] {
+        const values: string[] = [];
+        for (let i = 0; i < args.length; i += 1) {
+            if (args[i] === '--globs' && i + 1 < args.length) values.push(args[i + 1] as string);
+        }
+        return values;
+    }
+
+    test('forwards include globs to sg as --globs values (not the rejected --glob)', async () => {
+        const { executor, args } = captureArgs();
         const rule = makeRule({ pattern: 'foo($$$)' }, { include: ['src/**/*.ts'] } as Partial<ConstraintRule>);
         await new SgEvaluator(executor).evaluate(rule, makeContext('/tmp', rule));
-        expect(capturedArgs).toContain('--glob=src/**/*.ts');
+        // ast-grep 0.40+ rejects the singular `--glob`; the flag must be `--globs`.
+        expect(args()).not.toContain('--glob=src/**/*.ts');
+        expect(globValues(args())).toContain('src/**/*.ts');
+    });
+
+    test('prunes node_modules and other heavy trees at traversal time even when the rule omits exclude', async () => {
+        // The perf-critical guarantee: sg must be told to skip node_modules during the walk,
+        // not after — and without the rule author having to remember.
+        const { executor, args } = captureArgs();
+        const rule = makeRule({ pattern: 'foo($$$)' }); // no include, no exclude
+        await new SgEvaluator(executor).evaluate(rule, makeContext('/tmp', rule));
+        const globs = globValues(args());
+        expect(globs).toContain('!**/node_modules/**');
+        expect(globs).toContain('!**/dist/**');
+        expect(globs).toContain('!**/.git/**');
+    });
+
+    test('forwards the rule exclude globs as negated --globs (prune during traversal)', async () => {
+        const { executor, args } = captureArgs();
+        const rule = makeRule({ pattern: 'foo($$$)' }, { exclude: ['vendor/**'] } as Partial<ConstraintRule>);
+        await new SgEvaluator(executor).evaluate(rule, makeContext('/tmp', rule));
+        expect(globValues(args())).toContain('!vendor/**');
     });
 });
