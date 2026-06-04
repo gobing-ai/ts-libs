@@ -1,8 +1,14 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
 
 import { buildConfigFromObject } from '../src/config';
-import { createRuntimeContext, RuntimeContext, type RuntimeServiceMap } from '../src/context';
+import {
+    createRuntimeContext,
+    createRuntimeContextFromFactory,
+    RuntimeContext,
+    type RuntimeServiceMap,
+} from '../src/context';
 import { CloudflareFileSystem } from '../src/fs';
+import { _resetRuntimeFactory } from '../src/platform';
 
 interface Services extends RuntimeServiceMap {
     greeting: { value: string };
@@ -17,6 +23,24 @@ describe('RuntimeContext', () => {
         expect(context.runtimeName).toBe('node-bun');
         expect(context.require('config').app.port).toBe(3000);
         expect(context.has('fileSystem')).toBe(true);
+    });
+
+    describe('createRuntimeContextFromFactory', () => {
+        beforeAll(() => {
+            _resetRuntimeFactory();
+        });
+
+        test('creates a context with auto-detected platform services', async () => {
+            const context = await createRuntimeContextFromFactory();
+
+            expect(context.scope).toBe('process');
+            expect(context.runtimeName).toBe('node-bun');
+            expect(context.capabilities.hasFilesystem).toBe(true);
+            expect(context.capabilities.hasProcessExecution).toBe(true);
+            expect(context.has('config')).toBe(true);
+            expect(context.has('fileSystem')).toBe(true);
+            expect(context.require('config').app.port).toBe(3000);
+        });
     });
 
     test('registers, gets, requires, and disposes typed services', async () => {
