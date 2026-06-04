@@ -1,5 +1,5 @@
-import { basename, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { basenamePath, dirnamePath, resolvePath, SEP } from '@gobing-ai/ts-runtime';
 import type {
     ExtensionRef as SharedExtensionRef,
     LoadExtensionsOptions as SharedLoadExtensionsOptions,
@@ -57,7 +57,7 @@ export function collectExtensions(
     const refs: ExtensionRef[] = [];
     for (const kind of ['resolvers', 'evaluators', 'fixers', 'formatters'] as ExtensionKind[]) {
         for (const path of extensions[kind] ?? []) {
-            refs.push({ kind, presetName: sourceName, absPath: resolve(sourceDir, path) });
+            refs.push({ kind, presetName: sourceName, absPath: resolvePath(sourceDir, path) });
         }
     }
     return refs;
@@ -94,7 +94,7 @@ export async function loadExtensionsIntoHost(
     // before the basename adaptation strips it.  The shared loader's
     // assertRelativeExtensionPath also runs on the derived (basename) path.
     for (const ref of refs) {
-        const segments = toFilePath(ref.absPath).split(sep);
+        const segments = toFilePath(ref.absPath).split(SEP);
         if (segments.includes('..')) {
             throw new Error(
                 `extension path "${ref.absPath}" declared by "${ref.presetName}" must not contain ".." traversal`,
@@ -110,8 +110,8 @@ export async function loadExtensionsIntoHost(
         const fp = toFilePath(ref.absPath);
         return {
             kind: ref.kind,
-            path: `./${basename(fp)}`,
-            baseDir: dirname(fp),
+            path: `./${basenamePath(fp)}`,
+            baseDir: dirnamePath(fp),
             sourceName: ref.presetName,
         };
     });
