@@ -1,6 +1,6 @@
 # @gobing-ai/ts-dual-workflow-engine
 
-State-machine and transition-flow workflow runtime with pluggable action runners, guard runners, and memory or database persistence.
+State-machine and transition-flow workflow runtime with pluggable action runners, guard runners, trust-gated extension loading, and memory or database persistence.
 
 ## What It Provides
 
@@ -18,11 +18,237 @@ The package exposes:
 | `WorkflowService` | High-level loader and runner for both workflow kinds |
 | `StateMachineDriver` | Direct state-machine execution |
 | `TransitionFlowDriver` | Direct transition-flow execution |
-| `WorkflowEngineHost` | Registry for action runners and guard runners |
+| `WorkflowEngineHost` | Capability registry for action runners and guard runners |
+| `createDefaultWorkflowEngineHost()` | Creates a host with built-in `note`, `shell`, and `always` capabilities |
+| `NoteActionRunner` | Built-in action that records a note in result data |
+| `ShellActionRunner` | Built-in shell action backed by `@gobing-ai/ts-runtime` `ProcessExecutor` |
+| `RunLifecycle` | Shared run bookkeeping: identity, persistence sequencing, OTel spans, structured logging |
 | `MemoryWorkflowPersistenceAdapter` | In-memory persistence for tests and short-lived runs |
 | `DbWorkflowPersistenceAdapter` | DB-backed persistence over `@gobing-ai/ts-db` |
-| `loadWorkflowDef()` / `loadWorkflowDefFromText()` | YAML workflow loading and validation |
 | `applyWorkflowEngineSchema()` | Installs the package-owned DB schema |
+| `WORKFLOW_ENGINE_SCHEMA_SQL` | Raw SQL DDL for the workflow engine tables |
+| `loadWorkflowDef()` / `loadWorkflowDefFromText()` | YAML/JSON workflow loading and validation |
+| `validateWorkflowDef()` | Semantic invariant checking beyond Zod schema |
+| `loadWorkflowExtensionsIntoHost()` | Trust-gated extension module loading for actions and guards |
+| `mergeVars()` / `resolveTemplates()` / `resolveTemplateString()` | Variable merging and `${...}` template resolution |
+| `allowedEnv()` / `runtimeBuiltins()` | Environment allowlist projection and built-in template injection |
+| `StateMachineWorkflowDefSchema` / `TransitionFlowWorkflowDefSchema` / `WorkflowDefSchema` | Zod schemas for workflow definition validation |
+| `ActionDefSchema` / `GuardDefSchema` | Zod schemas for action and guard definitions |
+| `FSMError` / `WorkflowValidationError` / `RunCollisionError` | Structured error classes |
+| `WorkflowExtensionRef` / `LoadWorkflowExtensionsOptions` / `WorkflowExtensionKind` | Extension loading types |
+| `ActionRunner` / `GuardRunner` / `WorkflowDef` / `WorkflowRunResult` … | Type-only exports for all domain types |
+
+## Architecture
+
+### Component Relationships
+
+```
+┌──────────────────────────────────────────────────────┐
+│                   WorkflowService                     │
+│  load(path) → WorkflowDef                            │
+│  run(WorkflowDef, options) → WorkflowRunResult       │
+│  listRuns() → WorkflowRunRecord[]                    │
+└──────────────┬───────────────────────┬───────────────┘
+               │ dispatches on          │
+               │ workflow.kind          │
+       ┌───────▼───────┐       ┌───────▼───────┐
+       │ StateMachine  │       │ TransitionFlow│
+       │   Driver      │       │   Driver      │
+       └───────┬───────┘       └───────┬───────┘
+               │                       │
+               │  both delegate to     │
+               │                       │
+       ┌───────▼───────────────────────▼───────┐
+       │           RunLifecycle                 │
+       │  • run identity (runId)                │
+       │  • persistence (createRun, savePhase,  │
+       │    saveTransition, finalizeRun)        │
+       │  • OTel span + structured logging      │
+       └───────────────┬───────────────────────┘
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+   ┌──────────┐ ┌──────────┐ ┌──────────┐
+   │Persistence│ │  Host    │ │ Variables│
+   │ Adapter  │ │ (actions │ │ (merge,  │
+   │ (memory  │ │ + guards)│ │ resolve) │
+   │  or DB)  │ │          │ │          │
+   └──────────┘ └──────────┘ └──────────┘
+```
+
+### State-Machine Step Execution
+
+The state-machine driver runs a loop until reaching a terminal state, failure, or iteration bound. Each iteration:
+
+1. Persists the state snapshot and marks its phase `running`
+2. Executes the state's `onEnter` actions in declaration order
+3. Checks for early termination (action `terminal: true` or terminal state with no outbound transitions)
+4. Evaluates transition guards in declaration order; picks the first passing one
+5. Executes the state's `onExit` actions
+6. Persists the transition and moves to the target state
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant SM as StateMachineDriver
+    participant RL as RunLifecycle
+    participant P as PersistenceAdapter
+    participant H as WorkflowEngineHost
+
+    Caller->>SM: run(workflow, options)
+    SM->>RL: RunLifecycle.run(name, mode, deps, options, loop)
+
+    rect rgb(240, 248, 255)
+        Note over RL,P: RunLifecycle bootstrap
+        RL->>RL: generate runId (or use caller-provided)
+        RL->>P: createRun(runRecord)
+        P-->>RL: ok
+        RL->>SM: invoke loop(lifecycle)
+
+        loop Each state
+            SM->>RL: enter(stateId, transitionsTaken)
+            RL->>P: saveWorkflowState(stateId, data)
+            RL->>P: savePhase(stateId, 'running')
+
+            alt state has onEnter actions
+                SM->>SM: resolveTemplates(action.options)
+                SM->>SM: runtimeBuiltins(workflow, state, runId, n, mode)
+                SM->>H: runAction(kind, resolvedOptions, context)
+                H-->>SM: ActionResult { ok, terminal?, error? }
+                alt action failed
+                    SM->>RL: fail(stateId, n, error)
+                    RL->>P: savePhase(stateId, 'failed')
+                    RL->>P: finalizeRun(runId, 'failed')
+                    RL-->>SM: WorkflowRunResult { status: 'failed' }
+                    SM-->>Caller: failed result
+                else action marked terminal
+                    SM->>RL: done(stateId, n)
+                    RL->>P: savePhase(stateId, 'done')
+                    RL->>P: finalizeRun(runId, 'done')
+                    RL-->>SM: WorkflowRunResult { status: 'done' }
+                    SM-->>Caller: done result
+                end
+            end
+
+            alt terminal state or no outbound transitions
+                SM->>RL: done(stateId, n)
+                RL->>P: savePhase(stateId, 'done')
+                RL->>P: finalizeRun(runId, 'done')
+                RL-->>SM: WorkflowRunResult { status: 'done' }
+                SM-->>Caller: done result
+            end
+
+            SM->>H: evaluateGuard(guard.kind, guard.options, context)
+            H-->>SM: true | false
+            alt no guard passes
+                SM->>RL: fail(stateId, n, 'no-passing-transition')
+                RL-->>SM: failed result
+                SM-->>Caller: failed result
+            end
+
+            alt state has onExit actions
+                SM->>H: runAction(kind, resolvedOptions, context)
+                H-->>SM: ActionResult
+            end
+
+            SM->>RL: recordTransition(from, to, trigger)
+            RL->>P: saveTransition(runId, from, to, trigger)
+            SM->>SM: transitionsTaken += 1
+
+            alt iteration bound exceeded
+                SM->>RL: fail(stateId, n, 'iteration-bound-exceeded')
+                RL-->>SM: failed result
+                SM-->>Caller: failed result
+            end
+        end
+    end
+```
+
+### Transition-Flow Step Execution
+
+The transition-flow driver iterates through nodes and edges until reaching a terminal node, failure, or iteration bound. Each iteration:
+
+1. Persists the node snapshot and marks its phase `running`
+2. Executes the node's action (if configured)
+3. Checks for early termination (action `terminal: true` or terminal node with no outgoing edges)
+4. Evaluates edge conditions in declaration order; picks the first passing edge (or unconditionally follows an edge with no condition)
+5. Persists the edge transition and moves to the target node
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant TF as TransitionFlowDriver
+    participant RL as RunLifecycle
+    participant P as PersistenceAdapter
+    participant H as WorkflowEngineHost
+
+    Caller->>TF: run(workflow, options)
+    TF->>RL: RunLifecycle.run(name, mode, deps, options, loop)
+
+    rect rgb(255, 248, 240)
+        Note over RL,P: RunLifecycle bootstrap
+        RL->>RL: generate runId (or use caller-provided)
+        RL->>P: createRun(runRecord)
+        P-->>RL: ok
+        RL->>TF: invoke loop(lifecycle)
+
+        loop Each node
+            TF->>RL: enter(nodeId, transitionsTaken)
+            RL->>P: saveWorkflowState(nodeId, data)
+            RL->>P: savePhase(nodeId, 'running')
+
+            alt node has action
+                TF->>TF: resolveTemplates(action.options)
+                TF->>TF: runtimeBuiltins(workflow, node, runId, n, mode)
+                TF->>H: runAction(kind, resolvedOptions, context)
+                H-->>TF: ActionResult { ok, terminal?, error? }
+                alt action failed
+                    TF->>RL: fail(nodeId, n, error)
+                    RL->>P: savePhase(nodeId, 'failed')
+                    RL->>P: finalizeRun(runId, 'failed')
+                    RL-->>TF: WorkflowRunResult { status: 'failed' }
+                    TF-->>Caller: failed result
+                else action marked terminal
+                    TF->>RL: done(nodeId, n)
+                    RL->>P: savePhase(nodeId, 'done')
+                    RL->>P: finalizeRun(runId, 'done')
+                    RL-->>TF: WorkflowRunResult { status: 'done' }
+                    TF-->>Caller: done result
+                end
+            end
+
+            alt terminal node or no outgoing edges
+                TF->>RL: done(nodeId, n)
+                RL->>P: savePhase(nodeId, 'done')
+                RL->>P: finalizeRun(runId, 'done')
+                RL-->>TF: WorkflowRunResult { status: 'done' }
+                TF-->>Caller: done result
+            end
+
+            alt edge has condition
+                TF->>H: evaluateGuard(condition.kind, condition.options, context)
+                H-->>TF: true | false
+                alt no condition passes
+                    TF->>RL: fail(nodeId, n, 'no-passing-edge')
+                    RL-->>TF: failed result
+                    TF-->>Caller: failed result
+                end
+            else edge is unconditional
+                Note over TF: proceed immediately
+            end
+
+            TF->>RL: recordTransition(from, to, trigger)
+            RL->>P: saveTransition(runId, from, to, trigger)
+            TF->>TF: transitionsTaken += 1
+
+            alt iteration bound exceeded
+                TF->>RL: fail(nodeId, n, 'iteration-bound-exceeded')
+                RL-->>TF: failed result
+                TF-->>Caller: failed result
+            end
+        end
+    end
+```
 
 ## Installation
 
@@ -233,7 +459,11 @@ Actions receive resolved template values. The engine supports:
 | `${env.NAME}` | Environment values explicitly allowed by workflow config |
 | `${runId}` | Current run ID |
 | `${workflow}` | Workflow name |
-| `${state}` | Current state or node ID |
+| `${state}` / `${node}` | Current state or node ID |
+| `${task}` | Workflow name (alias) |
+| `${iteration}` | Current transition count |
+| `${run}` | Run ID (alias) |
+| `${runtime}` | Execution mode (`state-machine` or `transition-flow`) |
 
 ```ts
 await service.run(workflow, {
@@ -295,7 +525,7 @@ host.registerGuard({
 });
 ```
 
-Registered actions and guards are available to any workflow definition by their `kind` string.
+Registered actions and guards are available to any workflow definition by their `kind` string. Internally, the host uses `CapabilityRegistry` from `@gobing-ai/ts-runtime/plugin` to track registrations with origin metadata (`'builtin'`, `'extension'`, or `'core'`).
 
 ## Extension Loading
 
@@ -363,12 +593,86 @@ await loadWorkflowExtensionsIntoHost(host, refs, {
 - Extension paths are validated at load time; `..` traversal is rejected.
 - The caller controls the `moduleLoader` function. Tests use a stub; production callers use `(absPath) => import(absPath)`. The loader itself has no ambient code-loading capability.
 
+## Zod Schemas
+
+The package exports Zod schemas for programmatic validation:
+
+```ts
+import { StateMachineWorkflowDefSchema, WorkflowDefSchema } from '@gobing-ai/ts-dual-workflow-engine';
+
+// Parse and validate an unknown object as a state-machine workflow
+const workflow = StateMachineWorkflowDefSchema.parse(rawObject);
+
+// Parse and validate as either workflow kind
+const def = WorkflowDefSchema.parse(rawObject);
+```
+
+`WorkflowDefSchema` is a `z.union` of `StateMachineWorkflowDefSchema` and `TransitionFlowWorkflowDefSchema`. `ActionDefSchema` and `GuardDefSchema` validate individual action/guard definitions.
+
+## Variable Utilities
+
+Low-level template resolution is available for callers that build workflow-adjacent tooling:
+
+```ts
+import { mergeVars, resolveTemplates, resolveTemplateString, runtimeBuiltins } from '@gobing-ai/ts-dual-workflow-engine';
+
+// Merge workflow-level vars with per-run overrides
+const vars = mergeVars({ file: 'default.jsonl' }, { file: 'override.jsonl' });
+// { file: 'override.jsonl' }
+
+// Resolve templates in an options object
+const resolved = resolveTemplates(
+  { message: 'Hello ${vars.name}', count: '${iteration}' },
+  { vars: { name: 'Robin' }, env: {}, builtins: { iteration: 3 } },
+);
+// { message: 'Hello Robin', count: '3' }
+
+// Single-string resolution
+resolveTemplateString('Run ${runId} in ${runtime}', {
+  vars: {}, env: {},
+  builtins: { runId: 'abc', runtime: 'state-machine' },
+});
+// "Run abc in state-machine"
+```
+
+## RunLifecycle
+
+`RunLifecycle` is the shared bookkeeping layer both drivers delegate to. It manages:
+
+- **Run identity** — generates a `runId` (or honors caller-provided), timestamps, and run record
+- **Persistence sequencing** — `createRun` → `savePhase`/`saveWorkflowState` per step → `finalizeRun` at the end
+- **Observability** — wraps the full run in an OTel span, emits `workflow.enter`, `workflow.transition`, and `workflow.fail` span events, and logs each lifecycle event through `@gobing-ai/ts-infra` logger
+
+```ts
+import { RunLifecycle, type RunLifecycleDeps } from '@gobing-ai/ts-dual-workflow-engine';
+
+// Direct usage (typically only for custom driver implementations)
+const result = await RunLifecycle.run(
+  'my-workflow',
+  'state-machine',
+  { persistence: adapter },
+  { runId: 'custom-1' },
+  async (lifecycle) => {
+    await lifecycle.enter('step-1', 0);
+    // ... execute actions ...
+    return await lifecycle.done('step-1', 1);
+  },
+);
+```
+
 ## Error Handling
 
-Validation failures throw `WorkflowValidationError`. Runtime finite-state-machine errors throw `FSMError`. Run failures caused by actions or guards are returned as `WorkflowRunResult` with `status: 'failed'`, preserving the run record.
+| Error Class | When |
+|-------------|------|
+| `WorkflowValidationError` | Definition validation fails (schema, semantics, template references) |
+| `FSMError` | Runtime state-machine driver error (missing state/node, invalid target) |
+| `RunCollisionError` | Duplicate `runId` when creating a new run |
+
+Run failures caused by actions or guards are returned as `WorkflowRunResult` with `status: 'failed'`, preserving the run record — they do not throw.
 
 ## Boundary Notes
 
 - The engine executes workflows; it does not provide a scheduler. Use `@gobing-ai/ts-infra` scheduler or an external cron trigger to start runs.
 - Persistence is adapter-based. Downstream apps own DB lifecycle and migration ordering.
 - Action and guard runners are the extension points. Keep domain behavior there, not in workflow parsing.
+- The host's `CapabilityRegistry` tracks the origin (`'builtin'`, `'extension'`, `'core'`) of every registered action and guard — query it with `host.actionOrigin(kind)` / `host.guardOrigin(kind)`.
