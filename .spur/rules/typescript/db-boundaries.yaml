@@ -41,6 +41,24 @@ rules:
             - "**/*.test.ts"
             - "**/dist/**"
 
+  - id: rule-engine-stays-storage-agnostic
+    description: "@gobing-ai/ts-rule-engine is an idempotent query engine (ADR-010: RuleEvaluator is a query, not a stateful command). It must not import @gobing-ai/ts-db — keep persistence in the workflow engine, not the rule engine. Prevents the unused-dep drift that re-couples it to storage it never uses."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-db"
+          - specifier: "@gobing-ai/ts-db/schema"
+          - specifier: "@gobing-ai/ts-db/inbox"
+        scope:
+          include:
+            - "packages/rule-engine/src/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/*.test.ts"
+            - "**/dist/**"
+
   - id: no-sqlite-table-outside-schema
     description: "sqliteTable() definitions must live under packages/db/src/schema/ or come from the defineTable() wrapper (the sanctioned schema-construction primitives)."
     severity: error
