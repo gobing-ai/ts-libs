@@ -48,6 +48,7 @@ export type {
     GuardContext,
     GuardDef,
     GuardRunner,
+    OnErrorPolicy,
     StateDef,
     StateMachineWorkflowDef,
     TransitionDef,
@@ -60,4 +61,10 @@ export type {
     WorkflowRunResult,
     WorkflowStatus,
 } from './types';
-export { mergeVars, resolveTemplateString, resolveTemplates, type VariableContext } from './variables';
+export {
+    mergeVars,
+    resolveOnErrorPolicy,
+    resolveTemplateString,
+    resolveTemplates,
+    type VariableContext,
+} from './variables';
