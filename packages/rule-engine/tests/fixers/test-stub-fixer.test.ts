@@ -3,8 +3,8 @@ import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
+import { CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
 import { type TestStubFileSystem, TestStubFixer } from '../../src/fixers/test-stub-fixer';
-import { CapabilityRegistry } from '../../src/host/capability-registry';
 import type { TestPathResolver } from '../../src/resolvers/test-path-resolver';
 import type { ConstraintFinding, ConstraintRule } from '../../src/types';
 
