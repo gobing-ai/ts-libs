@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { setLoggerMuted } from '@gobing-ai/ts-infra';
 import { createDefaultWorkflowEngineHost, WorkflowEngineHost } from '../src/host';
 import { MemoryWorkflowPersistenceAdapter } from '../src/persistence';
 import { TransitionFlowDriver } from '../src/transition-flow';
 import type { TransitionFlowWorkflowDef } from '../src/types';
+
+// Workflow runs emit structured run-lifecycle logs by design; mute them in tests.
+setLoggerMuted(true);
 
 function makeDriver() {
     const host = createDefaultWorkflowEngineHost();
