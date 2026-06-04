@@ -98,7 +98,11 @@ function ensureParentDir(filePath: string): void {
 }
 
 /**
- * Find the project root by walking up from `startDir` looking for `bun.lock`.
+ * Find the project root by walking up from `startDir` looking for a `bun.lock`
+ * or `package.json` marker. Uses `existsSync`, so it works on both Node and Bun.
+ *
+ * This is the single project-root discovery implementation; the deprecated
+ * {@link import('./fs').getProjectRoot} delegates here.
  *
  * @internal — exported for reuse by config loading.
  */
@@ -106,13 +110,13 @@ export function findProjectRoot(startDir: string): string {
     let dir = resolvePath(startDir);
     const root = resolvePath('/');
     while (dir !== root) {
-        if (existsSync(resolvePath(dir, 'bun.lock'))) {
+        if (existsSync(resolvePath(dir, 'bun.lock')) || existsSync(resolvePath(dir, 'package.json'))) {
             return dir;
         }
         const parent = resolvePath(dir, '..');
         if (parent === dir) break;
         dir = parent;
     }
-    // Fallback: return cwd
+    // Fallback: return the directory we started from.
     return startDir;
 }
