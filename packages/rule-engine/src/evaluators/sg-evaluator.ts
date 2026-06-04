@@ -6,7 +6,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
-import { matchesGlob } from './file-utils';
+import { DEFAULT_EXCLUDES, matchesGlob } from './file-utils';
 
 /**
  * Evaluates source code against an ast-grep pattern using the `sg` CLI.
@@ -15,8 +15,16 @@ import { matchesGlob } from './file-utils';
  * - `pattern` — ast-grep pattern to search for (required).
  * - `language` — language for ast-grep parsing (default: `typescript`).
  *
- * Include globs from the rule are forwarded to sg via `--glob` arguments.
- * Exclude globs from the rule are applied in-process after parsing sg output.
+ * Scope is forwarded to `sg` via `--globs` so the subprocess **prunes during traversal**
+ * rather than walking everything and filtering after:
+ * - the rule's `include` globs become positive `--globs` patterns;
+ * - {@link DEFAULT_EXCLUDES} (`node_modules`, `dist`, …) and the rule's `exclude` globs
+ *   become negated `--globs '!…'` patterns, so heavy generated trees are never descended
+ *   into even when a rule forgets to exclude them. ast-grep takes the later glob on
+ *   precedence, so exclusions are appended after includes.
+ *
+ * The rule's `exclude` is also re-applied in-process as a belt-and-suspenders against any
+ * difference between ast-grep's glob semantics and {@link matchesGlob}.
  */
 export class SgEvaluator implements RuleEvaluator {
     private readonly executor: ProcessExecutor;
@@ -38,8 +46,17 @@ export class SgEvaluator implements RuleEvaluator {
         const exclude = rule.exclude ?? [];
 
         const args: string[] = ['run', '--pattern', pattern, '--lang', language, '--json'];
+        // Positive include globs first.
         for (const glob of include) {
-            args.push(`--glob=${glob}`);
+            args.push('--globs', glob);
+        }
+        // Negated globs prune at traversal time. Default excludes go first so a rule's own
+        // exclude (later → higher precedence in ast-grep) can still re-include if intended.
+        for (const dir of DEFAULT_EXCLUDES) {
+            args.push('--globs', `!**/${dir}/**`);
+        }
+        for (const glob of exclude) {
+            args.push('--globs', `!${glob}`);
         }
 
         const result = await this.executor.run({
