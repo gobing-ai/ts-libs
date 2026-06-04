@@ -5,7 +5,7 @@ import {
     type RuleEvaluationResult,
     type RuleEvaluator,
 } from '../types';
-import { parseInlineFlags, scanFiles } from './file-utils';
+import { configString, parseInlineFlags, scanFiles } from './file-utils';
 
 /**
  * Evaluates whether source files match or avoid a regex pattern.
@@ -25,11 +25,11 @@ export class RegexEvaluator implements RuleEvaluator {
     async evaluate(rule: ConstraintRule, context: RuleContext): Promise<RuleEvaluationResult> {
         const config = rule.evaluator.config ?? {};
         const { pattern, flags } = normalizePattern(
-            stringConfig(config, 'pattern'),
-            stringConfig(config, 'flags', ''),
+            configString(config, 'pattern', undefined, { evaluator: 'regex' }),
+            configString(config, 'flags', ''),
             config.multiline === true,
         );
-        const mode = stringConfig(config, 'mode', 'forbid');
+        const mode = configString(config, 'mode', 'forbid');
         const regex = new RegExp(pattern, flags);
         const files = await scanFiles({
             workdir: context.workdir,
@@ -101,13 +101,6 @@ function normalizePattern(
     for (const flag of inlineFlags) flagSet.add(flag);
     if (multiline) flagSet.add('s');
     return { pattern, flags: [...flagSet].join('') };
-}
-
-function stringConfig(config: Record<string, unknown>, key: string, fallback?: string): string {
-    const value = config[key];
-    if (typeof value === 'string') return value;
-    if (fallback !== undefined) return fallback;
-    throw new Error(`regex evaluator requires string config "${key}"`);
 }
 
 /** Return the one-based line containing a string offset. */
