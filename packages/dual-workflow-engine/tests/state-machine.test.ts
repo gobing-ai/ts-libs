@@ -168,3 +168,171 @@ describe('StateMachineDriver', () => {
         expect(messages).toEqual(['builtin-wf:builtin-run:builtin-wf:start:start:0:builtin-run:state-machine']);
     });
 });
+
+describe('StateMachineDriver — onError policy', () => {
+    function makeFailsDriver(hostOverrides?: (host: WorkflowEngineHost) => void) {
+        const host = new WorkflowEngineHost()
+            .registerAction({
+                kind: 'failer',
+                async execute() {
+                    return { ok: false, error: 'intentional' };
+                },
+            })
+            .registerAction({
+                kind: 'passer',
+                async execute() {
+                    return { ok: true, data: { result: 'ok' } };
+                },
+            });
+        hostOverrides?.(host);
+        return new StateMachineDriver({
+            host,
+            persistence: new MemoryWorkflowPersistenceAdapter(),
+        });
+    }
+
+    test('default onError="fail" on action failure halts', async () => {
+        const driver = makeFailsDriver();
+        const result = await driver.run({
+            name: 'fail-wf',
+            initialState: 'start',
+            states: [{ id: 'start', onEnter: [{ kind: 'failer' }] }],
+            transitions: [],
+        });
+        expect(result.status).toBe('failed');
+        expect(result.reason).toBe('intentional');
+    });
+
+    test('onError="continue" on action advances past failure', async () => {
+        const driver = makeFailsDriver();
+        const result = await driver.run({
+            name: 'continue-wf',
+            initialState: 'start',
+            terminalStates: ['done'],
+            defaultOnError: 'continue',
+            states: [{ id: 'start', onEnter: [{ kind: 'failer' }] }, { id: 'done' }],
+            transitions: [{ from: 'start', to: 'done' }],
+        });
+        expect(result.status).toBe('done');
+        expect(result.finalState).toBe('done');
+        expect(result.transitionsTaken).toBe(1);
+    });
+
+    test('per-action onError overrides workflow default', async () => {
+        const host = new WorkflowEngineHost()
+            .registerAction({
+                kind: 'failer',
+                async execute() {
+                    return { ok: false, error: 'fail-action' };
+                },
+            })
+            .registerAction({
+                kind: 'passer',
+                async execute() {
+                    return { ok: true };
+                },
+            });
+        const driver = new StateMachineDriver({
+            host,
+            persistence: new MemoryWorkflowPersistenceAdapter(),
+        });
+
+        // Workflow default is 'continue', but action overrides to 'fail'
+        const result = await driver.run({
+            name: 'override-wf',
+            initialState: 'start',
+            terminalStates: ['done'],
+            defaultOnError: 'continue',
+            states: [{ id: 'start', onEnter: [{ kind: 'failer', onError: 'fail' }] }, { id: 'done' }],
+            transitions: [{ from: 'start', to: 'done' }],
+        });
+        expect(result.status).toBe('failed');
+        expect(result.reason).toBe('fail-action');
+    });
+
+    test('runOptions.onError applies when action and workflow defaults are absent', async () => {
+        const driver = makeFailsDriver();
+        // action.onError and workflow.defaultOnError both absent → runOptions 'continue' is the effective policy
+        const result = await driver.run(
+            {
+                name: 'precedence-wf',
+                initialState: 'start',
+                terminalStates: ['done'],
+                states: [{ id: 'start', onEnter: [{ kind: 'failer' }] }, { id: 'done' }],
+                transitions: [{ from: 'start', to: 'done' }],
+            },
+            { onError: 'continue' },
+        );
+        // action.onError undefined → workflow.defaultOnError undefined → runOptions 'continue' → 'continue'
+        expect(result.status).toBe('done');
+        expect(result.finalState).toBe('done');
+    });
+
+    test('workflow defaultOnError overrides runOptions', async () => {
+        const driver = makeFailsDriver();
+        // workflow defaultOnError='fail', runOptions='continue' → 'fail' wins
+        const result = await driver.run(
+            {
+                name: 'prec-wf',
+                initialState: 'start',
+                defaultOnError: 'fail',
+                states: [{ id: 'start', onEnter: [{ kind: 'failer' }] }, { id: 'done' }],
+                transitions: [],
+            },
+            { onError: 'continue' },
+        );
+        expect(result.status).toBe('failed');
+    });
+
+    test('full precedence: action > workflow > runOptions > default', async () => {
+        // action.onError = 'continue' → continues even with workflow 'fail' and runOptions 'fail'
+        const driver = makeFailsDriver();
+        const result = await driver.run(
+            {
+                name: 'full-prec',
+                initialState: 'start',
+                terminalStates: ['done'],
+                defaultOnError: 'fail',
+                states: [{ id: 'start', onEnter: [{ kind: 'failer', onError: 'continue' }] }, { id: 'done' }],
+                transitions: [{ from: 'start', to: 'done' }],
+            },
+            { onError: 'fail' },
+        );
+        expect(result.status).toBe('done');
+    });
+
+    test('continue still terminates on terminal action', async () => {
+        const host = new WorkflowEngineHost().registerAction({
+            kind: 'terminator',
+            async execute() {
+                return { ok: false, error: 'but-terminal', terminal: true };
+            },
+        });
+        const driver = new StateMachineDriver({
+            host,
+            persistence: new MemoryWorkflowPersistenceAdapter(),
+        });
+        const result = await driver.run({
+            name: 'term-wf',
+            initialState: 'start',
+            defaultOnError: 'continue',
+            states: [{ id: 'start', onEnter: [{ kind: 'terminator' }] }],
+            transitions: [],
+        });
+        expect(result.status).toBe('done'); // terminal wins over failure
+    });
+
+    test('R4: single-node continue workflow with no edges terminates done', async () => {
+        const driver = makeFailsDriver();
+        const result = await driver.run({
+            name: 'single-node',
+            initialState: 'start',
+            defaultOnError: 'continue',
+            states: [{ id: 'start', onEnter: [{ kind: 'failer' }] }],
+            transitions: [],
+        });
+        expect(result.status).toBe('done');
+        expect(result.finalState).toBe('start');
+        expect(result.transitionsTaken).toBe(0);
+    });
+});
