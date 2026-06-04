@@ -10,7 +10,7 @@ import {
 import { registerBuiltins } from './host/builtins';
 import { RuleEngineHost } from './host/rule-engine-host';
 import type { ConstraintFinding, ConstraintRule, Fix, FixMode, RuleEngineResult, RuleEvaluator } from './types';
-import { createFinding } from './types';
+import { createFinding, SEVERITY_RANK } from './types';
 
 /** Options for constructing a RuleEngine. */
 export interface RuleEngineOptions {
@@ -47,8 +47,12 @@ export class RuleEngine {
      * findings, never auto-generated fixes. Keeps the rule loop and error-finding
      * semantics in one place.
      */
-    async evaluate(rules: ConstraintRule[], workdir: string): Promise<RuleEngineResult> {
-        return this.evaluateWithFixes(rules, workdir, 'none');
+    async evaluate(
+        rules: ConstraintRule[],
+        workdir: string,
+        stopOnFirst?: 'error' | 'warning' | 'info',
+    ): Promise<RuleEngineResult> {
+        return this.evaluateWithFixes(rules, workdir, 'none', stopOnFirst);
     }
 
     /**
@@ -61,12 +65,16 @@ export class RuleEngine {
      * @param rules - Normalized rule definitions to evaluate.
      * @param workdir - Working directory to scan.
      * @param maxFixMode - Highest fix authority requested by the caller.
+     * @param stopOnFirst - When set, stop evaluating rules after the first rule
+     *   whose findings meet/exceed this severity threshold. Undefined = exhaustive
+     *   (today's behavior, zero breaking change).
      * @returns Findings plus fixes allowed by the requested authority.
      */
     async evaluateWithFixes(
         rules: ConstraintRule[],
         workdir: string,
         maxFixMode: FixMode = 'auto',
+        stopOnFirst?: 'error' | 'warning' | 'info',
     ): Promise<RuleEngineResult> {
         const findings: ConstraintFinding[] = [];
         const fixes: Fix[] = [];
@@ -111,6 +119,10 @@ export class RuleEngine {
                     });
                     fixes.push(...providerFixes);
                 }
+            }
+
+            if (stopOnFirst && ruleFindings.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK[stopOnFirst])) {
+                break;
             }
         }
 
