@@ -17,7 +17,7 @@ export type {
 export { DBJobQueue, DBQueueConsumer } from './job-queue/index';
 
 // Logger
-export { getLogger, initializeLogger, type Logger, type LogLevel } from './logger';
+export { getLogger, initializeLogger, type Logger, type LogLevel, setLoggerMuted } from './logger';
 
 // Scheduler
 export {
