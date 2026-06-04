@@ -5,8 +5,14 @@
  * @module rule-engine/fixers
  */
 
-import { isAbsolute, join, relative, resolve } from 'node:path';
-import { NodeFileSystem, type ProcessExecutor } from '@gobing-ai/ts-runtime';
+import {
+    isAbsolutePath,
+    joinPath,
+    NodeFileSystem,
+    type ProcessExecutor,
+    relativePath,
+    resolvePath,
+} from '@gobing-ai/ts-runtime';
 import type { CapabilityRegistry } from '../host/capability-registry';
 import type { TestPathResolver } from '../resolvers/test-path-resolver';
 import type { ConstraintFinding, ConstraintRule, Fix, FixMode, RuleContext } from '../types';
@@ -83,7 +89,7 @@ export function builtInFixers(host?: BuiltInFixersDeps, exec?: ProcessExecutor):
 
 /** Resolve a workdir-relative or absolute path to an absolute path. */
 export function resolveWorkdirPath(workdir: string, filePath: string): string {
-    return isAbsolute(filePath) ? filePath : join(workdir, filePath);
+    return isAbsolutePath(filePath) ? filePath : joinPath(workdir, filePath);
 }
 
 /** Apply byte-range fixes to files, optionally returning a dry-run diff only. */
@@ -181,8 +187,8 @@ function selectNonOverlappingFixes(fixes: readonly Fix[]): { applied: Fix[]; def
 
 /** Return true when absPath is at or below workdir. */
 function isInsideWorkdir(workdir: string, absPath: string): boolean {
-    const rel = relative(resolve(workdir), resolve(absPath));
-    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+    const rel = relativePath(resolvePath(workdir), resolvePath(absPath));
+    return rel === '' || (!rel.startsWith('..') && !isAbsolutePath(rel));
 }
 
 /** Return true when [start, end] is a valid byte range for a string of contentLength bytes. */
