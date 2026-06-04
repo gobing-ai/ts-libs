@@ -1,9 +1,13 @@
+import type { Logger } from '@gobing-ai/ts-infra';
 import { basenamePath, dirnamePath, SEP } from '@gobing-ai/ts-runtime';
 import type { ExtensionRef, LoadExtensionsOptions } from '@gobing-ai/ts-runtime/plugin';
 import { loadExtensionModules } from '@gobing-ai/ts-runtime/plugin';
 import { WorkflowValidationError } from './errors';
 import type { WorkflowEngineHost } from './host';
 import type { ActionRunner, GuardRunner } from './types';
+
+/** Minimal warning sink accepted for non-fatal extension diagnostics; a full {@link Logger} satisfies it. */
+export type WorkflowExtensionLogger = Pick<Logger, 'warn'>;
 
 /**
  * Capability kinds a workflow extension module can contribute.
@@ -40,7 +44,7 @@ export interface LoadWorkflowExtensionsOptions {
      */
     readonly allowExtensions?: boolean;
     /** Optional sink for non-fatal warnings (e.g. built-in overrides). */
-    readonly logger?: { warn: (message: string) => void };
+    readonly logger?: WorkflowExtensionLogger;
     /**
      * Required module loader seam for tests or embedders with custom import
      * policy. The shared core has no ambient code-loading capability of its
@@ -116,7 +120,7 @@ async function registerExtensionOnHost(
     host: WorkflowEngineHost,
     ref: ExtensionRef<WorkflowExtensionKind>,
     extension: Record<string, unknown>,
-    logger?: { warn: (message: string) => void },
+    logger?: WorkflowExtensionLogger,
 ): Promise<void> {
     const name = extension.name as string;
 
@@ -150,7 +154,7 @@ function warnIfOverride(
     kind: string,
     capabilityType: 'action' | 'guard',
     sourceName: string,
-    logger?: { warn: (message: string) => void },
+    logger?: WorkflowExtensionLogger,
 ): void {
     const origin = capabilityType === 'action' ? host.actionOrigin(kind) : host.guardOrigin(kind);
     if (logger && origin === 'builtin') {
