@@ -27,6 +27,7 @@ const EnvSchema = z.object({
 export const ActionDefSchema = z.object({
     kind: z.string().min(1),
     options: z.record(z.string(), z.unknown()).optional(),
+    onError: z.enum(['fail', 'continue']).optional(),
 });
 
 /** Zod schema for workflow guard definitions. */
@@ -47,6 +48,7 @@ export const StateMachineWorkflowDefSchema = z
         initialState: z.string().min(1),
         terminalStates: z.array(z.string().min(1)).optional(),
         iterationBound: z.number().int().positive().optional(),
+        defaultOnError: z.enum(['fail', 'continue']).optional(),
         vars: VarsSchema.optional(),
         env: EnvSchema.optional(),
         states: z.array(
@@ -85,6 +87,7 @@ export const TransitionFlowWorkflowDefSchema = z
         initialNode: z.string().min(1),
         terminalNodes: z.array(z.string().min(1)).optional(),
         iterationBound: z.number().int().positive().optional(),
+        defaultOnError: z.enum(['fail', 'continue']).optional(),
         vars: VarsSchema.optional(),
         env: EnvSchema.optional(),
         nodes: z.array(
