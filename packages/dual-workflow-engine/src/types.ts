@@ -1,3 +1,6 @@
+/** Action error handling policy: fail-fast or log-and-continue. */
+export type OnErrorPolicy = 'fail' | 'continue';
+
 /** Workflow execution status persisted for runs and phases. */
 export type WorkflowStatus = 'running' | 'done' | 'failed';
 
@@ -13,6 +16,8 @@ export interface Env {
 export interface ActionDef {
     readonly kind: string;
     readonly options?: Record<string, unknown>;
+    /** Per-action error policy override. Falls back to workflow default then run-option then 'fail'. */
+    readonly onError?: OnErrorPolicy;
 }
 
 /** Guard predicate definition used by state-machine transitions and transition-flow edges. */
@@ -51,6 +56,8 @@ export interface StateMachineWorkflowDef {
     readonly initialState: string;
     readonly terminalStates?: readonly string[];
     readonly iterationBound?: number;
+    /** Default error policy applied to actions that don't specify their own. Defaults to 'fail'. */
+    readonly defaultOnError?: OnErrorPolicy;
     readonly vars?: Vars;
     readonly env?: Env;
     readonly states: readonly StateDef[];
@@ -86,6 +93,8 @@ export interface TransitionFlowWorkflowDef {
     readonly initialNode: string;
     readonly terminalNodes?: readonly string[];
     readonly iterationBound?: number;
+    /** Default error policy applied to actions that don't specify their own. Defaults to 'fail'. */
+    readonly defaultOnError?: OnErrorPolicy;
     readonly vars?: Vars;
     readonly env?: Env;
     readonly nodes: readonly FlowNodeDef[];
@@ -140,6 +149,8 @@ export interface WorkflowRunOptions {
     readonly vars?: Vars;
     readonly env?: Record<string, string | undefined>;
     readonly metadata?: Record<string, unknown>;
+    /** Run-level error policy override. Lowest precedence; action-level wins. */
+    readonly onError?: OnErrorPolicy;
 }
 
 /** Result returned by both driver loops. */
