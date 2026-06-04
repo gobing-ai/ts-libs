@@ -407,3 +407,161 @@ async function makeTempProject(): Promise<string> {
     await mkdir(dir, { recursive: true });
     return dir;
 }
+
+describe('stopOnFirst', () => {
+    function makeRule(id: string, severity: 'error' | 'warning' | 'info', evalType: string): ConstraintRule {
+        return {
+            id,
+            description: `rule ${id}`,
+            enabled: true,
+            severity,
+            evaluator: { type: evalType },
+        };
+    }
+
+    function makeSpyEvaluator(findings: (rule: ConstraintRule) => { message: string }[]) {
+        const calls: ConstraintRule[] = [];
+        return {
+            calls,
+            evaluator: {
+                evaluate: async (rule: ConstraintRule) => {
+                    calls.push(rule);
+                    return {
+                        findings: findings(rule).map((f) => createFinding(rule, f.message, null)),
+                        fixes: [],
+                    };
+                },
+            },
+        };
+    }
+
+    test('stopOnFirst="error" stops after first error finding', async () => {
+        const engine = new RuleEngine();
+        const spy = makeSpyEvaluator((rule) => {
+            if (rule.id === 'r1') return [{ message: 'info1' }];
+            if (rule.id === 'r2') return [{ message: 'err' }];
+            return [{ message: 'warn3' }];
+        });
+        engine.registerEvaluator('spy', spy.evaluator);
+
+        const rules = [makeRule('r1', 'info', 'spy'), makeRule('r2', 'error', 'spy'), makeRule('r3', 'error', 'spy')];
+        const result = await engine.evaluate(rules, '/tmp', 'error');
+
+        expect(spy.calls.length).toBe(2); // r1, r2 — r3 never called
+        expect(spy.calls.map((c) => c.id)).toEqual(['r1', 'r2']);
+        expect(result.findings.length).toBe(2); // info1 + err
+    });
+
+    test('stopOnFirst="error" does NOT stop on warning-only findings', async () => {
+        const engine = new RuleEngine();
+        const spy = makeSpyEvaluator((rule) => {
+            if (rule.id === 'r1') return [{ message: 'warn1' }];
+            if (rule.id === 'r2') return [{ message: 'info2' }];
+            return [{ message: 'err3' }];
+        });
+        engine.registerEvaluator('spy', spy.evaluator);
+
+        const rules = [makeRule('r1', 'warning', 'spy'), makeRule('r2', 'info', 'spy'), makeRule('r3', 'error', 'spy')];
+        const result = await engine.evaluate(rules, '/tmp', 'error');
+
+        expect(spy.calls.length).toBe(3);
+        expect(result.findings.length).toBe(3);
+    });
+
+    test('stopOnFirst="warning" stops on first warning finding', async () => {
+        const engine = new RuleEngine();
+        const spy = makeSpyEvaluator((rule) => {
+            if (rule.id === 'r1') return [{ message: 'info1' }];
+            if (rule.id === 'r2') return [{ message: 'warn2' }];
+            return [{ message: 'err3' }];
+        });
+        engine.registerEvaluator('spy', spy.evaluator);
+
+        const rules = [makeRule('r1', 'info', 'spy'), makeRule('r2', 'warning', 'spy'), makeRule('r3', 'error', 'spy')];
+        const result = await engine.evaluate(rules, '/tmp', 'warning');
+
+        expect(spy.calls.length).toBe(2);
+        expect(spy.calls.map((c) => c.id)).toEqual(['r1', 'r2']);
+        expect(result.findings.length).toBe(2);
+    });
+
+    test('stopOnFirst="info" stops after every rule (any finding)', async () => {
+        const engine = new RuleEngine();
+        const spy = makeSpyEvaluator((rule) => {
+            if (rule.id === 'r1') return [{ message: 'info1' }];
+            return [];
+        });
+        engine.registerEvaluator('spy', spy.evaluator);
+
+        const rules = [makeRule('r1', 'info', 'spy'), makeRule('r2', 'error', 'spy')];
+        const result = await engine.evaluate(rules, '/tmp', 'info');
+
+        expect(spy.calls.length).toBe(1);
+        expect(result.findings.length).toBe(1);
+    });
+
+    test('stopOnFirst omitted is exhaustive (default behavior)', async () => {
+        const engine = new RuleEngine();
+        const spy = makeSpyEvaluator((rule) => {
+            if (rule.id === 'r1') return [{ message: 'err1' }];
+            return [{ message: 'err2' }];
+        });
+        engine.registerEvaluator('spy', spy.evaluator);
+
+        const rules = [makeRule('r1', 'error', 'spy'), makeRule('r2', 'error', 'spy')];
+        const result = await engine.evaluate(rules, '/tmp');
+
+        expect(spy.calls.length).toBe(2);
+        expect(result.findings.length).toBe(2);
+    });
+
+    test('stopOnFirst does not stop on empty findings', async () => {
+        const engine = new RuleEngine();
+        const spy = makeSpyEvaluator((rule) => {
+            if (rule.id === 'r1') return [];
+            return [{ message: 'err2' }];
+        });
+        engine.registerEvaluator('spy', spy.evaluator);
+
+        const rules = [makeRule('r1', 'error', 'spy'), makeRule('r2', 'error', 'spy')];
+        const result = await engine.evaluate(rules, '/tmp', 'error');
+
+        expect(spy.calls.length).toBe(2);
+        expect(result.findings.length).toBe(1);
+    });
+
+    test('stopOnFirst via evaluateWithFixes also works', async () => {
+        const engine = new RuleEngine();
+        const spy = makeSpyEvaluator((rule) => {
+            if (rule.id === 'r1') return [{ message: 'err1' }];
+            return [{ message: 'warn2' }];
+        });
+        engine.registerEvaluator('spy', spy.evaluator);
+
+        const rules = [makeRule('r1', 'error', 'spy'), makeRule('r2', 'warning', 'spy')];
+        const result = await engine.evaluateWithFixes(rules, '/tmp', 'none', 'error');
+
+        expect(spy.calls.length).toBe(1);
+        expect(result.findings.length).toBe(1);
+    });
+
+    test('skip disabled rules when counting stopOnFirst', async () => {
+        const engine = new RuleEngine();
+        const spy = makeSpyEvaluator((rule) => {
+            if (rule.id === 'r2') return [{ message: 'err' }];
+            return [];
+        });
+        engine.registerEvaluator('spy', spy.evaluator);
+
+        const rules: ConstraintRule[] = [
+            { ...makeRule('r1', 'error', 'spy'), enabled: false },
+            makeRule('r2', 'error', 'spy'),
+            makeRule('r3', 'error', 'spy'),
+        ];
+        const result = await engine.evaluate(rules, '/tmp', 'error');
+
+        expect(spy.calls.length).toBe(1); // r2 called, r3 stopped
+        expect(spy.calls[0]?.id).toBe('r2');
+        expect(result.findings.length).toBe(1);
+    });
+});
