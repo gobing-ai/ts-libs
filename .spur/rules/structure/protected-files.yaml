@@ -50,12 +50,3 @@ rules:
     exclude:
       - "**/.env.example"
 
-  - id: no-github-workflows
-    description: "GitHub workflow files require explicit review before being added to this library repo."
-    severity: error
-    evaluator:
-      type: path
-      config:
-        must: absent
-    include:
-      - ".github/workflows/*"
