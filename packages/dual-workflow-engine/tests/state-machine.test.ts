@@ -3,7 +3,7 @@ import { setLoggerMuted } from '@gobing-ai/ts-infra';
 import { createDefaultWorkflowEngineHost, WorkflowEngineHost } from '../src/host';
 import { MemoryWorkflowPersistenceAdapter } from '../src/persistence';
 import { StateMachineDriver } from '../src/state-machine';
-import type { StateMachineWorkflowDef } from '../src/types';
+import type { ActionResult, StateMachineWorkflowDef } from '../src/types';
 
 // Workflow runs emit structured run-lifecycle logs by design; mute them in tests.
 setLoggerMuted(true);
@@ -334,5 +334,42 @@ describe('StateMachineDriver — onError policy', () => {
         expect(result.status).toBe('done');
         expect(result.finalState).toBe('start');
         expect(result.transitionsTaken).toBe(0);
+    });
+
+    test('continued onExit failure remains visible to the next state guard', async () => {
+        const captured: { result: ActionResult | undefined } = { result: undefined };
+        const host = new WorkflowEngineHost()
+            .registerAction({
+                kind: 'failer',
+                async execute() {
+                    return { ok: false, error: 'exit-failed', data: { stage: 'onExit' } };
+                },
+            })
+            .registerGuard({
+                kind: 'capture-guard',
+                async evaluate(_options, context) {
+                    captured.result = context.lastActionResult;
+                    return true;
+                },
+            });
+        const driver = new StateMachineDriver({
+            host,
+            persistence: new MemoryWorkflowPersistenceAdapter(),
+        });
+
+        const result = await driver.run({
+            name: 'exit-continue',
+            initialState: 'start',
+            terminalStates: ['done'],
+            defaultOnError: 'continue',
+            states: [{ id: 'start', onExit: [{ kind: 'failer' }] }, { id: 'middle' }, { id: 'done' }],
+            transitions: [
+                { from: 'start', to: 'middle' },
+                { from: 'middle', to: 'done', guard: { kind: 'capture-guard' } },
+            ],
+        });
+
+        expect(result.status).toBe('done');
+        expect(captured.result).toEqual({ ok: false, error: 'exit-failed', data: { stage: 'onExit' } });
     });
 });
