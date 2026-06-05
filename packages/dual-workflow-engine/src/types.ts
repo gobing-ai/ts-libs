@@ -1,6 +1,9 @@
 /** Action error handling policy: fail-fast or log-and-continue. */
 export type OnErrorPolicy = 'fail' | 'continue';
 
+import type { EventBus } from '@gobing-ai/ts-infra';
+import type { WorkflowEngineEvents } from './events';
+
 /** Workflow execution status persisted for runs and phases. */
 export type WorkflowStatus = 'running' | 'done' | 'failed';
 
@@ -149,6 +152,8 @@ export interface WorkflowRunOptions {
     readonly vars?: Vars;
     readonly env?: Record<string, string | undefined>;
     readonly metadata?: Record<string, unknown>;
+    /** Optional event bus for structured run observability. */
+    readonly events?: EventBus<WorkflowEngineEvents>;
     /** Run-level error policy override. Lowest precedence; action-level wins. */
     readonly onError?: OnErrorPolicy;
 }
