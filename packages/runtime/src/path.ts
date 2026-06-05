@@ -16,9 +16,28 @@ export function isAbsolutePath(path: string): boolean {
     return path.startsWith('/') || /^[A-Za-z]:\//.test(normalizeSeparators(path));
 }
 
+function splitRoot(path: string): { root: string; rest: string } {
+    const normalized = normalizeSeparators(path);
+    const drive = normalized.match(/^([A-Za-z]:)(?:\/|$)/);
+    if (drive) {
+        return { root: drive[1] ?? '', rest: normalized.slice((drive[1] ?? '').length).replace(/^\/+/, '') };
+    }
+    if (normalized.startsWith('/')) {
+        return { root: '/', rest: normalized.replace(/^\/+/, '') };
+    }
+    return { root: '', rest: normalized };
+}
+
+function pathParts(path: string): { root: string; parts: string[] } {
+    const { root, rest } = splitRoot(path);
+    return { root, parts: rest.split('/').filter(Boolean) };
+}
+
 /** Returns the parent directory of a path. Platform-independent — avoids `node:path`. */
 export function dirnamePath(path: string): string {
     const input = normalizeSeparators(path);
+    const { root } = splitRoot(input);
+    if (root !== '' && input.replace(/\/+$/, '') === root) return root === '/' ? '/' : `${root}/`;
     if (/^\/+$/.test(input)) return '/';
     const normalized = input.replace(/\/+$/, '');
     if (normalized === '' || normalized === '/') return normalized || '.';
@@ -41,8 +60,13 @@ export function basenamePath(p: string, ext?: string): string {
 
 /** Compute a platform-independent relative path from `from` to `to`. Both paths should be absolute. */
 export function relativePath(from: string, to: string): string {
-    const fromParts = resolvePath(from).split('/').filter(Boolean);
-    const toParts = resolvePath(to).split('/').filter(Boolean);
+    const fromParsed = pathParts(resolvePath(from));
+    const toParsed = pathParts(resolvePath(to));
+    if (fromParsed.root.toLowerCase() !== toParsed.root.toLowerCase()) {
+        return resolvePath(to);
+    }
+    const fromParts = fromParsed.parts;
+    const toParts = toParsed.parts;
 
     // Strip common prefix.
     let i = 0;
@@ -72,17 +96,20 @@ export function resolvePath(...segments: string[]): string {
         if (segment.length === 0) continue;
         resolved = isAbsolutePath(segment) ? segment : joinPath(resolved || getProcessCwd(), segment);
     }
+    const { root, rest } = splitRoot(resolved);
     const parts: string[] = [];
-    const absolute = isAbsolutePath(resolved);
-    for (const part of resolved.split('/')) {
+    const absolute = root !== '';
+    for (const part of rest.split('/')) {
         if (part === '' || part === '.') continue;
         if (part === '..') {
-            parts.pop();
+            if (parts.length > 0) parts.pop();
             continue;
         }
         parts.push(part);
     }
-    return `${absolute ? '/' : ''}${parts.join('/')}` || (absolute ? '/' : '.');
+    if (!absolute) return parts.join('/') || '.';
+    if (root === '/') return `/${parts.join('/')}` || '/';
+    return parts.length > 0 ? `${root}/${parts.join('/')}` : `${root}/`;
 }
 
 /** Returns `process.cwd()` if available, or `/` as fallback (Cloudflare Workers). */
