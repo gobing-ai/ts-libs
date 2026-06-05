@@ -1,8 +1,10 @@
 import type { Config } from './config';
 import { buildConfigFromObject } from './config';
-import type { FileSystem } from './fs';
-import { getFs } from './fs';
+import type { FileSystem } from './file-system';
+import { createNodeFileSystem } from './file-system-node';
 import { loadRuntimeFactory } from './platform';
+import type { ProcessExecutor as ProcessExecutorService } from './process-executor';
+import { ProcessExecutor } from './process-executor';
 import type { RuntimeCapabilities, RuntimeName } from './types';
 /** Execution scope of a runtime context — determines service lifecycle and availability. */
 export type RuntimeScope = 'process' | 'server-request' | 'scheduled-event' | 'test';
@@ -11,6 +13,7 @@ export type RuntimeScope = 'process' | 'server-request' | 'scheduled-event' | 't
 export interface RuntimeServiceMap {
     config: Config;
     fileSystem: FileSystem;
+    processExecutor?: ProcessExecutorService;
     [serviceName: string]: unknown;
 }
 
@@ -41,7 +44,13 @@ export class RuntimeContext<TServices extends RuntimeServiceMap = RuntimeService
             } satisfies RuntimeCapabilities);
 
         this.register('config', (options.services?.config ?? buildConfigFromObject({})) as TServices['config']);
-        this.register('fileSystem', (options.services?.fileSystem ?? getFs()) as TServices['fileSystem']);
+        this.register(
+            'fileSystem',
+            (options.services?.fileSystem ?? createNodeFileSystem()) as TServices['fileSystem'],
+        );
+        if (this.capabilities.hasProcessExecution && options.services?.processExecutor === undefined) {
+            this.register('processExecutor', new ProcessExecutor() as TServices['processExecutor']);
+        }
 
         for (const [key, value] of Object.entries(options.services ?? {})) {
             if (value !== undefined) {
@@ -112,6 +121,7 @@ export async function createRuntimeContextFromFactory<TServices extends RuntimeS
     const factory = await loadRuntimeFactory();
     const config = await factory.loadConfig();
     const fileSystem = factory.createFileSystem();
+    const processExecutor = factory.capabilities.hasProcessExecution ? factory.createProcessExecutor() : undefined;
 
     return new RuntimeContext<TServices>({
         scope: 'process',
@@ -120,6 +130,7 @@ export async function createRuntimeContextFromFactory<TServices extends RuntimeS
         services: {
             config,
             fileSystem,
+            ...(processExecutor !== undefined ? { processExecutor } : {}),
             ...options?.services,
         },
     } as RuntimeContextOptions<TServices>);
