@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventBus } from '@gobing-ai/ts-infra';
 import {
+    type AgentEvents,
     type AgentProcessOptions,
     type AgentSpec,
     MessageService,
@@ -115,9 +117,15 @@ describe('TeamOrchestrator', () => {
         const dao = new MemoryDao();
         const service = new MessageService(dao as never);
         await service.enqueue(null, 'coder', 'queued before start');
+        const events = new EventBus<AgentEvents>();
+        const busEvents: string[] = [];
+        events.on('agent.started', (event) => busEvents.push(`started:${event.agentId}:${event.agentType}`));
+        events.on('agent.stopped', (event) => busEvents.push(`stopped:${event.agentId}:${event.exitCode}`));
+        events.on('agent.message.sent', (event) => busEvents.push(`message:${event.agentId}:${event.ok}`));
 
         const created: FakeTeamAgentProcess[] = [];
         const orchestrator = new TeamOrchestrator(dir, service, {
+            events,
             processFactory: (options) => {
                 const teamProcess = new FakeTeamAgentProcess(options);
                 created.push(teamProcess);
@@ -125,11 +133,11 @@ describe('TeamOrchestrator', () => {
             },
         });
 
-        const startedEvents: unknown[] = [];
+        const startedEvents: Array<Parameters<AgentEvents['agent.started']>[0]> = [];
         orchestrator.on('agent.started', (event) => startedEvents.push(event));
         const teamProcess = await orchestrator.startAgent('coder');
         expect(teamProcess.getStatus()).toBe('running');
-        expect(startedEvents).toEqual([{ id: 'coder' }]);
+        expect(startedEvents).toEqual([{ agentId: 'coder', agentType: 'codex', pid: null }]);
         expect(created[0]?.sent[0]).toContain('queued before start');
         expect(await service.countPending('coder')).toBe(0);
 
@@ -141,17 +149,43 @@ describe('TeamOrchestrator', () => {
         createdProcess.sendSucceeds = false;
         await orchestrator.sendMessage('planner', 'coder', 'live fail');
         expect((await service.inbox('coder')).at(-1)).toMatchObject({ status: 'failed' });
+        await orchestrator.sendMessage('planner', 'missing', 'queued for stopped agent');
         expect(orchestrator.getRunningAgents().has('coder')).toBeTrue();
         expect(orchestrator.getAgentStatus('coder')).toBe('running');
         expect(orchestrator.getPeerSpecs(workspace, 'coder').map((spec) => spec.id)).toEqual(['planner']);
 
-        const stoppedEvents: unknown[] = [];
+        const stoppedEvents: Array<Parameters<AgentEvents['agent.stopped']>[0]> = [];
         orchestrator.on('agent.stopped', (event) => stoppedEvents.push(event));
         await orchestrator.restartAgent('coder');
         await orchestrator.stopAgent('missing');
         await orchestrator.stopAll();
         expect(orchestrator.getAgentStatus('coder')).toBe('stopped');
-        expect(stoppedEvents).toContainEqual({ id: 'coder' });
+        expect(stoppedEvents).toContainEqual({ agentId: 'coder', exitCode: null });
+        expect(busEvents).toContain('started:coder:codex');
+        expect(busEvents).toContain('stopped:coder:null');
+        expect(busEvents).toContain('message:coder:true');
+        expect(busEvents).toContain('message:coder:false');
+        expect(busEvents).toContain('message:missing:false');
+    });
+
+    test('omitting events leaves orchestration behavior unchanged', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'team-orchestrator-no-events-'));
+        await writeSpec(dir, { id: 'coder', type: 'codex', workspace: process.cwd(), purpose: 'Implement' });
+        const created: FakeTeamAgentProcess[] = [];
+        const orchestrator = new TeamOrchestrator(dir, new MessageService(new MemoryDao() as never), {
+            processFactory: (options) => {
+                const teamProcess = new FakeTeamAgentProcess(options);
+                created.push(teamProcess);
+                return teamProcess;
+            },
+        });
+
+        await orchestrator.startAgent('coder');
+        await orchestrator.sendMessage(null, 'coder', 'hello');
+        await orchestrator.stopAll();
+
+        expect(created[0]?.sent[0]).toContain('hello');
+        expect(orchestrator.getAgentStatus('coder')).toBe('stopped');
     });
 });
 
