@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { ProcessExecutor, type ProcessOptions, type ProcessResult } from '@gobing-ai/ts-runtime';
+import {
+    joinPath,
+    NodeFileSystem,
+    ProcessExecutor,
+    type ProcessOptions,
+    type ProcessResult,
+} from '@gobing-ai/ts-runtime';
 import { AgentDetector } from '../src/agent-detector';
 import { DISPLAY_ORDER } from '../src/agents/shims';
 import { AiRunner } from '../src/ai-runner';
@@ -37,6 +43,12 @@ function createVersionExecutor(): FakeExecutor {
         }
         return { stdout: 'ok' };
     });
+}
+
+async function createTempHome(name: string): Promise<string> {
+    const home = joinPath('/private/tmp', `ts-libs-ai-runner-${Date.now()}-${name}`);
+    await new NodeFileSystem().mkdir(home);
+    return home;
 }
 
 describe('DoctorRunner', () => {
@@ -94,5 +106,141 @@ describe('DoctorRunner', () => {
 
         expect(result.agent).toBe('antigravity');
         expect(result.tier).toBe(2);
+    });
+
+    test('reports claude unauthenticated when exit-0 output says loggedIn false', async () => {
+        const executor = new FakeExecutor((options) =>
+            options.args?.includes('--version') === true
+                ? { stdout: 'claude 1.0.0' }
+                : { stdout: '{"loggedIn": false}' },
+        );
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({ runner, agentDetector: new AgentDetector({ runner }), env: {} });
+
+        const result = await doctor.runOne('claude');
+
+        expect(result.authenticated).toBe(false);
+        expect(result.usable).toBe(false);
+    });
+
+    test('reports openclaw unauthenticated when health output is unhealthy', async () => {
+        const executor = new FakeExecutor((options) =>
+            options.args?.includes('--version') === true ? { stdout: 'openclaw 1.0.0' } : { stdout: 'unhealthy' },
+        );
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({ runner, agentDetector: new AgentDetector({ runner }), env: {} });
+
+        const result = await doctor.runOne('openclaw');
+
+        expect(result.authenticated).toBe(false);
+    });
+
+    test('reports claude authenticated only with a positive auth signal', async () => {
+        const executor = new FakeExecutor((options) =>
+            options.args?.includes('--version') === true
+                ? { stdout: 'claude 1.0.0' }
+                : { stdout: '{"loggedIn": true}' },
+        );
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({ runner, agentDetector: new AgentDetector({ runner }), env: {} });
+
+        const result = await doctor.runOne('claude');
+
+        expect(result.authenticated).toBe(true);
+    });
+
+    test('treats inconclusive exit-0 auth output as unauthenticated', async () => {
+        const executor = new FakeExecutor((options) =>
+            options.args?.includes('--version') === true
+                ? { stdout: 'claude 1.0.0' }
+                : { stdout: 'usage: claude auth' },
+        );
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({ runner, agentDetector: new AgentDetector({ runner }), env: {} });
+
+        const result = await doctor.runOne('claude');
+
+        expect(result.authenticated).toBe(false);
+    });
+
+    test('trusts codex CLI unauthenticated output over a stale auth.json file', async () => {
+        const home = await createTempHome('codex-stale');
+        const fs = new NodeFileSystem();
+        await fs.mkdir(joinPath(home, '.codex'));
+        await fs.writeFile(joinPath(home, '.codex', 'auth.json'), '{"token":"stale"}');
+        const executor = new FakeExecutor((options) =>
+            options.args?.includes('--version') === true ? { stdout: 'codex 1.0.0' } : { stdout: 'Not logged in' },
+        );
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({ runner, agentDetector: new AgentDetector({ runner }), env: { HOME: home } });
+
+        const result = await doctor.runOne('codex');
+
+        expect(result.authenticated).toBe(false);
+    });
+
+    test('falls back to extensionless codex auth file when CLI output is inconclusive', async () => {
+        const home = await createTempHome('codex-auth');
+        const fs = new NodeFileSystem();
+        await fs.mkdir(joinPath(home, '.codex'));
+        await fs.writeFile(joinPath(home, '.codex', 'auth'), '{"token":"live"}');
+        const executor = new FakeExecutor((options) =>
+            options.args?.includes('--version') === true ? { stdout: 'codex 1.0.0' } : { stdout: 'codex login status' },
+        );
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({ runner, agentDetector: new AgentDetector({ runner }), env: { HOME: home } });
+
+        const result = await doctor.runOne('codex');
+
+        expect(result.authenticated).toBe(true);
+    });
+
+    test('requires gemini settings to contain credential-like content', async () => {
+        const fs = new NodeFileSystem();
+        const prefsOnlyHome = await createTempHome('gemini-prefs');
+        await fs.mkdir(joinPath(prefsOnlyHome, '.gemini'));
+        await fs.writeFile(joinPath(prefsOnlyHome, '.gemini', 'settings.json'), '{"theme":"dark"}');
+        const tokenHome = await createTempHome('gemini-token');
+        await fs.mkdir(joinPath(tokenHome, '.gemini'));
+        await fs.writeFile(joinPath(tokenHome, '.gemini', 'settings.json'), '{"token":"live"}');
+        const executor = new FakeExecutor(() => ({ stdout: 'gemini 1.0.0' }));
+        const runner = new AiRunner({ processExecutor: executor });
+
+        const prefsOnly = await new DoctorRunner({
+            runner,
+            agentDetector: new AgentDetector({ runner }),
+            env: { HOME: prefsOnlyHome },
+        }).runOne('gemini');
+        const withToken = await new DoctorRunner({
+            runner,
+            agentDetector: new AgentDetector({ runner }),
+            env: { HOME: tokenHome },
+        }).runOne('gemini');
+
+        expect(prefsOnly.authenticated).toBe(false);
+        expect(withToken.authenticated).toBe(true);
+    });
+
+    test('runAll synthesizes missing display-order agents as unavailable', async () => {
+        const detector = {
+            detectAll: async () => [
+                { name: 'claude', installed: true, version: 'claude 1.0.0', channels: [], error: null },
+            ],
+            detectOne: async () => ({
+                name: 'claude',
+                installed: true,
+                version: 'claude 1.0.0',
+                channels: [],
+                error: null,
+            }),
+        } as unknown as AgentDetector;
+        const runner = new AiRunner({ processExecutor: new FakeExecutor(() => ({ stdout: '{"loggedIn": true}' })) });
+        const results = await new DoctorRunner({ runner, agentDetector: detector, env: {} }).runAll();
+
+        expect(results).toHaveLength(DISPLAY_ORDER.length);
+        expect(results.find((result) => result.agent === 'codex')).toMatchObject({
+            installed: false,
+            error: 'Unknown agent: codex',
+        });
     });
 });
