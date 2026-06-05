@@ -1,7 +1,7 @@
 export * from './config';
 export * from './context';
 export { createRuntimeContextFromFactory } from './context';
-// export type { FileStat, FileSystem } from './file-system'; // Deferred — conflicts with fs.ts FileSystem
+export type { FileStat, FileSystem } from './file-system';
 export { createCfFileSystem } from './file-system-cf';
 export { createNodeFileSystem, findProjectRoot } from './file-system-node';
 export {
@@ -11,7 +11,7 @@ export {
     createLogStream,
     ensureDirForFile,
     ensureDirForFileSync,
-    type FileSystem,
+    type FileSystem as LegacyFileSystem,
     getFs,
     getProjectRoot,
     NodeFileSystem,
