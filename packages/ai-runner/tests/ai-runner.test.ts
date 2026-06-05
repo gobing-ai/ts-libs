@@ -1,6 +1,24 @@
 import { describe, expect, test } from 'bun:test';
+import type { Logger } from '@gobing-ai/ts-infra';
 import { ProcessExecutor, type ProcessOptions, type ProcessResult } from '@gobing-ai/ts-runtime';
 import { AgentDetector, AiRunner, DISPLAY_ORDER, DoctorRunner, getAgentShim } from '../src';
+
+/** A Logger that records (level, msg) for assertions. */
+function makeRecordingLogger(sink: Array<{ level: string; msg: string }>): Logger {
+    const record = (level: string) => (msg: string) => {
+        sink.push({ level, msg });
+    };
+    const logger: Logger = {
+        trace: record('trace'),
+        debug: record('debug'),
+        info: record('info'),
+        warn: record('warn'),
+        error: record('error'),
+        fatal: record('fatal'),
+        child: () => logger,
+    };
+    return logger;
+}
 
 class FakeExecutor extends ProcessExecutor {
     readonly calls: ProcessOptions[] = [];
@@ -54,6 +72,38 @@ describe('AiRunner', () => {
         expect(prompt.endsWith('ship it')).toBeTrue();
     });
 
+    test('runSlashCommand translates Claude-style slash commands before dispatch', async () => {
+        const executor = new FakeExecutor(() => ({ stdout: 'ok' }));
+        const runner = new AiRunner({ processExecutor: executor });
+        await runner.runSlashCommand('codex', '/plugin:cmd args', { model: 'gpt-5' });
+
+        expect(executor.calls[0]).toMatchObject({
+            command: 'codex',
+            args: ['exec', '$plugin-cmd args', '-m', 'gpt-5'],
+        });
+    });
+
+    test('buildPromptCommand returns a shim command without invoking the executor', () => {
+        const executor = new FakeExecutor(() => ({ stdout: 'ok' }));
+        const runner = new AiRunner({ processExecutor: executor });
+        const command = runner.buildPromptCommand('pi', { input: 'ship it', mode: 'json' });
+
+        expect(command).toEqual({ command: 'pi', args: ['--no-session', '-p', 'ship it', '--mode', 'json'] });
+        expect(executor.calls).toHaveLength(0);
+    });
+
+    test('logs invocation diagnostics and escalates a non-zero exit to error', async () => {
+        // Non-zero exits must surface in logs; a silent failure leaves operators blind
+        // to why an agent command failed (parity finding F7 — restored observability).
+        const calls: Array<{ level: string; msg: string }> = [];
+        const recorder = makeRecordingLogger(calls);
+        const failing = new FakeExecutor(() => ({ exitCode: 1, stderr: 'boom' }));
+        await new AiRunner({ processExecutor: failing, logger: recorder }).runVersionCommand('pi');
+
+        expect(calls).toContainEqual({ level: 'debug', msg: 'invoke' });
+        expect(calls.find((entry) => entry.level === 'error')?.msg).toBe('invoke exited non-zero');
+    });
+
     test('exposes stable shim metadata', () => {
         expect(getAgentShim('pi').tier).toBe(1);
         expect(getAgentShim('openclaw').command).toBe('openclaw');
@@ -98,7 +148,7 @@ describe('AgentDetector', () => {
             processExecutor: new FakeExecutor(() => ({ stdout: 'pi 1.2.3' })),
         });
         const detected = await new AgentDetector({ runner }).detectOne('pi');
-        expect(detected).toMatchObject({ installed: true, version: '1.2.3' });
+        expect(detected).toMatchObject({ installed: true, version: 'pi 1.2.3' });
     });
 
     test('reports unknown and unparsable agents', async () => {
