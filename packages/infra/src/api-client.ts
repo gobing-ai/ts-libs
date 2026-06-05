@@ -110,8 +110,6 @@ export class APIClient {
                         signal: combinedSignal,
                     });
 
-                    if (timer) clearTimeout(timer);
-
                     span.setAttribute(ATTR_HTTP_RESPONSE_STATUS_CODE, response.status);
 
                     getHttpClientRequestTotal().add(1, {
@@ -141,8 +139,6 @@ export class APIClient {
 
                     return (await response.text()) as unknown as T;
                 } catch (error) {
-                    if (timer) clearTimeout(timer);
-
                     if (!(error instanceof APIError)) {
                         getHttpClientRequestErrors().add(1, {
                             'http.request.method': method,
@@ -151,6 +147,8 @@ export class APIClient {
                     }
 
                     throw error;
+                } finally {
+                    if (timer) clearTimeout(timer);
                 }
             },
             { kind: SpanKind.CLIENT },
