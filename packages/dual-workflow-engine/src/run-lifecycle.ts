@@ -1,5 +1,6 @@
-import { addSpanEvent, getLogger, type Logger, traceAsync } from '@gobing-ai/ts-infra';
+import { addSpanEvent, type EventBus, getLogger, type Logger, traceAsync } from '@gobing-ai/ts-infra';
 import { getProcessEnv } from '@gobing-ai/ts-runtime';
+import type { WorkflowEngineEvents } from './events';
 import type {
     WorkflowPersistenceAdapter,
     WorkflowRunOptions,
@@ -58,6 +59,8 @@ export interface RunLifecycleDeps {
     readonly persistence: WorkflowPersistenceAdapter;
     /** Observability sink; defaults to the shared `workflow` category logger. */
     readonly logger?: Logger;
+    /** Optional event bus for structured in-process run observability. */
+    readonly events?: EventBus<WorkflowEngineEvents>;
 }
 
 /**
@@ -69,6 +72,7 @@ export interface RunLifecycleDeps {
 export class RunLifecycle {
     readonly runId: string;
     private readonly persistence: WorkflowPersistenceAdapter;
+    private readonly events: EventBus<WorkflowEngineEvents> | undefined;
     private readonly logger: Logger;
     private readonly startedAt: string;
 
@@ -80,6 +84,7 @@ export class RunLifecycle {
     ) {
         this.runId = runId;
         this.persistence = deps.persistence;
+        this.events = deps.events;
         this.startedAt = new Date().toISOString();
         this.logger = (deps.logger ?? getLogger('workflow')).child({ runId, workflow: workflowName, mode });
     }
@@ -103,6 +108,8 @@ export class RunLifecycle {
             async () => {
                 await lifecycle.persistence.createRun(lifecycle.runRecord(options.metadata));
                 lifecycle.logger.info('workflow run started');
+                addSpanEvent('workflow.run.started', { workflowName, mode, runId });
+                void lifecycle.events?.emit('workflow.run.started', { workflowName, mode, runId });
                 return await loop(lifecycle);
             },
             { attributes: { 'workflow.name': workflowName, 'workflow.mode': mode, 'workflow.run_id': runId } },
@@ -113,14 +120,16 @@ export class RunLifecycle {
     async enter(stateOrNodeId: string, transitionsTaken: number): Promise<void> {
         await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, { transitionsTaken });
         await this.persistence.savePhase(this.runId, stateOrNodeId, 'running');
-        addSpanEvent('workflow.enter', { node: stateOrNodeId, transitionsTaken });
+        addSpanEvent('workflow.node.enter', { node: stateOrNodeId, transitionsTaken });
+        void this.events?.emit('workflow.node.enter', { node: stateOrNodeId, transitionsTaken });
         this.logger.debug('entered', { node: stateOrNodeId, transitionsTaken });
     }
 
     /** Persist a transition and emit its observability event. */
     async recordTransition(from: string, to: string, trigger: string | null): Promise<void> {
         await this.persistence.saveTransition(this.runId, from, to, trigger);
-        addSpanEvent('workflow.transition', { from, to, ...(trigger === null ? {} : { trigger }) });
+        addSpanEvent('workflow.node.transition', { from, to, ...(trigger === null ? {} : { trigger }) });
+        void this.events?.emit('workflow.node.transition', { from, to, trigger });
         this.logger.debug('transition', { from, to, trigger });
     }
 
@@ -129,6 +138,8 @@ export class RunLifecycle {
         await this.persistence.savePhase(this.runId, finalState, 'done');
         await this.persistence.finalizeRun(this.runId, 'done', new Date().toISOString());
         this.logger.info('workflow run done', { finalState, transitionsTaken });
+        addSpanEvent('workflow.run.done', { finalState, transitionsTaken });
+        void this.events?.emit('workflow.run.done', { finalState, transitionsTaken });
         return this.result('done', finalState, transitionsTaken);
     }
 
@@ -136,14 +147,32 @@ export class RunLifecycle {
     async fail(finalState: string, transitionsTaken: number, reason = 'failed'): Promise<WorkflowRunResult> {
         await this.persistence.savePhase(this.runId, finalState, 'failed');
         await this.persistence.finalizeRun(this.runId, 'failed', new Date().toISOString());
-        addSpanEvent('workflow.fail', { finalState, reason });
+        addSpanEvent('workflow.run.failed', { finalState, reason });
+        void this.events?.emit('workflow.run.failed', { finalState, reason });
         this.logger.warn('workflow run failed', { finalState, transitionsTaken, reason });
         return this.result('failed', finalState, transitionsTaken, reason);
     }
 
+    /** Emit action-level observability before a host action is invoked. */
+    actionStart(stateOrNodeId: string, kind: string): void {
+        addSpanEvent('workflow.action.start', { node: stateOrNodeId, kind });
+        void this.events?.emit('workflow.action.start', { node: stateOrNodeId, kind });
+    }
+
+    /** Emit action-level observability after a host action settles. */
+    actionDone(stateOrNodeId: string, kind: string, durationMs: number, ok: boolean): void {
+        addSpanEvent('workflow.action.done', { node: stateOrNodeId, kind, durationMs, ok });
+        void this.events?.emit('workflow.action.done', { node: stateOrNodeId, kind, durationMs, ok });
+    }
+
     /** Log and trace a non-fatal action failure for the 'continue' error policy (ADR-013 observability seam). */
     warnActionFailed(stateOrNodeId: string, transitionsTaken: number, error?: string): void {
-        addSpanEvent('workflow.action_failed_continue', {
+        addSpanEvent('workflow.action.failed_continue', {
+            node: stateOrNodeId,
+            transitionsTaken,
+            ...(error === undefined ? {} : { error }),
+        });
+        void this.events?.emit('workflow.action.failed_continue', {
             node: stateOrNodeId,
             transitionsTaken,
             ...(error === undefined ? {} : { error }),
