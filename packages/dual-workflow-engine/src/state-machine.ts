@@ -70,8 +70,9 @@ export class StateMachineDriver {
             );
             // Retain the last action result (including failures the policy continued
             // past) so downstream guards can inspect it — matching the transition-flow
-            // driver's `continue` semantics.
-            lastActionResult = enter.result;
+            // driver's `continue` semantics. A state with no enter actions must not
+            // erase the previous result.
+            if (enter.result !== undefined) lastActionResult = enter.result;
             // 3. Stop immediately when an action explicitly declares terminal success.
             if (enter.outcome === 'terminal') {
                 return await lifecycle.done(current.id, transitionsTaken);
@@ -110,6 +111,7 @@ export class StateMachineDriver {
                 lifecycle,
                 defaultOnError,
             );
+            if (exit.result !== undefined) lastActionResult = exit.result;
             if (exit.outcome === 'fail') return await lifecycle.fail(current.id, transitionsTaken, exit.result?.error);
 
             // 7. Persist transition and move to the target state.
