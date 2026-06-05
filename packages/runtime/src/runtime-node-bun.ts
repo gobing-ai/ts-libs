@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import type { Config } from './config';
-import { buildConfigFromObject } from './config';
+import { buildConfigFromObject, getProcessEnv } from './config';
 import type { FileSystem } from './file-system';
 import { createNodeFileSystem } from './file-system-node';
 import { ProcessExecutor, type ProcessExecutorConfig } from './process-executor';
@@ -63,7 +63,7 @@ async function loadNodeConfig(options?: LoadConfigOptions): Promise<Config> {
  * Returns `null` if no config file is found.
  */
 function readYamlConfig(fs: FileSystem): Record<string, unknown> | null {
-    const candidates = [process.env.CONFIG_PATH, 'config/config.yaml', 'config/config.example.yaml'].filter(
+    const candidates = [getProcessEnv().CONFIG_PATH, 'config/config.yaml', 'config/config.example.yaml'].filter(
         (p): p is string => typeof p === 'string' && p.length > 0,
     );
 
