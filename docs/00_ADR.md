@@ -388,6 +388,40 @@ classes are deprecated but preserved for backward compatibility.
 Implementation is tracked as tasks 0012 (factory + FileSystem + ProcessExecutor) and 0013 (path
 utility consolidation + exemption elimination) under `docs/tasks/`.
 
+### ADR-011 Addendum — Canonical Runtime Surface and Standard Context Services (2026-06-05)
+
+**Context.** ADR-011 correctly chose the factory pattern and a single union-return `FileSystem`, but the
+transition left a public-surface ambiguity: `packages/runtime/src/file-system.ts` defines the canonical
+runtime-agnostic `FileSystem`, while the legacy `fs.ts` module still defines a deprecated `FileSystem`
+with the old async-only method names. Because both names collide, the root barrel currently exports the
+deprecated type and comments out the canonical export. That makes the compatibility layer look like the
+steady-state API. Separately, `createRuntimeContextFromFactory()` is documented as auto-wiring runtime
+services, but today only guarantees `config` and `fileSystem`; `ProcessExecutor` remains a factory method
+rather than a standard context service.
+
+**Decision.** ADR-011 is refined with a canonical runtime surface:
+
+- The canonical root-exported `FileSystem` is the union-return interface from `file-system.ts`.
+- `fs.ts` remains a compatibility module only. Its `getFs()`/`setFileSystem()`, `NodeFileSystem`,
+  `NodeSyncFileSystem`, `CloudflareFileSystem`, old `FileSystem`, and `SyncFileSystem` surfaces may stay
+  temporarily for source compatibility, but they must not own the root-barrel `FileSystem` name long-term.
+- Any helper still backed by the legacy global swap (`readJsonFile`, `writeJsonFile`, `walkDir`,
+  `atomicWriteFile`, etc.) should either accept the canonical `FileSystem` shape or move behind clearly
+  named compatibility exports. New code must prefer `createRuntimeContextFromFactory()` or
+  `RuntimeFactory.createFileSystem()` over `getFs()`.
+- `RuntimeContext`'s standard services are `config`, `fileSystem`, and, when
+  `capabilities.hasProcessExecution === true`, `processExecutor`.
+- Runtimes without process execution (currently Cloudflare Workers) expose that absence through
+  `capabilities.hasProcessExecution === false` and do not register a misleading process executor service.
+  Callers that need processes must branch on capabilities or use `RuntimeFactory.createProcessExecutor()`
+  and handle its runtime-specific unavailability.
+
+**Consequences.** The root barrel becomes a reliable guide to the modern runtime API instead of a mix of
+old and new file-system seams. `RuntimeContext` becomes the normal dependency-injection entry point for
+both filesystem and process execution, reducing repeated factory plumbing in consumers. The compatibility
+layer can be migrated package-by-package without a breaking removal, but future runtime work should deepen
+the canonical surface rather than adding behavior to `fs.ts`.
+
 ### ADR-011 Addendum — Runtime Boundary Is Default Ownership, Not an Adapter Ban (2026-06-05)
 
 **Context.** The strict runtime-boundary rules correctly prevent platform APIs from leaking randomly across
