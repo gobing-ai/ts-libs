@@ -15,16 +15,11 @@ describe('@gobing-ai/ts-db barrel', () => {
         expect(db.QueueJobDao).toBeDefined();
     });
 
-    test('exports schema symbols', () => {
-        expect(db.inboxMessages).toBeDefined();
-        expect(db.queueJobs).toBeDefined();
-        expect(db.standardColumns).toBeDefined();
-        expect(db.standardColumnsWithSoftDelete).toBeDefined();
-        expect(db.appendOnlyColumns).toBeDefined();
-        expect(db.buildStandardColumns).toBeDefined();
-        expect(db.buildStandardColumnsWithSoftDelete).toBeDefined();
-        expect(db.buildAppendOnlyColumns).toBeDefined();
-        expect(db.nowTimestamp).toBeDefined();
+    test('keeps schema helpers out of the main barrel', () => {
+        expect('inboxMessages' in db).toBe(false);
+        expect('queueJobs' in db).toBe(false);
+        expect('standardColumns' in db).toBe(false);
+        expect('defineTable' in db).toBe(false);
     });
 
     test('exports migration symbols', () => {
