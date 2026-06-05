@@ -54,7 +54,8 @@
         "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-infra-v<version> && git push --tags' && exit 1"
     },
     "dependencies": {
-        "@gobing-ai/ts-db": "workspace:*"
+        "@gobing-ai/ts-db": "workspace:*",
+        "@logtape/logtape": "^2.0.0"
     },
     "peerDependencies": {
         "@opentelemetry/api": "^1.9.0",
