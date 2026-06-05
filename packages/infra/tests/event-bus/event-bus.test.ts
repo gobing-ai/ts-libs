@@ -217,7 +217,7 @@ describe('EventBus', () => {
         expect(detail.error).toBe('boom');
     });
 
-    test('emit dispatches async handlers individually through jobQueue', async () => {
+    test('emit enqueues async handlers through jobQueue without inline execution', async () => {
         const calls: string[] = [];
         const enqueued: Array<{ type: string; payload: unknown }> = [];
         const mockJobQueue: JobQueue = {
@@ -244,7 +244,7 @@ describe('EventBus', () => {
         bus.on('user.created', (id, name) => calls.push(`b:${id}:${name}`), { async: true });
         await bus.emit('user.created', 'u1', 'Alice');
 
-        expect(calls).toEqual(['a:u1:Alice', 'b:u1:Alice']);
+        expect(calls).toEqual([]);
         expect(enqueued.map((job) => job.type)).toEqual(['user.created', 'user.created']);
         expect(lifecycleCalls.length).toBe(2);
         const call = lifecycleCalls[0] as { event: string; detail: unknown };
