@@ -1,24 +1,44 @@
 /**
- * Structured JSON logger with levels (trace/debug/info/warn/error/fatal).
+ * Structured logger for ts-infra, backed by LogTape.
  *
- * No external dependencies — console-based implementation.
+ * LogTape owns level filtering, sink routing, and formatting; this module
+ * adapts LogTape's template-string logger to the ts-infra `Logger` contract
+ * (`method(msg, data?)` + `child(context)`) so call-sites stay backend-agnostic.
+ *
+ * ADR-011: ts-infra must not touch `node:fs`/`process.stderr`. The console sink
+ * is LogTape's own (`getConsoleSink`); the file sink is supplied by the caller
+ * (typically `@gobing-ai/ts-runtime`, which owns FileSystem) via
+ * {@link InitLoggerOptions.fileSink}.
  */
+
+import {
+    ConfigError,
+    configure,
+    getConsoleSink,
+    getJsonLinesFormatter,
+    getTextFormatter,
+    type LogRecord,
+    type Logger as LtLogger,
+    getLogger as ltGetLogger,
+    reset,
+    type Sink,
+} from '@logtape/logtape';
 
 /** Log severity levels in ascending order: trace → debug → info → warn → error → fatal. */
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 
-const LEVEL_ORDER: Record<LogLevel, number> = {
-    trace: 0,
-    debug: 1,
-    info: 2,
-    warn: 3,
-    error: 4,
-    fatal: 5,
-};
+/** Root category every ts-infra logger lives under, so one config rule covers them all. */
+const ROOT_CATEGORY = 'app';
+
+/** Map the ts-infra level name to LogTape's (`warn` → `warning`). */
+function toLogTapeLevel(level: LogLevel): 'trace' | 'debug' | 'info' | 'warning' | 'error' | 'fatal' {
+    return level === 'warn' ? 'warning' : level;
+}
 
 /**
- * Structured JSON logger interface with level-filtered methods
- * and context inheritance via {@link Logger.child}.
+ * Structured logger interface with level methods and context inheritance
+ * via {@link Logger.child}. `data` is attached as structured properties —
+ * `msg` is logged verbatim (no template substitution).
  */
 export interface Logger {
     trace(msg: string, data?: Record<string, unknown>): void;
@@ -30,99 +50,99 @@ export interface Logger {
     child(context: Record<string, unknown>): Logger;
 }
 
-class ConsoleLogger implements Logger {
-    private readonly context: Record<string, unknown>;
+/** Module-level mute flag — LogTape has no global mute, so the adapter gates on it. */
+let muted = false;
 
-    constructor(
-        private readonly category: string,
-        context: Record<string, unknown> = {},
-    ) {
-        this.context = { category, ...context };
-    }
+/**
+ * Mute or unmute all logger output. Useful for tests. Gating happens in the
+ * adapter before delegating to LogTape, so muting is synchronous and global.
+ */
+export function setLoggerMuted(value: boolean): void {
+    muted = value;
+}
 
-    private log(level: LogLevel, msg: string, data?: Record<string, unknown>): void {
-        // Read the level dynamically so re-initialization affects cached loggers too.
-        if (LEVEL_ORDER[level] < LEVEL_ORDER[globalLevel]) return;
-        if (globalMuted) return;
-
-        const entry = {
-            level,
-            message: msg,
-            timestamp: new Date().toISOString(),
-            ...this.context,
-            ...data,
-        };
-
-        const json = JSON.stringify(entry);
-        switch (level) {
-            case 'error':
-            case 'fatal':
-                console.error(json);
-                break;
-            case 'warn':
-                console.warn(json);
-                break;
-            case 'debug':
-            case 'trace':
-                console.debug(json);
-                break;
-            default:
-                console.log(json);
-        }
-    }
+/** Adapter: ts-infra `Logger` over a LogTape logger. */
+class LogTapeLogger implements Logger {
+    constructor(private readonly inner: LtLogger) {}
 
     trace(msg: string, data?: Record<string, unknown>): void {
-        this.log('trace', msg, data);
+        if (!muted) this.inner.trace(msg, data ?? {});
     }
     debug(msg: string, data?: Record<string, unknown>): void {
-        this.log('debug', msg, data);
+        if (!muted) this.inner.debug(msg, data ?? {});
     }
     info(msg: string, data?: Record<string, unknown>): void {
-        this.log('info', msg, data);
+        if (!muted) this.inner.info(msg, data ?? {});
     }
     warn(msg: string, data?: Record<string, unknown>): void {
-        this.log('warn', msg, data);
+        if (!muted) this.inner.warn(msg, data ?? {});
     }
     error(msg: string, data?: Record<string, unknown>): void {
-        this.log('error', msg, data);
+        if (!muted) this.inner.error(msg, data ?? {});
     }
     fatal(msg: string, data?: Record<string, unknown>): void {
-        this.log('fatal', msg, data);
+        if (!muted) this.inner.fatal(msg, data ?? {});
     }
 
     child(context: Record<string, unknown>): Logger {
-        return new ConsoleLogger(this.category, { ...this.context, ...context });
+        return new LogTapeLogger(this.inner.with(context));
     }
 }
 
-const loggers = new Map<string, ConsoleLogger>();
-
-let globalLevel: LogLevel = 'info';
-let globalMuted = false;
-
 /**
- * Mute or unmute all logger console output. Useful for tests.
- */
-export function setLoggerMuted(muted: boolean): void {
-    globalMuted = muted;
-}
-
-/**
- * Get or create a logger for the given category.
+ * Get a logger for the given category. Categories are nested under the
+ * `app` root so a single `initializeLogger` rule configures them all.
  */
 export function getLogger(category: string): Logger {
-    const existing = loggers.get(category);
-    if (existing) return existing;
+    return new LogTapeLogger(ltGetLogger([ROOT_CATEGORY, category]));
+}
 
-    const logger = new ConsoleLogger(category);
-    loggers.set(category, logger);
-    return logger;
+/** Options for {@link initializeLogger}. */
+export interface InitLoggerOptions {
+    /** Minimum level to emit. Default `info`. */
+    level?: LogLevel;
+    /** Enable the console sink. Default `true`. */
+    console?: boolean;
+    /**
+     * File sink writer. ts-infra never opens files itself (ADR-011); the
+     * caller (e.g. ts-runtime FileSystem) provides a writer that appends one
+     * already-formatted line per record. When omitted, no file sink is wired.
+     */
+    fileSink?: (line: string) => void;
+    /** Format records as JSON Lines (`true`) or human-readable text (`false`). Default `true`. */
+    json?: boolean;
 }
 
 /**
- * Initialize the logger subsystem with a minimum log level.
+ * Configure LogTape with console and/or file sinks. Call once at startup;
+ * safe to call again to reconfigure — the prior config is reset first so the
+ * latest call wins (LogTape throws `ConfigError` on double-configure otherwise).
  */
-export function initializeLogger(level: LogLevel = 'info'): void {
-    globalLevel = level;
-    loggers.clear();
+export async function initializeLogger(options: InitLoggerOptions = {}): Promise<void> {
+    const { level = 'info', console: enableConsole = true, fileSink, json = true } = options;
+    const lowestLevel = toLogTapeLevel(level);
+    const formatter = json ? getJsonLinesFormatter() : getTextFormatter();
+
+    const sinks: Record<string, Sink> = {};
+    if (enableConsole) {
+        sinks.console = getConsoleSink({ formatter });
+    }
+    if (fileSink) {
+        sinks.file = (record: LogRecord) => {
+            fileSink(formatter(record));
+        };
+    }
+
+    await reset();
+    try {
+        await configure({
+            sinks,
+            loggers: [
+                { category: [ROOT_CATEGORY], lowestLevel, sinks: Object.keys(sinks) },
+                { category: ['logtape', 'meta'], lowestLevel: 'warning', sinks: [] },
+            ],
+        });
+    } catch (error) {
+        if (!(error instanceof ConfigError)) throw error;
+    }
 }
