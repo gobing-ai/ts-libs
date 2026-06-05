@@ -78,7 +78,9 @@ export class TeamAgentProcess {
             // Process may have already closed stdin.
         }
         process.kill('SIGTERM');
-        const timeout = Bun.sleep(5000).then(() => 'timeout' as const);
+        const timeout = new Promise<'timeout'>((resolve) => {
+            setTimeout(() => resolve('timeout'), 5000);
+        });
         const result = await Promise.race([process.exited, timeout]);
         if (result === 'timeout') {
             process.kill('SIGKILL');
