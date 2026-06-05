@@ -11,14 +11,14 @@ TypeScript libraries under `packages/*`:
 |---------|------|
 | `ts-utils` | output, errors, api-response, cursor, date, access helpers |
 | `ts-runtime` | platform detection, factory, FileSystem, ProcessExecutor, path utilities, plugin core |
-| `ts-db` | drizzle-free DB facade: adapters, `BaseDao`/`EntityDao`, predicate spec, `defineTable` |
-| `ts-infra` | logger, EventBus, telemetry, scheduler, job-queue, API client |
+| `ts-db` | drizzle-free DB facade: adapters, `BaseDao`/`EntityDao`, predicate spec; schema helpers live behind `/schema` |
+| `ts-infra` | portable logger/EventBus/telemetry/API client plus queue/scheduler contracts; DB/runtime/exporter adapters live behind subpaths |
 | `ts-ai-runner` | coding-agent detection, doctor, prompt execution |
 | `ts-rule-engine` | constraint rule schemas, loading, evaluation, formatting |
 | `ts-dual-workflow-engine` | state-machine + transition-flow workflow runtime |
 | `ts-llm-jsonl-importer` | generic JSONL importer for LLM history files |
 
-- **Runtime / package manager / test runner:** Bun `1.3.14`. Prefer `bun:*` APIs over `node:*`.
+- **Runtime / package manager / test runner:** Bun `1.3.14`. Use platform APIs only in their owning package/adapter seam; otherwise use `ts-runtime` abstractions.
 - **Lint + format:** Biome. **Type gate:** per-package `tsc --noEmit`. No ESLint, no Prettier.
 - **Hooks:** Lefthook. **Rule gate:** `spur` (global binary) against `.spur/rules/`.
 
@@ -59,16 +59,22 @@ If a check fails, fix the root cause — never bypass with `--no-verify`, `--for
 
 - **Internal deps use `workspace:*`** — never a hand-written version range (ADR-002). The publish step
   resolves `workspace:*` → `^<version>` (ADR-003); the source tree always keeps `workspace:*`.
-- **Cross-package imports also need a `tsconfig` path** mapping `@gobing-ai/ts-<pkg>` → `../<pkg>/src/index`
-  so `tsc` resolves to source (ADR-004). Keep deps and path aliases in sync; never drop a dep for a path alias.
+- **Cross-package imports also need `tsconfig` paths** so `tsc` resolves sibling packages to source
+  (ADR-004). `dependencies` track direct package imports; `paths` track the broader transitive source
+  closure, including sanctioned subpaths (ADR-012). Never drop a direct dependency in favour of only a
+  path alias.
 - **drizzle-orm is internal to `ts-db`** — no other package may import it (ADR-005, `db-boundaries` rule).
-  Consume the ts-db facade (`BaseDao`/`EntityDao` + predicate spec), not drizzle.
+  Consume the main ts-db facade (`BaseDao`/`EntityDao` + predicate spec), not drizzle. Schema construction
+  and `defineTable` belong behind `@gobing-ai/ts-db/schema` (ADR-007).
 - **Architectural invariants are spur rules**, not just review habits — add new cross-cutting boundaries
   as rules under `.spur/rules/` (ADR-006).
-- **Platform APIs are confined to `ts-runtime`** — no other package may import `node:fs`, `node:path`,
-  `node:os`, `node:child_process`, `Bun.spawn`, `Bun.which`, or `process.env` directly. Enforced by
-  `runtime-boundaries` spur rules (ADR-011). Use `@gobing-ai/ts-runtime` path utilities, `FileSystem`,
-  and `ProcessExecutor` instead.
+- **Platform APIs are owned by `ts-runtime` by default** — no package may import `node:fs`, `node:path`,
+  `node:os`, `node:child_process`, `Bun.spawn`, `Bun.which`, or `process.env` directly unless an ADR/rule
+  explicitly sanctions a narrow adapter subpath (ADR-011 addendum, ADR-014). Use `@gobing-ai/ts-runtime`
+  path utilities, canonical `FileSystem`, and `ProcessExecutor` instead.
+- **`ts-infra` main barrel stays portable** — storage-backed queues, runtime-specific schedulers, and OTel
+  exporters are opt-in subpaths such as `/job-queue-db`, `/scheduler-node`, `/scheduler-cloudflare`, and
+  `/otel-node` (ADR-014).
 - Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `build:`, ...). Breaking changes in a
   `BREAKING CHANGE:` footer.
 - Each package: source in `src/`, tests in `tests/`, builds to `dist/`. Tests live in `tests/`, not under `src/`.
