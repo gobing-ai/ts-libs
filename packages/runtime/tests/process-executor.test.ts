@@ -184,6 +184,20 @@ describe('ProcessExecutor', () => {
         expect(events.at(-1)?.detail).toMatchObject({ command: 'cat', exitCode: 0, reason: 'exit' });
     });
 
+    test('runStreaming works when tracer defers callback execution', async () => {
+        const tracer: TracerPort = {
+            traceAsync: async (_name, fn) => {
+                await Promise.resolve();
+                return await fn({});
+            },
+        };
+
+        const proc = new ProcessExecutor({ tracer }).runStreaming({ command: 'cat' });
+        proc.endStdin();
+
+        await expect(proc.exited).resolves.toBe(0);
+    });
+
     test('runStreaming records signal details when killed through the observed handle', async () => {
         const { events, sink } = recordEvents();
         const proc = new ProcessExecutor({ events: sink }).runStreaming({ command: 'sleep', args: ['1'] });
