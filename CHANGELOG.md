@@ -7,6 +7,57 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
 
+## [0.3.2] — 2026-06-05
+
+### Added
+
+- **`ts-runtime` — Platform factory pattern:** New `RuntimeFactory` interface and `loadRuntimeFactory()` / `createRuntimeContextFromFactory()` APIs that auto-detect the runtime (Bun/Node vs Cloudflare Workers) and provide a unified `FileSystem` + `ProcessExecutor` + platform context seam. Shipped factories: `nodeBunFactory` and `cloudflareWorkersFactory`. Replaces the previous `getFs()`/`setFileSystem()` global swap (ADR-011, supersedes ADR-008).
+- **`ts-runtime` — Split filesystem implementations:** `NodeFileSystem` (Bun/Node) and `CloudflareFileSystem` (Workers) are now first-class, individually importable modules behind a shared `FileSystem` interface with full `stat`, `realpath`, `copy`, `rename`, `mkdir` support.
+- **`ts-runtime` — Platform detection helpers:** `isCloudflareWorkerRuntime()` and `_resetRuntimeFactory()` for test isolation.
+- **`ts-runtime` — Expanded `ProcessExecutor` surface:** `BunSyncProcessExecutor`, `BunPipeProcessSpawner`, `NodeProcessExecutor` exported directly; richer spawn options, improved sync/pipe execution, and `findProjectRoot()` utility.
+- **`ts-runtime` — Path utility consolidation:** POSIX-style path helpers (`basenamePath`, `dirnamePath`, `joinPath`, `normalizePath`, `relativePath`, `resolvePath`, `SEP`) consolidated under `ts-runtime`, eliminating all direct `node:path` usage across the workspace (ADR-011).
+- **`ts-infra` — Structured event maps:** New typed event maps for DB (`DbEvents`), queue (`QueueEvents`), scheduler (`SchedulerEvents`), and API client (`ApiClientEvents`) with a unified `InfraEvents` union type. Enables typed `EventBus` subscriptions across all infra subsystems.
+- **`ts-infra` — Event bus observers:** `defaultObservers` (structured console logging) and `fileObserver` (JSONL file logging) for zero-config observability on any `EventBus` channel.
+- **`ts-infra` — Scheduler event emission:** Scheduler actions now emit `scheduler.job.executed`, `scheduler.job.failed`, `scheduler.job.retrying` events through the typed event map, with a new `wrapHandler` utility for observer-annotated job execution.
+- **`ts-infra` — DB job queue re-export:** `@gobing-ai/ts-infra/job-queue-db` subpath now available from the main barrel for convenience.
+- **`ts-rule-engine` — Observability via EventBus:** `RuleEngine.evaluate()` and `evaluateWithFixes()` accept an optional `events: EventBus<RuleEngineEvents>` parameter, emitting structured `rule.run.start/done` and `rule.eval.start/done/error` events for external monitoring (ADR-013).
+- **`ts-rule-engine` — Ripgrep evaluator:** New `ripgrep` evaluator (`rg`) that shells out to `rg` with include-glob forwarding, exclude filtering, and JSON output parsing for fast content-based rule checks.
+- **`ts-dual-workflow-engine` — Run lifecycle module:** New `RunLifecycle` class that instruments workflow runs with typed events (`run.start`, `node.start/done/error`, `run.done/error`) via `ts-infra` `EventBus`, enabling external monitoring and structured logging (ADR-013).
+- **`ts-dual-workflow-engine` — Trust-gated extension loading:** Actions and guards can be loaded from trust-gated `ExtensionRef` entries via the shared `loadExtensionModules` from `ts-runtime/plugin`, with host-level trust validation before dynamic imports.
+- **`ts-dual-workflow-engine` — Extension configuration:** `WorkflowDef` gained an `extensions` field for declaring extension modules that provide custom actions, guards, and resolvers.
+- **`ts-ai-runner` — Event maps:** New `AgentEvents` and `AiRunnerProcessEvents` typed event maps for agent lifecycle observability.
+- **`ts-ai-runner` — Typed message helpers:** New `messages` module with structured agent message construction utilities.
+
+### Changed
+
+- **`ts-runtime` — Platform APIs fully owned:** All remaining direct `node:fs`, `node:path`, `node:os`, `node:child_process`, `Bun.spawn`, `Bun.which`, and `process.env` usage across the workspace now routes through `ts-runtime` abstractions (ADR-011, enforced by `runtime-boundaries` spur rule).
+- **`ts-runtime` — Context refactor:** `RuntimeContext` now carries a `RuntimeFactory`-provided platform bundle instead of standalone filesystem globals.
+- **`ts-infra` — Logger hardening:** Logger implementation refactored for cleaner structured output, consistent timestamp formatting, and improved testability.
+- **`ts-infra` — API client events:** API client now emits typed error events for connection failures and retries.
+- **`ts-infra` — DB job queue observability:** `DBJobQueue` and `DBQueueConsumer` emit structured events for job execution, failure, and retry lifecycle.
+- **`ts-infra` — Scheduler action refactor:** `SchedulerAction` wraps handlers with event emission, replacing ad-hoc logging with typed observability.
+- **`ts-rule-engine` — Evaluator consolidation:** Evaluator config helpers unified with shared file-scanning utilities and consistent test-resolver fallback patterns.
+- **`ts-rule-engine` — Extension loading delegates to shared plugin core:** Rule engine extension loading now delegates to `loadExtensionModules` from `ts-runtime/plugin`, removing the package-local `CapabilityRegistry` in favor of the shared registry.
+- **`ts-dual-workflow-engine` — Plugin-based architecture:** Action, guard, and resolver loading refactored onto the shared plugin registry from `ts-runtime/plugin`, with host-level capability declarations.
+- **`ts-dual-workflow-engine` — State machine and transition flow refactored:** Run loops emit lifecycle events, use `RunLifecycle` for structured logging, and delegate extension resolution to the plugin host.
+- **`ts-ai-runner` — Post-migration cleanup:** Inlined `MessageService` pass-through into `TeamOrchestrator`; dropped dead `identityPreamble` computation in `TeamAgentProcess`; expanded test coverage for doctor, agent detection, and team orchestration.
+- **`ts-ai-runner` — Package dependencies:** `ts-ai-runner` now depends on `ts-runtime` for process execution and path utilities.
+- **`ts-db` — Minor cleanup:** Removed unused barrel re-exports; `EntityDao` gained internal type clarifications; embedded migration version tracking improved.
+- **`ts-llm-jsonl-importer` — Safer import edge cases:** Improved checkpoint handling and hash stability for incremental imports.
+- **`ts-utils` — JSDoc for all exports:** Added comprehensive JSDoc documentation to every exported entity across `access`, `api-response`, `cursor`, `date`, `errors`, `origin`, and `output` modules.
+- **`docs/00_ADR.md` — Five new/revised ADRs:** ADR-011 (runtime factory pattern + path consolidation), ADR-012 (`dependencies` vs `paths` scope), ADR-013 (workflow run lifecycle observability), ADR-014 (`ts-infra` core/adapter boundary), ADR-008 (superseded by ADR-011).
+- **Package READMEs updated:** `ts-runtime`, `ts-rule-engine`, `ts-dual-workflow-engine`, `ts-ai-runner`, `ts-infra` READMEs rewritten to reflect new APIs, factory pattern, and observability features.
+
+### Fixed
+
+- **`ts-infra` — Migration parity:** Resolved multiple migration drift issues where ts-infra exports, subpath structure, and adapter boundaries diverged from the planned architecture.
+- **`ts-runtime` — Migration drift:** Fixed runtime library migration drift for filesystem, context, and process executor modules.
+
+### Removed
+
+- **`ts-ai-runner` — `MessageService` class removed:** Inlined into `TeamOrchestrator`; the separate `MessageService` module and its tests were deleted.
+- **`ts-rule-engine` — `CapabilityRegistry` removed:** Replaced by the shared `CapabilityRegistry` from `@gobing-ai/ts-runtime/plugin`.
+
 ## [0.3.1] — 2026-06-04
 
 ### Changed
@@ -213,7 +264,9 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[0.3.0]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.9...HEAD
+[0.3.2]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.1...HEAD
+[0.3.1]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.0...@gobing-ai/ts-libs-v0.3.1
+[0.3.0]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.9...@gobing-ai/ts-libs-v0.3.0
 [0.2.9]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.8...@gobing-ai/ts-libs-v0.2.9
 [0.2.8]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.7...@gobing-ai/ts-libs-v0.2.8
 [0.2.7]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.6...@gobing-ai/ts-libs-v0.2.7
