@@ -3,6 +3,7 @@ export * from './agent-spec';
 export * from './agents/shims';
 export * from './ai-runner';
 export * from './doctor-runner';
+export * from './events';
 export * from './identity';
 export * from './message-service';
 export * from './slash-command';
