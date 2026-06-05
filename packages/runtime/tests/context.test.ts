@@ -7,8 +7,9 @@ import {
     RuntimeContext,
     type RuntimeServiceMap,
 } from '../src/context';
-import { CloudflareFileSystem } from '../src/fs';
+import { createCfFileSystem } from '../src/file-system-cf';
 import { _resetRuntimeFactory } from '../src/platform';
+import { cloudflareWorkersFactory } from '../src/runtime-cf';
 
 interface Services extends RuntimeServiceMap {
     greeting: { value: string };
@@ -39,7 +40,22 @@ describe('RuntimeContext', () => {
             expect(context.capabilities.hasProcessExecution).toBe(true);
             expect(context.has('config')).toBe(true);
             expect(context.has('fileSystem')).toBe(true);
+            expect(context.has('processExecutor')).toBe(true);
             expect(context.require('config').app.port).toBe(3000);
+        });
+
+        test('does not register processExecutor when runtime capabilities do not support processes', () => {
+            const context = new RuntimeContext<RuntimeServiceMap>({
+                runtimeName: cloudflareWorkersFactory.runtimeName,
+                capabilities: cloudflareWorkersFactory.capabilities,
+                services: {
+                    config: buildConfigFromObject({}),
+                    fileSystem: cloudflareWorkersFactory.createFileSystem(),
+                },
+            });
+
+            expect(context.capabilities.hasProcessExecution).toBe(false);
+            expect(context.has('processExecutor')).toBe(false);
         });
     });
 
@@ -55,14 +71,14 @@ describe('RuntimeContext', () => {
             runtimeName: 'test',
             services: {
                 config: buildConfigFromObject({ app: { name: 'runtime-test' } }),
-                fileSystem: new CloudflareFileSystem(),
+                fileSystem: createCfFileSystem(),
                 greeting: { value: 'hello' },
                 disposable,
             },
         });
 
         expect(context.get('greeting')?.value).toBe('hello');
-        expect(context.require('fileSystem')).toBeInstanceOf(CloudflareFileSystem);
+        expect(context.require('fileSystem').getProjectRoot()).toBe('/bundle');
         await context.dispose();
         expect(disposable.disposed).toBe(true);
     });
