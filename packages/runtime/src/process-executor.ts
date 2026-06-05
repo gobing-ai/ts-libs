@@ -193,51 +193,45 @@ export class ProcessExecutor {
      */
     runStreaming(options: PipeProcessOptions): PipeProcess {
         const args = options.args ?? [];
-        let pipe: PipeProcess | undefined;
-        let spawnError: unknown;
-        void this.trace('process.runStreaming', async () => {
-            try {
-                const startedAt = Date.now();
-                this.emitProcessEvent('process.started', {
-                    command: options.command,
-                    args,
-                    exitCode: null,
-                    durationMs: 0,
-                    reason: 'exit',
-                    timestamp: new Date(startedAt).toISOString(),
-                    ...(options.label !== undefined ? { label: options.label } : {}),
-                });
-                const subprocess = Bun.spawn({
-                    cmd: [options.command, ...args],
-                    stdin: 'pipe',
-                    stdout: 'pipe',
-                    stderr: 'pipe',
-                    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-                    ...(options.env !== undefined ? { env: options.env } : {}),
-                });
-                pipe = new ObservedPipeProcess(new BunPipeProcess(subprocess), this.config.events, {
-                    command: options.command,
-                    args,
-                    startedAt,
-                    ...(options.label !== undefined ? { label: options.label } : {}),
-                });
-            } catch (error) {
-                spawnError = error;
-                this.emitProcessEvent('process.exited', {
-                    command: options.command,
-                    args,
-                    exitCode: null,
-                    durationMs: 0,
-                    reason: 'error',
-                    timestamp: new Date().toISOString(),
-                    ...(options.label !== undefined ? { label: options.label } : {}),
-                    error: errorMessage(error),
-                });
-                throw error;
-            }
-        }).catch(() => undefined);
-        if (pipe !== undefined) return pipe;
-        throw spawnError;
+        void this.config.tracer?.traceAsync('process.runStreaming', async () => undefined).catch(() => undefined);
+        try {
+            const startedAt = Date.now();
+            this.emitProcessEvent('process.started', {
+                command: options.command,
+                args,
+                exitCode: null,
+                durationMs: 0,
+                reason: 'exit',
+                timestamp: new Date(startedAt).toISOString(),
+                ...(options.label !== undefined ? { label: options.label } : {}),
+            });
+            const subprocess = Bun.spawn({
+                cmd: [options.command, ...args],
+                stdin: 'pipe',
+                stdout: 'pipe',
+                stderr: 'pipe',
+                ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+                ...(options.env !== undefined ? { env: options.env } : {}),
+            });
+            return new ObservedPipeProcess(new BunPipeProcess(subprocess), this.config.events, {
+                command: options.command,
+                args,
+                startedAt,
+                ...(options.label !== undefined ? { label: options.label } : {}),
+            });
+        } catch (error) {
+            this.emitProcessEvent('process.exited', {
+                command: options.command,
+                args,
+                exitCode: null,
+                durationMs: 0,
+                reason: 'error',
+                timestamp: new Date().toISOString(),
+                ...(options.label !== undefined ? { label: options.label } : {}),
+                error: errorMessage(error),
+            });
+            throw error;
+        }
     }
 
     private async trace<T>(name: string, fn: () => Promise<T>): Promise<T> {
