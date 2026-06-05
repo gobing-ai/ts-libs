@@ -25,7 +25,7 @@ export class TransitionFlowDriver {
         return await RunLifecycle.run(
             workflow.name,
             'transition-flow',
-            { persistence: this.options.persistence },
+            { persistence: this.options.persistence, events: options.events },
             options,
             (lifecycle) => this.loop(workflow, options, lifecycle),
         );
@@ -62,14 +62,25 @@ export class TransitionFlowDriver {
                     env,
                     builtins: runtimeBuiltins(workflow.name, current.id, runId, transitionsTaken, 'transition-flow'),
                 });
-                lastActionResult = await this.options.host.runAction(current.action.kind, resolved, {
-                    runId,
-                    workdir: options.workdir,
-                    stateOrNodeId: current.id,
-                    vars,
-                    env,
-                    metadata: options.metadata,
-                });
+                const actionStartMs = Date.now();
+                lifecycle.actionStart(current.id, current.action.kind);
+                try {
+                    lastActionResult = await this.options.host.runAction(current.action.kind, resolved, {
+                        runId,
+                        workdir: options.workdir,
+                        stateOrNodeId: current.id,
+                        vars,
+                        env,
+                        metadata: options.metadata,
+                    });
+                } finally {
+                    lifecycle.actionDone(
+                        current.id,
+                        current.action.kind,
+                        Date.now() - actionStartMs,
+                        lastActionResult?.ok ?? false,
+                    );
+                }
                 if (!lastActionResult.ok) {
                     const policy = resolveOnErrorPolicy(current.action.onError, defaultOnError, options.onError);
                     if (policy === 'fail') {
