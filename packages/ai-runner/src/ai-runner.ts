@@ -1,4 +1,4 @@
-import { NodeProcessExecutor, type ProcessExecutor, type ProcessResult } from '@gobing-ai/ts-runtime';
+import { getProcessCwd, NodeProcessExecutor, type ProcessExecutor, type ProcessResult } from '@gobing-ai/ts-runtime';
 import { type AgentName, getAgentShim, type PromptOptions } from './agents/shims';
 import { buildIdentityPreamble } from './identity';
 
@@ -109,7 +109,7 @@ export class AiRunner {
         options: AgentRunOptions,
     ): PromptOptions {
         if (!hasIdentityOptions(promptOptions)) return promptOptions;
-        const workspace = options.cwd ?? this.defaultCwd ?? process.cwd();
+        const workspace = options.cwd ?? this.defaultCwd ?? getProcessCwd();
         const preamble = buildIdentityPreamble({
             agentId: agent,
             agentType: agent,
