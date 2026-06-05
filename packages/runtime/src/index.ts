@@ -29,10 +29,15 @@ export type {
     OutputPolicy,
     PipeProcess,
     PipeProcessOptions,
+    ProcessEventDetail,
+    ProcessEventSink,
+    ProcessEvents,
     ProcessExecutorConfig,
+    ProcessExitReason,
     ProcessOptions,
     ProcessResult,
     ProcessSignal,
+    TracerPort,
 } from './process-executor';
 export { ProcessExecutor } from './process-executor';
 export { cloudflareWorkersFactory } from './runtime-cf';
