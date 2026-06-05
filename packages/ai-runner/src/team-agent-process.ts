@@ -2,7 +2,6 @@ import { Buffer } from 'node:buffer';
 import { getLogger, type Logger } from '@gobing-ai/ts-infra';
 import { type PipeProcess, ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { AgentSpec } from './agent-spec';
-import { buildIdentityPreamble } from './identity';
 
 /** Options for spawning a team agent subprocess. */
 export interface AgentProcessOptions {
@@ -18,11 +17,10 @@ type ProcessStatus = 'running' | 'stopped' | 'errored';
 
 /**
  * Manages the lifecycle of a single agent subprocess — start, stop, message send, and stdout/stderr subscription.
- * Injects the agent identity preamble into the process on construction.
+ * The identity preamble is built by `TeamOrchestrator` and baked into `command` before the process is constructed.
  */
 export class TeamAgentProcess {
     readonly agentId: string;
-    readonly identityPreamble: string;
     private readonly command: string[];
     private readonly env: Record<string, string> | undefined;
     private readonly cwd: string | undefined;
@@ -35,14 +33,6 @@ export class TeamAgentProcess {
 
     constructor(options: AgentProcessOptions) {
         this.agentId = options.spec.id;
-        this.identityPreamble = buildIdentityPreamble({
-            agentId: options.spec.id,
-            agentType: options.spec.type,
-            workspace: options.spec.workspace,
-            purpose: options.spec.purpose,
-            systemPrompt:
-                typeof options.spec.config.systemPrompt === 'string' ? options.spec.config.systemPrompt : undefined,
-        });
         this.command = options.command;
         this.env = options.env;
         this.cwd = options.cwd ?? options.spec.workspace;
