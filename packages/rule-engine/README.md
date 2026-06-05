@@ -31,7 +31,7 @@ erDiagram
 
 | Entity | One-line Description |
 |--------|----------------------|
-| `RuleEngine` | Orchestrates evaluation of enabled rules against a workspace directory. Supports opt-in early exit via `stopOnFirst` parameter. |
+| `RuleEngine` | Orchestrates evaluation of enabled rules against a workspace directory. Supports opt-in early exit via `stopOnFirst` parameter. Accepts an optional `EventBus<RuleEngineEvents>` for structured in-process observability. |
 | `RuleEngineHost` | Capability host backed by `CapabilityRegistry` from `@gobing-ai/ts-runtime/plugin` — holds evaluators, resolvers, and formatters, each with origin tracking for safe override detection. |
 | `CapabilityRegistry<T>` | Generic named registry (shared with `ts-rule-engine`, `ts-dual-workflow-engine`) that tags each entry with its `origin` (`'builtin'`, `'extension'`, `'caller'`). |
 | `ConstraintRule` | Declarative policy unit: id, severity, include/exclude globs, evaluator type + config, and optional fix config. |
@@ -44,6 +44,7 @@ erDiagram
 | `Finding` | Structured policy violation or evaluator error with severity, location, and machine-readable code. |
 | `Fix` | Candidate byte-range replacement; collected separately from findings, written only on explicit `applyFixes()`. |
 | `RuleEngineResult` | Aggregate `{ findings, fixes }` returned from a single evaluation run. |
+| `RuleEngineEvents` | Typed event map for rule-engine observability. All events prefixed `rule.` — see [Observability](#observability). |
 | `bundledRulesRoot()` | Resolves the absolute path to the bundled `rules/` directory shipped with this package — portable defaults usable as the lowest-priority preset root. |
 ## Mental Model
 
@@ -766,6 +767,61 @@ That lets downstream tools distinguish policy violations from misconfigured or f
 const errors = result.findings.filter((finding) => finding.kind === 'error');
 const violations = result.findings.filter((finding) => finding.kind !== 'error');
 ```
+
+## Observability
+
+The rule engine uses a **three-layer observability model** (ADR-015):
+
+| Layer | Tool | Consumer |
+|-------|------|----------|
+| Logs | `getLogger('rule-engine')` | Human-readable debugging / file output |
+| Traces | `traceAsync('rule.run')` + `addSpanEvent` per rule | Distributed perf correlation (OTel) |
+| Events | `EventBus<RuleEngineEvents>` | Programmatic in-process subscription (progress bars, CI dashboards) |
+
+All three layers are **additive** — EventBus does not replace logging or tracing. A consumer who wants a progress bar subscribes to events; a consumer who wants traces attaches an OTel collector; both work independently.
+
+### Event Map
+
+`RuleEngineEvents` is a typed event map. All events are prefixed `rule.`:
+
+| Event | Payload | When |
+|-------|---------|------|
+| `rule.run.start` | `{ rules, total }` | Before the first rule is evaluated |
+| `rule.eval.start` | `{ ruleId, index, total }` | Before a single rule's evaluator is invoked |
+| `rule.eval.done` | `{ ruleId, findings, durationMs }` | After a single rule evaluation finishes successfully |
+| `rule.eval.error` | `{ ruleId, error }` | When a rule evaluator throws (distinct from a violation finding) |
+| `rule.run.done` | `{ rules, findings, durationMs, stoppedEarly }` | After the last rule finishes (or short-circuited) |
+
+### Usage
+
+Pass an `EventBus` to the engine constructor:
+
+```ts
+import { RuleEngine } from '@gobing-ai/ts-rule-engine';
+import { EventBus } from '@gobing-ai/ts-infra';
+import type { RuleEngineEvents } from '@gobing-ai/ts-rule-engine';
+
+const bus = new EventBus<RuleEngineEvents>();
+
+bus.on('rule.eval.done', (data) => {
+  console.log(`Rule ${data.ruleId}: ${data.findings} findings (${data.durationMs}ms)`);
+});
+
+bus.on('rule.run.done', (data) => {
+  console.log(`Run complete: ${data.findings} total findings${data.stoppedEarly ? ' (stopped early)' : ''}`);
+});
+
+const engine = new RuleEngine({ events: bus });
+const result = await engine.evaluate(rules, workdir);
+```
+
+### Zero-overhead default
+
+When no `events` option is provided, the engine incurs zero observability overhead — no emit calls, no handler invocations. The event bus is purely opt-in.
+
+### `rule.eval.error` vs violation findings
+
+`rule.eval.error` is emitted when an evaluator **throws** — it signals a crash, not a policy violation. The engine still produces a `kind: 'error'` finding for the thrown rule. A normal policy violation emits **no** `rule.eval.error`. Don't conflate the two: subscribe to `rule.eval.error` for crash alerting, and inspect findings for policy results.
 
 ## Package Boundary
 
