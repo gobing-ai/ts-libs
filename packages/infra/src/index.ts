@@ -2,7 +2,31 @@
 export { APIClient, type APIClientConfig, APIError, type RequestOptions } from './api-client';
 
 // Event Bus
-export { EventBus, type EventMap, type SubscribeOptions } from './event-bus/index';
+export {
+    attachDefaultObservers,
+    attachFileObserver,
+    attachLogObserver,
+    attachTelemetryObserver,
+    createLifecycleBus,
+    EventBus,
+    type EventMap,
+    type FileObserverWriter,
+    type SubscribeOptions,
+} from './event-bus/index';
+
+// Events (infrastructure-level event maps)
+export type {
+    ApiClientEvents,
+    ApiRequestErrorDetail,
+    DbConnectionErrorDetail,
+    DbEvents,
+    InfraEvents,
+    QueueEvents,
+    QueueJobFailedDetail,
+    QueueJobRetryingDetail,
+    SchedulerEvents,
+    SchedulerJobExecutedDetail,
+} from './events';
 
 export type {
     EnqueueOptions,
@@ -17,18 +41,36 @@ export type {
 export { DBJobQueue, DBQueueConsumer } from './job-queue/index';
 
 // Logger
-export { getLogger, initializeLogger, type Logger, type LogLevel, setLoggerMuted } from './logger';
+export {
+    getLogger,
+    type InitLoggerOptions,
+    initializeLogger,
+    type Logger,
+    type LogLevel,
+    setLoggerMuted,
+} from './logger';
 
 // Scheduler
 export {
+    ActionRegistry,
     CloudflareSchedulerAdapter,
+    type CreateDefaultRegistryOptions,
+    createDefaultRegistry,
     getSchedulerAdapter,
+    HealthPingAction,
+    type HealthPingWriter,
     initScheduler,
+    LogAction,
     NodeSchedulerAdapter,
     NoopSchedulerAdapter,
+    QueueStatsAction,
+    type QueueStatsDaoProvider,
     type ScheduledAction,
+    type SchedulerAction,
     type SchedulerAdapter,
     setSchedulerAdapter,
+    toScheduledAction,
+    wrapScheduledHandler,
 } from './scheduler/index';
 
 // Telemetry
