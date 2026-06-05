@@ -1,17 +1,18 @@
+import { EventBus } from '@gobing-ai/ts-infra';
 import type { AgentSpec } from './agent-spec';
 import { loadAgentSpecs } from './agent-spec';
 import { type AgentName, getAgentShim, isAgentName } from './agents/shims';
+import type { AgentEvents } from './events';
 import { buildIdentityPreamble } from './identity';
 import { MessageService } from './message-service';
 import { TeamAgentProcess } from './team-agent-process';
 
-type TeamEvent = 'agent.started' | 'agent.stopped' | 'message.sent';
-type TeamListener = (payload: unknown) => void;
 type AgentProcessFactory = (options: ConstructorParameters<typeof TeamAgentProcess>[0]) => TeamAgentProcess;
 
 /** Configuration options for `TeamOrchestrator`. */
 export interface TeamOrchestratorOptions {
     processFactory?: AgentProcessFactory;
+    events?: EventBus<AgentEvents>;
 }
 
 /**
@@ -21,8 +22,8 @@ export interface TeamOrchestratorOptions {
 export class TeamOrchestrator {
     private specs: AgentSpec[] = [];
     private readonly running = new Map<string, TeamAgentProcess>();
-    private readonly listeners = new Map<TeamEvent, Set<TeamListener>>();
     private readonly processFactory: AgentProcessFactory;
+    private readonly events: EventBus<AgentEvents>;
 
     constructor(
         private readonly configDir: string,
@@ -30,6 +31,7 @@ export class TeamOrchestrator {
         options: TeamOrchestratorOptions = {},
     ) {
         this.processFactory = options.processFactory ?? ((processOptions) => new TeamAgentProcess(processOptions));
+        this.events = options.events ?? new EventBus<AgentEvents>();
     }
 
     loadSpecs(): AgentSpec[] {
@@ -72,7 +74,11 @@ export class TeamOrchestrator {
         await process.start();
         this.running.set(id, process);
         await this.injectPendingMessages(process);
-        this.emit('agent.started', { id });
+        void this.events.emit('agent.started', {
+            agentId: spec.id,
+            agentType: spec.type,
+            pid: process.getPid(),
+        });
         return process;
     }
 
@@ -81,7 +87,7 @@ export class TeamOrchestrator {
         if (process === undefined) return;
         await process.stop();
         this.running.delete(id);
-        this.emit('agent.stopped', { id });
+        void this.events.emit('agent.stopped', { agentId: id, exitCode: process.getExitCode() });
     }
 
     async restartAgent(id: string): Promise<TeamAgentProcess> {
@@ -92,8 +98,8 @@ export class TeamOrchestrator {
     async sendMessage(fromId: string | null, toId: string, body: string, inReplyTo?: string): Promise<string> {
         const msgId = await this.messageService.enqueue(fromId, toId, body, inReplyTo);
         const process = this.running.get(toId);
-        if (process !== undefined) await this.flushInbox(process, 'live stdin injection failed');
-        this.emit('message.sent', { id: msgId, fromId, toId });
+        const ok = process !== undefined ? await this.flushInbox(process, 'live stdin injection failed') : false;
+        void this.events.emit('agent.message.sent', { agentId: toId, ok });
         return msgId;
     }
 
@@ -116,11 +122,9 @@ export class TeamOrchestrator {
         await Promise.all([...this.running.keys()].map((id) => this.stopAgent(id)));
     }
 
-    on(event: TeamEvent, listener: TeamListener): () => void {
-        const listeners = this.listeners.get(event) ?? new Set<TeamListener>();
-        listeners.add(listener);
-        this.listeners.set(event, listeners);
-        return () => listeners.delete(listener);
+    on<K extends keyof AgentEvents>(event: K, listener: AgentEvents[K]): () => void {
+        this.events.on(event, listener);
+        return () => this.events.off(event, listener);
     }
 
     private requireSpec(id: string): AgentSpec {
@@ -134,20 +138,21 @@ export class TeamOrchestrator {
         return type;
     }
 
-    private injectPendingMessages(process: TeamAgentProcess): Promise<void> {
+    private async injectPendingMessages(process: TeamAgentProcess): Promise<boolean> {
         return this.flushInbox(process, 'startup stdin injection failed');
     }
 
-    private async flushInbox(process: TeamAgentProcess, failLabel: string): Promise<void> {
+    private async flushInbox(process: TeamAgentProcess, failLabel: string): Promise<boolean> {
         const messages = await this.messageService.drain(process.agentId);
+        let ok = true;
         for (const message of messages) {
             const result = await process.send(MessageService.formatMessage(message));
             if (result.ok) await this.messageService.deliver(message.id);
-            else await this.messageService.fail(message.id, failLabel);
+            else {
+                ok = false;
+                await this.messageService.fail(message.id, failLabel);
+            }
         }
-    }
-
-    private emit(event: TeamEvent, payload: unknown): void {
-        for (const listener of this.listeners.get(event) ?? []) listener(payload);
+        return ok;
     }
 }
