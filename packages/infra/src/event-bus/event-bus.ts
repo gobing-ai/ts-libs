@@ -118,6 +118,7 @@ export class EventBus<TEvents extends EventMap> {
                         });
                         busLogger().debug('async job enqueued', { event: eventName, jobId, handlerCount: 1 });
                         this.publishAsyncEnqueued(eventName, jobId, 1);
+                        continue;
                     } catch (error) {
                         errors++;
                         const message = error instanceof Error ? error.message : String(error);
