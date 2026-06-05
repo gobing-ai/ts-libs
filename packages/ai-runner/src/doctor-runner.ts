@@ -1,7 +1,8 @@
+import { getLogger, type Logger } from '@gobing-ai/ts-infra';
 import { getProcessEnv, joinPath, NodeFileSystem } from '@gobing-ai/ts-runtime';
 import { AgentDetector, type DetectedAgent } from './agent-detector';
-import { type AgentName, isAgentName, TIER2_AGENTS } from './agents/shims';
-import { AiRunner } from './ai-runner';
+import { type AgentName, DISPLAY_ORDER, isAgentName, TIER2_AGENTS } from './agents/shims';
+import { type AgentRunResult, AiRunner } from './ai-runner';
 
 /** Health-check result for one coding agent. */
 export interface DoctorResult {
@@ -33,9 +34,34 @@ export interface DoctorRunnerOptions {
     timeout?: number;
     /** Environment map for file/env auth checks. */
     env?: Record<string, string | undefined>;
+    /** Logger for health-check diagnostics. Defaults to `getLogger('doctor')`. */
+    logger?: Logger;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
+const AUTH_PATTERNS: Partial<Record<AgentName, { positive: RegExp; negative: RegExp }>> = {
+    claude: {
+        positive: /authenticated|logged[\s_-]*in|"loggedIn"\s*:\s*true/i,
+        negative:
+            /not[\s_-]*authenticated|not[\s_-]*logged[\s_-]*in|logged[\s_-]*out|unauthenticated|"loggedIn"\s*:\s*false/i,
+    },
+    codex: {
+        positive: /logged[\s_-]*in|authenticated/i,
+        negative: /not[\s_-]*authenticated|not[\s_-]*logged[\s_-]*in|logged[\s_-]*out|unauthenticated/i,
+    },
+    opencode: {
+        positive: /configured|available/i,
+        negative: /not[\s_-]*configured|no[\s_-]+providers?[\s_-]+available|unavailable/i,
+    },
+    openclaw: {
+        positive: /(^|[^a-z])ok([^a-z]|$)|healthy/i,
+        negative: /not[\s_-]*healthy|unhealthy|not[\s_-]*ok/i,
+    },
+    pi: {
+        positive: /\S/,
+        negative: /not[\s_-]*authenticated|not[\s_-]*logged[\s_-]*in|unauthenticated|no[\s_-]+providers?/i,
+    },
+};
 
 /** True when a value is a defined, non-blank string. */
 function isNonEmpty(value: string | undefined): boolean {
@@ -49,18 +75,33 @@ export class DoctorRunner {
     private readonly timeout: number;
     private readonly env: Record<string, string | undefined>;
     private readonly fs = new NodeFileSystem();
+    private readonly logger: Logger;
 
     constructor(options: DoctorRunnerOptions = {}) {
         this.runner = options.runner ?? new AiRunner();
         this.detector = options.agentDetector ?? new AgentDetector({ runner: this.runner });
         this.timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
         this.env = options.env ?? getProcessEnv();
+        this.logger = options.logger ?? getLogger('doctor');
     }
 
     /** Run a health check on all supported agents. */
     async runAll(): Promise<DoctorResult[]> {
         const detected = await this.detector.detectAll();
-        return await Promise.all(detected.map((agent) => this.buildResult(agent)));
+        const byName = new Map(detected.map((agent) => [agent.name, agent]));
+        return await Promise.all(
+            DISPLAY_ORDER.map((agent) =>
+                this.buildResult(
+                    byName.get(agent) ?? {
+                        name: agent,
+                        installed: false,
+                        version: null,
+                        channels: [],
+                        error: `Unknown agent: ${agent}`,
+                    },
+                ),
+            ),
+        );
     }
 
     /** Run a health check on one agent. */
@@ -70,6 +111,7 @@ export class DoctorRunner {
 
     private async buildResult(detected: DetectedAgent): Promise<DoctorResult> {
         const tier = TIER2_AGENTS.has(detected.name as AgentName) ? 2 : 1;
+        this.logger.debug('checking agent', { agent: detected.name, installed: detected.installed, tier });
         const authenticated =
             detected.installed && isAgentName(detected.name) ? await this.checkAuth(detected.name) : false;
         return {
@@ -85,23 +127,43 @@ export class DoctorRunner {
     }
 
     private async checkAuth(agent: AgentName): Promise<boolean> {
-        // gemini/codex expose no auth-status command; treat a non-empty credential
-        // file as authenticated. An empty/zero-byte file is a stale-credential
-        // false positive, so existence alone is insufficient.
         const home = this.env.HOME || this.env.USERPROFILE || '';
-        if (agent === 'gemini') return this.hasNonEmptyFile(joinPath(home, '.gemini', 'settings.json'));
-        if (agent === 'codex' && (await this.hasNonEmptyFile(joinPath(home, '.codex', 'auth.json')))) return true;
+        if (agent === 'gemini') return this.geminiSettingsContainCredentials(home);
+        if (agent === 'codex') return this.checkCodexAuth(home);
         // pi reads provider keys from the environment; require a non-empty value
         // rather than mere presence (an empty export is not a usable credential).
         if (agent === 'pi' && (isNonEmpty(this.env.GOOGLE_API_KEY) || isNonEmpty(this.env.ANTHROPIC_API_KEY)))
             return true;
-        const command = this.runner.runAuthCommand(agent, { timeout: this.timeout });
-        if (command === null) return false;
-        const result = await command;
+        return (await this.probeAuthOutput(agent)) === true;
+    }
+
+    private async checkCodexAuth(home: string): Promise<boolean> {
+        const probeStatus = await this.probeAuthOutput('codex');
+        if (probeStatus !== null) return probeStatus;
         return (
-            result.exitCode === 0 &&
-            !/not authenticated|not logged|unauthenticated/i.test(`${result.stdout}\n${result.stderr}`)
+            (await this.hasNonEmptyFile(joinPath(home, '.codex', 'auth.json'))) ||
+            (await this.hasNonEmptyFile(joinPath(home, '.codex', 'auth')))
         );
+    }
+
+    private async geminiSettingsContainCredentials(home: string): Promise<boolean> {
+        try {
+            return /auth|token|key/i.test(await this.fs.readFile(joinPath(home, '.gemini', 'settings.json')));
+        } catch {
+            return false;
+        }
+    }
+
+    private async probeAuthOutput(agent: AgentName): Promise<boolean | null> {
+        const command = this.runner.runAuthCommand(agent, { timeout: this.timeout });
+        const patterns = AUTH_PATTERNS[agent];
+        if (command === null || patterns === undefined) return null;
+        const result: AgentRunResult = await command;
+        if (result.exitCode !== 0) return false;
+        const output = `${result.stdout}\n${result.stderr}`;
+        if (patterns.negative.test(output)) return false;
+        if (patterns.positive.test(output)) return true;
+        return null;
     }
 
     /** True when the path exists and has a non-zero size. */
