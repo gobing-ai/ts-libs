@@ -1,4 +1,4 @@
-import { getFs, resolvePath, walkDir } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, type FileSystem, joinPath, resolvePath } from '@gobing-ai/ts-runtime';
 import { HistoryImportError } from './errors';
 import { sha256 } from './hash';
 import { redactRecord } from './redaction';
@@ -38,10 +38,11 @@ export async function applyHistoryImportSchema(db: ImportOptions['db']): Promise
 /** Run the JSONL import pipeline for one source definition. */
 export async function runJsonlImport(source: LlmJsonlSource, options: ImportOptions): Promise<ImportResult> {
     const definition = getSourceDefinition(source);
+    const fileSystem = options.fileSystem ?? createNodeFileSystem();
     await applyHistoryImportSchema(options.db);
 
     const mode = options.mode ?? 'incremental';
-    const files = await discoverFiles(definition, options.roots, options.files);
+    const files = await discoverFiles(definition, options.roots, options.files, fileSystem);
     if (mode === 'full' && !options.dryRun) {
         await resetCheckpoints(options.db, source, files);
     }
@@ -55,7 +56,7 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
 
     for (const file of files) {
         const checkpoint = mode === 'incremental' ? await readCheckpoint(options.db, source, file) : 0;
-        const lines = (await getFs().readFile(file)).split(/\r?\n/);
+        const lines = (await fileSystem.readFile(file)).split(/\r?\n/);
 
         for (let index = 0; index < lines.length; index += 1) {
             const lineNumber = index + 1;
@@ -210,27 +211,43 @@ async function discoverFiles(
     definition: SourceDefinition,
     roots: readonly string[] | undefined,
     files: readonly string[] | undefined,
+    fileSystem: FileSystem,
 ): Promise<readonly string[]> {
     if (files !== undefined && files.length > 0) {
         return files.map((file) => resolvePath(file)).sort();
     }
 
-    const fs = getFs();
     const resolvedRoots = (roots ?? definition.defaultRoots).map((root) => resolvePath(root));
     const found = new Set<string>();
     for (const root of resolvedRoots) {
-        if (!(await fs.exists(root))) continue;
-        const stat = await fs.stat(root);
+        if (!(await fileSystem.exists(root))) continue;
+        const stat = await fileSystem.stat(root);
         if (stat === null) continue;
         if (stat.isFile()) {
             if (matchesPattern(root, definition.filePatterns)) found.add(root);
             continue;
         }
-        for (const file of await walkDir(root)) {
+        for (const file of await walkFiles(fileSystem, root)) {
             if (matchesPattern(file, definition.filePatterns)) found.add(file);
         }
     }
     return [...found].sort();
+}
+
+async function walkFiles(fileSystem: FileSystem, root: string): Promise<readonly string[]> {
+    const entries = [...(await fileSystem.readDir(root))].sort();
+    const found: string[] = [];
+    for (const entry of entries) {
+        const path = joinPath(root, entry);
+        const stat = await fileSystem.stat(path);
+        if (stat === null) continue;
+        if (stat.isDirectory()) {
+            found.push(...(await walkFiles(fileSystem, path)));
+            continue;
+        }
+        if (stat.isFile()) found.push(path);
+    }
+    return found;
 }
 
 function matchesPattern(path: string, patterns: readonly string[]): boolean {
