@@ -8,7 +8,7 @@ Coding-agent command shims, installation detection, doctor checks, slash-command
 
 | Export | Purpose |
 |--------|---------|
-| `AiRunner` | Runs help, version, auth, and prompt commands through a pluggable process executor |
+| `AiRunner` | Runs help, version, auth, prompt, and slash commands through a pluggable process executor; can also build a prompt command without executing it |
 | `AgentDetector` | Probes supported agent CLIs and parses version output |
 | `DoctorRunner` | Combines installation and authentication checks into a usability report |
 | `getAgentShim()` | Returns the pure command builder for one supported agent |
@@ -27,7 +27,7 @@ Supported agent identifiers are `claude`, `codex`, `gemini`, `pi`, `opencode`, `
 bun add @gobing-ai/ts-ai-runner
 ```
 
-The package depends on `@gobing-ai/ts-runtime` for process execution and `@gobing-ai/ts-db` for team-mode inbox types. The target agent CLIs are not bundled; install them separately in the host environment.
+The package depends on `@gobing-ai/ts-runtime` for process execution, `@gobing-ai/ts-db` for team-mode inbox types, and `@gobing-ai/ts-infra` for structured logging. The target agent CLIs are not bundled; install them separately in the host environment.
 
 ## Detect Installed Agents
 
@@ -77,6 +77,24 @@ console.log(result.stdout);
 ```
 
 `AiRunner` captures `stdout`, `stderr`, `exitCode`, optional termination `signal`, and `durationMs`. It does not throw on non-zero agent exits; callers decide how to handle failures.
+
+Every invocation is logged through an injectable logger (`getLogger('ai-runner')` by default): one `debug` line per dispatch and an `error` line on any non-zero exit. Pass a custom `logger` to the constructor to route diagnostics elsewhere or silence them in tests.
+
+### Slash commands and command preview
+
+`runSlashCommand()` translates a Claude-style `/plugin:command args` input into the target agent's dialect (via `translateSlashCommand()`) and dispatches it as a prompt. Non-slash input passes through unchanged.
+
+```ts
+// For codex, "/review:pr 123" becomes "$review-pr 123" before dispatch.
+await runner.runSlashCommand('codex', '/review:pr 123', { model: 'gpt-5' });
+```
+
+`buildPromptCommand()` returns the resolved `{ command, args }` **without** executing it — useful for previewing, logging, or dry-running the exact argv a prompt would dispatch. It applies the same identity-preamble enrichment as `runPromptCommand()`.
+
+```ts
+const { command, args } = runner.buildPromptCommand('pi', { input: 'ship it', mode: 'json' });
+// command === 'pi', args === ['--no-session', '-p', 'ship it', '--mode', 'json']
+```
 
 ### Team identity preambles
 
