@@ -5,6 +5,7 @@ import {
     getQueueJobFailedTotal,
     getQueueJobProcessingDuration,
 } from '../telemetry/metrics';
+import { addSpanAttributes, traceAsync } from '../telemetry/tracing';
 import type { EnqueueOptions, Job, JobHandler, JobQueue, QueueConsumer, QueueConsumerConfig } from './types';
 
 /** DB-backed job queue implementation over `@gobing-ai/ts-db`'s `QueueJobDao`. */
@@ -84,28 +85,31 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
 
     /** Process one batch immediately. Useful for tests, schedulers, and manual drains. */
     async processOnce(): Promise<number> {
-        await this.dao.resetStuckJobs(this.visibilityTimeout);
-        await this.dao.failExpiredJobs();
+        return traceAsync('queue.poll', async () => {
+            await this.dao.resetStuckJobs(this.visibilityTimeout);
+            await this.dao.failExpiredJobs();
 
-        const jobs = await this.dao.claimReady(this.batchSize);
-        let processed = 0;
+            const jobs = await this.dao.claimReady(this.batchSize);
+            let processed = 0;
 
-        for (let index = 0; index < jobs.length; index += this.maxConcurrency) {
-            const batch = jobs.slice(index, index + this.maxConcurrency);
-            await Promise.all(
-                batch.map(async (job) => {
-                    this.inFlight += 1;
-                    try {
-                        await this.processJob(job);
-                        processed += 1;
-                    } finally {
-                        this.inFlight -= 1;
-                    }
-                }),
-            );
-        }
+            for (let index = 0; index < jobs.length; index += this.maxConcurrency) {
+                const batch = jobs.slice(index, index + this.maxConcurrency);
+                await Promise.all(
+                    batch.map(async (job) => {
+                        this.inFlight += 1;
+                        try {
+                            await this.processJob(job);
+                            processed += 1;
+                        } finally {
+                            this.inFlight -= 1;
+                        }
+                    }),
+                );
+            }
 
-        return processed;
+            addSpanAttributes({ 'queue.claimed': jobs.length, 'queue.processed': processed });
+            return processed;
+        });
     }
 
     private schedule(delay: number): void {
@@ -125,22 +129,30 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
 
     private async processJob(record: QueueJobRecord): Promise<void> {
         const job = toJob<T>(record);
-        const handler = this.handlers.get(job.type);
-        if (handler === undefined) {
-            await this.failOrRetry(job, new Error(`No handler registered for job type "${job.type}"`));
-            return;
-        }
+        return traceAsync('queue.job.process', async () => {
+            addSpanAttributes({
+                'queue.job_id': job.id,
+                'queue.job_type': job.type,
+                'queue.job_attempt': job.attempts,
+            });
 
-        const startMs = performance.now();
-        try {
-            await handler(job);
-            await this.dao.markCompleted(job.id);
-            getQueueJobCompletedTotal().add(1, { type: job.type });
-            getQueueJobProcessingDuration().record(performance.now() - startMs, { type: job.type });
-        } catch (error) {
-            getQueueJobProcessingDuration().record(performance.now() - startMs, { type: job.type });
-            await this.failOrRetry(job, error);
-        }
+            const handler = this.handlers.get(job.type);
+            if (handler === undefined) {
+                await this.failOrRetry(job, new Error(`No handler registered for job type "${job.type}"`));
+                return;
+            }
+
+            const startMs = performance.now();
+            try {
+                await handler(job);
+                await this.dao.markCompleted(job.id);
+                getQueueJobCompletedTotal().add(1, { type: job.type });
+                getQueueJobProcessingDuration().record(performance.now() - startMs, { type: job.type });
+            } catch (error) {
+                getQueueJobProcessingDuration().record(performance.now() - startMs, { type: job.type });
+                await this.failOrRetry(job, error);
+            }
+        });
     }
 
     private async failOrRetry(job: Job<T>, error: unknown): Promise<void> {
