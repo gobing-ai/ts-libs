@@ -1,7 +1,7 @@
 # 00 ADR — ts-libs
 
 **Status:** Authoritative
-**Last Updated:** 2026-06-04
+**Last Updated:** 2026-06-05
 **Owner:** Robin Min
 
 Single source of truth for the architecture & release decisions that define this monorepo. Each
@@ -219,6 +219,30 @@ subpath (`/otel-workers`), not a change to the core. Containment is enforced by
 `tests/telemetry/optional-peers.test.ts`; a spur rule may later codify "no exporter import outside
 `otel-*` subpaths."
 
+### ADR-009 Addendum — Global Provider Default, Injectable Telemetry Ports Allowed (2026-06-05)
+
+**Context.** The global-provider default is correct for normal OTel usage, but `ts-infra` is becoming the
+foundation for long-lived runtime services, schedulers, queues, and event pipelines. Some robust infra use
+cases need isolation from process-global telemetry state: deterministic tests, embedded runtimes, multi-app
+hosts, and consumers that want to connect `ts-infra` instrumentation to a custom collector or in-memory
+probe without mutating the global OTel provider.
+
+**Decision.** ADR-009's rule is refined, not reversed:
+
+- The default `ts-infra` telemetry path still instruments through the globally registered OTel provider and
+  degrades to no-op when no provider is registered.
+- Core instrumentation helpers may also accept **optional structural telemetry ports** (`TracerPort`,
+  `MeterPort`, or narrower operation-specific ports) for isolated/embedded scenarios.
+- Exporter ownership remains outside the core. A structural port may be backed by OTel, tests, a runtime
+  adapter, or a consuming application's telemetry layer, but core `@gobing-ai/ts-infra` must not construct
+  exporters.
+- Node/Workers/exporter-specific implementations still live behind opt-in subpaths (`/otel-node`,
+  future `/otel-workers`, etc.) per ADR-014.
+
+**Consequences.** The global provider remains the ergonomic default, while advanced consumers are not forced
+through a singleton. Tests can assert spans/metrics without global mutation. `ts-infra` can support robust
+embedded and multi-tenant scenarios without taking ownership of exporter topology.
+
 ---
 
 ## ADR-010: Shared Plugin Mechanism Lives in `ts-runtime`; Engine Concepts Stay Separate
@@ -363,6 +387,35 @@ classes are deprecated but preserved for backward compatibility.
 
 Implementation is tracked as tasks 0012 (factory + FileSystem + ProcessExecutor) and 0013 (path
 utility consolidation + exemption elimination) under `docs/tasks/`.
+
+### ADR-011 Addendum — Runtime Boundary Is Default Ownership, Not an Adapter Ban (2026-06-05)
+
+**Context.** The strict runtime-boundary rules correctly prevent platform APIs from leaking randomly across
+packages. However, `ts-infra` now owns infrastructure adapters: schedulers, queue/file observers, health
+pings, telemetry exporters, and other operational integrations. Treating ADR-011 as "only `ts-runtime` may
+ever contain platform behavior" would force awkward injected seams for every infra adapter or push
+infrastructure concerns down into `ts-runtime`, which would couple runtime primitives to higher-level
+observability and operations concepts.
+
+**Decision.** Runtime ownership is the default, not an absolute ban on infra adapters:
+
+- `ts-runtime` remains the default owner of raw platform primitives: filesystem, process execution,
+  platform detection, path utilities, config loading, and direct `node:*` / `Bun.*` usage.
+- `@gobing-ai/ts-infra` **core** must stay platform-neutral and must not import raw platform APIs.
+- Platform-specific infra implementations are allowed only as **opt-in adapter subpaths** (for example
+  `/otel-node`, future `/scheduler-node`, `/file-observer-runtime`, `/health-node`, `/otel-workers`) and
+  must not be statically imported by the main barrel.
+- Where an adapter needs raw platform primitives, prefer composing with `@gobing-ai/ts-runtime` first. Raw
+  platform imports inside a narrowly scoped adapter subpath require an explicit ADR/rule exemption and a
+  test proving the main barrel remains clean.
+- `.spur/rules/` should distinguish core source from sanctioned adapter subpaths instead of weakening the
+  boundary globally.
+
+**Consequences.** The monorepo keeps platform discipline without blocking first-party, production-grade
+infra adapters. The main `@gobing-ai/ts-infra` import remains portable and lightweight; consumers opt into
+runtime-specific behavior explicitly through subpaths. Future code changes should migrate heavy or
+platform/storage-backed implementations toward the ADR-014 boundary rather than adding more surface to the
+main barrel.
 
 ---
 
@@ -544,3 +597,68 @@ names and `EventBus` names share dotted prefixes (`process.`, `agent.`) to keep 
 aligned. Additive: logs and traces work without a bus. A spur rule may enforce this (ADR-006): `ts-infra`
 dependents emitting lifecycle behavior accept `events?: EventBus<...>`; runtime-layer emitters use a port,
 never import `ts-infra`.
+
+---
+
+## ADR-014: `ts-infra` Core/Adapter Boundary
+
+**Status:** Accepted · **Date:** 2026-06-05 · **Targets:** `@gobing-ai/ts-infra`
+
+**Context.** `ts-infra` is intended to be the shared infrastructure foundation: logging, eventing,
+telemetry instrumentation, schedulers, queues, API client behavior, and operational observers. After the
+post-migration review, its functionality is broader and more useful, but the package structure now risks
+turning the main barrel into a heavy "everything import":
+
+- `EventBus` is portable and useful as core infrastructure.
+- `Logger` and telemetry helpers are portable if they only instrument and accept injected/configured sinks.
+- DB-backed queues naturally depend on `ts-db`.
+- Node telemetry export naturally depends on optional OTel SDK/exporter peers.
+- File observers and health pings need filesystem behavior that belongs to runtime/platform adapters.
+- Scheduler adapters differ by runtime (`node`, `cloudflare`, no-op).
+
+If all of these stay in `@gobing-ai/ts-infra`'s main export, a consumer that only wants `EventBus` can
+inherit storage, exporter, scheduler, and platform concerns. Conversely, if ADR-011 is read too strictly,
+`ts-infra` cannot ship robust first-party adapters at all. The right boundary is not "infra does nothing
+platform-specific"; it is "infra core stays portable, adapters are explicit."
+
+**Decision.** `@gobing-ai/ts-infra` is split conceptually into a portable core and opt-in adapters.
+
+1. **Core barrel (`@gobing-ai/ts-infra`) stays portable and dependency-light.** It exports contracts and
+   runtime-neutral primitives: typed event bus, logger facade, telemetry helper contracts/defaults, event
+   maps, scheduler/queue interfaces, and other code that does not require storage, platform APIs, exporter
+   SDKs, or runtime-specific behavior.
+
+2. **Adapters live behind explicit subpaths.** Storage-backed, runtime-backed, and exporter-backed
+   implementations should be exposed from opt-in subpaths, for example:
+   - `@gobing-ai/ts-infra/job-queue-db` for `ts-db` backed queue implementations;
+   - `@gobing-ai/ts-infra/otel-node` for Node OTel exporters/providers;
+   - future `@gobing-ai/ts-infra/otel-workers` for Workers telemetry export;
+   - future `@gobing-ai/ts-infra/scheduler-node` / `scheduler-cloudflare` for runtime-specific schedulers;
+   - future `@gobing-ai/ts-infra/file-observer-runtime` for FileSystem-backed observers.
+
+3. **No static adapter imports from the core barrel.** The main barrel may export adapter-independent
+   interfaces and factory types, but must not import adapter implementation modules as values. Subpath
+   imports are the opt-in boundary.
+
+4. **Dependency placement follows import weight.** Dependencies needed only by adapters belong to the
+   adapter subpath's implementation path and should be optional peers when the package manager requires
+   visibility in `package.json` (same structural optionality principle as ADR-007 and ADR-009). Direct
+   internal dependencies still use `workspace:*` per ADR-002.
+
+5. **Injection remains valid for tiny seams, but not as a substitute for adapters.** Injected writers,
+   sinks, and ports are appropriate when the operation is small and keeps core portable. When an
+   implementation becomes a real integration with lifecycle, configuration, retry/error policy, or
+   platform-specific behavior, prefer a named adapter subpath over widening every core API with callback
+   seams.
+
+6. **Event maps are owned by the package that owns the behavior.** `ts-infra` owns infrastructure-level
+   event maps (`queue.*`, `scheduler.*`, `api.*`, `db.*`). Higher-level packages own their domain event
+   maps and may compose them with `InfraEvents`.
+
+**Consequences.** `@gobing-ai/ts-infra` remains a robust foundation without becoming a monolithic import.
+Consumers can depend on the portable core for events/logging/telemetry contracts and opt into concrete
+storage/runtime/exporter implementations intentionally. Future refactors should move DB-backed queues,
+runtime-specific schedulers, and platform/file-backed observers toward subpaths without breaking existing
+callers unless a normal semver-breaking release is explicitly planned. Spur rules should eventually enforce:
+main-barrel import graph contains no adapter-only SDKs/platform modules, and sanctioned adapter subpaths do
+not leak into core.
