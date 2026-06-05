@@ -491,3 +491,29 @@ controls traversal, never pass/fail.
 **Consequences.** Both packages remain releasable in one lockstep bump for spur-new#0017. The workflow
 engine now supports resilient workflows where non-fatal action failures log and continue. The rule engine
 supports early exit for noisy linter runs. Policy verbs stay distinct and honest.
+
+---
+### ADR-013 Addendum — Engine EventBus Observability Layer (2026-06-04)
+
+**Context.** ADR-013 added workflow logs and traces, but neither `ts-dual-workflow-engine` nor
+`ts-rule-engine` exposed a programmatic in-process subscription layer. Downstream consumers that need
+progress events (IDE integrations, CI dashboards, spur progress bars) should not scrape logs or require an
+OTel collector. The workspace already ships a typed `EventBus` in `ts-infra`.
+
+**Decision.** Engine observability has three distinct layers:
+
+- **Logs** (`getLogger`) are for human/file debugging.
+- **Traces** (`traceAsync`/`addSpanEvent`) are for distributed performance correlation.
+- **Events** (`EventBus`) are for in-process programmatic subscribers.
+
+`EventBus` is additive; it does not replace existing logs or traces. Each engine owns its local event map:
+`RuleEngineEvents` in `ts-rule-engine` and `WorkflowEngineEvents` in `ts-dual-workflow-engine`. They share
+only the injection shape (`options.events?: EventBus<...>`), not a common event-map module. Rule-engine
+events are prefixed `rule.` and workflow-engine events are prefixed `workflow.` so one consumer can attach
+both engines to one bus without name collisions. Workflow span event names and workflow EventBus names use
+the same `workflow.*` vocabulary.
+
+**Consequences.** The rule engine gains a direct `ts-infra` dependency for logging/tracing/events, matching
+the workflow engine dependency introduced by ADR-013. Both engines remain decoupled at the type-map level,
+but consumers get symmetric subscription semantics. Omitting `events` keeps the default path unchanged:
+logs and traces still work, and no event bus handler dispatch is introduced.
