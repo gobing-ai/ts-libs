@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
+import type { FileSystem } from '@gobing-ai/ts-runtime';
 import { runJsonlImport } from '../src';
 
 let db: DbAdapter;
@@ -181,6 +182,28 @@ describe('runJsonlImport', () => {
         expect(result.importedRecords).toBe(1);
     });
 
+    test('reads files through an injected canonical FileSystem', async () => {
+        const file = '/virtual/history.jsonl';
+        const fileSystem = virtualFileSystem({
+            [file]: `${JSON.stringify({
+                id: 'virtual-1',
+                timestamp: '2026-05-30T00:00:00.000Z',
+                content: 'virtual fs',
+            })}\n`,
+        });
+
+        const result = await runJsonlImport('codex', {
+            db,
+            files: [file],
+            fileSystem,
+            mode: 'full',
+            now: fixedNow,
+        });
+
+        expect(result.scannedFiles).toBe(1);
+        expect(result.importedRecords).toBe(1);
+    });
+
     test('falls back to a single Pi record when the nested messages field is absent', async () => {
         const file = await fixtureFile([
             JSON.stringify({ id: 'pi-single', timestamp: '2026-05-30T00:00:00.000Z', content: 'single' }),
@@ -203,4 +226,35 @@ async function fixtureFile(lines: readonly string[]): Promise<string> {
 
 function fixedNow(): Date {
     return new Date('2026-05-30T12:00:00.000Z');
+}
+
+function virtualFileSystem(files: Record<string, string>): FileSystem {
+    return {
+        exists: (path) => path in files,
+        readFile: (path) => {
+            const content = files[path];
+            if (content === undefined) throw new Error(`unexpected read: ${path}`);
+            return content;
+        },
+        writeFile: () => undefined,
+        appendFile: () => undefined,
+        ensureDir: () => undefined,
+        readDir: () => [],
+        deleteFile: () => undefined,
+        copy: () => undefined,
+        stat: (path) =>
+            path in files
+                ? {
+                      isFile: () => true,
+                      isDirectory: () => false,
+                      size: files[path]?.length ?? 0,
+                      mtimeMs: 0,
+                  }
+                : null,
+        createWriteStream: () => {
+            throw new Error('unexpected stream');
+        },
+        resolve: (...segments) => segments.join('/'),
+        getProjectRoot: () => '/virtual',
+    };
 }
