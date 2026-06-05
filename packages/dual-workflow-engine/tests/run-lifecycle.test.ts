@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { type Logger, setLoggerMuted } from '@gobing-ai/ts-infra';
+import { EventBus, type Logger, setLoggerMuted } from '@gobing-ai/ts-infra';
+import type { WorkflowEngineEvents } from '../src/events';
 import { MemoryWorkflowPersistenceAdapter } from '../src/persistence';
 import {
     allowedEnv,
@@ -156,6 +157,55 @@ describe('RunLifecycle.run', () => {
             lc.fail('end', 0, 'boom'),
         );
         expect(lines).toContain('warn:workflow run failed');
+    });
+
+    test('emits lifecycle events through an injected event bus', async () => {
+        const { adapter } = recordingPersistence();
+        const events = new EventBus<WorkflowEngineEvents>();
+        const seen: string[] = [];
+        events.on('workflow.run.started', (data) => seen.push(`run.started:${data.workflowName}:${data.runId}`));
+        events.on('workflow.node.enter', (data) => seen.push(`node.enter:${data.node}:${data.transitionsTaken}`));
+        events.on('workflow.node.transition', (data) =>
+            seen.push(`node.transition:${data.from}->${data.to}:${data.trigger}`),
+        );
+        events.on('workflow.run.done', (data) => seen.push(`run.done:${data.finalState}:${data.transitionsTaken}`));
+
+        await RunLifecycle.run(
+            'wf',
+            'state-machine',
+            { persistence: adapter, events },
+            { runId: 'r-events' },
+            async (lc) => {
+                await lc.enter('a', 0);
+                await lc.recordTransition('a', 'b', 'go');
+                return lc.done('b', 1);
+            },
+        );
+
+        expect(seen).toEqual(['run.started:wf:r-events', 'node.enter:a:0', 'node.transition:a->b:go', 'run.done:b:1']);
+    });
+
+    test('emits failed and action failed-continue events through an injected event bus', async () => {
+        const { adapter } = recordingPersistence();
+        const events = new EventBus<WorkflowEngineEvents>();
+        const seen: string[] = [];
+        events.on('workflow.action.failed_continue', (data) =>
+            seen.push(`action.failed_continue:${data.node}:${data.transitionsTaken}:${data.error}`),
+        );
+        events.on('workflow.run.failed', (data) => seen.push(`run.failed:${data.finalState}:${data.reason}`));
+
+        await RunLifecycle.run(
+            'wf',
+            'transition-flow',
+            { persistence: adapter, events },
+            { runId: 'r-failed' },
+            async (lc) => {
+                lc.warnActionFailed('start', 0, 'soft');
+                return lc.fail('start', 0, 'hard');
+            },
+        );
+
+        expect(seen).toEqual(['action.failed_continue:start:0:soft', 'run.failed:start:hard']);
     });
 });
 
