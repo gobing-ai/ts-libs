@@ -59,6 +59,14 @@ describe('dirnamePath', () => {
     test('trailing slash stripped', () => {
         expect(dirnamePath('/a/b/')).toBe('/a');
     });
+
+    test('Windows path', () => {
+        expect(dirnamePath('C:\\a\\b\\c.ts')).toBe('C:/a/b');
+    });
+
+    test('Windows drive root', () => {
+        expect(dirnamePath('C:/')).toBe('C:/');
+    });
 });
 
 describe('basenamePath', () => {
@@ -106,6 +114,10 @@ describe('resolvePath', () => {
     test('Collapses ".." segments', () => {
         expect(resolvePath('/a/b/c', '../../d')).toBe('/a/d');
     });
+
+    test('preserves Windows drive roots', () => {
+        expect(resolvePath('C:\\a\\b', '..\\c')).toBe('C:/a/c');
+    });
 });
 
 describe('relativePath', () => {
@@ -123,5 +135,13 @@ describe('relativePath', () => {
 
     test('sibling', () => {
         expect(relativePath('/a/x', '/a/y')).toBe('../y');
+    });
+
+    test('Windows same drive', () => {
+        expect(relativePath('C:\\a\\b', 'C:\\a\\c')).toBe('../c');
+    });
+
+    test('Windows cross drive', () => {
+        expect(relativePath('C:\\a\\b', 'D:\\x\\y')).toBe('D:/x/y');
     });
 });
