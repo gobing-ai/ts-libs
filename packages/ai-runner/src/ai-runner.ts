@@ -1,6 +1,8 @@
+import { getLogger, type Logger } from '@gobing-ai/ts-infra';
 import { getProcessCwd, NodeProcessExecutor, type ProcessExecutor, type ProcessResult } from '@gobing-ai/ts-runtime';
-import { type AgentName, getAgentShim, type PromptOptions } from './agents/shims';
+import { type AgentName, getAgentShim, type PromptOptions, type ShimCommand } from './agents/shims';
 import { buildIdentityPreamble } from './identity';
+import { translateSlashCommand } from './slash-command';
 
 /** Result returned by every AI runner dispatch method. */
 export interface AgentRunResult {
@@ -32,6 +34,8 @@ export interface AiRunnerOptions {
     defaultCwd?: string;
     /** Default timeout in milliseconds. */
     defaultTimeout?: number;
+    /** Logger for invocation diagnostics. Defaults to `getLogger('ai-runner')`. */
+    logger?: Logger;
 }
 
 /** Dispatches coding-agent CLI commands through pure command shims. */
@@ -39,11 +43,13 @@ export class AiRunner {
     private readonly processExecutor: ProcessExecutor;
     private readonly defaultCwd: string | undefined;
     private readonly defaultTimeout: number | undefined;
+    private readonly logger: Logger;
 
     constructor(options: AiRunnerOptions = {}) {
         this.processExecutor = options.processExecutor ?? new NodeProcessExecutor();
         this.defaultCwd = options.defaultCwd;
         this.defaultTimeout = options.defaultTimeout;
+        this.logger = options.logger ?? getLogger('ai-runner');
     }
 
     /** Run an agent help command. */
@@ -62,14 +68,22 @@ export class AiRunner {
         promptOptions: PromptOptions,
         options: AgentRunOptions = {},
     ): Promise<AgentRunResult> {
-        const enrichedPromptOptions = this.withIdentityPreamble(agent, promptOptions, options);
-        return this.invoke(
-            agent,
-            'prompt',
-            getAgentShim(agent).getPromptCommand(enrichedPromptOptions),
-            options,
-            false,
-        );
+        return this.invoke(agent, 'prompt', this.buildPromptCommand(agent, promptOptions, options), options, false);
+    }
+
+    /** Translate a Claude-style slash command and run it as a prompt command. */
+    runSlashCommand(
+        agent: AgentName,
+        input: string,
+        promptOptions: PromptOptions,
+        options: AgentRunOptions = {},
+    ): Promise<AgentRunResult> {
+        return this.runPromptCommand(agent, { ...promptOptions, input: translateSlashCommand(agent, input) }, options);
+    }
+
+    /** Build an agent prompt command without executing it. */
+    buildPromptCommand(agent: AgentName, promptOptions: PromptOptions, options: AgentRunOptions = {}): ShimCommand {
+        return getAgentShim(agent).getPromptCommand(this.withIdentityPreamble(agent, promptOptions, options));
     }
 
     /** Run an agent authentication command, or return null when unsupported. */
@@ -85,15 +99,24 @@ export class AiRunner {
         options: AgentRunOptions,
         forceBuffered: boolean,
     ): Promise<AgentRunResult> {
+        const label = `ai-runner.${agent}.${operation}`;
+        this.logger.debug('invoke', { label, command: command.command, args: command.args.join(' ') });
         const result: ProcessResult = await this.processExecutor.run({
             command: command.command,
             args: command.args,
-            label: `ai-runner.${agent}.${operation}`,
+            label,
             rejectOnError: false,
             forceBuffered,
             cwd: options.cwd ?? this.defaultCwd,
             timeout: options.timeout ?? this.defaultTimeout,
         });
+        if (result.exitCode !== 0) {
+            this.logger.error('invoke exited non-zero', {
+                label,
+                exitCode: result.exitCode,
+                signal: result.signal,
+            });
+        }
         return {
             exitCode: result.exitCode,
             stdout: result.stdout,
