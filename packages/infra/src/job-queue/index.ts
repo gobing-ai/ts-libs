@@ -1,4 +1,3 @@
-export { DBJobQueue, DBQueueConsumer } from './db-job-queue';
 export type {
     EnqueueOptions,
     Job,
