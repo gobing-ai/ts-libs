@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import type { Logger } from '@gobing-ai/ts-infra';
 import { basenamePath, dirnamePath, resolvePath, SEP } from '@gobing-ai/ts-runtime';
 import type {
     ExtensionRef as SharedExtensionRef,
@@ -6,7 +7,6 @@ import type {
 } from '@gobing-ai/ts-runtime/plugin';
 import { loadExtensionModules } from '@gobing-ai/ts-runtime/plugin';
 import type { RuleEngineHost } from '../host/rule-engine-host';
-
 /** A capability kind a preset extension can contribute. */
 export type ExtensionKind = 'resolvers' | 'evaluators' | 'fixers' | 'formatters';
 
@@ -29,7 +29,7 @@ export interface LoadExtensionsOptions {
      */
     allowExtensions?: boolean;
     /** Optional sink for non-fatal warnings (e.g. built-in overrides). */
-    logger?: { warn: (message: string) => void };
+    logger?: Pick<Logger, 'warn'>;
     /** Optional module loader seam for tests or embedders with custom import policy. */
     moduleLoader?: (absPath: string) => Promise<Record<string, unknown>>;
 }
