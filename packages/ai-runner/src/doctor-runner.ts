@@ -88,17 +88,9 @@ export class DoctorRunner {
         // gemini/codex expose no auth-status command; treat a non-empty credential
         // file as authenticated. An empty/zero-byte file is a stale-credential
         // false positive, so existence alone is insufficient.
-        if (agent === 'gemini')
-            return this.hasNonEmptyFile(
-                joinPath(process.env.HOME || process.env.USERPROFILE || '', '.gemini', 'settings.json'),
-            );
-        if (
-            agent === 'codex' &&
-            (await this.hasNonEmptyFile(
-                joinPath(process.env.HOME || process.env.USERPROFILE || '', '.codex', 'auth.json'),
-            ))
-        )
-            return true;
+        const home = this.env.HOME || this.env.USERPROFILE || '';
+        if (agent === 'gemini') return this.hasNonEmptyFile(joinPath(home, '.gemini', 'settings.json'));
+        if (agent === 'codex' && (await this.hasNonEmptyFile(joinPath(home, '.codex', 'auth.json')))) return true;
         // pi reads provider keys from the environment; require a non-empty value
         // rather than mere presence (an empty export is not a usable credential).
         if (agent === 'pi' && (isNonEmpty(this.env.GOOGLE_API_KEY) || isNonEmpty(this.env.ANTHROPIC_API_KEY)))
