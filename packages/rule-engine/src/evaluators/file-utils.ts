@@ -1,6 +1,6 @@
 import {
     dirnamePath,
-    type FileSystem,
+    type LegacyFileSystem as FileSystem,
     NodeFileSystem,
     relativePath,
     resolvePath,
