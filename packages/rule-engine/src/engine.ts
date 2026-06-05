@@ -1,4 +1,7 @@
+import type { EventBus, Logger } from '@gobing-ai/ts-infra';
+import { addSpanEvent, getLogger, traceAsync } from '@gobing-ai/ts-infra';
 import type { ProcessExecutor } from '@gobing-ai/ts-runtime';
+import type { RuleEngineEvents } from './events';
 import {
     applyFixes as applyFixesImpl,
     builtInFixers,
@@ -18,6 +21,10 @@ export interface RuleEngineOptions {
     processExecutor?: ProcessExecutor;
     /** Optional preconfigured host. */
     host?: RuleEngineHost;
+    /** Optional event bus for structured run observability (R-A4). */
+    events?: EventBus<RuleEngineEvents>;
+    /** Optional logger; defaults to the shared `rule-engine` category logger. */
+    logger?: Logger;
 }
 
 /** Orchestrates enabled constraint rules through a typed evaluator host. */
@@ -27,11 +34,15 @@ export class RuleEngine {
 
     /** Fixer providers keyed by evaluator type. */
     private readonly fixers: Map<string, RuleFixerProvider>;
+    private readonly events: EventBus<RuleEngineEvents> | undefined;
+    private readonly logger: Logger;
 
     constructor(options: RuleEngineOptions = {}) {
         this.host = options.host ?? new RuleEngineHost();
         registerBuiltins(this.host, options.processExecutor);
         this.fixers = builtInFixers(this.host, options.processExecutor);
+        this.events = options.events;
+        this.logger = options.logger ?? getLogger('rule-engine');
     }
 
     /** Register or replace an evaluator. */
@@ -76,57 +87,119 @@ export class RuleEngine {
         maxFixMode: FixMode = 'auto',
         stopOnFirst?: 'error' | 'warning' | 'info',
     ): Promise<RuleEngineResult> {
-        const findings: ConstraintFinding[] = [];
-        const fixes: Fix[] = [];
+        const enabledRules = rules.filter((r) => r.enabled !== false);
+        const runStartMs = Date.now();
 
-        for (const rule of rules) {
-            if (rule.enabled === false) continue;
+        return await traceAsync(
+            'rule.run',
+            async () => {
+                this.logger.info('rule run started', { enabled: enabledRules.length, total: rules.length });
+                addSpanEvent('rule.run.start', { rules: enabledRules.length, total: rules.length });
+                void this.events?.emit('rule.run.start', { rules: enabledRules.length, total: rules.length });
 
-            let ruleFindings: ConstraintFinding[] = [];
-            let ruleEvalFixes: Fix[] = [];
-            try {
-                const result = await this.host.evaluators.get(rule.evaluator.type).evaluate(rule, { rule, workdir });
-                ruleFindings = result.findings;
-                ruleEvalFixes = result.fixes;
-            } catch (error) {
-                ruleFindings = [
-                    createFinding(rule, error instanceof Error ? error.message : String(error), null, {
-                        code: `evaluator:${rule.evaluator.type}`,
-                        kind: 'error',
-                    }),
-                ];
-            }
+                const findings: ConstraintFinding[] = [];
+                const fixes: Fix[] = [];
+                let index = 0;
+                let stoppedEarlyLocal = false;
 
-            findings.push(...ruleFindings);
-            fixes.push(...ruleEvalFixes);
+                for (const rule of rules) {
+                    if (rule.enabled === false) continue;
+                    index++;
 
-            const ruleMode = rule.fix?.mode ?? 'none';
-            const effectiveMode = effectiveFixMode(ruleMode, maxFixMode);
+                    const evalStartMs = Date.now();
+                    this.logger.debug('eval start', { ruleId: rule.id, index, total: enabledRules.length });
+                    addSpanEvent('rule.eval.start', { ruleId: rule.id, index, total: enabledRules.length });
+                    void this.events?.emit('rule.eval.start', { ruleId: rule.id, index, total: enabledRules.length });
 
-            if (effectiveMode !== 'none' && ruleFindings.length > 0) {
-                const provider = this.fixers.get(rule.evaluator.type);
-                if (provider) {
-                    const effectiveFix: EffectiveFix = {
-                        mode: effectiveMode,
-                        ...(rule.fix?.replacement !== undefined ? { replacement: rule.fix.replacement } : {}),
-                        ...(rule.fix?.params !== undefined ? { params: rule.fix.params } : {}),
-                    };
-                    const providerFixes = await provider.createFixes({
-                        rule,
-                        context: { rule, workdir },
-                        findings: ruleFindings,
-                        fix: effectiveFix,
+                    let ruleFindings: ConstraintFinding[] = [];
+                    let ruleEvalFixes: Fix[] = [];
+                    try {
+                        const result = await this.host.evaluators
+                            .get(rule.evaluator.type)
+                            .evaluate(rule, { rule, workdir });
+                        ruleFindings = result.findings;
+                        ruleEvalFixes = result.fixes;
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        ruleFindings = [
+                            createFinding(rule, message, null, {
+                                code: `evaluator:${rule.evaluator.type}`,
+                                kind: 'error',
+                            }),
+                        ];
+                        addSpanEvent('rule.eval.error', { ruleId: rule.id, error: message });
+                        void this.events?.emit('rule.eval.error', { ruleId: rule.id, error: message });
+                    }
+
+                    const durationMs = Date.now() - evalStartMs;
+                    addSpanEvent('rule.eval.done', {
+                        ruleId: rule.id,
+                        findings: ruleFindings.length,
+                        durationMs,
                     });
-                    fixes.push(...providerFixes);
+                    void this.events?.emit('rule.eval.done', {
+                        ruleId: rule.id,
+                        findings: ruleFindings.length,
+                        durationMs,
+                    });
+
+                    findings.push(...ruleFindings);
+                    fixes.push(...ruleEvalFixes);
+
+                    const ruleMode = rule.fix?.mode ?? 'none';
+                    const effectiveMode = effectiveFixMode(ruleMode, maxFixMode);
+
+                    if (effectiveMode !== 'none' && ruleFindings.length > 0) {
+                        const provider = this.fixers.get(rule.evaluator.type);
+                        if (provider) {
+                            const effectiveFix: EffectiveFix = {
+                                mode: effectiveMode,
+                                ...(rule.fix?.replacement !== undefined ? { replacement: rule.fix.replacement } : {}),
+                                ...(rule.fix?.params !== undefined ? { params: rule.fix.params } : {}),
+                            };
+                            const providerFixes = await provider.createFixes({
+                                rule,
+                                context: { rule, workdir },
+                                findings: ruleFindings,
+                                fix: effectiveFix,
+                            });
+                            fixes.push(...providerFixes);
+                        }
+                    }
+
+                    if (
+                        stopOnFirst &&
+                        ruleFindings.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK[stopOnFirst])
+                    ) {
+                        stoppedEarlyLocal = true;
+                        break;
+                    }
                 }
-            }
 
-            if (stopOnFirst && ruleFindings.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK[stopOnFirst])) {
-                break;
-            }
-        }
+                const runDurationMs = Date.now() - runStartMs;
+                this.logger.info('rule run done', {
+                    rules: enabledRules.length,
+                    findings: findings.length,
+                    durationMs: runDurationMs,
+                    stoppedEarly: stoppedEarlyLocal,
+                });
+                addSpanEvent('rule.run.done', {
+                    rules: enabledRules.length,
+                    findings: findings.length,
+                    durationMs: runDurationMs,
+                    stoppedEarly: stoppedEarlyLocal,
+                });
+                void this.events?.emit('rule.run.done', {
+                    rules: enabledRules.length,
+                    findings: findings.length,
+                    durationMs: runDurationMs,
+                    stoppedEarly: stoppedEarlyLocal,
+                });
 
-        return { findings, fixes };
+                return { findings, fixes };
+            },
+            { attributes: { 'rule.count': enabledRules.length } },
+        );
     }
 
     /**
