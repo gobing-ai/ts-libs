@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createDbAdapter, type DbAdapter, QueueJobDao } from '@gobing-ai/ts-db';
-import { DBJobQueue, DBQueueConsumer } from '../../src/job-queue';
+import { DBJobQueue, DBQueueConsumer } from '../../src/job-queue-db';
 import { _resetMetrics } from '../../src/telemetry/metrics';
 import { _resetTelemetry, initTelemetry, shutdownTelemetry } from '../../src/telemetry/sdk';
 
