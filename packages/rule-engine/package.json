@@ -50,6 +50,7 @@
     },
     "dependencies": {
         "@gobing-ai/ts-ai-runner": "workspace:*",
+        "@gobing-ai/ts-infra": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
         "yaml": "^2.7.0",
         "zod": "^4.1.0"
