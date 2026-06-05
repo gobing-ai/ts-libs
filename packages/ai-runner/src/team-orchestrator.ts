@@ -1,10 +1,11 @@
+import type { InboxMessageDao } from '@gobing-ai/ts-db/inbox';
 import { EventBus } from '@gobing-ai/ts-infra';
 import type { AgentSpec } from './agent-spec';
 import { loadAgentSpecs } from './agent-spec';
 import { type AgentName, getAgentShim, isAgentName } from './agents/shims';
 import type { AgentEvents } from './events';
 import { buildIdentityPreamble } from './identity';
-import { MessageService } from './message-service';
+import { formatMessage } from './messages';
 import { TeamAgentProcess } from './team-agent-process';
 
 type AgentProcessFactory = (options: ConstructorParameters<typeof TeamAgentProcess>[0]) => TeamAgentProcess;
@@ -27,7 +28,7 @@ export class TeamOrchestrator {
 
     constructor(
         private readonly configDir: string,
-        private readonly messageService: MessageService,
+        private readonly inbox: InboxMessageDao,
         options: TeamOrchestratorOptions = {},
     ) {
         this.processFactory = options.processFactory ?? ((processOptions) => new TeamAgentProcess(processOptions));
@@ -96,7 +97,7 @@ export class TeamOrchestrator {
     }
 
     async sendMessage(fromId: string | null, toId: string, body: string, inReplyTo?: string): Promise<string> {
-        const msgId = await this.messageService.enqueue(fromId, toId, body, inReplyTo);
+        const msgId = await this.inbox.enqueue(fromId, toId, body, inReplyTo);
         const process = this.running.get(toId);
         const ok = process !== undefined ? await this.flushInbox(process, 'live stdin injection failed') : false;
         void this.events.emit('agent.message.sent', { agentId: toId, ok });
@@ -143,14 +144,14 @@ export class TeamOrchestrator {
     }
 
     private async flushInbox(process: TeamAgentProcess, failLabel: string): Promise<boolean> {
-        const messages = await this.messageService.drain(process.agentId);
+        const messages = await this.inbox.drainPending(process.agentId);
         let ok = true;
         for (const message of messages) {
-            const result = await process.send(MessageService.formatMessage(message));
-            if (result.ok) await this.messageService.deliver(message.id);
+            const result = await process.send(formatMessage(message));
+            if (result.ok) await this.inbox.markDelivered(message.id);
             else {
                 ok = false;
-                await this.messageService.fail(message.id, failLabel);
+                await this.inbox.markFailed(message.id, failLabel);
             }
         }
         return ok;

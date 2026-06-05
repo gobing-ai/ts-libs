@@ -5,7 +5,7 @@ export * from './ai-runner';
 export * from './doctor-runner';
 export * from './events';
 export * from './identity';
-export * from './message-service';
+export * from './messages';
 export * from './slash-command';
 export * from './team-agent-process';
 export * from './team-orchestrator';

@@ -7,7 +7,6 @@ import {
     type AgentEvents,
     type AgentProcessOptions,
     type AgentSpec,
-    MessageService,
     saveAgentSpec,
     TeamAgentProcess,
     TeamOrchestrator,
@@ -115,8 +114,7 @@ describe('TeamOrchestrator', () => {
         await writeSpec(dir, { id: 'planner', type: 'claude', workspace, purpose: 'Plan' });
 
         const dao = new MemoryDao();
-        const service = new MessageService(dao as never);
-        await service.enqueue(null, 'coder', 'queued before start');
+        await dao.enqueue(null, 'coder', 'queued before start');
         const events = new EventBus<AgentEvents>();
         const busEvents: string[] = [];
         events.on('agent.started', (event) => busEvents.push(`started:${event.agentId}:${event.agentType}`));
@@ -124,7 +122,7 @@ describe('TeamOrchestrator', () => {
         events.on('agent.message.sent', (event) => busEvents.push(`message:${event.agentId}:${event.ok}`));
 
         const created: FakeTeamAgentProcess[] = [];
-        const orchestrator = new TeamOrchestrator(dir, service, {
+        const orchestrator = new TeamOrchestrator(dir, dao as never, {
             events,
             processFactory: (options) => {
                 const teamProcess = new FakeTeamAgentProcess(options);
@@ -139,7 +137,7 @@ describe('TeamOrchestrator', () => {
         expect(teamProcess.getStatus()).toBe('running');
         expect(startedEvents).toEqual([{ agentId: 'coder', agentType: 'codex', pid: null }]);
         expect(created[0]?.sent[0]).toContain('queued before start');
-        expect(await service.countPending('coder')).toBe(0);
+        expect(await dao.countPending('coder')).toBe(0);
 
         const liveId = await orchestrator.sendMessage('planner', 'coder', 'live hello');
         expect(liveId).toBe('msg-2');
@@ -148,7 +146,7 @@ describe('TeamOrchestrator', () => {
         if (createdProcess === undefined) throw new Error('Expected created process');
         createdProcess.sendSucceeds = false;
         await orchestrator.sendMessage('planner', 'coder', 'live fail');
-        expect((await service.inbox('coder')).at(-1)).toMatchObject({ status: 'failed' });
+        expect((await dao.inbox('coder')).at(-1)).toMatchObject({ status: 'failed' });
         await orchestrator.sendMessage('planner', 'missing', 'queued for stopped agent');
         expect(orchestrator.getRunningAgents().has('coder')).toBeTrue();
         expect(orchestrator.getAgentStatus('coder')).toBe('running');
@@ -172,7 +170,7 @@ describe('TeamOrchestrator', () => {
         const dir = mkdtempSync(join(tmpdir(), 'team-orchestrator-no-events-'));
         await writeSpec(dir, { id: 'coder', type: 'codex', workspace: process.cwd(), purpose: 'Implement' });
         const created: FakeTeamAgentProcess[] = [];
-        const orchestrator = new TeamOrchestrator(dir, new MessageService(new MemoryDao() as never), {
+        const orchestrator = new TeamOrchestrator(dir, new MemoryDao() as never, {
             processFactory: (options) => {
                 const teamProcess = new FakeTeamAgentProcess(options);
                 created.push(teamProcess);
