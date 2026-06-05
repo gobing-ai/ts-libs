@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { CloudflareSchedulerAdapter } from '../../src/scheduler/index';
+import { CloudflareSchedulerAdapter } from '../../src/scheduler-cloudflare';
 
 describe('CloudflareSchedulerAdapter', () => {
     test('constructs without error', () => {
