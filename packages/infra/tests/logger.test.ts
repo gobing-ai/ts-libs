@@ -1,29 +1,32 @@
-import { afterEach, describe, expect, spyOn, test } from 'bun:test';
-import { getLogger, initializeLogger, setLoggerMuted } from '../src/logger';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { getLogger, initializeLogger, type Logger, setLoggerMuted } from '../src/logger';
 
-setLoggerMuted(true);
+/**
+ * The logger is backed by LogTape. We assert behavior through an injected
+ * `fileSink` (the ADR-011 sink-injection seam) rather than spying on the
+ * console: the sink receives one formatted JSON line per emitted record, so
+ * it doubles as a deterministic test probe for level filtering and context.
+ */
+
+/** Capture sink output; returns the lines array and the writer to inject. */
+function captureSink(): { lines: string[]; write: (line: string) => void } {
+    const lines: string[] = [];
+    return { lines, write: (line: string) => lines.push(line) };
+}
+
+afterEach(async () => {
+    setLoggerMuted(false);
+    // Reset to a quiet console-only config so leaked state doesn't affect others.
+    await initializeLogger({ console: false });
+});
 
 describe('logger', () => {
-    test('getLogger creates and caches logger instances', () => {
-        const log1 = getLogger('test-logger');
-        const log2 = getLogger('test-logger');
-        expect(log1).toBe(log2);
-    });
-
-    test('getLogger creates distinct loggers for different categories', () => {
-        const log1 = getLogger('cat-a');
-        const log2 = getLogger('cat-b');
-        expect(log1).not.toBe(log2);
-    });
-
-    test('logger has all log methods', () => {
+    test('getLogger returns a Logger with all level methods and child', () => {
         const log = getLogger('methods-test');
-        expect(typeof log.trace).toBe('function');
-        expect(typeof log.debug).toBe('function');
-        expect(typeof log.info).toBe('function');
-        expect(typeof log.warn).toBe('function');
-        expect(typeof log.error).toBe('function');
-        expect(typeof log.fatal).toBe('function');
+        for (const m of ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const) {
+            expect(typeof log[m]).toBe('function');
+        }
+        expect(typeof log.child).toBe('function');
     });
 
     test('log methods do not throw', () => {
@@ -36,61 +39,70 @@ describe('logger', () => {
         expect(() => log.fatal('fatal message')).not.toThrow();
     });
 
-    test('child logger creates new instance with context', () => {
+    test('child logger is a distinct instance', () => {
         const log = getLogger('parent');
         const child = log.child({ requestId: '123' });
         expect(child).toBeDefined();
-        expect(typeof child.info).toBe('function');
-        // Child should be a different instance
         expect(child).not.toBe(log);
+        expect(typeof child.info).toBe('function');
     });
 
-    test('initializeLogger resets loggers', () => {
-        const before = getLogger('reset-test');
-        initializeLogger('debug');
-        const after = getLogger('reset-test');
-        expect(after).not.toBe(before);
+    test('routes emitted records to the injected file sink', async () => {
+        const sink = captureSink();
+        await initializeLogger({ level: 'info', console: false, fileSink: sink.write });
+
+        getLogger('route-test').info('hello', { n: 1 });
+
+        expect(sink.lines).toHaveLength(1);
+        expect(sink.lines[0]).toContain('hello');
+        expect(sink.lines[0]).toContain('"n":1');
     });
 
-    describe('level filtering', () => {
-        // These tests assert real console output, so they un-mute locally and
-        // restore the muted/default state afterward.
-        afterEach(() => {
-            setLoggerMuted(true);
-            initializeLogger('info');
-        });
+    test('suppresses records below the configured level', async () => {
+        const sink = captureSink();
+        await initializeLogger({ level: 'warn', console: false, fileSink: sink.write });
 
-        test('suppresses output below the configured level', () => {
-            initializeLogger('warn');
-            setLoggerMuted(false);
-            const debugSpy = spyOn(console, 'debug').mockImplementation(() => {});
-            const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+        const log = getLogger('filter-test');
+        log.debug('below threshold — dropped');
+        log.warn('at threshold — emitted');
 
-            const log = getLogger('filter-test');
-            log.debug('below threshold — dropped');
-            log.warn('at threshold — emitted');
+        expect(sink.lines).toHaveLength(1);
+        expect(sink.lines[0]).toContain('at threshold');
+    });
 
-            expect(debugSpy).not.toHaveBeenCalled();
-            expect(warnSpy).toHaveBeenCalledTimes(1);
-            debugSpy.mockRestore();
-            warnSpy.mockRestore();
-        });
+    test('reconfiguring with a lower level lets a cached logger emit again', async () => {
+        const sink = captureSink();
+        await initializeLogger({ level: 'error', console: false, fileSink: sink.write });
+        const log: Logger = getLogger('reconfig-test');
 
-        test('a logger cached before re-init honors the new level', () => {
-            // Regression: ConsoleLogger must read the level dynamically, not
-            // capture it at construction — otherwise cached loggers go stale.
-            setLoggerMuted(false);
-            initializeLogger('error');
-            const log = getLogger('stale-level');
-            const infoSpy = spyOn(console, 'log').mockImplementation(() => {});
+        log.info('dropped under error level');
+        expect(sink.lines).toHaveLength(0);
 
-            log.info('dropped under error level');
-            expect(infoSpy).not.toHaveBeenCalled();
+        await initializeLogger({ level: 'info', console: false, fileSink: sink.write });
+        log.info('emitted after lowering the level');
+        expect(sink.lines).toHaveLength(1);
+    });
 
-            initializeLogger('info');
-            log.info('emitted after lowering the level');
-            expect(infoSpy).toHaveBeenCalledTimes(1);
-            infoSpy.mockRestore();
-        });
+    test('child context appears in emitted record properties', async () => {
+        const sink = captureSink();
+        await initializeLogger({ level: 'info', console: false, fileSink: sink.write });
+
+        getLogger('ctx-test').child({ requestId: 'abc' }).info('with context');
+
+        expect(sink.lines).toHaveLength(1);
+        expect(sink.lines[0]).toContain('"requestId":"abc"');
+    });
+
+    test('setLoggerMuted suppresses all output', async () => {
+        const sink = captureSink();
+        await initializeLogger({ level: 'trace', console: false, fileSink: sink.write });
+
+        setLoggerMuted(true);
+        getLogger('mute-test').error('should be muted');
+        expect(sink.lines).toHaveLength(0);
+
+        setLoggerMuted(false);
+        getLogger('mute-test').error('now visible');
+        expect(sink.lines).toHaveLength(1);
     });
 });
