@@ -101,15 +101,15 @@ coupled to drizzle and the storage engine was not swappable.
 
 **Decision.** `ts-db` (v0.2.0) is a **complete facade**: drizzle is an internal implementation detail
 that never appears in consumer code. Public surface = `createDbAdapter` + `BaseDao` (raw tier:
-`query`/`one`/`tx` over a small predicate spec) + `EntityDao` (structured CRUD) + `defineTable`
-(single source of truth → table + derived zod schemas). No `@gobing-ai/ts-*` package other than
+`query`/`one`/`tx` over a small predicate spec) + `EntityDao` (structured CRUD). Schema helpers such as
+`defineTable` live behind `@gobing-ai/ts-db/schema` per ADR-007. No `@gobing-ai/ts-*` package other than
 `ts-db` may import `drizzle-orm` — enforced by the `db-boundaries` spur rule
 (`no-drizzle-import-outside-db-package`).
 
 **Consequences.** Consumers depend only on the ts-db vocabulary; the storage engine is swappable
 without touching call sites. `drizzle-zod` + `zod` are **optional** peers (only needed for
-`defineTable` validation). Schema construction lives in `packages/db/src/schema/` or via `defineTable`
-(the sanctioned primitives).
+`@gobing-ai/ts-db/schema`). Schema construction lives in `packages/db/src/schema/` or through the
+`@gobing-ai/ts-db/schema` subpath (the sanctioned primitive surface).
 
 ---
 
@@ -132,7 +132,7 @@ checked guarantee. New cross-cutting invariants are added as spur rules, not jus
 
 ## ADR-007: `defineTable` Is the Single Source of Truth — One Table → DDL + Zod
 
-**Status:** Accepted · **Date:** 2026-06-01 · **Targets:** next `@gobing-ai/ts-db` (0.2.3)
+**Status:** Accepted · **Date:** 2026-06-01 · **Targets:** `@gobing-ai/ts-db/schema`
 
 **Context.** Today a persisted table is described in up to three places that drift independently: a
 Drizzle table object (for DAOs/types), a hand-written `CREATE TABLE` DDL string (for migrations), and
@@ -186,6 +186,7 @@ The decision was to keep the global swap and remove the unused factory.
 (eliminating the `SyncFileSystem` split), a consolidated `ProcessExecutor` class, and expanded
 runtime-portable path utilities. The `getFs()` global swap and `SyncFileSystem` are deprecated in
 favor of `loadRuntimeFactory()` → `factory.createFileSystem()`. See ADR-011 for the full design.
+
 ---
 
 ## ADR-009: `ts-infra` Telemetry Instruments Against the Global Provider; Export Is an Opt-In Subpath
@@ -667,7 +668,7 @@ platform-specific"; it is "infra core stays portable, adapters are explicit."
    - `@gobing-ai/ts-infra/job-queue-db` for `ts-db` backed queue implementations;
    - `@gobing-ai/ts-infra/otel-node` for Node OTel exporters/providers;
    - future `@gobing-ai/ts-infra/otel-workers` for Workers telemetry export;
-   - future `@gobing-ai/ts-infra/scheduler-node` / `scheduler-cloudflare` for runtime-specific schedulers;
+   - `@gobing-ai/ts-infra/scheduler-node` / `scheduler-cloudflare` for runtime-specific schedulers;
    - future `@gobing-ai/ts-infra/file-observer-runtime` for FileSystem-backed observers.
 
 3. **No static adapter imports from the core barrel.** The main barrel may export adapter-independent
@@ -691,8 +692,8 @@ platform-specific"; it is "infra core stays portable, adapters are explicit."
 
 **Consequences.** `@gobing-ai/ts-infra` remains a robust foundation without becoming a monolithic import.
 Consumers can depend on the portable core for events/logging/telemetry contracts and opt into concrete
-storage/runtime/exporter implementations intentionally. Future refactors should move DB-backed queues,
-runtime-specific schedulers, and platform/file-backed observers toward subpaths without breaking existing
+storage/runtime/exporter implementations intentionally. DB-backed queues and runtime-specific schedulers
+now live behind subpaths; future refactors should move platform/file-backed observers toward subpaths without breaking existing
 callers unless a normal semver-breaking release is explicitly planned. Spur rules should eventually enforce:
 main-barrel import graph contains no adapter-only SDKs/platform modules, and sanctioned adapter subpaths do
 not leak into core.
