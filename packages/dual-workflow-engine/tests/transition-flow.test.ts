@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { setLoggerMuted } from '@gobing-ai/ts-infra';
+import { EventBus, setLoggerMuted } from '@gobing-ai/ts-infra';
+import type { WorkflowEngineEvents } from '../src/events';
 import { createDefaultWorkflowEngineHost, WorkflowEngineHost } from '../src/host';
 import { MemoryWorkflowPersistenceAdapter } from '../src/persistence';
 import { TransitionFlowDriver } from '../src/transition-flow';
@@ -136,6 +137,39 @@ describe('TransitionFlowDriver', () => {
         expect(result.status).toBe('done');
         expect(result.finalState).toBe('b');
         expect(result.transitionsTaken).toBe(1);
+    });
+
+    test('emits action start and done events only for nodes with actions', async () => {
+        const host = new WorkflowEngineHost().registerAction({
+            kind: 'capture',
+            async execute() {
+                return { ok: true };
+            },
+        });
+        const driver = new TransitionFlowDriver({
+            host,
+            persistence: new MemoryWorkflowPersistenceAdapter(),
+        });
+        const events = new EventBus<WorkflowEngineEvents>();
+        const seen: string[] = [];
+        events.on('workflow.action.start', (data) => seen.push(`start:${data.node}:${data.kind}`));
+        events.on('workflow.action.done', (data) =>
+            seen.push(`done:${data.node}:${data.kind}:${data.ok}:${data.durationMs >= 0}`),
+        );
+
+        await driver.run(
+            {
+                kind: 'transition-flow',
+                name: 'action-events',
+                initialNode: 'with-action',
+                terminalNodes: ['without-action'],
+                nodes: [{ id: 'with-action', action: { kind: 'capture' } }, { id: 'without-action' }],
+                edges: [{ from: 'with-action', to: 'without-action' }],
+            },
+            { runId: 'action-events', events },
+        );
+
+        expect(seen).toEqual(['start:with-action:capture', 'done:with-action:capture:true:true']);
     });
 
     test('resolves runtime builtin templates for node actions', async () => {
