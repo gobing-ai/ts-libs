@@ -50,15 +50,18 @@ rules:
     description: "process.exit() must go through @gobing-ai/ts-utils output helpers."
     severity: error
     evaluator:
-      type: regex
+      type: forbidden-import
       config:
-        pattern: "process\\.exit\\b"
-    include:
-      - "packages/**/src/**/*.ts"
-    exclude:
-      - "**/tests/**"
-      - "**/dist/**"
-      - "packages/utils/src/output.ts"
+        forbidden:
+          - pattern: "process\\.exit\\b"
+            matchMode: usage
+        scope:
+          include:
+            - "packages/**/src/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/dist/**"
+            - "packages/utils/src/output.ts"
 
   # ── File system I/O ────────────────────────────────────────────────────
 
@@ -150,16 +153,19 @@ rules:
     description: "Bun platform APIs must go through @gobing-ai/ts-runtime."
     severity: error
     evaluator:
-      type: regex
+      type: forbidden-import
       config:
-        pattern: "\\bBun\\.(which|env|argv|sleep|semver|password|navigator|colorDepth|gc|unsafe|inspect|nanoseconds|deepEquals|escapeHTML|fileURLToPath|pathToFileURL|build|main|version_with_revision|rev)\\s*[\\(\\[]"
-    include:
-      - "packages/**/*.ts"
-    exclude:
-      - "**/tests/**"
-      - "**/dist/**"
-      - "packages/runtime/src/platform.ts"
-      - "packages/ai-runner/src/identity.ts"
+        forbidden:
+          - pattern: "\\bBun\\.(which|env|argv|sleep|semver|password|navigator|colorDepth|gc|unsafe|inspect|nanoseconds|deepEquals|escapeHTML|fileURLToPath|pathToFileURL|build|main|version_with_revision|rev)\\s*[\\(\\[]"
+            matchMode: usage
+        scope:
+          include:
+            - "packages/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/dist/**"
+            - "packages/runtime/src/platform.ts"
+            - "packages/ai-runner/src/identity.ts"
 
   # ── Environment variables ───────────────────────────────────────────────
 
@@ -167,13 +173,16 @@ rules:
     description: "Direct process.env access must go through @gobing-ai/ts-runtime config helpers."
     severity: error
     evaluator:
-      type: regex
+      type: forbidden-import
       config:
-        pattern: "process\\.env"
-    include:
-      - "packages/**/*.ts"
-    exclude:
-      - "**/tests/**"
-      - "**/dist/**"
-      - "packages/runtime/src/config.ts"
-      - "packages/runtime/src/bun-sqlite.ts"
+        forbidden:
+          - pattern: "process\\.env"
+            matchMode: usage
+        scope:
+          include:
+            - "packages/**/*.ts"
+          exclude:
+            - "**/tests/**"
+            - "**/dist/**"
+            - "packages/runtime/src/config.ts"
+            - "packages/runtime/src/bun-sqlite.ts"
