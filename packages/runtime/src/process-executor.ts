@@ -11,6 +11,8 @@ export interface ProcessExecutorConfig {
     defaultTimeout?: number;
     defaultMaxOutput?: number;
     output?: OutputPolicy;
+    events?: ProcessEventSink;
+    tracer?: TracerPort;
 }
 
 /** Options for spawning a child process. */
@@ -37,12 +39,45 @@ export interface ProcessResult {
     durationMs: number;
 }
 
+/** Reason a process completion event was emitted. */
+export type ProcessExitReason = 'exit' | 'signal' | 'timeout' | 'error';
+
+/** Payload emitted for process execution observability. */
+export interface ProcessEventDetail {
+    command: string;
+    args: string[];
+    exitCode: number | null;
+    signal?: string;
+    durationMs: number;
+    reason: ProcessExitReason;
+    timestamp: string;
+    label?: string;
+    error?: string;
+}
+
+/** Zero-dependency structural event sink for process observability. */
+export interface ProcessEventSink {
+    emit(event: 'process.started' | 'process.exited', detail: ProcessEventDetail): void;
+}
+
+/** Typed process event map, consumable by `EventBus<ProcessEvents>` in higher layers. */
+export type ProcessEvents = {
+    'process.started': (detail: ProcessEventDetail) => void;
+    'process.exited': (detail: ProcessEventDetail) => void;
+};
+
+/** Minimal structural tracing port; concrete adapters live above `ts-runtime`. */
+export interface TracerPort {
+    traceAsync<T>(name: string, fn: (span: unknown) => Promise<T>): Promise<T>;
+}
+
 /** Options for spawning a long-running interactive process. */
 export interface PipeProcessOptions {
     command: string;
     args?: string[];
     cwd?: string;
     env?: Record<string, string>;
+    label?: string;
 }
 
 /** Signal values accepted by subprocess kill. */
@@ -82,6 +117,10 @@ export class ProcessExecutor {
      * Does NOT throw on non-zero exit codes unless `rejectOnError` is set.
      */
     async run(options: ProcessOptions): Promise<ProcessResult> {
+        return this.trace('process.run', () => this.runUntraced(options));
+    }
+
+    private async runUntraced(options: ProcessOptions): Promise<ProcessResult> {
         const args = options.args ?? [];
         const execaOptions = buildExecaOptions({
             cwd: options.cwd,
@@ -92,10 +131,20 @@ export class ProcessExecutor {
             outputPolicy: this.config.output,
             forceBuffered: options.forceBuffered ?? false,
         });
+        const startedAt = Date.now();
+        this.emitProcessEvent('process.started', {
+            command: options.command,
+            args,
+            exitCode: null,
+            durationMs: 0,
+            reason: 'exit',
+            timestamp: new Date(startedAt).toISOString(),
+            ...(options.label !== undefined ? { label: options.label } : {}),
+        });
 
         try {
             const result = await execa(options.command, args, execaOptions);
-            return {
+            const processResult = {
                 command: options.command,
                 args,
                 exitCode: result.exitCode ?? null,
@@ -104,24 +153,35 @@ export class ProcessExecutor {
                 ...(result.signalDescription !== undefined ? { signal: result.signalDescription } : {}),
                 durationMs: result.durationMs,
             };
+            this.emitExitedFromResult(options, processResult, result);
+            return processResult;
         } catch (error) {
-            if (options.rejectOnError) throw error;
             const failed = error as {
                 exitCode?: number;
                 stdout?: string | string[] | Uint8Array;
                 stderr?: string | string[] | Uint8Array;
                 signalDescription?: string;
+                signal?: string;
                 durationMs?: number;
+                timedOut?: boolean;
+                message?: string;
             };
-            return {
+            const processResult = {
                 command: options.command,
                 args,
                 exitCode: failed.exitCode ?? null,
                 stdout: asString(failed.stdout),
                 stderr: asString(failed.stderr),
-                ...(failed.signalDescription !== undefined ? { signal: failed.signalDescription } : {}),
-                durationMs: failed.durationMs ?? 0,
+                ...(failed.signalDescription !== undefined
+                    ? { signal: failed.signalDescription }
+                    : failed.signal !== undefined
+                      ? { signal: failed.signal }
+                      : {}),
+                durationMs: failed.durationMs ?? Date.now() - startedAt,
             };
+            this.emitExitedFromResult(options, processResult, error, error);
+            if (options.rejectOnError) throw error;
+            return processResult;
         }
     }
 
@@ -132,15 +192,143 @@ export class ProcessExecutor {
      * stdout/stderr as ReadableStreams). Returns a {@link PipeProcess} handle.
      */
     runStreaming(options: PipeProcessOptions): PipeProcess {
-        const subprocess = Bun.spawn({
-            cmd: [options.command, ...(options.args ?? [])],
-            stdin: 'pipe',
-            stdout: 'pipe',
-            stderr: 'pipe',
-            ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-            ...(options.env !== undefined ? { env: options.env } : {}),
+        const args = options.args ?? [];
+        let pipe: PipeProcess | undefined;
+        let spawnError: unknown;
+        void this.trace('process.runStreaming', async () => {
+            try {
+                const startedAt = Date.now();
+                this.emitProcessEvent('process.started', {
+                    command: options.command,
+                    args,
+                    exitCode: null,
+                    durationMs: 0,
+                    reason: 'exit',
+                    timestamp: new Date(startedAt).toISOString(),
+                    ...(options.label !== undefined ? { label: options.label } : {}),
+                });
+                const subprocess = Bun.spawn({
+                    cmd: [options.command, ...args],
+                    stdin: 'pipe',
+                    stdout: 'pipe',
+                    stderr: 'pipe',
+                    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+                    ...(options.env !== undefined ? { env: options.env } : {}),
+                });
+                pipe = new ObservedPipeProcess(new BunPipeProcess(subprocess), this.config.events, {
+                    command: options.command,
+                    args,
+                    startedAt,
+                    ...(options.label !== undefined ? { label: options.label } : {}),
+                });
+            } catch (error) {
+                spawnError = error;
+                this.emitProcessEvent('process.exited', {
+                    command: options.command,
+                    args,
+                    exitCode: null,
+                    durationMs: 0,
+                    reason: 'error',
+                    timestamp: new Date().toISOString(),
+                    ...(options.label !== undefined ? { label: options.label } : {}),
+                    error: errorMessage(error),
+                });
+                throw error;
+            }
+        }).catch(() => undefined);
+        if (pipe !== undefined) return pipe;
+        throw spawnError;
+    }
+
+    private async trace<T>(name: string, fn: () => Promise<T>): Promise<T> {
+        if (this.config.tracer === undefined) return await fn();
+        return await this.config.tracer.traceAsync(name, async () => await fn());
+    }
+
+    private emitExitedFromResult(
+        options: ProcessOptions,
+        result: ProcessResult,
+        completion: unknown,
+        error?: unknown,
+    ): void {
+        const reason = isTimedOut(completion)
+            ? 'timeout'
+            : result.signal !== undefined
+              ? 'signal'
+              : error
+                ? 'error'
+                : 'exit';
+        this.emitProcessEvent('process.exited', {
+            command: result.command,
+            args: result.args,
+            exitCode: result.exitCode,
+            ...(result.signal !== undefined ? { signal: result.signal } : {}),
+            durationMs: result.durationMs,
+            reason,
+            timestamp: new Date().toISOString(),
+            ...(options.label !== undefined ? { label: options.label } : {}),
+            ...(error !== undefined ? { error: errorMessage(error) } : {}),
         });
-        return new BunPipeProcess(subprocess);
+    }
+
+    private emitProcessEvent(event: 'process.started' | 'process.exited', detail: ProcessEventDetail): void {
+        this.config.events?.emit(event, detail);
+    }
+}
+
+class ObservedPipeProcess implements PipeProcess {
+    private killedWith: ProcessSignal | undefined;
+
+    readonly exited: Promise<number | null>;
+
+    constructor(
+        private readonly inner: PipeProcess,
+        events: ProcessEventSink | undefined,
+        context: {
+            command: string;
+            args: string[];
+            startedAt: number;
+            label?: string;
+        },
+    ) {
+        this.exited = inner.exited.then((exitCode) => {
+            events?.emit('process.exited', {
+                command: context.command,
+                args: context.args,
+                exitCode,
+                ...(this.killedWith !== undefined ? { signal: String(this.killedWith) } : {}),
+                durationMs: Date.now() - context.startedAt,
+                reason: this.killedWith !== undefined ? 'signal' : 'exit',
+                timestamp: new Date().toISOString(),
+                ...(context.label !== undefined ? { label: context.label } : {}),
+            });
+            return exitCode;
+        });
+    }
+
+    get pid(): number | null {
+        return this.inner.pid;
+    }
+
+    get stdout(): ReadableStream<Uint8Array> | null {
+        return this.inner.stdout;
+    }
+
+    get stderr(): ReadableStream<Uint8Array> | null {
+        return this.inner.stderr;
+    }
+
+    writeStdin(input: string | Uint8Array): void {
+        this.inner.writeStdin(input);
+    }
+
+    endStdin(): void {
+        this.inner.endStdin();
+    }
+
+    kill(signal?: ProcessSignal): void {
+        this.killedWith = signal;
+        this.inner.kill(signal);
     }
 }
 
@@ -291,4 +479,12 @@ function stripFinalNewline(value: string): string {
 
 function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
     return value instanceof ReadableStream;
+}
+
+function isTimedOut(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && 'timedOut' in error && error.timedOut === true;
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
