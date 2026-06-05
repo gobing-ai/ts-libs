@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test';
-import type { Logger } from '@gobing-ai/ts-infra';
+import { EventBus, type Logger } from '@gobing-ai/ts-infra';
 import { ProcessExecutor, type ProcessOptions, type ProcessResult } from '@gobing-ai/ts-runtime';
-import { AgentDetector, AiRunner, DISPLAY_ORDER, DoctorRunner, getAgentShim } from '../src';
+import {
+    AgentDetector,
+    type AgentEvents,
+    AiRunner,
+    type AiRunnerProcessEvents,
+    DISPLAY_ORDER,
+    DoctorRunner,
+    getAgentShim,
+} from '../src';
 
 /** A Logger that records (level, msg) for assertions. */
 function makeRecordingLogger(sink: Array<{ level: string; msg: string }>): Logger {
@@ -130,6 +138,51 @@ describe('AiRunner', () => {
         await runner.runHelpCommand('claude');
         await runner.runAuthCommand('claude');
         expect(executor.calls.map((call) => call.label)).toEqual(['ai-runner.claude.help', 'ai-runner.claude.auth']);
+    });
+
+    test('emits process events through the default executor adapters', async () => {
+        const processEvents = new EventBus<AiRunnerProcessEvents>();
+        const observed: string[] = [];
+        processEvents.on('process.started', (detail) => observed.push(`start:${detail.label}`));
+        processEvents.on('process.exited', (detail) => observed.push(`exit:${detail.exitCode}:${detail.reason}`));
+        const spans: string[] = [];
+        const runner = new AiRunner({
+            processEvents,
+            tracer: {
+                traceAsync: async (name, fn) => {
+                    spans.push(name);
+                    return await fn({ name });
+                },
+            },
+        });
+
+        const invoke = (
+            runner as unknown as {
+                invoke: (
+                    agent: 'codex',
+                    operation: string,
+                    command: { command: string; args: string[] },
+                    options: Record<never, never>,
+                    forceBuffered: boolean,
+                ) => Promise<unknown>;
+            }
+        ).invoke.bind(runner);
+        await invoke('codex', 'test', { command: 'echo', args: ['ok'] }, {}, true);
+
+        expect(observed).toEqual(['start:ai-runner.codex.test', 'exit:0:exit']);
+        expect(spans).toEqual(['process.run']);
+    });
+
+    test('declares AgentEvents as an EventBus-compatible map', () => {
+        const events = new EventBus<AgentEvents>();
+        events.on('agent.invoke.start', (detail) => {
+            expect(detail.label).toBe('ai-runner.codex.prompt');
+        });
+        void events.emit('agent.invoke.start', {
+            agent: 'codex',
+            operation: 'prompt',
+            label: 'ai-runner.codex.prompt',
+        });
     });
 });
 
