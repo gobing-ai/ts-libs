@@ -7,7 +7,7 @@ import {
     type TracerPort,
 } from '@gobing-ai/ts-runtime';
 import { type AgentName, getAgentShim, type PromptOptions, type ShimCommand } from './agents/shims';
-import type { AiRunnerProcessEvents } from './events';
+import type { AgentEvents, AiRunnerProcessEvents } from './events';
 import { buildIdentityPreamble } from './identity';
 import { translateSlashCommand } from './slash-command';
 
@@ -45,6 +45,8 @@ export interface AiRunnerOptions {
     logger?: Logger;
     /** Event bus receiving process-level observability from the default executor. */
     processEvents?: EventBus<AiRunnerProcessEvents>;
+    /** Event bus receiving agent-level invocation observability. */
+    events?: EventBus<AgentEvents>;
     /** Tracer adapter for the default executor. Defaults to `ts-infra` traceAsync. */
     tracer?: TracerPort;
 }
@@ -55,6 +57,7 @@ export class AiRunner {
     private readonly defaultCwd: string | undefined;
     private readonly defaultTimeout: number | undefined;
     private readonly logger: Logger;
+    private readonly events: EventBus<AgentEvents> | undefined;
 
     constructor(options: AiRunnerOptions = {}) {
         this.processExecutor =
@@ -76,6 +79,7 @@ export class AiRunner {
         this.defaultCwd = options.defaultCwd;
         this.defaultTimeout = options.defaultTimeout;
         this.logger = options.logger ?? getLogger('ai-runner');
+        this.events = options.events;
     }
 
     /** Run an agent help command. */
@@ -127,6 +131,7 @@ export class AiRunner {
     ): Promise<AgentRunResult> {
         const label = `ai-runner.${agent}.${operation}`;
         this.logger.debug('invoke', { label, command: command.command, args: command.args.join(' ') });
+        void this.events?.emit('agent.invoke.start', { agent, operation, label });
         const result: ProcessResult = await this.processExecutor.run({
             command: command.command,
             args: command.args,
@@ -143,6 +148,14 @@ export class AiRunner {
                 signal: result.signal,
             });
         }
+        void this.events?.emit('agent.invoke.exit', {
+            agent,
+            operation,
+            label,
+            exitCode: result.exitCode,
+            ...(result.signal !== undefined ? { signal: result.signal } : {}),
+            durationMs: result.durationMs,
+        });
         return {
             exitCode: result.exitCode,
             stdout: result.stdout,
