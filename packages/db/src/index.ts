@@ -26,15 +26,4 @@ export {
     type Predicate,
 } from './query-spec';
 export { QueueJobDao, type QueueJobRecord, type QueueStats } from './queue-job-dao';
-export {
-    appendOnlyColumns,
-    buildAppendOnlyColumns,
-    buildStandardColumns,
-    buildStandardColumnsWithSoftDelete,
-    nowTimestamp,
-    standardColumns,
-    standardColumnsWithSoftDelete,
-} from './schema/common';
-export { inboxMessages } from './schema/inbox-messages';
-export { queueJobs } from './schema/queue-jobs';
 export type { SpanContext } from './span-context';
