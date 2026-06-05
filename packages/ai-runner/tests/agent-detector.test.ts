@@ -69,11 +69,11 @@ describe('AgentDetector', () => {
         expect(result).toMatchObject({
             name: 'pi',
             installed: true,
-            version: '2.3.4',
+            version: 'pi 2.3.4',
         });
     });
 
-    test('detectOne extracts only the semantic version, not the whole line', async () => {
+    test('detectOne returns full first version line for display', async () => {
         const executor = new FakeExecutor(() => ({ stdout: 'opencode version 1.4.0 (build 9c2f)' }));
         const detector = new AgentDetector({
             runner: new AiRunner({ processExecutor: executor }),
@@ -81,6 +81,34 @@ describe('AgentDetector', () => {
         const result = await detector.detectOne('opencode');
 
         expect(result.installed).toBe(true);
-        expect(result.version).toBe('1.4.0');
+        expect(result.version).toBe('opencode version 1.4.0 (build 9c2f)');
+    });
+
+    test('detectOne preserves the intentional 2-part version parse', async () => {
+        const executor = new FakeExecutor(() => ({ stdout: 'pi 1.2' }));
+        const detector = new AgentDetector({
+            runner: new AiRunner({ processExecutor: executor }),
+        });
+        const result = await detector.detectOne('pi');
+
+        expect(result).toMatchObject({ installed: true, version: 'pi 1.2' });
+    });
+
+    test('detectOne reports distinct signal and null-exit errors', async () => {
+        const signalDetector = new AgentDetector({
+            runner: new AiRunner({ processExecutor: new FakeExecutor(() => ({ exitCode: null, signal: 'SIGTERM' })) }),
+        });
+        const nullExitDetector = new AgentDetector({
+            runner: new AiRunner({ processExecutor: new FakeExecutor(() => ({ exitCode: null })) }),
+        });
+
+        expect(await signalDetector.detectOne('pi')).toMatchObject({
+            installed: false,
+            error: 'Terminated by signal: SIGTERM',
+        });
+        expect(await nullExitDetector.detectOne('pi')).toMatchObject({
+            installed: false,
+            error: 'Process did not produce an exit code',
+        });
     });
 });
