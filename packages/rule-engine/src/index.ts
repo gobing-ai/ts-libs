@@ -8,6 +8,7 @@ export * from './engine';
 // Public dialect helper for the `rg` (ripgrep) evaluator — consumed by the downstream
 // rule-file converter and the rg-dialect rule to keep JS-only patterns off the `rg` type.
 export { isRipgrepCompatiblePattern } from './evaluators/ripgrep-evaluator';
+export type { RuleEngineEvents } from './events';
 export * from './fixers/fixers';
 export * from './fixers/test-stub-fixer';
 export * from './formatters/json';
