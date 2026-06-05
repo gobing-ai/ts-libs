@@ -1,6 +1,13 @@
-import { getLogger, type Logger } from '@gobing-ai/ts-infra';
-import { getProcessCwd, NodeProcessExecutor, type ProcessExecutor, type ProcessResult } from '@gobing-ai/ts-runtime';
+import { type EventBus, getLogger, type Logger, traceAsync } from '@gobing-ai/ts-infra';
+import {
+    getProcessCwd,
+    NodeProcessExecutor,
+    type ProcessExecutor,
+    type ProcessResult,
+    type TracerPort,
+} from '@gobing-ai/ts-runtime';
 import { type AgentName, getAgentShim, type PromptOptions, type ShimCommand } from './agents/shims';
+import type { AiRunnerProcessEvents } from './events';
 import { buildIdentityPreamble } from './identity';
 import { translateSlashCommand } from './slash-command';
 
@@ -36,6 +43,10 @@ export interface AiRunnerOptions {
     defaultTimeout?: number;
     /** Logger for invocation diagnostics. Defaults to `getLogger('ai-runner')`. */
     logger?: Logger;
+    /** Event bus receiving process-level observability from the default executor. */
+    processEvents?: EventBus<AiRunnerProcessEvents>;
+    /** Tracer adapter for the default executor. Defaults to `ts-infra` traceAsync. */
+    tracer?: TracerPort;
 }
 
 /** Dispatches coding-agent CLI commands through pure command shims. */
@@ -46,7 +57,22 @@ export class AiRunner {
     private readonly logger: Logger;
 
     constructor(options: AiRunnerOptions = {}) {
-        this.processExecutor = options.processExecutor ?? new NodeProcessExecutor();
+        this.processExecutor =
+            options.processExecutor ??
+            new NodeProcessExecutor({
+                ...(options.processEvents !== undefined
+                    ? {
+                          events: {
+                              emit: (event, detail) => {
+                                  void options.processEvents?.emit(event, detail);
+                              },
+                          },
+                      }
+                    : {}),
+                tracer: options.tracer ?? {
+                    traceAsync: async (name, fn) => await traceAsync(name, (span) => fn(span)),
+                },
+            });
         this.defaultCwd = options.defaultCwd;
         this.defaultTimeout = options.defaultTimeout;
         this.logger = options.logger ?? getLogger('ai-runner');
