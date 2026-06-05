@@ -58,23 +58,32 @@ export class AgentDetector {
         if (lower.includes('command not found') || lower.includes('enoent') || lower.includes('not recognized')) {
             return unavailable(agent, `${command}: command not found`);
         }
-        if (result.signal !== undefined || result.exitCode === null) {
-            return unavailable(agent, result.signal ?? 'Process timed out');
+        if (result.signal !== undefined) {
+            return unavailable(agent, `Terminated by signal: ${result.signal}`);
+        }
+        if (result.exitCode === null) {
+            return unavailable(agent, 'Process did not produce an exit code');
         }
         if (result.exitCode !== 0) {
-            return unavailable(agent, `Non-zero exit code ${result.exitCode}: ${result.stderr.slice(0, 200)}`);
+            return unavailable(agent, `Non-zero exit code: ${result.exitCode}. stderr: ${result.stderr.slice(0, 200)}`);
         }
         const match = VERSION_PATTERN.exec(output);
         if (match?.groups?.version === undefined) {
             return unavailable(agent, 'Could not parse version output');
         }
+        const version = output.split('\n')[0]?.trim() || match.groups.version;
         return {
             name: agent,
             installed: true,
-            version: match.groups.version,
-            channels: [],
+            version,
+            channels: this.detectChannels(agent, output),
             error: null,
         };
+    }
+
+    private detectChannels(_agent: AgentName, _output: string): string[] {
+        // Phase 2 hook: parse per-agent channel/model output here when shims expose it.
+        return [];
     }
 }
 
