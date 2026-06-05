@@ -517,3 +517,30 @@ the same `workflow.*` vocabulary.
 the workflow engine dependency introduced by ADR-013. Both engines remain decoupled at the type-map level,
 but consumers get symmetric subscription semantics. Omitting `events` keeps the default path unchanged:
 logs and traces still work, and no event bus handler dispatch is introduced.
+
+---
+### ADR-013 Addendum — Observability Layering: Injected EventBus vs Structural Port (2026-06-04)
+
+**Context.** The prior addendum assumes a package can import `EventBus` from `ts-infra`. Code at or below
+`ts-infra` in the graph (`ts-utils → ts-runtime → ts-db → ts-infra`) cannot: importing `EventBus` forms a
+cycle (`ts-runtime → ts-infra → ts-db → ts-runtime`), and `EventBus` is heavyweight (`Logger`, `JobQueue`,
+telemetry metrics), so relocating it down is rejected. Task 0017 surfaced this: `ts-runtime`'s
+`ProcessExecutor` must emit `process.*` lifecycle events but cannot reach `ts-infra`.
+
+**Decision.** Two observability patterns, selected by dependency layer:
+
+- **Above `ts-infra`** — inject `EventBus<XEvents>` directly, plus `getLogger()` / `traceAsync()`; own a
+  typed event map in-package. (rule-engine, dual-workflow-engine, ai-runner consumer layer.)
+- **At or below `ts-infra`** — emit through zero-dependency **structural ports** declared locally
+  (`ProcessEventSink`, `TracerPort`); a higher layer injects the concrete `EventBus`/`traceAsync` adapter.
+  (`ts-runtime` `ProcessExecutor` — the only current case.)
+
+**Selection rule.** Can the package import `EventBus` from `ts-infra` without a cycle? Yes → inject
+directly. No → structural port.
+
+**Consequences.** Event ownership stays at the layer that owns the behavior (`process.*` with the executor,
+`agent.*` with ai-runner). No cycles. Default ports are no-ops — existing callers unaffected. Span event
+names and `EventBus` names share dotted prefixes (`process.`, `agent.`) to keep traces and subscribers
+aligned. Additive: logs and traces work without a bus. A spur rule may enforce this (ADR-006): `ts-infra`
+dependents emitting lifecycle behavior accept `events?: EventBus<...>`; runtime-layer emitters use a port,
+never import `ts-infra`.
