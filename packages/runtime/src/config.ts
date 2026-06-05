@@ -99,6 +99,11 @@ export function getDatabaseUrl(): string | undefined {
     return process.env.DATABASE_URL;
 }
 
+/** Returns the user's home directory (`HOME`, falling back to `USERPROFILE` on Windows), or `undefined` if unset. Node/Bun only. */
+export function getHomeDir(): string | undefined {
+    return process.env.HOME ?? process.env.USERPROFILE;
+}
+
 /** Node-bun only: interpolates `${VAR}` from `process.env` (see note above). */
 export function interpolateEnv(value: string): string {
     return value.replace(ENV_INTERPOLATION_RE, (_match, name: string) => process.env[name] ?? `\${${name}}`);
