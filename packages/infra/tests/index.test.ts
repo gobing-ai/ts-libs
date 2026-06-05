@@ -20,9 +20,7 @@ describe('@gobing-ai/ts-infra barrel', () => {
     });
 
     test('exports scheduler symbols', () => {
-        expect(infra.NodeSchedulerAdapter).toBeDefined();
         expect(infra.NoopSchedulerAdapter).toBeDefined();
-        expect(infra.CloudflareSchedulerAdapter).toBeDefined();
         expect(infra.initScheduler).toBeDefined();
     });
 
@@ -31,8 +29,13 @@ describe('@gobing-ai/ts-infra barrel', () => {
         expect(infra.APIError).toBeDefined();
     });
 
-    test('exports job-queue symbols', () => {
-        expect(infra.DBJobQueue).toBeDefined();
-        expect(infra.DBQueueConsumer).toBeDefined();
+    test('exports job-queue contracts only', () => {
+        expect('DBJobQueue' in infra).toBe(false);
+        expect('DBQueueConsumer' in infra).toBe(false);
+    });
+
+    test('does not export runtime-specific scheduler adapters from the main barrel', () => {
+        expect('NodeSchedulerAdapter' in infra).toBe(false);
+        expect('CloudflareSchedulerAdapter' in infra).toBe(false);
     });
 });
