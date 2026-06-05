@@ -3,6 +3,7 @@
         "allow": [
             "Skill(rd3:brainstorm)",
             "Skill(rd3:task-decomposition)",
+
             "WebFetch(domain:hono.dev)",
             "WebFetch(domain:www.npmjs.com)",
             "WebFetch(domain:orm.drizzle.team)",
@@ -10,32 +11,36 @@
             "WebFetch(domain:logtape.org)",
             "WebFetch(domain:mael.dev)",
             "WebFetch(domain:developers.cloudflare.com)",
+
             "Bash(bun run:*)",
             "Bash(bun test:*)",
             "Bash(bun add:*)",
             "Bash(bun pm *)",
-            "Bash(echo:*)",
-            "Bash(grep export:*)",
-            "Bash(bunx biome:*)",
             "Bash(bun tsc:*)",
             "Bash(bun biome *)",
-            "Bash(dist/cli:*)",
-            "Bash(npm view *)",
+            "Bash(bunx biome:*)",
+            "Bash(bunx spur *)",
+            "Bash(bunx tsc *)",
+
             "Bash(rtk ls *)",
             "Bash(rtk cat *)",
             "Bash(rtk find *)",
             "Bash(rtk grep *)",
             "Bash(rtk wc *)",
-            "Bash(npx biome *)",
-            "Bash(tasks:*)",
-            "Bash(ftree:*)",
+
+            "Bash(find tests *)",
+            "Bash(grep *)",
+            "Bash(grep export:*)",
             "Bash(rg:*)",
             "Bash(sg:*)",
-            "Bash(grep *)",
+            "Bash(npm view *)",
+            "Bash(npx biome *)",
+            "Bash(echo:*)",
+            "Bash(dist/cli:*)",
+            "Bash(tasks:*)",
+            "Bash(ftree:*)",
             "Bash(biome check *)",
-            "Read(//tmp/**)",
-            "Bash(bunx spur *)",
-            "Bash(bunx tsc *)"
+            "Read(//tmp/**)"
         ]
     }
 }
