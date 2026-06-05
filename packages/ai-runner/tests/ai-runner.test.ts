@@ -112,6 +112,28 @@ describe('AiRunner', () => {
         expect(calls.find((entry) => entry.level === 'error')?.msg).toBe('invoke exited non-zero');
     });
 
+    test('emits agent invocation events without changing logger behavior', async () => {
+        const calls: Array<{ level: string; msg: string }> = [];
+        const recorder = makeRecordingLogger(calls);
+        const events = new EventBus<AgentEvents>();
+        const observed: string[] = [];
+        events.on('agent.invoke.start', (detail) => observed.push(`start:${detail.agent}:${detail.operation}`));
+        events.on('agent.invoke.exit', (detail) =>
+            observed.push(`exit:${detail.agent}:${detail.operation}:${detail.exitCode}:${detail.durationMs}`),
+        );
+        const runner = new AiRunner({
+            processExecutor: new FakeExecutor(() => ({ exitCode: 3, durationMs: 9, stderr: 'boom' })),
+            logger: recorder,
+            events,
+        });
+
+        await runner.runVersionCommand('pi');
+
+        expect(observed).toEqual(['start:pi:version', 'exit:pi:version:3:9']);
+        expect(calls).toContainEqual({ level: 'debug', msg: 'invoke' });
+        expect(calls.find((entry) => entry.level === 'error')?.msg).toBe('invoke exited non-zero');
+    });
+
     test('exposes stable shim metadata', () => {
         expect(getAgentShim('pi').tier).toBe(1);
         expect(getAgentShim('openclaw').command).toBe('openclaw');
