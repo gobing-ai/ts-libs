@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { NodeSchedulerAdapter } from '../../src/scheduler/index';
 import type { ScheduledAction } from '../../src/scheduler/types';
+import { NodeSchedulerAdapter } from '../../src/scheduler-node';
 
 interface ScheduledTickTestAdapter {
     _onScheduledTick(entry: { cron: string; action: ScheduledAction }): Promise<void>;
