@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
-import { BunPipeProcessSpawner, type PipeProcess, type PipeProcessSpawner } from '@gobing-ai/ts-runtime';
+import { getLogger, type Logger } from '@gobing-ai/ts-infra';
+import { type PipeProcess, ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { AgentSpec } from './agent-spec';
 import { buildIdentityPreamble } from './identity';
 
@@ -9,7 +10,8 @@ export interface AgentProcessOptions {
     command: string[];
     env?: Record<string, string>;
     cwd?: string;
-    processSpawner?: PipeProcessSpawner;
+    processExecutor?: ProcessExecutor;
+    logger?: Logger;
 }
 
 type ProcessStatus = 'running' | 'stopped' | 'errored';
@@ -24,7 +26,8 @@ export class TeamAgentProcess {
     private readonly command: string[];
     private readonly env: Record<string, string> | undefined;
     private readonly cwd: string | undefined;
-    private readonly processSpawner: PipeProcessSpawner;
+    private readonly processExecutor: ProcessExecutor;
+    private readonly logger: Logger;
     private subprocess: PipeProcess | null = null;
     private status: ProcessStatus = 'stopped';
     private exitCode: number | null = null;
@@ -43,16 +46,18 @@ export class TeamAgentProcess {
         this.command = options.command;
         this.env = options.env;
         this.cwd = options.cwd ?? options.spec.workspace;
-        this.processSpawner = options.processSpawner ?? new BunPipeProcessSpawner();
+        this.processExecutor = options.processExecutor ?? new ProcessExecutor();
+        this.logger = options.logger ?? getLogger('team-agent');
     }
 
     async start(): Promise<void> {
         if (this.status === 'running') return;
         const [command, ...args] = this.command;
         if (command === undefined) throw new Error(`${this.agentId}: command must not be empty`);
-        this.subprocess = this.processSpawner.spawn({
+        this.subprocess = this.processExecutor.runStreaming({
             command,
             args,
+            label: `team-agent.${this.agentId}`,
             ...(this.cwd !== undefined ? { cwd: this.cwd } : {}),
             ...(this.env !== undefined ? { env: this.env } : {}),
         });
@@ -74,8 +79,8 @@ export class TeamAgentProcess {
         }
         try {
             process.endStdin();
-        } catch {
-            // Process may have already closed stdin.
+        } catch (error) {
+            this.warn('stdin close failed', 'stop.endStdin', error);
         }
         process.kill('SIGTERM');
         const timeout = new Promise<'timeout'>((resolve) => {
@@ -93,11 +98,15 @@ export class TeamAgentProcess {
     }
 
     async send(message: string): Promise<{ ok: boolean }> {
-        if (this.status !== 'running' || this.subprocess === null) return { ok: false };
+        if (this.status !== 'running' || this.subprocess === null) {
+            this.warn('send skipped because process is not running', 'send.notRunning');
+            return { ok: false };
+        }
         try {
             this.subprocess.writeStdin(`${message}\n`);
             return { ok: true };
-        } catch {
+        } catch (error) {
+            this.warn('stdin write failed', 'send.writeStdin', error);
             this.status = 'errored';
             return { ok: false };
         }
@@ -131,10 +140,19 @@ export class TeamAgentProcess {
                 const buffer = Buffer.from(chunk.value);
                 for (const subscriber of this.subscribers) subscriber(buffer);
             }
-        } catch {
+        } catch (error) {
+            this.warn('stream pipe failed', 'pipe', error);
             if (this.status === 'running') this.status = 'errored';
         } finally {
             reader.releaseLock();
         }
+    }
+
+    private warn(message: string, op: string, error?: unknown): void {
+        this.logger.warn(message, {
+            agentId: this.agentId,
+            op,
+            ...(error !== undefined ? { error: error instanceof Error ? error.message : String(error) } : {}),
+        });
     }
 }
