@@ -22,7 +22,7 @@ The package exposes:
 | `createDefaultWorkflowEngineHost()` | Creates a host with built-in `note`, `shell`, and `always` capabilities |
 | `NoteActionRunner` | Built-in action that records a note in result data |
 | `ShellActionRunner` | Built-in shell action backed by `@gobing-ai/ts-runtime` `ProcessExecutor` |
-| `RunLifecycle` | Shared run bookkeeping: identity, persistence sequencing, OTel spans, structured logging |
+| `RunLifecycle` | Shared run bookkeeping: identity, persistence sequencing, OTel spans, structured logging, and optional event bus emission |
 | `MemoryWorkflowPersistenceAdapter` | In-memory persistence for tests and short-lived runs |
 | `DbWorkflowPersistenceAdapter` | DB-backed persistence over `@gobing-ai/ts-db` |
 | `applyWorkflowEngineSchema()` | Installs the package-owned DB schema |
@@ -39,6 +39,7 @@ The package exposes:
 | `FSMError` / `WorkflowValidationError` / `RunCollisionError` | Structured error classes |
 | `WorkflowExtensionRef` / `LoadWorkflowExtensionsOptions` / `WorkflowExtensionKind` | Extension loading types |
 | `ActionRunner` / `GuardRunner` / `WorkflowDef` / `WorkflowRunResult` … | Type-only exports for all domain types |
+| `WorkflowEngineEvents` | Typed event map for workflow-engine observability. All events prefixed `workflow.` — see [Observability](#observability) |
 
 ## Architecture
 
@@ -663,13 +664,75 @@ resolveTemplateString('Run ${runId} in ${runtime}', {
 // "Run abc in state-machine"
 ```
 
+## Observability
+
+The workflow engine uses a **three-layer observability model** (ADR-015):
+
+| Layer | Tool | Consumer |
+|-------|------|----------|
+| Logs | `getLogger('workflow')` (run-scoped via `child()`) | Human-readable debugging / file output |
+| Traces | `traceAsync('workflow.run')` + `addSpanEvent` per step | Distributed perf correlation (OTel) |
+| Events | `EventBus<WorkflowEngineEvents>` | Programmatic in-process subscription (progress bars, CI dashboards) |
+
+All three layers are **additive** — EventBus does not replace logging or tracing. A consumer who wants a progress bar subscribes to events; a consumer who wants traces attaches an OTel collector; both work independently.
+
+### Event Map
+
+`WorkflowEngineEvents` is a typed event map. All events are prefixed `workflow.`:
+
+| Event | Payload | When |
+|-------|---------|------|
+| `workflow.run.started` | `{ workflowName, mode, runId }` | When a run begins (inside the span) |
+| `workflow.run.done` | `{ finalState, transitionsTaken }` | When a run completes successfully |
+| `workflow.run.failed` | `{ finalState, reason }` | When a run fails |
+| `workflow.node.enter` | `{ node, transitionsTaken }` | When entering a state or node |
+| `workflow.node.transition` | `{ from, to, trigger }` | On a state/node transition |
+| `workflow.action.start` | `{ node, kind }` | When an action starts executing |
+| `workflow.action.done` | `{ node, kind, durationMs, ok }` | When an action finishes (success or failure) |
+| `workflow.action.failed_continue` | `{ node, transitionsTaken, error? }` | When a non-fatal action failure is continued past (`onError: 'continue'`) |
+
+### Usage
+
+Pass an `EventBus` via `WorkflowRunOptions.events`:
+
+```ts
+import { WorkflowService, createDefaultWorkflowEngineHost, MemoryWorkflowPersistenceAdapter } from '@gobing-ai/ts-dual-workflow-engine';
+import { EventBus } from '@gobing-ai/ts-infra';
+import type { WorkflowEngineEvents } from '@gobing-ai/ts-dual-workflow-engine';
+
+const bus = new EventBus<WorkflowEngineEvents>();
+
+bus.on('workflow.action.done', (data) => {
+  console.log(`Action ${data.kind} on ${data.node}: ${data.ok ? 'ok' : 'fail'} (${data.durationMs}ms)`);
+});
+
+bus.on('workflow.run.done', (data) => {
+  console.log(`Run done at ${data.finalState} (${data.transitionsTaken} transitions)`);
+});
+
+const service = new WorkflowService(
+  createDefaultWorkflowEngineHost(),
+  new MemoryWorkflowPersistenceAdapter(),
+);
+
+const result = await service.run(workflow, { events: bus });
+```
+
+### Zero-overhead default
+
+When no `events` option is provided, the engine incurs zero observability overhead — no emit calls, no handler invocations. The event bus is purely opt-in.
+
+### Action-level events
+
+`workflow.action.start` and `workflow.action.done` fire for nodes that have an action configured. A node without an action emits neither. `durationMs` is measured from action start to settlement, and `ok` reflects the action result (`true` for success, `false` for failure).
+
 ## RunLifecycle
 
 `RunLifecycle` is the shared bookkeeping layer both drivers delegate to. It manages:
 
 - **Run identity** — generates a `runId` (or honors caller-provided), timestamps, and run record
 - **Persistence sequencing** — `createRun` → `savePhase`/`saveWorkflowState` per step → `finalizeRun` at the end
-- **Observability** — wraps the full run in an OTel span, emits `workflow.enter`, `workflow.transition`, and `workflow.fail` span events, and logs each lifecycle event through `@gobing-ai/ts-infra` logger
+- **Observability** — wraps the full run in an OTel span, emits span events, logs each lifecycle event through `@gobing-ai/ts-infra` logger, and optionally emits `WorkflowEngineEvents` via an injected `EventBus` (see [Observability](#observability))
 - **Error resilience** — `warnActionFailed()` logs non-fatal warnings for `onError: 'continue'` actions, using the same structured-logging observability seam as `fail()`
 ```ts
 import { RunLifecycle, type RunLifecycleDeps } from '@gobing-ai/ts-dual-workflow-engine';
