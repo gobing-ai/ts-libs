@@ -1,4 +1,5 @@
 import type { DbAdapter } from '@gobing-ai/ts-db';
+import type { FileSystem } from '@gobing-ai/ts-runtime';
 import type { z } from 'zod';
 
 /** Built-in source identifiers supported by the importer. */
@@ -60,6 +61,7 @@ export interface RedactionRule {
 /** Options for one importer run. */
 export interface ImportOptions {
     readonly db: DbAdapter;
+    readonly fileSystem?: FileSystem;
     readonly mode?: ImportMode;
     readonly roots?: readonly string[];
     readonly files?: readonly string[];
