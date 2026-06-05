@@ -188,4 +188,25 @@ describe('APIClient', () => {
         // Verify it worked without specifying timeout
         expect(mockFetch).toHaveBeenCalled();
     });
+
+    test('timeout remains active while reading the response body', async () => {
+        mockFetch.mockImplementation((_url: string, init?: RequestInit) => {
+            const signal = init?.signal;
+            return Promise.resolve({
+                status: 200,
+                ok: true,
+                headers: new Headers({ 'content-type': 'text/plain' }),
+                text: () =>
+                    new Promise<string>((_resolve, reject) => {
+                        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {
+                            once: true,
+                        });
+                    }),
+            });
+        });
+
+        const client = createClient({ timeout: 5 });
+
+        await expect(client.get('/slow-body')).rejects.toThrow('aborted');
+    });
 });
