@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createDbAdapter, type DbAdapter, QueueJobDao } from '@gobing-ai/ts-db';
 import { DBJobQueue, DBQueueConsumer } from '../../src/job-queue';
+import { _resetMetrics } from '../../src/telemetry/metrics';
+import { _resetTelemetry, initTelemetry, shutdownTelemetry } from '../../src/telemetry/sdk';
 
 let adapter: DbAdapter;
 let dao: QueueJobDao;
@@ -81,6 +83,38 @@ describe('DBQueueConsumer', () => {
         job = await dao.getById(id);
         expect(job?.status).toBe('failed');
         expect(job?.attempts).toBe(2);
+    });
+
+    test('queue.poll/queue.job.process tracing is transparent to processing', async () => {
+        // Regression for F2: queue tracing was dropped in the migration. The
+        // restored `traceAsync` wrappers must not alter behavior — with telemetry
+        // enabled, processing, completion, and error propagation are unchanged.
+        // (Span export itself is covered by the telemetry module's own tests; the
+        // infra SDK registers no provider, so there is no active span to observe
+        // here without a host-registered context manager.)
+        _resetMetrics();
+        initTelemetry({ enabled: true, serviceName: 'test-queue-tracing' });
+        try {
+            const queue = new DBJobQueue<{ value: number }>(dao);
+            const okId = await queue.enqueue('ok', { value: 1 });
+            const failId = await queue.enqueue('boom', { value: 2 }, { maxRetries: 1 });
+
+            const consumer = new DBQueueConsumer<{ value: number }>(dao);
+            consumer.register('ok', async () => {});
+            consumer.register('boom', async () => {
+                throw new Error('handler failed');
+            });
+
+            const processed = await consumer.processOnce();
+
+            expect(processed).toBe(2);
+            expect((await dao.getById(okId))?.status).toBe('completed');
+            expect((await dao.getById(failId))?.status).toBe('failed');
+        } finally {
+            await shutdownTelemetry();
+            _resetTelemetry();
+            _resetMetrics();
+        }
     });
 
     test('fails jobs with no registered handler', async () => {
