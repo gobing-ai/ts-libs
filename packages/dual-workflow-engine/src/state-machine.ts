@@ -27,7 +27,7 @@ export class StateMachineDriver {
         return await RunLifecycle.run(
             workflow.name,
             'state-machine',
-            { persistence: this.options.persistence },
+            { persistence: this.options.persistence, events: options.events },
             options,
             (lifecycle) => this.loop(workflow, options, lifecycle),
         );
@@ -149,14 +149,20 @@ export class StateMachineDriver {
                 env,
                 builtins: runtimeBuiltins(workflowName, stateId, runId, transitionsTaken, 'state-machine'),
             });
-            last = await this.options.host.runAction(action.kind, resolved, {
-                runId,
-                workdir: options.workdir,
-                stateOrNodeId: stateId,
-                vars,
-                env,
-                metadata: options.metadata,
-            });
+            const actionStartMs = Date.now();
+            lifecycle.actionStart(stateId, action.kind);
+            try {
+                last = await this.options.host.runAction(action.kind, resolved, {
+                    runId,
+                    workdir: options.workdir,
+                    stateOrNodeId: stateId,
+                    vars,
+                    env,
+                    metadata: options.metadata,
+                });
+            } finally {
+                lifecycle.actionDone(stateId, action.kind, Date.now() - actionStartMs, last?.ok ?? false);
+            }
             if (last.terminal === true) return { outcome: 'terminal', result: last };
             if (!last.ok) {
                 const policy = resolveOnErrorPolicy(action.onError, defaultOnError, options.onError);
