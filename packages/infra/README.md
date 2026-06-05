@@ -1,6 +1,6 @@
 # @gobing-ai/ts-infra
 
-Infrastructure backbone — typed event bus, DB-backed job queue, cron scheduler, OpenTelemetry telemetry, HTTP API client, and structured logging.
+Infrastructure backbone — typed event bus, queue/scheduler contracts, adapter subpaths, OpenTelemetry instrumentation, HTTP API client, and structured logging.
 
 ## Overview
 
@@ -9,11 +9,11 @@ Infrastructure backbone — typed event bus, DB-backed job queue, cron scheduler
 | Subsystem | Module | Purpose |
 |-----------|--------|---------|
 | **Event Bus** | `event-bus/` | Typed pub/sub with sync + async dispatch, lifecycle self-observability |
-| **Job Queue** | `job-queue/` | DB-backed enqueue and consume flow (`DBJobQueue`, `DBQueueConsumer`) plus queue interfaces |
-| **Scheduler** | `scheduler/` | Cron-like scheduled actions — Node (interval), Cloudflare (Cron Triggers), Noop (test) |
+| **Job Queue** | core + `/job-queue-db` | Queue interfaces in core; DB-backed enqueue/consume flow (`DBJobQueue`, `DBQueueConsumer`) via opt-in subpath |
+| **Scheduler** | core + scheduler subpaths | Scheduler contracts, registry, built-in actions, noop adapter in core; Node and Cloudflare adapters via opt-in subpaths |
 | **Telemetry** | `telemetry/` | OTel instrumentation — tracing (`traceAsync`), metrics (12 instruments), SQL sanitizer; opt-in OTLP export via the `/otel-node` subpath |
 | **API Client** | `api-client.ts` | Typed HTTP client with OTel tracing, timeout, and error handling |
-| **Logger** | `logger.ts` | Structured JSON logger with levels, child loggers, and mute toggle |
+| **Logger** | `logger.ts` | LogTape-backed structured logger with levels, child loggers, injectable sinks, and mute toggle |
 
 ## Architecture
 
@@ -139,16 +139,15 @@ classDiagram
         }
         class LoggerFactory {
             +getLogger(category) Logger
-            +initializeLogger(level) void
+            +initializeLogger(options?) Promise~void~
         }
     }
 
     SchedulerAdapter <|.. NodeSchedulerAdapter : implements
     SchedulerAdapter <|.. CloudflareSchedulerAdapter : implements
     SchedulerAdapter <|.. NoopSchedulerAdapter : implements
-    SchedulerFactory --> NodeSchedulerAdapter
-    SchedulerFactory --> CloudflareSchedulerAdapter
-    SchedulerFactory --> NoopSchedulerAdapter
+    SchedulerFactory --> SchedulerAdapter : "uses injected adapter"
+    SchedulerFactory --> NoopSchedulerAdapter : "default when none injected"
     EventBus --> JobQueue : "async dispatch"
     DBJobQueue --> JobQueue : "implements"
     DBQueueConsumer --> QueueConsumer : "implements"
@@ -162,7 +161,7 @@ classDiagram
 ### Event Bus — typed pub/sub
 
 ```ts
-import { EventBus, type EventMap } from '@gobing-ai/ts-infra';
+import { attachDefaultObservers, createLifecycleBus, EventBus, type EventMap } from '@gobing-ai/ts-infra';
 
 // Define your event map
 type AppEvents = {
@@ -193,14 +192,11 @@ bus.once('user.signed_up', () => console.log('one-time'));
 **Lifecycle events** — inject a second `EventBus` to observe bus internals:
 
 ```ts
-type LifecycleEvents = {
-    'bus.emit.done': (detail: { event: string; syncCount: number; asyncCount: number; emitDurationMs: number }) => void;
-};
-
-const lifecycleBus = new EventBus<LifecycleEvents>();
+const lifecycleBus = createLifecycleBus();
+attachDefaultObservers(lifecycleBus); // log + telemetry spans; metrics are emitted by EventBus itself
 lifecycleBus.on('bus.emit.done', (detail) => {
     // { event, syncCount, asyncCount, emitDurationMs, errors }
-    metrics.recordEmit(detail);
+    console.debug('EventBus emit complete', detail);
 });
 
 const bus = new EventBus<AppEvents>({ lifecycleBus });
@@ -208,11 +204,11 @@ const bus = new EventBus<AppEvents>({ lifecycleBus });
 
 ### Job Queue — DB-backed async work
 
-`DBJobQueue` and `DBQueueConsumer` run over `@gobing-ai/ts-db`'s `QueueJobDao`. Use this when event handlers, schedulers, or API handlers need durable background work with retries.
+`DBJobQueue` and `DBQueueConsumer` live behind the `@gobing-ai/ts-infra/job-queue-db` subpath and run over `@gobing-ai/ts-db`'s `QueueJobDao`. Use this when event handlers, schedulers, or API handlers need durable background work with retries.
 
 ```ts
 import { createDbAdapter, QueueJobDao } from '@gobing-ai/ts-db';
-import { DBJobQueue, DBQueueConsumer } from '@gobing-ai/ts-infra';
+import { DBJobQueue, DBQueueConsumer } from '@gobing-ai/ts-infra/job-queue-db';
 
 const db = await createDbAdapter({ driver: 'bun-sqlite', url: './jobs.db' });
 const dao = new QueueJobDao(db);
@@ -248,7 +244,8 @@ The consumer claims ready jobs, resets stuck processing jobs after the visibilit
 ### Scheduler — cron-like actions
 
 ```ts
-import { NodeSchedulerAdapter, initScheduler } from '@gobing-ai/ts-infra';
+import { initScheduler, setSchedulerAdapter } from '@gobing-ai/ts-infra';
+import { NodeSchedulerAdapter } from '@gobing-ai/ts-infra/scheduler-node';
 
 // Node.js (interval-based)
 const scheduler = new NodeSchedulerAdapter();
@@ -260,7 +257,8 @@ scheduler.register('*/5 * * * *', async () => {
 });
 await scheduler.start();
 
-// Or use factory
+// Or use the core factory after injecting the runtime adapter
+setSchedulerAdapter(new NodeSchedulerAdapter());
 const sched = initScheduler([
     ['300000', async () => cleanupExpiredSessions()],
     ['3600000', async () => generateReports()],
@@ -268,7 +266,7 @@ const sched = initScheduler([
 await sched.start();
 
 // Cloudflare Workers
-import { CloudflareSchedulerAdapter } from '@gobing-ai/ts-infra';
+import { CloudflareSchedulerAdapter } from '@gobing-ai/ts-infra/scheduler-cloudflare';
 const cfScheduler = new CloudflareSchedulerAdapter();
 cfScheduler.register('* * * * *', async () => { /* ... */ });
 
@@ -312,7 +310,11 @@ The client auto-instruments every request: creates a `CLIENT` span, records meth
 ```ts
 import { getLogger, initializeLogger } from '@gobing-ai/ts-infra';
 
-initializeLogger('debug'); // set minimum level
+await initializeLogger({
+    level: 'debug',
+    console: true,
+    json: true,
+});
 
 const log = getLogger('auth');
 log.info('User logged in', { userId: 'u1', method: 'password' });
@@ -323,7 +325,15 @@ const reqLog = log.child({ requestId: 'req-123' });
 reqLog.error('Validation failed', { field: 'email' });
 // → {...,"category":"auth","requestId":"req-123","field":"email"}
 
-// In tests, prefer injecting a logger boundary or initializing at a quiet level.
+// File logging is also injectable; ts-infra never opens files directly.
+await initializeLogger({
+    console: false,
+    fileSink: (line) => {
+        // Append `line` using the host runtime's FileSystem / stream owner.
+    },
+});
+
+// In tests, prefer injecting a logger boundary or initializing with console: false.
 ```
 
 ### Telemetry — OpenTelemetry
@@ -397,8 +407,10 @@ process.on('SIGTERM', async () => {
 ```
 
 The exporter packages are **optional peers** — only consumers of `/otel-node`
-need them installed. The main `@gobing-ai/ts-infra` import never pulls them, so
-BYO and browser/edge consumers stay lean. To use the subpath:
+need them installed. `@opentelemetry/api` and semantic conventions are the only
+OTel packages used by the core instrumentation surface. The main
+`@gobing-ai/ts-infra` import never pulls exporter/provider SDKs, so BYO and
+browser/edge consumers stay lean. To use the subpath:
 
 ```bash
 bun add @opentelemetry/sdk-trace-node @opentelemetry/sdk-metrics \
@@ -412,25 +424,35 @@ bun add @opentelemetry/sdk-trace-node @opentelemetry/sdk-metrics \
 ### Install
 
 ```bash
-bun add @gobing-ai/ts-infra @gobing-ai/ts-runtime @gobing-ai/ts-db
+bun add @gobing-ai/ts-infra
+
+# Only needed when using @gobing-ai/ts-infra/job-queue-db.
+bun add @gobing-ai/ts-db
+
+# Only needed when using @gobing-ai/ts-infra/otel-node.
+bun add @opentelemetry/sdk-trace-node @opentelemetry/sdk-metrics \
+        @opentelemetry/resources \
+        @opentelemetry/exporter-trace-otlp-http \
+        @opentelemetry/exporter-metrics-otlp-http
 ```
 
 ### Full bootstrap example
 
 ```ts
-import { createRuntimeContext } from '@gobing-ai/ts-runtime';
+import { createRuntimeContextFromFactory } from '@gobing-ai/ts-runtime';
 import { createDbAdapter, applyMigrations } from '@gobing-ai/ts-db';
 import {
     EventBus,
-    NodeSchedulerAdapter,
+    setSchedulerAdapter,
     initTelemetry,
     APIClient,
     getLogger,
     initializeLogger,
 } from '@gobing-ai/ts-infra';
+import { NodeSchedulerAdapter } from '@gobing-ai/ts-infra/scheduler-node';
 
 // 1. Runtime
-const ctx = createRuntimeContext({ runtimeName: 'node-bun' });
+const ctx = await createRuntimeContextFromFactory();
 
 // 2. Database
 const db = await createDbAdapter({ driver: 'bun-sqlite', url: './data/app.db' });
@@ -438,7 +460,7 @@ await applyMigrations(db);
 ctx.register('db', db);
 
 // 3. Logging
-initializeLogger('info');
+await initializeLogger({ level: 'info', console: true });
 const log = getLogger('app');
 
 // 4. Telemetry
@@ -449,6 +471,7 @@ const bus = new EventBus<AppEvents>();
 
 // 6. Scheduler
 const scheduler = new NodeSchedulerAdapter();
+setSchedulerAdapter(scheduler);
 scheduler.register('3600000', async () => {
     log.info('Hourly cleanup running');
 });
