@@ -27,4 +27,10 @@ describe('RuleEngineHost', () => {
         host.formatters.register('custom', formatter);
         expect(host.formatters.get('custom')).toBe(formatter);
     });
+
+    test('creates fixers registry', () => {
+        const host = new RuleEngineHost();
+        expect(host.fixers).toBeDefined();
+        expect(host.fixers.list()).toEqual([]);
+    });
 });
