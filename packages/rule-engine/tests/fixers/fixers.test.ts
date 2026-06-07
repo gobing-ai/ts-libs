@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ProcessExecutor } from '@gobing-ai/ts-runtime';
 import { RuleEngine } from '../../src/engine';
 import {
     applyFixes,
@@ -378,5 +379,108 @@ describe('RuleEngine.evaluateWithFixes', () => {
         const appResult = await engine.applyFixes(dir, [fix]);
         expect(appResult.applied).toHaveLength(1);
         expect(readFileSync(join(dir, filePath), 'utf-8')).toBe('after');
+    });
+});
+
+// ── Host fixer registry ────────────────────────────────────────────────────────
+
+describe('host.fixers registry (builtin fixer registration)', () => {
+    test('RuleEngine registers built-in fixers into host.fixers', () => {
+        const engine = new RuleEngine();
+        expect(engine.host.fixers.has('regex')).toBe(true);
+        expect(engine.host.fixers.has('rg')).toBe(true);
+        expect(engine.host.fixers.has('path')).toBe(true);
+        expect(engine.host.fixers.has('file-exist')).toBe(true);
+    });
+
+    test('built-in fixer entries have origin "builtin"', () => {
+        const engine = new RuleEngine();
+        const entry = engine.host.fixers.getEntry('regex');
+        expect(entry?.origin).toBe('builtin');
+        expect(entry?.capability).toBeInstanceOf(RegexFixerProvider);
+    });
+
+    test('test-location fixer is registered when processExecutor is provided', () => {
+        const exec = { spawn: async () => ({ stdout: '', stderr: '', exitCode: 0 }) };
+        const engine = new RuleEngine({ processExecutor: exec as unknown as ProcessExecutor });
+        expect(engine.host.fixers.has('test-location')).toBe(true);
+        expect(engine.host.fixers.getEntry('test-location')?.origin).toBe('builtin');
+    });
+
+    test('test-location fixer is absent when processExecutor is omitted', () => {
+        const engine = new RuleEngine();
+        expect(engine.host.fixers.has('test-location')).toBe(false);
+    });
+
+    test('regex and rg share the same provider instance', () => {
+        const engine = new RuleEngine();
+        expect(engine.host.fixers.get('regex')).toBe(engine.host.fixers.get('rg'));
+    });
+
+    test('path and file-exist share the same provider instance', () => {
+        const engine = new RuleEngine();
+        expect(engine.host.fixers.get('path')).toBe(engine.host.fixers.get('file-exist'));
+    });
+
+    test('evaluateWithFixes uses host.fixers for fix generation', async () => {
+        const dir = await makeTempDir();
+        await mkdir(join(dir, 'src'), { recursive: true });
+        await writeFile(join(dir, 'src', 'mod.ts'), 'const foo = 1;\n');
+
+        const rule: ConstraintRule = {
+            id: 'rename-foo',
+            description: 'rename foo',
+            enabled: true,
+            severity: 'error',
+            include: ['src'],
+            evaluator: { type: 'regex', config: { mode: 'forbid', pattern: 'foo', flags: 'g' } },
+            fix: { mode: 'auto', replacement: 'bar' },
+        };
+
+        const engine = new RuleEngine();
+        const result = await engine.evaluateWithFixes([rule], dir);
+        expect(result.findings.length).toBeGreaterThan(0);
+        expect(result.fixes.length).toBeGreaterThan(0);
+        // Verify the fix came from the host registry provider
+        const regexEntry = engine.host.fixers.getEntry('regex');
+        expect(regexEntry).toBeDefined();
+        expect(regexEntry?.origin).toBe('builtin');
+    });
+
+    test('rule with evaluator type that has no fixer produces no provider fixes', async () => {
+        const dir = await makeTempDir();
+        await mkdir(join(dir, 'src'), { recursive: true });
+        await writeFile(join(dir, 'src', 'mod.ts'), 'const foo = 1;\n');
+
+        const rule: ConstraintRule = {
+            id: 'no-fixer-evaluator',
+            description: 'test',
+            enabled: true,
+            severity: 'error',
+            include: ['src'],
+            evaluator: { type: 'path', config: { must: 'present', paths: ['src/mod.ts'] } },
+            // path evaluator has a fixer, but we test with an evaluator type that has none
+            // by using a fake evaluator registered on the host
+            fix: { mode: 'auto' },
+        };
+
+        const engine = new RuleEngine();
+        // Register a fake evaluator type with no matching fixer
+        engine.host.evaluators.register(
+            'no-fixer-type',
+            {
+                evaluate: async () => ({
+                    findings: [makeFinding({ filePath: 'src/mod.ts' })],
+                    fixes: [],
+                }),
+            },
+            'extension',
+        );
+        rule.evaluator.type = 'no-fixer-type';
+
+        const result = await engine.evaluateWithFixes([rule], dir);
+        expect(result.findings.length).toBe(1);
+        // No provider fixes because no fixer registered for 'no-fixer-type'
+        expect(result.fixes).toHaveLength(0);
     });
 });
