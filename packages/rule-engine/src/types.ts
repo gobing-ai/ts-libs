@@ -170,6 +170,34 @@ export interface ResultFormatter {
     format(result: RuleEngineResult): string;
 }
 
+/** Result of resolving effective fix authority for a rule. */
+export interface EffectiveFix {
+    /** Effective mode after all downgrades. */
+    readonly mode: FixMode;
+    /** Optional replacement text configured by the rule author. */
+    readonly replacement?: string;
+    /** Optional provider-specific parameters. */
+    readonly params?: Record<string, unknown>;
+}
+
+/** Input passed to a rule fixer provider. */
+export interface RuleFixerInput {
+    /** Rule that produced the findings. */
+    readonly rule: ConstraintRule;
+    /** Rule execution context. */
+    readonly context: RuleContext;
+    /** Findings emitted for this rule. */
+    readonly findings: ConstraintFinding[];
+    /** Effective fix metadata after authority enforcement. */
+    readonly fix: EffectiveFix;
+}
+
+/** Provider that turns findings into byte-range fixes. */
+export interface RuleFixerProvider {
+    /** Produce fixes for mechanically fixable findings. */
+    createFixes(input: RuleFixerInput): Fix[] | Promise<Fix[]>;
+}
+
 /** Engine-level evaluation result. */
 export interface RuleEngineResult {
     /** Findings emitted by enabled rules. */
