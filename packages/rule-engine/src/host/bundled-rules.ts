@@ -15,7 +15,7 @@ const defaultFs = new NodeSyncFileSystem();
  * Resolve the absolute path to the rule presets bundled with
  * `@gobing-ai/ts-rule-engine`.
  *
- * The directory ships portable presets (`recommended`, `spur-dev`) and category
+ * The directory ships a generic example preset and category
  * folders (`typescript`, `structure`, `quality`) so a consumer gets a working
  * default ruleset without authoring any files. Pass the returned path as the
  * lowest-priority entry to {@link loadPreset}'s `roots`, letting project-local
