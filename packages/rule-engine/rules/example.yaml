@@ -1,0 +1,13 @@
+# Example preset — demonstrates the extends mechanism by composing all three
+# bundled rule categories (typescript, quality, structure).
+#
+# Load with: loadPreset('example', { roots: [bundledRulesRoot()] })
+#
+# Bundled with @gobing-ai/ts-rule-engine. A project may override individual rule
+# files by placing same-named files under a local rules root that shadows the
+# bundled copy.
+name: example
+extends:
+  - typescript
+  - quality
+  - structure
