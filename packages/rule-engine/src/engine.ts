@@ -4,11 +4,10 @@ import type { ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { RuleEngineEvents } from './events';
 import {
     applyFixes as applyFixesImpl,
-    builtInFixers,
     type EffectiveFix,
     FIX_MODE_RANK,
     type FixApplicationResult,
-    type RuleFixerProvider,
+    registerBuiltinFixers,
 } from './fixers/fixers';
 import { registerBuiltins } from './host/builtins';
 import { RuleEngineHost } from './host/rule-engine-host';
@@ -32,15 +31,13 @@ export class RuleEngine {
     /** Capability host used by this engine. */
     readonly host: RuleEngineHost;
 
-    /** Fixer providers keyed by evaluator type. */
-    private readonly fixers: Map<string, RuleFixerProvider>;
     private readonly events: EventBus<RuleEngineEvents> | undefined;
     private readonly logger: Logger;
 
     constructor(options: RuleEngineOptions = {}) {
         this.host = options.host ?? new RuleEngineHost();
         registerBuiltins(this.host, options.processExecutor);
-        this.fixers = builtInFixers(this.host, options.processExecutor);
+        registerBuiltinFixers(this.host, options.processExecutor);
         this.events = options.events;
         this.logger = options.logger ?? getLogger('rule-engine');
     }
@@ -150,7 +147,7 @@ export class RuleEngine {
                     const effectiveMode = effectiveFixMode(ruleMode, maxFixMode);
 
                     if (effectiveMode !== 'none' && ruleFindings.length > 0) {
-                        const provider = this.fixers.get(rule.evaluator.type);
+                        const provider = this.host.fixers.getEntry(rule.evaluator.type)?.capability;
                         if (provider) {
                             const effectiveFix: EffectiveFix = {
                                 mode: effectiveMode,
