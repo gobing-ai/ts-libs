@@ -19,8 +19,8 @@ erDiagram
     CAPABILITY_REGISTRY ||--o{ EVALUATOR : registers
     CAPABILITY_REGISTRY ||--o{ RESOLVER : registers
     CAPABILITY_REGISTRY ||--o{ FORMATTER : registers
+    CAPABILITY_REGISTRY ||--o{ FIXER_PROVIDER : registers
     RULE_ENGINE ||--o{ CONSTRAINT_RULE : evaluates
-    RULE_ENGINE ||--o{ FIXER_PROVIDER : owns
     PRESET ||--o{ CONSTRAINT_RULE : composes
     PRESET ||--o{ EXTENSION_REF : declares
     EXTENSION_REF }o--|| RULE_ENGINE_HOST : loads_into
@@ -32,7 +32,7 @@ erDiagram
 | Entity | One-line Description |
 |--------|----------------------|
 | `RuleEngine` | Orchestrates evaluation of enabled rules against a workspace directory. Supports opt-in early exit via `stopOnFirst` parameter. Accepts an optional `EventBus<RuleEngineEvents>` for structured in-process observability. |
-| `RuleEngineHost` | Capability host backed by `CapabilityRegistry` from `@gobing-ai/ts-runtime/plugin` — holds evaluators, resolvers, and formatters, each with origin tracking for safe override detection. |
+| `RuleEngineHost` | Capability host backed by `CapabilityRegistry` from `@gobing-ai/ts-runtime/plugin` — holds evaluators, resolvers, formatters, and fixer providers, each with origin tracking for safe override detection. |
 | `CapabilityRegistry<T>` | Generic named registry (shared with `ts-rule-engine`, `ts-dual-workflow-engine`) that tags each entry with its `origin` (`'builtin'`, `'extension'`, `'caller'`). |
 | `ConstraintRule` | Declarative policy unit: id, severity, include/exclude globs, evaluator type + config, and optional fix config. |
 | `Preset` | YAML/JSON composition: extends rule categories and other presets, declares `disable`/`overrides`, and exposes extension modules. |
@@ -65,8 +65,8 @@ flowchart TD
 Core concepts:
 
 - `ConstraintRule`: one policy check. It has an `id`, `severity`, evaluator type/config, optional include/exclude globs, and optional fix config.
-- `RuleEngine`: runs enabled rules against a `workdir`. The constructor auto-registers built-in evaluators, formatters, and resolvers.
-- `RuleEngineHost`: capability container backed by three `CapabilityRegistry` instances from `@gobing-ai/ts-runtime/plugin`. Each entry tracks its origin (`'builtin'` / `'extension'` / `'caller'`) so the engine can detect and report conflicting registrations.
+- `RuleEngine`: runs enabled rules against a `workdir`. The constructor auto-registers built-in evaluators, formatters, resolvers, and fixer providers.
+- `RuleEngineHost`: capability container backed by four `CapabilityRegistry` instances from `@gobing-ai/ts-runtime/plugin`. Each entry tracks its origin (`'builtin'` / `'extension'` / `'caller'`) so the engine can detect and report conflicting registrations.
 - `RuleEvaluator`: implementation of one rule type, such as `regex`, `path`, or `coverage-gate`.
 - `Fix`: byte-range replacement candidate. Fixes are collected separately from findings and only written when you call `applyFixes()`.
 - Preset: YAML/JSON file that composes rule categories and can expose extension modules.
@@ -112,7 +112,9 @@ sequenceDiagram
         Evaluator-->>Engine: { findings: Finding[], fixes: Fix[] }
 
         opt rule.fix mode ≠ none and findings exist
-            Engine->>Fixer: fixers.get(evaluatorType)
+            Engine->>Host: host.fixers.getEntry(evaluatorType)?.capability
+            Host-->>Engine: RuleFixerProvider (or undefined)
+            Engine->>Fixer: provider.createFixes(input)
             Fixer->>Fixer: resolve effective mode (min(rule, caller))
             Fixer->>FS: read / write (dry-run or real)
             Fixer-->>Engine: Fix[]
@@ -136,31 +138,7 @@ The key design decisions visible in this flow:
 - **Evaluators are stateless plugins**: each evaluator receives `(rule, context)` and returns findings. The engine owns the loop, error boundary, and fixer dispatch.
 - **Fixes are opt-in and authority-gated**: the effective fix mode is `min(rule.fix.mode, caller.maxFixMode)`. Fixes are never written during evaluation — only when the caller explicitly calls `applyFixes()`.
 - **Extension loading is trust-gated**: the `allowExtensions` flag must be explicitly `true`. Without it, `loadExtensionsIntoHost()` throws, preventing untrusted code from registering capabilities.
-- **Origins prevent silent override**: each `CapabilityRegistry` entry records its origin. A preset extension cannot silently replace a built-in evaluator — conflicts are surfaced.
-
-## Quick Start
-
-```ts
-import { RuleEngine, TextFormatter, type ConstraintRule } from '@gobing-ai/ts-rule-engine';
-
-const rules: ConstraintRule[] = [
-  {
-    id: 'no-console-log',
-    description: 'Do not commit console.log calls',
-    enabled: true,
-    severity: 'error',
-    include: ['src/**/*.ts'],
-    evaluator: {
-      type: 'regex',
-      config: {
-        mode: 'forbid',
-        pattern: 'console\\.log\\(',
-      },
-    },
-  },
-];
-```
-
+- **Origins prevent silent override**: each `CapabilityRegistry` entry records its origin. A preset extension cannot silently replace a built-in capability (evaluator, resolver, formatter, or fixer) — conflicts are surfaced.
 
 ## Quick Start
 
@@ -672,6 +650,8 @@ extensions:
     - ./extensions/custom-resolver.ts
   evaluators:
     - ./extensions/custom-evaluator.ts
+  fixers:
+    - ./extensions/custom-fixer.ts
   formatters:
     - ./extensions/compact-formatter.ts
 ```
@@ -702,6 +682,22 @@ const evaluator: RuleEvaluator & { name: string } = {
 export default evaluator;
 ```
 
+Fixer extension (keyed by the evaluator type it handles):
+
+```ts
+import type { RuleFixerProvider } from '@gobing-ai/ts-rule-engine';
+
+const fixer: RuleFixerProvider & { name: string } = {
+  name: 'custom-fixer',
+  async createFixes(input) {
+    // Return Fix[] (byte-range replacements) based on findings and fix config.
+    return [];
+  },
+};
+
+export default fixer;
+```
+
 Load extensions (uses the shared `loadExtensionModules` from `@gobing-ai/ts-runtime/plugin`):
 
 ```ts
@@ -720,8 +716,8 @@ Supported extension kinds:
 | ---- | ------------ | -------------- | ------ |
 | `resolvers` | `host.resolvers` (`CapabilityRegistry<TestPathResolver>`) | object with `name` and `resolveTestPath()` | `'extension'` |
 | `evaluators` | `host.evaluators` (`CapabilityRegistry<RuleEvaluator>`) | object with `name` and `evaluate()` | `'extension'` |
+| `fixers` | `host.fixers` (`CapabilityRegistry<RuleFixerProvider>`) | object with `name` and `createFixes()`, keyed by evaluator type | `'extension'` |
 | `formatters` | `host.formatters` (`CapabilityRegistry<ResultFormatter>`) | object with `name` and `format()` | `'extension'` |
-
 ## Traversal Control (`stopOnFirst`)
 
 By default, the engine evaluates every enabled rule exhaustively. Pass `stopOnFirst: 'error' | 'warning' | 'info'` to break early when the severity threshold is met:
