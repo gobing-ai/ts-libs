@@ -80,14 +80,21 @@ describe('loadExtensionsIntoHost', () => {
         expect(host.resolvers.has('self-test-extension')).toBe(true);
     });
 
-    test('throws for extension kinds that have no host registry', async () => {
+    test('loads fixer extensions into host.fixers registry', async () => {
         const refs = [{ kind: 'fixers' as const, presetName: 'p', absPath: '/extensions/fixer.ts' }];
-        await expect(
-            loadExtensionsIntoHost(new RuleEngineHost(), refs, {
-                allowExtensions: true,
-                moduleLoader: async () => ({ default: { name: 'custom-fixer' } }),
-            }),
-        ).rejects.toThrow('fixers extensions are not supported');
+        const host = new RuleEngineHost();
+        const fakeProvider = {
+            name: 'custom-fixer',
+            createFixes: async () => [],
+        };
+
+        await loadExtensionsIntoHost(host, refs, {
+            allowExtensions: true,
+            moduleLoader: async () => ({ default: fakeProvider }),
+        });
+
+        expect(host.fixers.has('custom-fixer')).toBe(true);
+        expect(host.fixers.get('custom-fixer')).toBe(fakeProvider);
     });
 
     test('warns when an extension overrides an existing capability', async () => {
@@ -107,6 +114,35 @@ describe('loadExtensionsIntoHost', () => {
         });
 
         expect(warnings[0]).toContain('overrides existing "typescript"');
+    });
+
+    test('throws for fixer refs when allowExtensions is false', async () => {
+        const refs = [{ kind: 'fixers' as const, presetName: 'p', absPath: '/extensions/fixer.ts' }];
+        await expect(
+            loadExtensionsIntoHost(new RuleEngineHost(), refs, {
+                allowExtensions: false,
+                moduleLoader: async () => ({ default: { name: 'custom-fixer', createFixes: async () => [] } }),
+            }),
+        ).rejects.toThrow();
+    });
+
+    test('warns when a fixer extension overrides a builtin', async () => {
+        const warnings: string[] = [];
+        const refs = [{ kind: 'fixers' as const, presetName: 'p', absPath: '/extensions/fixer.ts' }];
+        const host = new RuleEngineHost();
+        // Simulate a builtin fixer registration (as registerBuiltinFixers does)
+        host.fixers.register('regex', { createFixes: async () => [] }, 'builtin');
+
+        await loadExtensionsIntoHost(host, refs, {
+            allowExtensions: true,
+            logger: { warn: (message) => warnings.push(message) },
+            moduleLoader: async () => ({ default: { name: 'regex', createFixes: async () => [] } }),
+        });
+
+        expect(warnings[0]).toContain('overrides existing "regex"');
+        // Extension replaced the builtin
+        const entry = host.fixers.getEntry('regex');
+        expect(entry?.origin).toBe('extension');
     });
 });
 
