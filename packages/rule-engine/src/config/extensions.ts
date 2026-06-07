@@ -34,10 +34,11 @@ export interface LoadExtensionsOptions {
     moduleLoader?: (absPath: string) => Promise<Record<string, unknown>>;
 }
 
-/** Host registries that can receive extension capabilities (fixers live on the engine, not the host). */
-const HOST_REGISTRY_BY_KIND: Partial<Record<ExtensionKind, 'resolvers' | 'evaluators' | 'formatters'>> = {
+/** Host registries that can receive extension capabilities (all four kinds). */
+const HOST_REGISTRY_BY_KIND: Record<ExtensionKind, 'resolvers' | 'evaluators' | 'fixers' | 'formatters'> = {
     resolvers: 'resolvers',
     evaluators: 'evaluators',
+    fixers: 'fixers',
     formatters: 'formatters',
 };
 
