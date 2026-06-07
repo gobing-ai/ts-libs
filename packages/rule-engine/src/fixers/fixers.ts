@@ -1,5 +1,5 @@
 /**
- * Core fixer pipeline: provider contracts, built-in fixer implementations,
+ * Core fixer pipeline: built-in fixer implementations,
  * and the byte-range fix application function.
  *
  * @module rule-engine/fixers
@@ -13,10 +13,12 @@ import {
     relativePath,
     resolvePath,
 } from '@gobing-ai/ts-runtime';
-import type { CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
-import type { TestPathResolver } from '../resolvers/test-path-resolver';
-import type { ConstraintFinding, ConstraintRule, Fix, FixMode, RuleContext } from '../types';
+import type { RuleEngineHost } from '../host/rule-engine-host';
+import type { ConstraintRule, Fix, FixMode, RuleFixerInput, RuleFixerProvider } from '../types';
 import { TestStubFixer } from './test-stub-fixer';
+
+// Re-export types that moved to ../types — consumers import them from the barrel.
+export type { EffectiveFix, RuleFixerInput, RuleFixerProvider } from '../types';
 
 /** Numeric ordering for fix authority; higher means more write authority. */
 export const FIX_MODE_RANK: Record<FixMode, number> = {
@@ -24,34 +26,6 @@ export const FIX_MODE_RANK: Record<FixMode, number> = {
     suggest: 1,
     auto: 2,
 };
-
-/** Result of resolving effective fix authority for a rule. */
-export interface EffectiveFix {
-    /** Effective mode after all downgrades. */
-    readonly mode: FixMode;
-    /** Optional replacement text configured by the rule author. */
-    readonly replacement?: string;
-    /** Optional provider-specific parameters. */
-    readonly params?: Record<string, unknown>;
-}
-
-/** Input passed to a rule fixer provider. */
-export interface RuleFixerInput {
-    /** Rule that produced the findings. */
-    readonly rule: ConstraintRule;
-    /** Rule execution context. */
-    readonly context: RuleContext;
-    /** Findings emitted for this rule. */
-    readonly findings: ConstraintFinding[];
-    /** Effective fix metadata after authority enforcement. */
-    readonly fix: EffectiveFix;
-}
-
-/** Provider that turns findings into byte-range fixes. */
-export interface RuleFixerProvider {
-    /** Produce fixes for mechanically fixable findings. */
-    createFixes(input: RuleFixerInput): Fix[] | Promise<Fix[]>;
-}
 
 /** Result of applying or previewing a batch of fixes. */
 export interface FixApplicationResult {
@@ -65,26 +39,21 @@ export interface FixApplicationResult {
     readonly diff: string;
 }
 
-/** Dependencies required for the built-in fixer registry. */
-export interface BuiltInFixersDeps {
-    /** Resolver registry, required for TestStubFixer. */
-    resolvers: CapabilityRegistry<TestPathResolver>;
-}
-
-/** Registry of built-in rule fixer providers keyed by evaluator type. */
-export function builtInFixers(host?: BuiltInFixersDeps, exec?: ProcessExecutor): Map<string, RuleFixerProvider> {
+/** Register built-in fixer providers into the host's fixer registry. */
+export function registerBuiltinFixers(host: RuleEngineHost, exec?: ProcessExecutor): void {
     const regexFixer = new RegexFixerProvider();
     const pathFixer = new PathFixerProvider();
-    const entries: Array<[string, RuleFixerProvider]> = [
-        ['regex', regexFixer],
-        ['rg', regexFixer],
-        ['path', pathFixer],
-        ['file-exist', pathFixer],
-    ];
-    if (host && exec) {
-        entries.push(['test-location', new TestStubFixer({ resolvers: host.resolvers, processExecutor: exec })]);
+    host.fixers.register('regex', regexFixer, 'builtin');
+    host.fixers.register('rg', regexFixer, 'builtin');
+    host.fixers.register('path', pathFixer, 'builtin');
+    host.fixers.register('file-exist', pathFixer, 'builtin');
+    if (exec) {
+        host.fixers.register(
+            'test-location',
+            new TestStubFixer({ resolvers: host.resolvers, processExecutor: exec }),
+            'builtin',
+        );
     }
-    return new Map(entries);
 }
 
 /** Resolve a workdir-relative or absolute path to an absolute path. */
