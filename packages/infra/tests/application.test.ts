@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { runApplication } from '../src/application/index';
+import { PluginHost } from '../src/application/plugins/host';
+import type { Plugin } from '../src/application/plugins/types';
 import type { ApplicationBootstrapOptions, ApplicationStopReason } from '../src/application/types';
 import { EventBus } from '../src/event-bus/event-bus';
 import type { InfraEvents } from '../src/events';
@@ -411,6 +413,207 @@ describe('runApplication — shutdown paths', () => {
                 }),
             ),
         ).rejects.toThrow('start-fail-with-telemetry');
+    });
+});
+
+// ── Plugin host integration ────────────────────────────────────────────────
+
+describe('runApplication — plugin host integration', () => {
+    afterEach(resetModules);
+
+    test('no plugin host when plugins not provided', async () => {
+        const app = await runApplication(minimalOptions());
+        expect(app.pluginHost).toBeUndefined();
+        await app.stop();
+    });
+
+    test('exposes pluginHost on runtime when plugins provided', async () => {
+        const p: Plugin = {
+            name: 'test-plugin',
+            version: '1.0.0',
+            onLoad: async () => {},
+            onStart: async () => {},
+            onStop: async () => {},
+            onUnload: async () => {},
+        };
+        const app = await runApplication(minimalOptions({ plugins: [p] }));
+
+        expect(app.pluginHost).toBeDefined();
+        expect(app.pluginHost?.has('test-plugin')).toBe(true);
+        await app.stop();
+    });
+
+    test('loads and starts plugins before user start callback', async () => {
+        const order: string[] = [];
+        const p: Plugin = {
+            name: 'ordered',
+            version: '1.0.0',
+            onLoad: () => void order.push('load'),
+            onStart: () => void order.push('start'),
+        };
+
+        await runApplication(
+            minimalOptions({
+                plugins: [p],
+                start: () => void order.push('user-start'),
+            }),
+        );
+
+        expect(order).toEqual(['load', 'start', 'user-start']);
+    });
+
+    test('stops and unloads plugins in reverse order during shutdown', async () => {
+        const order: string[] = [];
+        const p1: Plugin = {
+            name: 'first',
+            version: '1.0.0',
+            onLoad: () => {},
+            onStop: () => void order.push('stop-1'),
+            onUnload: () => void order.push('unload-1'),
+        };
+        const p2: Plugin = {
+            name: 'second',
+            version: '1.0.0',
+            onLoad: () => {},
+            onStop: () => void order.push('stop-2'),
+            onUnload: () => void order.push('unload-2'),
+        };
+
+        const app = await runApplication(minimalOptions({ plugins: [p1, p2] }));
+        await app.stop();
+
+        // Reverse registration order: second → first
+        expect(order).toEqual(['stop-2', 'stop-1', 'unload-2', 'unload-1']);
+    });
+
+    test('plugin stop/unload happens before user stop callback', async () => {
+        const order: string[] = [];
+        const p: Plugin = {
+            name: 'p',
+            version: '1.0.0',
+            onLoad: () => {},
+            onStop: () => void order.push('plugin-stop'),
+        };
+
+        const app = await runApplication(
+            minimalOptions({
+                plugins: [p],
+                stop: () => void order.push('user-stop'),
+            }),
+        );
+        await app.stop();
+
+        expect(order).toEqual(['plugin-stop', 'user-stop']);
+    });
+
+    test('accepts injected pluginHost via services', async () => {
+        const preBuilt = new PluginHost(new EventBus());
+        preBuilt.register({
+            name: 'injected',
+            version: '1.0.0',
+            onLoad: async () => {},
+        });
+
+        const app = await runApplication(minimalOptions({ services: { pluginHost: preBuilt } }));
+
+        expect(app.pluginHost).toBe(preBuilt);
+        expect(app.pluginHost?.has('injected')).toBe(true);
+        await app.stop();
+    });
+
+    test('fails fast when onLoad throws', async () => {
+        const p: Plugin = {
+            name: 'bad',
+            version: '1.0.0',
+            onLoad: () => {
+                throw new Error('load-boom');
+            },
+        };
+
+        await expect(runApplication(minimalOptions({ plugins: [p] }))).rejects.toThrow('load-boom');
+    });
+
+    test('continues after plugin onStart throws (fail-soft)', async () => {
+        const order: string[] = [];
+        const p1: Plugin = {
+            name: 'bad',
+            version: '1.0.0',
+            onLoad: () => {},
+            onStart: () => {
+                throw new Error('start-fail');
+            },
+        };
+        const p2: Plugin = {
+            name: 'good',
+            version: '1.0.0',
+            onLoad: () => {},
+            onStart: () => void order.push('good-started'),
+        };
+
+        const app = await runApplication(minimalOptions({ plugins: [p1, p2] }));
+
+        expect(order).toEqual(['good-started']);
+        await app.stop();
+    });
+
+    test('duplicate plugin name throws during registration', async () => {
+        const p: Plugin = {
+            name: 'dup',
+            version: '1.0.0',
+            onLoad: async () => {},
+        };
+
+        await expect(runApplication(minimalOptions({ plugins: [p, p] }))).rejects.toThrow(
+            'Plugin already registered: dup',
+        );
+    });
+
+    test('stops and unloads plugins in catch block when start callback throws', async () => {
+        const order: string[] = [];
+        const p: Plugin = {
+            name: 'cleanup-test',
+            version: '1.0.0',
+            onLoad: () => {},
+            onStart: () => void order.push('started'),
+            onStop: () => void order.push('stopped'),
+            onUnload: () => void order.push('unloaded'),
+        };
+
+        await expect(
+            runApplication(
+                minimalOptions({
+                    plugins: [p],
+                    start: () => {
+                        throw new Error('start-boom');
+                    },
+                }),
+            ),
+        ).rejects.toThrow('start-boom');
+
+        // Catch block should have run stopAll + unloadAll on the host
+        expect(order).toEqual(['started', 'stopped', 'unloaded']);
+    });
+
+    test('unloads partially-loaded plugins when onLoad of later plugin throws', async () => {
+        const order: string[] = [];
+        const good: Plugin = {
+            name: 'good',
+            version: '1.0.0',
+            onLoad: () => void order.push('good-loaded'),
+            onUnload: () => void order.push('good-unloaded'),
+        };
+        const bad: Plugin = {
+            name: 'bad',
+            version: '1.0.0',
+            onLoad: () => {
+                throw new Error('load-fail');
+            },
+        };
+
+        await expect(runApplication(minimalOptions({ plugins: [good, bad] }))).rejects.toThrow('load-fail');
+
+        // Good plugin's onLoad fired; bad threw; catch should unload good
+        expect(order).toEqual(['good-loaded', 'good-unloaded']);
     });
 });
 
