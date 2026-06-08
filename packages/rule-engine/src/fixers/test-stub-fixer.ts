@@ -12,7 +12,7 @@
  */
 
 import { isAbsolutePath, joinPath, NodeFileSystem, type ProcessExecutor } from '@gobing-ai/ts-runtime';
-import type { CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
+import type { CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 import type { TestPathResolver } from '../resolvers/test-path-resolver';
 import type { Fix } from '../types';
 import type { RuleFixerInput, RuleFixerProvider } from './fixers';
