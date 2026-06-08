@@ -36,9 +36,9 @@
             "types": "./dist/bun-sqlite.d.ts",
             "import": "./dist/bun-sqlite.js"
         },
-        "./plugin": {
-            "types": "./dist/plugin.d.ts",
-            "import": "./dist/plugin.js"
+        "./extension": {
+            "types": "./dist/extension.d.ts",
+            "import": "./dist/extension.js"
         }
     },
     "files": [
