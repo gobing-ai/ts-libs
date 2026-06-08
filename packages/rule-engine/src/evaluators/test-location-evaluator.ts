@@ -1,4 +1,4 @@
-import type { CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
+import type { CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 import { type TestPathResolver, TypeScriptTestPathResolver } from '../resolvers/test-path-resolver';
 import {
     type ConstraintRule,
