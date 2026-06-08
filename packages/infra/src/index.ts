@@ -52,7 +52,6 @@ export {
     ActionRegistry,
     type CreateDefaultRegistryOptions,
     createDefaultRegistry,
-    getSchedulerAdapter,
     HealthPingAction,
     type HealthPingWriter,
     initScheduler,
@@ -63,7 +62,6 @@ export {
     type ScheduledAction,
     type SchedulerAction,
     type SchedulerAdapter,
-    setSchedulerAdapter,
     toScheduledAction,
     wrapScheduledHandler,
 } from './scheduler/index';
