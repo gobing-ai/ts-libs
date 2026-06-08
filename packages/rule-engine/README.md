@@ -32,7 +32,7 @@ erDiagram
 | Entity | One-line Description |
 |--------|----------------------|
 | `RuleEngine` | Orchestrates evaluation of enabled rules against a workspace directory. Supports opt-in early exit via `stopOnFirst` parameter. Accepts an optional `EventBus<RuleEngineEvents>` for structured in-process observability. |
-| `RuleEngineHost` | Capability host backed by `CapabilityRegistry` from `@gobing-ai/ts-runtime/plugin` — holds evaluators, resolvers, formatters, and fixer providers, each with origin tracking for safe override detection. |
+| `RuleEngineHost` | Capability host backed by `CapabilityRegistry` from `@gobing-ai/ts-runtime/extension` — holds evaluators, resolvers, formatters, and fixer providers, each with origin tracking for safe override detection. |
 | `CapabilityRegistry<T>` | Generic named registry (shared with `ts-rule-engine`, `ts-dual-workflow-engine`) that tags each entry with its `origin` (`'builtin'`, `'extension'`, `'caller'`). |
 | `ConstraintRule` | Declarative policy unit: id, severity, include/exclude globs, evaluator type + config, and optional fix config. |
 | `Preset` | YAML/JSON composition: extends rule categories and other presets, declares `disable`/`overrides`, and exposes extension modules. |
@@ -66,7 +66,7 @@ Core concepts:
 
 - `ConstraintRule`: one policy check. It has an `id`, `severity`, evaluator type/config, optional include/exclude globs, and optional fix config.
 - `RuleEngine`: runs enabled rules against a `workdir`. The constructor auto-registers built-in evaluators, formatters, resolvers, and fixer providers.
-- `RuleEngineHost`: capability container backed by four `CapabilityRegistry` instances from `@gobing-ai/ts-runtime/plugin`. Each entry tracks its origin (`'builtin'` / `'extension'` / `'caller'`) so the engine can detect and report conflicting registrations.
+- `RuleEngineHost`: capability container backed by four `CapabilityRegistry` instances from `@gobing-ai/ts-runtime/extension`. Each entry tracks its origin (`'builtin'` / `'extension'` / `'caller'`) so the engine can detect and report conflicting registrations.
 - `RuleEvaluator`: implementation of one rule type, such as `regex`, `path`, or `coverage-gate`.
 - `Fix`: byte-range replacement candidate. Fixes are collected separately from findings and only written when you call `applyFixes()`.
 - Preset: YAML/JSON file that composes rule categories and can expose extension modules.
@@ -698,7 +698,7 @@ const fixer: RuleFixerProvider & { name: string } = {
 export default fixer;
 ```
 
-Load extensions (uses the shared `loadExtensionModules` from `@gobing-ai/ts-runtime/plugin`):
+Load extensions (uses the shared `loadExtensionModules` from `@gobing-ai/ts-runtime/extension`):
 
 ```ts
 const loaded = await loadPreset('local', { roots: ['.spur/rules'] });
@@ -821,7 +821,7 @@ When no `events` option is provided, the engine incurs zero observability overhe
 
 ## Package Boundary
 
-This package owns rule definitions, preset loading, evaluators, formatters, test-path resolvers, fixer providers, extension loading, the `CapabilityRegistry` re-export from `@gobing-ai/ts-runtime/plugin`, and bundled rule presets.
+This package owns rule definitions, preset loading, evaluators, formatters, test-path resolvers, fixer providers, extension loading, the `CapabilityRegistry` re-export from `@gobing-ai/ts-runtime/extension`, and bundled rule presets.
 
 It does **not** own:
 
