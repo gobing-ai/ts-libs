@@ -86,6 +86,7 @@ rules:
             - "packages/runtime/src/file-system.ts"
             - "packages/runtime/src/file-system-node.ts"
             - "packages/runtime/src/file-system-cf.ts"
+            - "packages/infra/src/application-node.ts"
 
   # ── Path math ──────────────────────────────────────────────────────────
 
@@ -111,6 +112,7 @@ rules:
             - "packages/runtime/src/path.ts"
             - "packages/runtime/src/bun-sqlite.ts"
             - "packages/runtime/src/plugin/extension-loader.ts"
+            - "packages/infra/src/application-node.ts"
 
   - id: no-direct-node-url
     description: "fileURLToPath must go through @gobing-ai/ts-runtime when bundling-aware path resolution is needed."
