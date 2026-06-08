@@ -1,4 +1,4 @@
-import { CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
+import { CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 import type { TestPathResolver } from '../resolvers/test-path-resolver';
 import type { ResultFormatter, RuleEvaluator, RuleFixerProvider } from '../types';
 
