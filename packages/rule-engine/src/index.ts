@@ -1,7 +1,7 @@
-// Public re-export of the shared plugin registry (ADR-010). Sourced directly from
-// the shared plugin core; the former host/capability-registry.ts shim was removed
-// once the one-release back-compat window closed.
-export { type CapabilityEntry, type CapabilityOrigin, CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
+// Public re-export of the shared extension registry (ADR-010). Sourced directly from
+// the shared extension core (`@gobing-ai/ts-runtime/extension`); the former
+// host/capability-registry.ts shim was removed once the one-release back-compat window closed.
+export { type CapabilityEntry, type CapabilityOrigin, CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 export * from './config/extensions';
 export * from './config/loader';
 export * from './engine';
