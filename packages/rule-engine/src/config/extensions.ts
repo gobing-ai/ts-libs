@@ -4,8 +4,8 @@ import { basenamePath, dirnamePath, resolvePath, SEP } from '@gobing-ai/ts-runti
 import type {
     ExtensionRef as SharedExtensionRef,
     LoadExtensionsOptions as SharedLoadExtensionsOptions,
-} from '@gobing-ai/ts-runtime/plugin';
-import { loadExtensionModules } from '@gobing-ai/ts-runtime/plugin';
+} from '@gobing-ai/ts-runtime/extension';
+import { loadExtensionModules } from '@gobing-ai/ts-runtime/extension';
 import type { RuleEngineHost } from '../host/rule-engine-host';
 /** A capability kind a preset extension can contribute. */
 export type ExtensionKind = 'resolvers' | 'evaluators' | 'fixers' | 'formatters';
@@ -69,7 +69,7 @@ export function collectExtensions(
  * registry.
  *
  * Delegates generic loading (trust gate, path guard, module import, export-shape
- * validation) to the shared ``loadExtensionModules`` from ts-runtime/plugin, then
+ * validation) to the shared ``loadExtensionModules`` from ts-runtime/extension, then
  * routes each capability to the correct host registry based on ``ref.kind``.
  *
  * A module must default-export (or named-export ``extension``) an object with a
