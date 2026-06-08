@@ -1,7 +1,7 @@
 import type { Logger } from '@gobing-ai/ts-infra';
 import { basenamePath, dirnamePath, SEP } from '@gobing-ai/ts-runtime';
-import type { ExtensionRef, LoadExtensionsOptions } from '@gobing-ai/ts-runtime/plugin';
-import { loadExtensionModules } from '@gobing-ai/ts-runtime/plugin';
+import type { ExtensionRef, LoadExtensionsOptions } from '@gobing-ai/ts-runtime/extension';
+import { loadExtensionModules } from '@gobing-ai/ts-runtime/extension';
 import { WorkflowValidationError } from './errors';
 import type { WorkflowEngineHost } from './host';
 import type { ActionRunner, GuardRunner } from './types';
@@ -58,7 +58,7 @@ export interface LoadWorkflowExtensionsOptions {
  * its actions and/or guards on the workflow host.
  *
  * Delegates generic loading (gate, path guard, module import, export
- * validation) to the shared ``loadExtensionModules`` from ts-runtime/plugin,
+ * validation) to the shared ``loadExtensionModules`` from ts-runtime/extension,
  * then routes each capability to ``host.registerAction`` or
  * ``host.registerGuard`` based on ``ref.kind``.
  *
