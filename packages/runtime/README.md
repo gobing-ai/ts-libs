@@ -272,9 +272,9 @@ relativePath('/a/x', '/a/y');                 // '../y'
 getProcessCwd();                              // process.cwd() or '/' on Workers
 ```
 
-### 6. Plugin core (`@gobing-ai/ts-runtime/plugin`)
+### 6. Extension core (`@gobing-ai/ts-runtime/extension`)
 
-The `./plugin` subpath exposes a generic, domain-agnostic plugin/capability core used by both
+The `./extension` subpath exposes a generic, domain-agnostic extension/capability core used by both
 `ts-rule-engine` and `ts-dual-workflow-engine` (ADR-010). It shares the mechanism — a typed registry
 with origin metadata, a trust-gated extension loader, and a path guard — without knowing anything
 about evaluators, resolvers, actions, or guards. Each engine owns its domain-specific kinds,
@@ -282,7 +282,7 @@ schemas, error types, and override semantics.
 #### Capability registry
 
 ```ts
-import { CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
+import { CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 
 interface Widget { execute(): void; }
 const registry = new CapabilityRegistry<Widget>('widget');
@@ -306,7 +306,7 @@ registry.entries();                   // [['core', { capability, origin: 'builti
 Extension modules are arbitrary code — the loader is disabled by default and fails closed:
 
 ```ts
-import { loadExtensionModules, type ExtensionRef } from '@gobing-ai/ts-runtime/plugin';
+import { loadExtensionModules, type ExtensionRef } from '@gobing-ai/ts-runtime/extension';
 
 const refs: ExtensionRef<'actions'>[] = [{
     kind: 'actions',
@@ -338,7 +338,7 @@ no ambient `import()` capability of its own.
 of any engine's zod schema (defense in depth):
 
 ```ts
-import { assertRelativeExtensionPath } from '@gobing-ai/ts-runtime/plugin';
+import { assertRelativeExtensionPath } from '@gobing-ai/ts-runtime/extension';
 
 assertRelativeExtensionPath('./ext/my.ts');    // ok
 assertRelativeExtensionPath('/etc/evil.ts');   // throws: must be relative
