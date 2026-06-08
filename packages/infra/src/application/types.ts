@@ -13,6 +13,8 @@ import type { BusLifecycleEvents, EventMap } from '../event-bus/types';
 import type { InfraEvents } from '../events';
 import type { Logger, LogLevel } from '../logger';
 import type { SchedulerAdapter } from '../scheduler/types';
+import type { PluginHost } from './plugins/host';
+import type { Plugin } from './plugins/types';
 
 // ── Feature flag option groups ────────────────────────────────────────────
 
@@ -93,6 +95,8 @@ export interface ApplicationServices<TEvents extends EventMap = InfraEvents> {
     lifecycleBus?: EventBus<BusLifecycleEvents>;
     db?: DbAdapterLike;
     scheduler?: SchedulerAdapter;
+    /** Pre-built plugin host (when injecting instead of constructing). */
+    pluginHost?: PluginHost;
 }
 
 /**
@@ -130,6 +134,7 @@ export interface ApplicationRuntime<TAppConfig = unknown, TEvents extends EventM
     readonly db?: DbAdapterLike;
     /** Scheduler adapter (when enabled). */
     readonly scheduler?: SchedulerAdapter;
+    readonly pluginHost?: PluginHost;
     /** Graceful shutdown. Idempotent — safe to call multiple times. */
     stop(reason?: ApplicationStopReason): Promise<void>;
 }
@@ -151,6 +156,8 @@ export interface ApplicationBootstrapOptions<TAppConfig = unknown, TEvents exten
     readonly appConfig?: TAppConfig;
     /** Pre-built services to inject instead of creating defaults. */
     readonly services?: Partial<ApplicationServices<TEvents>>;
+    /** Plugins to register and lifecycle-manage via PluginHost. */
+    readonly plugins?: Plugin[];
     /** User callback: application logic. Called after all services are ready. */
     readonly start: (app: ApplicationRuntime<TAppConfig, TEvents>) => Promise<void> | void;
     /** User callback: cleanup before services shut down. */
