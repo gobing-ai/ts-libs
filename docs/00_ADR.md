@@ -760,3 +760,69 @@ Historical `CHANGELOG.md` and `docs/tasks/000*.md` entries are left as dated rec
 
 **Deferred (still, per ADR-010).** A dedicated `packages/*-core`, a cross-import spur rule, and any
 symbol-level rename remain future work gated on real pressure, not drift.
+
+## 2026-06-08 — Infra services as built-in plugins on the runApplication lifecycle (task 0027)
+
+**Decision.** Migrate `runApplication`'s hand-rolled service init/shutdown choreography onto the
+task-0025 `Plugin` lifecycle. Logger, telemetry+metrics, and scheduler each become an internal
+built-in `Plugin` whose `onStart` = init and `onStop` = teardown; the user `start` callback is wrapped
+as a built-in plugin too. The host's existing forward `startAll` / reverse `stopAll` then provides A→Z
+init / Z→A shutdown from registration order alone — no priority/phase tier.
+
+**`failFast` semantics.** Added an optional `failFast?: boolean` to the `Plugin` interface. `startAll`
+rethrows (aborting boot) when a `failFast: true` plugin throws in `onStart`; others log + continue.
+`loadAll` stays unconditionally fail-fast; `stopAll`/`unloadAll` stay unconditionally fail-soft
+(every teardown attempted on the way down). Built-in services + the user-callback plugin are
+`failFast: true`; user plugins default to fail-soft. This is additive — no existing plugin behavior
+changes.
+
+**Registration order = dependency order.** logger → telemetry → [user plugins] → user-callback →
+scheduler (scheduler last so its autoStart runs after the user `start`).
+
+**Deliberate inline exceptions (not everything is a plugin).**
+- **User `stop`** stays inline in `performShutdown`: `onStop(host)` cannot carry the
+  `ApplicationStopReason` the user callback signature requires.
+- **DB `close`** stays inline, *after* user stop: a DB plugin's `onStop` would run inside `stopAll`
+  (before user stop), changing the observable order and risking use-after-close in user stop code.
+  The portable DB remains caller-injected; a DB plugin + ownership model is deferred to the phase that
+  introduces a bootstrap-created adapter (the Node subpath, per task 0026's ownership rule).
+- **Events** construction stays inline (it is construction, not a lifecycle pair).
+
+**Status.** Partial migration (logger/telemetry/scheduler/user-start are plugins). Zero observable
+behavior change, zero public-API removal (`failFast` is additive). Remaining collapse (full inline
+removal, Node-telemetry plugin) is gated on the same A→Z/Z→A ordering guarantees and a deliberate DB
+ownership decision.
+
+---
+
+## 2026-06-08 — Plugin migration completion: reason-carrying teardown + caller-owned DB (task 0028)
+
+**Decision.** Complete the infra plugin migration by adding optional `reason?: string` to the plugin
+teardown path (`onStop`, `onUnload`, `stopAll`, `unloadAll`), converting user-stop and Node-owned
+services (telemetry, DB) into plugins, and stopping the portable layer from closing caller-injected DBs.
+
+**Rationale.** The single blocker that left task 0027 PARTIAL was that `PluginHost.stopAll()` and
+`onStop(host)` carried no stop reason, so the user `stop(app, reason)` callback couldn't be a plugin.
+Threading `reason` through teardown removed this blocker. The DB ownership rule — *close what you create;
+never close what you were handed* — was applied uniformly across both portable and Node layers.
+
+**What landed.**
+- **Phase 1 (keystone):** `Plugin.onStop?(host, reason?)` / `onUnload?(host, reason?)`,
+  `PluginHost.stopAll(reason?)` / `unloadAll(reason?)`. Reason typed as plain `string` — core stays
+  runtime-neutral; `runApplication` passes its `ApplicationStopReason` (a string union) directly.
+- **Phase 2:** `userCallbackPlugin` gains `onStop(host, reason)` calling `options.stop(app, reason)`.
+  Inline user-stop and inline `app.db.close()` removed from `performShutdown`. Caller-injected DB no
+  longer closed — a DELIBERATE behavior change, called out for the release.
+- **Phase 3:** `nodeTelemetryPlugin` (failFast, onStart=initNodeTelemetry, onStop=shutdownNodeTelemetry) +
+  `dbPlugin` (reason-aware onStop=close) registered in `runNodeApplication`. Manual try/catch rollback
+  (task 0026) and stop override removed — all cleanup now plugin-driven.
+- `performShutdown` collapsed to `stopAll(reason) → unloadAll(reason)`. Orchestrator fully host-driven.
+
+**Behavior change:** `@gobing-ai/ts-infra` no longer closes an injected `services.db` on stop.
+Callers who relied on this must close their own adapter. Callers who already own their adapter see
+no double-close.
+
+**Code location.** `application/plugins/types.ts` (+reason on teardown hooks), `host.ts` (+reason on
+stopAll/unloadAll), `builtins.ts` (+reason-aware userCallbackPlugin.onStop, re-added dbPlugin),
+`application/index.ts` (-inline user-stop, -inline DB-close, +reason passthrough),
+`application-node.ts` (+plugins array, -manual rollback, -stop override).
