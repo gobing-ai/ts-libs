@@ -554,7 +554,7 @@ host.registerGuard({
 });
 ```
 
-Registered actions and guards are available to any workflow definition by their `kind` string. Internally, the host uses `CapabilityRegistry` from `@gobing-ai/ts-runtime/plugin` to track registrations with origin metadata (`'builtin'`, `'extension'`, or `'core'`).
+Registered actions and guards are available to any workflow definition by their `kind` string. Internally, the host uses `CapabilityRegistry` from `@gobing-ai/ts-runtime/extension` to track registrations with origin metadata (`'builtin'`, `'extension'`, or `'core'`).
 
 ## Extension Loading
 
