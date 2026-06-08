@@ -18,6 +18,7 @@ import { getLogger, initializeLogger, type Logger } from '../logger';
 import { initScheduler, setSchedulerAdapter } from '../scheduler/factory';
 import type { SchedulerAdapter } from '../scheduler/types';
 import { initTelemetry, shutdownTelemetry } from '../telemetry/sdk';
+import { PluginHost } from './plugins/host';
 import type {
     ApplicationBootstrapConfig,
     ApplicationBootstrapOptions,
@@ -35,6 +36,7 @@ interface RuntimeState<TAppConfig, TEvents extends EventMap> {
     schedulerStarted: boolean;
     loggerInitialized: boolean;
     telemetryInitialized: boolean;
+    pluginHost?: PluginHost;
     stopped: boolean;
 }
 
@@ -49,6 +51,12 @@ async function performShutdown<TAppConfig, TEvents extends EventMap>(
 
     const app = state.app;
     if (!app) return;
+
+    // 0. Stop + unload plugins (reverse order, fail-soft)
+    if (state.pluginHost) {
+        await state.pluginHost.stopAll();
+        await state.pluginHost.unloadAll();
+    }
 
     // 1. User stop callback
     if (state.userStop) {
@@ -157,6 +165,7 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
         loggerInitialized: false,
         telemetryInitialized: false,
         stopped: false,
+        pluginHost: undefined,
     };
 
     try {
@@ -213,6 +222,27 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
             state.schedulerAdapter = scheduler;
         }
 
+        // ── 5.5 Plugin host ───────────────────────────────────────────
+        const pluginHost: PluginHost | undefined =
+            options.services?.pluginHost ??
+            (options.plugins?.length ? new PluginHost(events as unknown as EventBus<EventMap>) : undefined);
+
+        if (pluginHost) {
+            // Register caller-provided plugins (dedupe)
+            if (options.plugins) {
+                for (const p of options.plugins) {
+                    pluginHost.register(p);
+                }
+            }
+            state.pluginHost = pluginHost;
+
+            // Load plugins (fail-fast)
+            await pluginHost.loadAll();
+
+            // Start plugins (fail-soft)
+            await pluginHost.startAll();
+        }
+
         // ── Build resolved config ──────────────────────────────────────
         const resolvedConfig: ApplicationBootstrapConfig = {
             logging: loggingConfig,
@@ -230,6 +260,7 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
             lifecycleBus,
             db,
             scheduler,
+            pluginHost,
             stop: (reason?: ApplicationStopReason) => performShutdown(state, reason ?? 'manual'),
         };
         state.app = app;
@@ -250,6 +281,12 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
         // schedulerStarted is still false, so there is nothing started to stop.
         // DB: injected by the caller (portable bootstrap never creates one), so
         // its lifecycle is caller-owned and not closed here.
+        // Plugin host: if `loadAll()` partially succeeded or `startAll()` ran,
+        // stop and unload in reverse order so plugins get their teardown hooks.
+        if (state.pluginHost) {
+            await state.pluginHost.stopAll();
+            await state.pluginHost.unloadAll();
+        }
         // Telemetry: owned by the bootstrap — shut it down if it was initialized.
         if (state.telemetryInitialized) {
             await shutdownTelemetry();
@@ -260,6 +297,8 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
 
 export type { BusLifecycleEvents, EventMap } from '../event-bus/types';
 export type { InfraEvents } from '../events';
+export type { PluginHost } from './plugins/host';
+export type { Plugin, PluginSummary } from './plugins/types';
 // Re-export types
 export type {
     ApplicationBootstrapConfig,
