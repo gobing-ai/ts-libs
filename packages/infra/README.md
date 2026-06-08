@@ -419,6 +419,119 @@ bun add @opentelemetry/sdk-trace-node @opentelemetry/sdk-metrics \
         @opentelemetry/exporter-metrics-otlp-http
 ```
 
+
+### Application Bootstrap
+
+The application bootstrap API provides a deterministic lifecycle for wiring
+infrastructure services. Two layers:
+
+1. **Portable DI bootstrap** (`@gobing-ai/ts-infra/application`) — orchestrates
+   injected dependencies. Never opens files, creates DB connections, or wires
+   runtime-specific exporters.
+2. **Node/Bun convenience** (`@gobing-ai/ts-infra/application-node`) — composes
+   the portable bootstrap with runtime-specific adapters: YAML config loading,
+   file log sink, Bun SQLite DB creation, Node OTel export, Node scheduler.
+
+#### Portable DI bootstrap
+
+```ts
+import { runApplication } from '@gobing-ai/ts-infra/application';
+
+const app = await runApplication({
+    config: {
+        logging: { level: 'info', console: true },
+        telemetry: { enabled: true, serviceName: 'my-api' },
+    },
+    appConfig: { port: 3000 },
+    async start(app) {
+        app.logger.info('started', { port: app.appConfig.port });
+    },
+});
+
+// Graceful shutdown — idempotent
+await app.stop();
+```
+
+The portable `runApplication` accepts pre-built services via `services` and
+never reads files. All services are created with defaults; feature flags
+control what gets initialized. Startup order is deterministic:
+
+1. Resolve bootstrap config + app config
+2. Initialize logger
+3. Initialize telemetry
+4. Create lifecycle bus + EventBus
+5. Register injected DB adapter
+6. Initialize scheduler + register entries
+7. Call user `start(app)` callback
+8. Start scheduler if `autoStart`
+
+Shutdown runs in reverse order. `stop()` is idempotent — safe to call from
+multiple signal handlers.
+
+#### Node/Bun convenience bootstrap
+
+```ts
+import { runNodeApplication } from '@gobing-ai/ts-infra/application-node';
+
+await runNodeApplication({
+    configLoader: {
+        configFile: 'config/app.yaml',
+        bootstrapSection: 'bootstrap',
+        appSection: 'billing',
+        appConfig: {
+            // Structural safeParse adapter — works with Zod or any validator
+            safeParse(raw) {
+                return billingSchema.safeParse(raw);
+            },
+        },
+    },
+    async start(app) {
+        app.logger.info('billing app started', {
+            settlementWindowMinutes: app.appConfig.settlementWindowMinutes,
+        });
+    },
+});
+```
+
+Example YAML config file:
+
+```yaml
+app:
+  name: billing-api
+  env: production
+
+bootstrap:
+  logging:
+    level: info
+    console: true
+    filePath: ./logs/app.jsonl
+  telemetry:
+    enabled: true
+    serviceName: billing-api
+    endpoint: http://otel-collector:4318
+  database:
+    enabled: true
+    driver: bun-sqlite
+    url: ./data/app.db
+
+billing:
+  settlementWindowMinutes: 15
+  riskLimit: 100000
+```
+
+Config validators accept four shapes:
+- `{ safeParse(raw) → { success, data?, errors? } }` — Zod-compatible
+- `(raw) => TAppConfig` — bare function
+- `{ validate(raw) => TAppConfig }` — method form
+- `{ parse(raw) => TAppConfig }` — method form
+
+Validation errors include the config file path and section name for diagnostics.
+
+**What is intentionally NOT in the main barrel:** `runApplication` and
+`runNodeApplication` live behind explicit subpaths so the main
+`@gobing-ai/ts-infra` import stays portable and adapter-light. A future ADR
+may decide whether type-only re-exports are acceptable.
+
 ## Usage
 
 ### Install
