@@ -1,4 +1,4 @@
-import { assertRelativeExtensionPath } from '@gobing-ai/ts-runtime/plugin';
+import { assertRelativeExtensionPath } from '@gobing-ai/ts-runtime/extension';
 import { z } from 'zod';
 
 /** Finding severity emitted by the rule engine. */
