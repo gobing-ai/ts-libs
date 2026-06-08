@@ -453,20 +453,26 @@ await app.stop();
 ```
 
 The portable `runApplication` accepts pre-built services via `services` and
-never reads files. All services are created with defaults; feature flags
-control what gets initialized. Startup order is deterministic:
+never reads files. The lifecycle is **plugin-driven**: infra services (logger,
+telemetry, scheduler) and the user `start`/`stop` callbacks are registered as
+built-in plugins on a `PluginHost`, in dependency order:
 
-1. Resolve bootstrap config + app config
-2. Initialize logger
-3. Initialize telemetry
-4. Create lifecycle bus + EventBus
-5. Register injected DB adapter
-6. Initialize scheduler + register entries
-7. Call user `start(app)` callback
-8. Start scheduler if `autoStart`
+```
+logger → telemetry → [your plugins] → user-callback → scheduler
+```
 
-Shutdown runs in reverse order. `stop()` is idempotent — safe to call from
-multiple signal handlers.
+`loadAll()` then `startAll()` run them forward (A→Z). Plugins marked `failFast`
+(the built-in services) abort the bootstrap if their `onStart` throws; other
+plugins are fail-soft. Shutdown is the reverse fan-out — `stop(reason)` calls
+each plugin's `onStop(host, reason)` in reverse registration order (scheduler
+stop, your `stop(app, reason)`, telemetry shutdown). `stop()` is idempotent —
+safe to call from multiple signal handlers.
+
+**DB ownership.** The portable layer **never closes a caller-injected
+`services.db`** — you own its lifecycle and must close it yourself. Only an
+adapter the bootstrap *creates* (e.g. the Node subpath's Bun SQLite adapter) is
+closed automatically, via a built-in DB plugin. (Changed in 0.x — previously the
+portable layer closed injected adapters unconditionally.)
 
 #### Node/Bun convenience bootstrap
 
