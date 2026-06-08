@@ -697,3 +697,34 @@ now live behind subpaths; future refactors should move platform/file-backed obse
 callers unless a normal semver-breaking release is explicitly planned. Spur rules should eventually enforce:
 main-barrel import graph contains no adapter-only SDKs/platform modules, and sanctioned adapter subpaths do
 not leak into core.
+
+---
+
+## 2026-06-08 — Bare PluginHost + Plugin lifecycle core in ts-infra (task 0025)
+
+**Decision.** Add a bare `PluginHost` + `Plugin` lifecycle core to `@gobing-ai/ts-infra`'s portable
+`application` subpath, and integrate it into `runApplication`'s deterministic startup/shutdown lifecycle.
+
+**Rationale.** The downstream Spur project had an unused 945-LOC plugin SDK (`spur-plugin-sdk`) with
+capability registries and a trust ladder that no consumer ever invoked. Rather than let that decompose in a
+downstream app, upstream the minimal lifecycle core every ts-infra application can inherit for free. This
+follows the same "portable core / platform subpath" pattern as the existing telemetry and scheduler
+adapters (ADR-014).
+
+**What landed.**
+- `Plugin` interface with `name`, `version`, `onLoad`/`onUnload`/`onStart`/`onStop` hooks. Names are
+  runtime-neutral (not server-specific) so CLI + server share them.
+- `PluginHost` class with insertion-ordered registration, fail-fast `loadAll()`, and fail-soft
+  `startAll()`/`stopAll()`/`unloadAll()` (reverse-order for stop/unload).
+- `runApplication` integration: host construction after scheduler init, `loadAll()` → `startAll()` before
+  user `start()`, and `stopAll()` → `unloadAll()` as step 0 of `performShutdown`. Zero-cost when no
+  plugins are provided (R5).
+- `ApplicationBootstrapOptions.plugins?: Plugin[]`, `ApplicationServices.pluginHost?`, and
+  `ApplicationRuntime.pluginHost?`.
+
+**Deferred.** Capability registries, trust ladder, and manifest schema. They were the unused complexity in
+Spur's package; they can be re-added later as built-in plugins or a higher layer when a concrete need
+appears.
+
+**Code location.** `packages/infra/src/application/plugins/` — exported from the portable `application`
+surface. No runtime-specific imports (R6).
