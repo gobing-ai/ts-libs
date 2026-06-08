@@ -273,7 +273,10 @@ it never uses — the premature-abstraction trap (and what 0006 R9 / Non-Goals a
 
 **Decision.** Share the **mechanism**, not the **concepts** (Option A from the 0006 brainstorm).
 
-1. **Shared core location: `@gobing-ai/ts-runtime`, exported from the subpath `@gobing-ai/ts-runtime/plugin`.**
+1. **Shared core location: `@gobing-ai/ts-runtime`, exported from the subpath `@gobing-ai/ts-runtime/extension`.**
+   *(Subpath originally `@gobing-ai/ts-runtime/plugin`; renamed to `/extension` on 2026-06-08 — see the
+   dated entry below — to disambiguate from the unrelated application-lifecycle `PluginHost` added to
+   `ts-infra` in task 0025.)*
    Not a new `packages/plugin-core`. Both engines already depend on `ts-runtime`, the primitives are
    generic runtime infrastructure, and a new package adds path aliases, release metadata, OIDC publish
    surface, and docs for a ~150-line API (YAGNI, same posture as ADR-008). A dedicated package is a
@@ -324,7 +327,7 @@ it never uses — the premature-abstraction trap (and what 0006 R9 / Non-Goals a
    shared util.
 
 **Consequences.** The genuinely duplicated, security-critical mechanism (registry + fail-closed loader
-+ path guard + origin metadata) is defined and audited **once** in `ts-runtime/plugin`; the workflow
++ path guard + origin metadata) is defined and audited **once** in `ts-runtime/extension`; the workflow
 engine gets origin metadata, introspection, and a trust-gated loader without re-deriving the trust
 gate. The shared core stays a small generic primitive because all domain knowledge — kinds, schemas,
 contexts, error types, override semantics — is held by the engines, structurally preventing the core
@@ -728,3 +731,32 @@ appears.
 
 **Code location.** `packages/infra/src/application/plugins/` — exported from the portable `application`
 surface. No runtime-specific imports (R6).
+
+## 2026-06-08 — Rename `ts-runtime/plugin` subpath → `ts-runtime/extension` (amends ADR-010)
+
+**Decision.** Rename the ADR-010 shared core's subpath from `@gobing-ai/ts-runtime/plugin` to
+`@gobing-ai/ts-runtime/extension`. The directory `packages/runtime/src/plugin/` (and its barrel
+`src/plugin.ts`) move to `src/extension/` / `src/extension.ts`. Public symbols are unchanged
+(`CapabilityRegistry`, `loadExtensionModules`, `assertRelativeExtensionPath`, `ExtensionRef`, …).
+
+**Rationale.** Task 0025 added a bare application-lifecycle `PluginHost`/`Plugin` to `ts-infra`. Two
+distinct mechanisms both called "plugin" in one monorepo is a naming hazard. They are orthogonal:
+
+- **`ts-runtime/extension`** — *extension loading*: a trust-gated capability registry + module loader
+  that discovers code on disk and gates it by origin/capability. Consumers: `ts-rule-engine`,
+  `ts-dual-workflow-engine` (engine internals). Answers *"what code may extend this engine, from where?"*
+- **`ts-infra` `PluginHost`** — *lifecycle orchestration*: load/start/stop/unload fan-out for components
+  in a `runApplication` bootstrap. Consumers: whole applications. Answers *"when do these components boot
+  and shut down?"* No trust model (deliberately deferred).
+
+They **may compose** (an infra plugin's `onLoad` could drive an extension loader) but neither imports the
+other. The files were already named `extension-loader` / `extension-path`; `extension` is the honest name.
+
+**Scope.** In-repo only. Verified `~/xprojects/spur-new` consumes **no** `ts-runtime/plugin` subpath
+(it uses the `ts-runtime` main barrel + its own `spur-plugin-sdk`), so the rename is safe with no
+downstream coordination. Changed: `runtime` package.json exports map, `src/` + `tests/` dirs, two
+consumer `tsconfig` path aliases, nine import specifiers across the two engines, and package READMEs.
+Historical `CHANGELOG.md` and `docs/tasks/000*.md` entries are left as dated records.
+
+**Deferred (still, per ADR-010).** A dedicated `packages/*-core`, a cross-import spur rule, and any
+symbol-level rename remain future work gated on real pressure, not drift.
