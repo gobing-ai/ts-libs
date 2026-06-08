@@ -1,5 +1,5 @@
 import { NodeProcessExecutor, type ProcessExecutor } from '@gobing-ai/ts-runtime';
-import { type CapabilityOrigin, CapabilityRegistry } from '@gobing-ai/ts-runtime/plugin';
+import { type CapabilityOrigin, CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 import { WorkflowValidationError } from './errors';
 import type { ActionResult, ActionRunContext, ActionRunner, GuardContext, GuardRunner } from './types';
 
