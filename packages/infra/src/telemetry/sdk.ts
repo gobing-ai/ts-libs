@@ -8,8 +8,57 @@
  * keeps the main barrel free of any SDK runtime dependency.
  */
 import { type Tracer, trace } from '@opentelemetry/api';
-import type { TelemetryConfig } from './config';
-import { getTelemetryConfig } from './config';
+
+// ── Configuration ───────────────────────────────────────────────────────────
+
+/**
+ * Full telemetry configuration: master enable switch, service name,
+ * environment, and debug-level DB statement capture.
+ */
+export interface TelemetryConfig {
+    /** Master switch — when false, all tracing degrades to no-ops. */
+    enabled: boolean;
+    /** Logical service name emitted on every span. */
+    serviceName: string;
+    /** Deployment environment (development, staging, production). */
+    environment: string;
+    /**
+     * Debug-only DB statement capture.
+     *
+     * When true, DB spans may include sanitized SQL text in a `db.statement`
+     * attribute. SQL text is redacted — parameter values, literals, and
+     * identifiers are stripped before capture.
+     *
+     * Default: `false`. Controlled by `OTEL_DB_STATEMENT_DEBUG` env var.
+     */
+    dbStatementDebug: boolean;
+}
+
+/** Partial telemetry config from the centralized config system. */
+export interface TelemetryConfigPartial {
+    enabled?: boolean | undefined;
+    serviceName?: string | undefined;
+    environment?: string | undefined;
+    dbStatementDebug?: boolean | undefined;
+    /** Deployment environment fallback (from app.env). */
+    appEnv?: string | undefined;
+}
+
+const CONFIG_DEFAULTS = {
+    enabled: true as const,
+    serviceName: 'ts-libs' as const,
+    environment: 'development' as const,
+};
+
+/** Resolve the full telemetry config by merging a partial override with defaults. */
+export function getTelemetryConfig(configPartial: TelemetryConfigPartial = {}): TelemetryConfig {
+    return {
+        enabled: configPartial.enabled ?? CONFIG_DEFAULTS.enabled,
+        serviceName: configPartial.serviceName ?? CONFIG_DEFAULTS.serviceName,
+        environment: configPartial.environment ?? configPartial.appEnv ?? CONFIG_DEFAULTS.environment,
+        dbStatementDebug: configPartial.dbStatementDebug ?? false,
+    };
+}
 
 const TRACER_NAME = '@gobing-ai/ts-infra';
 const TRACER_VERSION = '0.1.0';
