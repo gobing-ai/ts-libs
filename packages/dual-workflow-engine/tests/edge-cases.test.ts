@@ -168,10 +168,13 @@ edges:
         const shell = new ShellActionRunner(
             new (class extends ProcessExecutor {
                 override async run(options: ProcessOptions): Promise<ProcessResult> {
+                    // A bare `command` is wrapped as `/bin/sh -c <line>`; explicit args run the
+                    // program directly. Fail when the effective command line mentions 'fail'.
+                    const line = options.command === '/bin/sh' ? (options.args?.[1] ?? '') : options.command;
                     return {
                         command: options.command,
                         args: options.args ?? [],
-                        exitCode: options.command === 'fail' ? 2 : 0,
+                        exitCode: line.includes('fail') ? 2 : 0,
                         stdout: 'out',
                         stderr: 'err',
                         durationMs: 1,
@@ -179,8 +182,11 @@ edges:
                 }
             })(),
         );
+        // Explicit args → run the program directly (no shell wrapping).
         await expect(shell.execute({ command: 'ok', args: ['a'] }, context)).resolves.toMatchObject({ ok: true });
-        await expect(shell.execute({ command: 'fail' }, context)).resolves.toMatchObject({ ok: false });
+        // Bare command → wrapped as `/bin/sh -c '<line>'` so shell features work.
+        await expect(shell.execute({ command: 'do fail now' }, context)).resolves.toMatchObject({ ok: false });
+        await expect(shell.execute({ command: 'echo ok && true' }, context)).resolves.toMatchObject({ ok: true });
         await expect(shell.execute({ args: ['a'] }, context)).rejects.toThrow(WorkflowValidationError);
         await expect(shell.execute({ command: 'ok', args: [1] }, context)).rejects.toThrow(WorkflowValidationError);
     });
