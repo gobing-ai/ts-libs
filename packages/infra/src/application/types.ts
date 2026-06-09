@@ -134,7 +134,7 @@ export interface ApplicationRuntime<TAppConfig = unknown, TEvents extends EventM
     readonly db?: DbAdapterLike;
     /** Scheduler adapter (when enabled). */
     readonly scheduler?: SchedulerAdapter;
-    readonly pluginHost?: PluginHost;
+    readonly pluginHost: PluginHost;
     /** Graceful shutdown. Idempotent — safe to call multiple times. */
     stop(reason?: ApplicationStopReason): Promise<void>;
 }
