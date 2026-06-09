@@ -14,10 +14,10 @@ import { attachDefaultObservers, createLifecycleBus } from '../event-bus/default
 import { EventBus } from '../event-bus/event-bus';
 import type { BusLifecycleEvents, EventMap } from '../event-bus/types';
 import type { InfraEvents } from '../events';
-import { getLogger, initializeLogger, type Logger } from '../logger';
-import { initScheduler, setSchedulerAdapter } from '../scheduler/factory';
+import { getLogger, type Logger } from '../logger';
+import { initScheduler } from '../scheduler/factory';
 import type { SchedulerAdapter } from '../scheduler/types';
-import { initTelemetry, shutdownTelemetry } from '../telemetry/sdk';
+import { loggerPlugin, schedulerPlugin, telemetryPlugin, userCallbackPlugin } from './plugins/builtins';
 import { PluginHost } from './plugins/host';
 import type {
     ApplicationBootstrapConfig,
@@ -31,12 +31,7 @@ import type {
 
 interface RuntimeState<TAppConfig, TEvents extends EventMap> {
     app: ApplicationRuntime<TAppConfig, TEvents> | undefined;
-    userStop?: (app: ApplicationRuntime<TAppConfig, TEvents>, reason: ApplicationStopReason) => Promise<void> | void;
-    schedulerAdapter?: SchedulerAdapter;
-    schedulerStarted: boolean;
-    loggerInitialized: boolean;
-    telemetryInitialized: boolean;
-    pluginHost?: PluginHost;
+    pluginHost: PluginHost;
     stopped: boolean;
 }
 
@@ -52,37 +47,13 @@ async function performShutdown<TAppConfig, TEvents extends EventMap>(
     const app = state.app;
     if (!app) return;
 
-    // 0. Stop + unload plugins (reverse order, fail-soft)
-    if (state.pluginHost) {
-        await state.pluginHost.stopAll();
-        await state.pluginHost.unloadAll();
-    }
-
-    // 1. User stop callback
-    if (state.userStop) {
-        await state.userStop(app, reason);
-    }
-
-    // 2. Stop scheduler
-    if (state.schedulerStarted && state.schedulerAdapter) {
-        await state.schedulerAdapter.stop().catch(() => {});
-        state.schedulerStarted = false;
-    }
-
-    // 3. Close DB adapter
-    if (app.db) {
-        try {
-            app.db.close();
-        } catch {
-            /* best-effort */
-        }
-    }
-
-    // 4. Shutdown telemetry
-    if (state.telemetryInitialized) {
-        await shutdownTelemetry();
-        state.telemetryInitialized = false;
-    }
+    // 1. Stop + unload plugins in reverse registration order (fail-soft).
+    //    Scheduler stop and telemetry shutdown run here via their onStop hooks.
+    await state.pluginHost.stopAll(reason);
+    await state.pluginHost.unloadAll(reason);
+    // Shutdown is complete — the host's stopAll/unloadAll calls every plugin's
+    // onStop/onUnload in reverse registration order, including user callback,
+    // scheduler, and service teardown. No inline steps.
 }
 
 // ── Public API ────────────────────────────────────────────────────────────
@@ -94,24 +65,20 @@ async function performShutdown<TAppConfig, TEvents extends EventMap>(
  * Accepts injected dependencies; never opens files, reads config from disk,
  * or wires runtime-specific exporters.
  *
- * Startup order (deterministic, per R5):
- * 1. Resolve bootstrap config + app config
- * 2. Initialize logger
- * 3. Initialize telemetry
- * 4. Create lifecycle bus + application EventBus
- * 5. Register DB adapter (injected only)
- * 6. Initialize scheduler + register entries
- * 7. Call user `start(app)` callback
- * 8. Start scheduler if `autoStart`
+ * Startup is plugin-driven. Built-in service plugins are registered in dependency
+ * order, then `loadAll()` + `startAll()` run them forward:
+ * 1. Resolve bootstrap config; build EventBus + PluginHost
+ * 2. Register built-ins in order: logger → telemetry → [caller plugins] →
+ *    user-callback → scheduler (scheduler last so autoStart runs after user start)
+ * 3. `loadAll()` then `startAll()` — `failFast` plugins abort boot on failure
  *
- * Shutdown order (reverse, per R5):
- * 1. User `stop(app, reason)` callback
- * 2. Stop scheduler
- * 3. Close DB adapter
- * 4. Shut down telemetry
+ * Shutdown is the reverse fan-out: `stopAll(reason)` → `unloadAll(reason)` calls
+ * every plugin's `onStop`/`onUnload` in reverse registration order (scheduler stop,
+ * user `stop(app, reason)`, telemetry shutdown, owned-DB close). Caller-injected
+ * `services.db` is caller-owned and never closed here.
  *
- * If any startup step fails, already-started services are cleaned up in reverse
- * order before rethrowing. `stop()` is idempotent.
+ * If startup fails, the host's reverse-order `stopAll('error')`/`unloadAll('error')`
+ * tears down whatever started before rethrowing. `stop()` is idempotent.
  *
  * @example
  * ```ts
@@ -159,42 +126,14 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
 
     const state: RuntimeState<TAppConfig, TEvents> = {
         app: undefined,
-        userStop: options.stop,
-        schedulerAdapter: undefined,
-        schedulerStarted: false,
-        loggerInitialized: false,
-        telemetryInitialized: false,
         stopped: false,
-        pluginHost: undefined,
+        pluginHost: undefined as unknown as PluginHost,
     };
 
     try {
-        // ── 1. Initialize logger ────────────────────────────────────────
-        let logger: Logger;
-        if (options.services?.logger) {
-            logger = options.services.logger;
-        } else if (loggingConfig.enabled) {
-            await initializeLogger({
-                level: loggingConfig.level,
-                console: loggingConfig.console,
-                fileSink: loggingConfig.fileSink,
-                json: loggingConfig.json,
-            });
-            logger = getLogger('bootstrap');
-        } else {
-            logger = getLogger('bootstrap');
-        }
-
-        // ── 2. Initialize telemetry ────────────────────────────────────
-        if (telemetryConfig.enabled) {
-            initTelemetry({
-                enabled: telemetryConfig.enabled,
-                serviceName: telemetryConfig.serviceName,
-                environment: telemetryConfig.environment,
-                dbStatementDebug: telemetryConfig.dbStatementDebug,
-            });
-            state.telemetryInitialized = true;
-        }
+        // ── 1. Resolve logger (init deferred to loggerPlugin) ───────────
+        const logger: Logger = options.services?.logger ?? getLogger('bootstrap');
+        const loggerInjected = !!options.services?.logger;
 
         // ── 3. Create lifecycle bus + EventBus ─────────────────────────
         const lifecycleBus =
@@ -215,35 +154,22 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
         let scheduler: SchedulerAdapter | undefined;
         if (schedulerConfig.enabled) {
             const adapter = options.services?.scheduler ?? schedOpts?.adapter;
-            if (adapter) {
-                setSchedulerAdapter(adapter);
-            }
-            scheduler = initScheduler(schedOpts?.entries);
-            state.schedulerAdapter = scheduler;
+            scheduler = initScheduler(adapter, schedOpts?.entries);
         }
 
-        // ── 5.5 Plugin host ───────────────────────────────────────────
-        const pluginHost: PluginHost | undefined =
-            options.services?.pluginHost ??
-            (options.plugins?.length ? new PluginHost(events as unknown as EventBus<EventMap>) : undefined);
+        // ── 5.5 Plugin host + built-in service plugins ─────────────────
+        const pluginHost: PluginHost =
+            options.services?.pluginHost ?? new PluginHost(events as unknown as EventBus<EventMap>);
+        state.pluginHost = pluginHost;
 
-        if (pluginHost) {
-            // Register caller-provided plugins (dedupe)
-            if (options.plugins) {
-                for (const p of options.plugins) {
-                    pluginHost.register(p);
-                }
-            }
-            state.pluginHost = pluginHost;
+        // Register built-in service plugins in dependency order: logger -> telemetry.
+        pluginHost.register(loggerPlugin(loggingConfig, loggerInjected));
+        pluginHost.register(telemetryPlugin(telemetryConfig));
+        // Caller-injected `services.db` is NOT closed by the portable layer — it is
+        // caller-owned (task 0028). Only adapters the bootstrap CREATES (the Node
+        // subpath) are wrapped in a `dbPlugin` whose onStop closes them.
 
-            // Load plugins (fail-fast)
-            await pluginHost.loadAll();
-
-            // Start plugins (fail-soft)
-            await pluginHost.startAll();
-        }
-
-        // ── Build resolved config ──────────────────────────────────────
+        // ── Build runtime handle (before startAll so plugins can capture it) ─
         const resolvedConfig: ApplicationBootstrapConfig = {
             logging: loggingConfig,
             events: { enabled: eventsEnabled, lifecycle: eventsLifecycle, defaultObservers: eventsDefaultObservers },
@@ -251,7 +177,6 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
             scheduler: schedulerConfig,
         };
 
-        // ── Build runtime handle ───────────────────────────────────────
         const app: ApplicationRuntime<TAppConfig, TEvents> = {
             config: resolvedConfig,
             appConfig: options.appConfig as TAppConfig,
@@ -265,32 +190,38 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
         };
         state.app = app;
 
-        // ── 6. User start callback ─────────────────────────────────────
-        await options.start(app);
-
-        // ── 7. Start scheduler ─────────────────────────────────────────
-        if (schedulerConfig.enabled && schedulerConfig.autoStart && scheduler) {
-            await scheduler.start();
-            state.schedulerStarted = true;
+        // ── Register caller-provided plugins (before user callback) ─────────
+        if (options.plugins) {
+            for (const p of options.plugins) {
+                pluginHost.register(p);
+            }
         }
 
+        // ── Register user-callback plugin (after services, before scheduler) ─
+        pluginHost.register(
+            userCallbackPlugin(
+                options.start,
+                options.stop as ((app: ApplicationRuntime<TAppConfig, TEvents>, reason: string) => void) | undefined,
+                app,
+            ),
+        );
+
+        // ── Register scheduler plugin (LAST — autoStart after user callback) ─
+        if (schedulerConfig.enabled && scheduler) {
+            pluginHost.register(schedulerPlugin(scheduler, schedulerConfig.autoStart));
+        }
+
+        // ── Load + start (built-in failFast=rethrow on critical failure) ─
+        await pluginHost.loadAll();
+        await pluginHost.startAll();
         return app;
     } catch (error) {
-        // Reverse-order cleanup of services this bootstrap owns.
-        // Scheduler: start() is the last async op before return; if it throws,
-        // schedulerStarted is still false, so there is nothing started to stop.
-        // DB: injected by the caller (portable bootstrap never creates one), so
-        // its lifecycle is caller-owned and not closed here.
-        // Plugin host: if `loadAll()` partially succeeded or `startAll()` ran,
-        // stop and unload in reverse order so plugins get their teardown hooks.
-        if (state.pluginHost) {
-            await state.pluginHost.stopAll();
-            await state.pluginHost.unloadAll();
-        }
-        // Telemetry: owned by the bootstrap — shut it down if it was initialized.
-        if (state.telemetryInitialized) {
-            await shutdownTelemetry();
-        }
+        // Startup failed: tear down whatever started, in reverse registration
+        // order, via the host. Each plugin's onStop/onUnload is best-effort, so a
+        // partially-started ring still releases its resources (telemetry, scheduler,
+        // owned DB). Caller-injected services.db is caller-owned and not touched.
+        await state.pluginHost.stopAll('error');
+        await state.pluginHost.unloadAll('error');
         throw error;
     }
 }
