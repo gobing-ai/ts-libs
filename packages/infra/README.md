@@ -14,6 +14,8 @@ Infrastructure backbone — typed event bus, queue/scheduler contracts, adapter 
 | **Telemetry** | `telemetry/` | OTel instrumentation — tracing (`traceAsync`), metrics (12 instruments), SQL sanitizer; opt-in OTLP export via the `/otel-node` subpath |
 | **API Client** | `api-client.ts` | Typed HTTP client with OTel tracing, timeout, and error handling |
 | **Logger** | `logger.ts` | LogTape-backed structured logger with levels, child loggers, injectable sinks, and mute toggle |
+| **Application Bootstrap** | `application/` | Plugin-driven lifecycle: deterministic startup → shutdown, DI orchestration, services as plugins |
+| **Plugin Host** | `application/plugins/` | Insertion-ordered plugin registry, fail-fast/fail-soft lifecycle fan-out, reason-carrying teardown |
 
 ## Architecture
 
@@ -555,68 +557,95 @@ bun add @opentelemetry/sdk-trace-node @opentelemetry/sdk-metrics \
         @opentelemetry/exporter-metrics-otlp-http
 ```
 
-### Full bootstrap example
+### Full bootstrap example (recommended: `runApplication` or `runNodeApplication`)
+
+Prefer the plugin-driven bootstrap over manual wiring — the host lifecycle handles
+startup ordering, reverse-order teardown, fail-fast/fail-soft policies, and idempotent
+stop. Two entry points:
 
 ```ts
-import { createRuntimeContextFromFactory } from '@gobing-ai/ts-runtime';
-import { createDbAdapter, applyMigrations } from '@gobing-ai/ts-db';
-import {
-    EventBus,
-    setSchedulerAdapter,
-    initTelemetry,
-    APIClient,
-    getLogger,
-    initializeLogger,
-} from '@gobing-ai/ts-infra';
-import { NodeSchedulerAdapter } from '@gobing-ai/ts-infra/scheduler-node';
+// Portable — inject everything yourself:
+import { runApplication } from '@gobing-ai/ts-infra/application';
 
-// 1. Runtime
-const ctx = await createRuntimeContextFromFactory();
-
-// 2. Database
-const db = await createDbAdapter({ driver: 'bun-sqlite', url: './data/app.db' });
-await applyMigrations(db);
-ctx.register('db', db);
-
-// 3. Logging
-await initializeLogger({ level: 'info', console: true });
-const log = getLogger('app');
-
-// 4. Telemetry
-initTelemetry({ serviceName: 'my-app', environment: 'production' });
-
-// 5. Event bus
-const bus = new EventBus<AppEvents>();
-
-// 6. Scheduler
-const scheduler = new NodeSchedulerAdapter();
-setSchedulerAdapter(scheduler);
-scheduler.register('3600000', async () => {
-    log.info('Hourly cleanup running');
-});
-await scheduler.start();
-
-// 7. API client
-const stripeApi = new APIClient({
-    baseUrl: 'https://api.stripe.com/v1',
-    defaultHeaders: { Authorization: `Bearer ${process.env.STRIPE_KEY}` },
+const app = await runApplication({
+    config: {
+        logging: { level: 'info', console: true },
+        telemetry: { enabled: true, serviceName: 'my-app' },
+    },
+    services: { db }, // caller-owned — you close it
+    async start(app) {
+        app.logger.info('started');
+    },
+    async stop(app, reason) {
+        app.logger.info('shutting down', { reason });
+    },
 });
 
-log.info('Application started');
+await app.stop('signal');
+```
+
+```ts
+// Node / Bun — YAML config, file logs, OTel export, Bun SQLite, Node scheduler:
+import { runNodeApplication } from '@gobing-ai/ts-infra/application-node';
+
+const app = await runNodeApplication({
+    configLoader: {
+        configFile: 'config/app.yaml',
+        bootstrapSection: 'bootstrap',
+        appSection: 'billing',
+        appConfig: { safeParse: (raw) => mySchema.safeParse(raw) },
+    },
+    async start(app) {
+        app.logger.info('started', { port: app.appConfig.port });
+    },
+});
+```
+
+If you prefer manual wiring (e.g. you already have an init sequence), the individual
+subsystems still work standalone — `EventBus`, `APIClient`, `getLogger`, etc. are
+all importable directly from the main barrel and do not require the bootstrap.
+
+#### Custom plugins
+
+Plugins run in registration order forward (`loadAll → startAll`) and reverse order
+on teardown (`stopAll → unloadAll`):
+
+```ts
+import { runApplication } from '@gobing-ai/ts-infra/application';
+import type { Plugin } from '@gobing-ai/ts-infra';
+
+const auditPlugin: Plugin = {
+    name: 'audit-logger',
+    version: '1.0.0',
+    failFast: false, // fail-soft: a throwing onStart is logged, boot continues
+    onLoad: async (host) => { /* validate preconditions — throws abort boot */ },
+    onStart: async (host) => { host.events.on('order.placed', auditHandler); },
+    onStop: async (host, reason) => { host.logger.info('persisting audit buffer', { reason }); },
+    onUnload: async () => { /* release resources */ },
+};
+
+const app = await runApplication({
+    plugins: [auditPlugin],
+    config: { logging: { console: true } },
+});
+```
+
+The host forwards the optional teardown `reason` (a plain `string` on the core contract,
+`ApplicationStopReason` — `'manual' | 'signal' | 'error' | 'shutdown'` — at the app level)
+to every plugin's `onStop`/`onUnload`. Built-in service plugins use this for log context;
+the user-callback plugin delivers it to your `stop(app, reason)`.
 ```
 
 ### Graceful shutdown
 
-```ts
-async function shutdown() {
-    log.info('Shutting down...');
-    await scheduler.stop();
-    db.close();
-    await shutdownTelemetry();
-    await ctx.dispose();
-    process.exit(0);
-}
+With `runApplication` or `runNodeApplication`, shutdown is a single idempotent call:
 
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+```ts
+process.on('SIGTERM', () => app.stop('signal'));
+process.on('SIGINT', () => app.stop('signal'));
 ```
+
+The host runs `stopAll(reason) → unloadAll(reason)` in reverse registration order:
+scheduler stops, your `stop` callback fires, telemetry flushes, and the optional
+DB adapter closes (if the bootstrap created it — caller-injected adapters are
+your responsibility). Idempotent: safe from overlapping signal handlers.
