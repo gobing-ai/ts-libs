@@ -22,6 +22,8 @@ import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
 import { interpolateTree, parseYamlObject } from '@gobing-ai/ts-runtime';
 
 import { runApplication } from './application/index';
+import { dbPlugin } from './application/plugins/builtins';
+import type { Plugin } from './application/plugins/types';
 import type {
     ApplicationBootstrapOptions,
     ApplicationConfigLoader,
@@ -213,8 +215,6 @@ export interface NodeApplicationOptions<TAppConfig = unknown, TEvents extends Ev
 export async function runNodeApplication<TAppConfig = unknown, TEvents extends EventMap = InfraEvents>(
     options: NodeApplicationOptions<TAppConfig, TEvents>,
 ): Promise<ApplicationRuntime<TAppConfig, TEvents>> {
-    let nodeTelemetryInitialized = false;
-
     // ── Load config ─────────────────────────────────────────────────────
     let loadedAppConfig: TAppConfig | undefined;
     let yamlBootstrap: Record<string, unknown> = {};
@@ -231,44 +231,54 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
     }
 
     // ── Resolve bootstrap config from YAML + inline options ────────────
-    // YAML loads as Record<string, unknown>; bridge into typed options.
-    // Inline options (options.config) take precedence over YAML sections.
     const yamlLog = yamlBootstrap.logging as Partial<LoggingOptions> | undefined;
     const yamlTel = yamlBootstrap.telemetry as Partial<TelemetryOptions> | undefined;
     const yamlSched = yamlBootstrap.scheduler as Partial<SchedulerOptions> | undefined;
     const databaseOpts = (yamlBootstrap.database ?? {}) as Record<string, unknown>;
 
-    const loggingOpts: Partial<LoggingOptions> = {
-        ...yamlLog,
-        ...options.config?.logging,
-    };
-    const telemetryOpts: Partial<TelemetryOptions> = {
-        ...yamlTel,
-        ...options.config?.telemetry,
-    };
-    const schedulerOpts: Partial<SchedulerOptions> = {
-        ...yamlSched,
-        ...options.config?.scheduler,
-    };
+    const loggingOpts: Partial<LoggingOptions> = { ...yamlLog, ...options.config?.logging };
+    const telemetryOpts: Partial<TelemetryOptions> = { ...yamlTel, ...options.config?.telemetry };
+    const schedulerOpts: Partial<SchedulerOptions> = { ...yamlSched, ...options.config?.scheduler };
 
-    // File sink from logging.filePath
     const logFilePath = (yamlBootstrap.logging as Record<string, unknown> | undefined)?.filePath as string | undefined;
     const loggingConfig: Partial<LoggingOptions> =
         typeof logFilePath === 'string' ? { ...loggingOpts, fileSink: createFileSink(logFilePath) } : loggingOpts;
 
-    // ── Node OTel telemetry ─────────────────────────────────────────────
-    const rawTel = { ...telemetryOpts } as Record<string, unknown>;
-    if (rawTel.enabled !== false && rawTel.endpoint) {
-        initNodeTelemetry({
-            serviceName: (rawTel.serviceName as string | undefined) ?? 'ts-libs',
-            endpoint: rawTel.endpoint as string,
-            headers: rawTel.headers as Record<string, string> | undefined,
-        });
-        nodeTelemetryInitialized = true;
+    // ── Scheduler adapter ───────────────────────────────────────────────
+    const schedulerConfig: SchedulerOptions = {};
+    const rawSched = { ...schedulerOpts } as Record<string, unknown>;
+    if (rawSched.enabled === true) {
+        schedulerConfig.enabled = true;
+        schedulerConfig.autoStart = schedulerOpts.autoStart;
+        schedulerConfig.adapter = new NodeSchedulerAdapter();
     }
 
-    // ── DB adapter ──────────────────────────────────────────────────────
+    // ── Node-owned plugins ──────────────────────────────────────────────
+    const plugins: Plugin[] = [];
     let dbAdapter: DbAdapterLike | undefined = options.services?.db;
+    const rawTel = { ...telemetryOpts } as Record<string, unknown>;
+
+    // Node OTel telemetry as a failFast plugin
+    if (rawTel.enabled !== false && rawTel.endpoint) {
+        plugins.push({
+            name: 'builtin:node-telemetry',
+            version: '0.0.0',
+            failFast: true,
+            onLoad: async () => {},
+            onStart: async () => {
+                initNodeTelemetry({
+                    serviceName: (rawTel.serviceName as string | undefined) ?? 'ts-libs',
+                    endpoint: rawTel.endpoint as string,
+                    headers: rawTel.headers as Record<string, string> | undefined,
+                });
+            },
+            onStop: async () => {
+                await shutdownNodeTelemetry();
+            },
+        });
+    }
+
+    // DB adapter (owned — registered as a plugin with fail-soft close)
     if (!dbAdapter && databaseOpts.enabled === true) {
         const driver = databaseOpts.driver as string | undefined;
         if (driver === 'bun-sqlite') {
@@ -277,6 +287,7 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
                 url: databaseOpts.url as string | undefined,
             });
             dbAdapter = adapter as DbAdapter;
+            plugins.push(dbPlugin(dbAdapter));
         } else {
             throw new ConfigValidationError(
                 `database.enabled is true but driver ${driver ? `"${driver}"` : 'is missing'} is not supported ` +
@@ -285,45 +296,16 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
         }
     }
 
-    // ── Scheduler adapter ───────────────────────────────────────────────
-    const schedulerConfig: SchedulerOptions = {};
-    const rawSched = { ...schedulerOpts } as Record<string, unknown>;
-    if (rawSched.enabled === true) {
-        schedulerConfig.enabled = true;
-        schedulerConfig.autoStart = schedulerOpts.autoStart;
-        // Use Node scheduler adapter by default in this subpath
-        schedulerConfig.adapter = new NodeSchedulerAdapter();
-    }
-
     // ── Delegate to portable runApplication ─────────────────────────────
-    const app = await runApplication<TAppConfig, TEvents>({
-        config: {
-            ...options.config,
-            logging: loggingConfig,
-            telemetry: telemetryOpts,
-            scheduler: schedulerConfig,
-        },
+    // Node-specific cleanup is handled by plugins in the service ring —
+    // node-telemetry onStop, owned-db onStop. No manual try/catch or stop
+    // override needed.
+    return await runApplication<TAppConfig, TEvents>({
+        config: { ...options.config, logging: loggingConfig, telemetry: telemetryOpts, scheduler: schedulerConfig },
         appConfig: loadedAppConfig,
-        services: {
-            ...options.services,
-            ...(dbAdapter ? { db: dbAdapter } : {}),
-        },
+        services: { ...options.services, ...(dbAdapter ? { db: dbAdapter } : {}) },
         start: options.start,
         stop: options.stop,
+        plugins: plugins.length ? plugins : undefined,
     });
-
-    // ── Compose a handle with Node-specific cleanup on stop ─────────────
-    const originalStop = app.stop.bind(app);
-    return {
-        ...app,
-        stop: async (reason?: ApplicationStopReason) => {
-            await originalStop(reason);
-
-            // Node-specific cleanup (after portable shutdown):
-            // 5. Shut down Node telemetry exporter
-            if (nodeTelemetryInitialized) {
-                await shutdownNodeTelemetry();
-            }
-        },
-    };
 }
