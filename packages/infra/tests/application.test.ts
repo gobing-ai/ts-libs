@@ -267,7 +267,7 @@ describe('runApplication — startup failure', () => {
 describe('runApplication — shutdown paths', () => {
     afterEach(resetModules);
 
-    test('closes DB adapter on stop', async () => {
+    test('injected DB adapter is NOT closed on stop (caller-owned)', async () => {
         const closed = tracker();
         const db = { close: () => closed.fn() };
 
@@ -278,7 +278,7 @@ describe('runApplication — shutdown paths', () => {
         );
 
         await app.stop();
-        expect(closed.calls.length).toBe(1);
+        expect(closed.calls.length).toBe(0);
     });
 
     test('shuts down telemetry on stop when telemetry was enabled', async () => {
@@ -420,10 +420,9 @@ describe('runApplication — shutdown paths', () => {
 
 describe('runApplication — plugin host integration', () => {
     afterEach(resetModules);
-
-    test('no plugin host when plugins not provided', async () => {
+    test('host always exists even without user plugins', async () => {
         const app = await runApplication(minimalOptions());
-        expect(app.pluginHost).toBeUndefined();
+        expect(app.pluginHost).toBeDefined();
         await app.stop();
     });
 
@@ -439,7 +438,7 @@ describe('runApplication — plugin host integration', () => {
         const app = await runApplication(minimalOptions({ plugins: [p] }));
 
         expect(app.pluginHost).toBeDefined();
-        expect(app.pluginHost?.has('test-plugin')).toBe(true);
+        expect(app.pluginHost.has('test-plugin')).toBe(true);
         await app.stop();
     });
 
@@ -486,13 +485,13 @@ describe('runApplication — plugin host integration', () => {
         expect(order).toEqual(['stop-2', 'stop-1', 'unload-2', 'unload-1']);
     });
 
-    test('plugin stop/unload happens before user stop callback', async () => {
+    test('user stop fires before plugin stop in reverse-order shutdown', async () => {
         const order: string[] = [];
         const p: Plugin = {
             name: 'p',
             version: '1.0.0',
             onLoad: () => {},
-            onStop: () => void order.push('plugin-stop'),
+            onStop: (_host, _reason) => void order.push('plugin-stop'),
         };
 
         const app = await runApplication(
@@ -503,7 +502,9 @@ describe('runApplication — plugin host integration', () => {
         );
         await app.stop();
 
-        expect(order).toEqual(['plugin-stop', 'user-stop']);
+        // user-callback plugin is registered AFTER user plugins, so
+        // reverse-order shutdown places it BEFORE user plugins.
+        expect(order).toEqual(['user-stop', 'plugin-stop']);
     });
 
     test('accepts injected pluginHost via services', async () => {
@@ -517,7 +518,7 @@ describe('runApplication — plugin host integration', () => {
         const app = await runApplication(minimalOptions({ services: { pluginHost: preBuilt } }));
 
         expect(app.pluginHost).toBe(preBuilt);
-        expect(app.pluginHost?.has('injected')).toBe(true);
+        expect(app.pluginHost.has('injected')).toBe(true);
         await app.stop();
     });
 
