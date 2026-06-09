@@ -123,11 +123,18 @@ export async function initializeLogger(options: InitLoggerOptions = {}): Promise
     const lowestLevel = toLogTapeLevel(level);
     const formatter = json ? getJsonLinesFormatter() : getTextFormatter();
 
+    // When muted, install no sinks regardless of `console`/`fileSink`. The
+    // adapter flag (`setLoggerMuted`) is the single source of truth for "silence
+    // everything": without this, a reconfigure after muting would reinstall a
+    // console sink and resurface output the caller explicitly silenced. Keeping
+    // both mute paths consistent makes `setLoggerMuted(true)` survive any later
+    // `initializeLogger` (e.g. an application bootstrap running under a muted
+    // test harness).
     const sinks: Record<string, Sink> = {};
-    if (enableConsole) {
+    if (!muted && enableConsole) {
         sinks.console = getConsoleSink({ formatter });
     }
-    if (fileSink) {
+    if (!muted && fileSink) {
         sinks.file = (record: LogRecord) => {
             fileSink(formatter(record));
         };

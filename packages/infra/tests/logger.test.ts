@@ -105,4 +105,22 @@ describe('logger', () => {
         getLogger('mute-test').error('now visible');
         expect(sink.lines).toHaveLength(1);
     });
+
+    test('initializeLogger installs no sinks while muted, so a later reconfigure cannot resurface output', async () => {
+        const sink = captureSink();
+
+        // Mute first (the test-harness pattern), then reconfigure with a sink
+        // explicitly requested — as an application bootstrap would.
+        setLoggerMuted(true);
+        await initializeLogger({ level: 'trace', console: true, fileSink: sink.write });
+
+        getLogger('mute-reconfig-test').error('must stay silent across reconfigure');
+        expect(sink.lines).toHaveLength(0);
+
+        // Unmuting and reconfiguring restores the sink — mute is not permanent.
+        setLoggerMuted(false);
+        await initializeLogger({ level: 'trace', console: false, fileSink: sink.write });
+        getLogger('mute-reconfig-test').error('visible again after unmute + reconfigure');
+        expect(sink.lines).toHaveLength(1);
+    });
 });
