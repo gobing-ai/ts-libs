@@ -29,19 +29,27 @@ export interface Plugin {
     readonly version: string;
 
     /**
+     * When `true`, a throwing `onStart` aborts the bootstrap (fail-fast).
+     * When absent/false, a throwing `onStart` is logged and skipped (fail-soft).
+     * Has no effect on `loadAll` (always fail-fast) or `stopAll`/`unloadAll`
+     * (always fail-soft — teardown is best-effort).
+     */
+    readonly failFast?: boolean;
+
+    /**
      * Called during `PluginHost.loadAll()` — fail-fast.
      * A throwing `onLoad` aborts the bootstrap.
      */
     onLoad(host: PluginHost): void | Promise<void>;
 
     /** Called during `PluginHost.unloadAll()` — fail-soft. */
-    onUnload?(host: PluginHost): void | Promise<void>;
+    onUnload?(host: PluginHost, reason?: string): void | Promise<void>;
 
     /** Called during `PluginHost.startAll()` — fail-soft. */
     onStart?(host: PluginHost): void | Promise<void>;
 
     /** Called during `PluginHost.stopAll()` — fail-soft. */
-    onStop?(host: PluginHost): void | Promise<void>;
+    onStop?(host: PluginHost, reason?: string): void | Promise<void>;
 }
 
 // ── Plugin host public shape ───────────────────────────────────────────────
@@ -73,6 +81,6 @@ export interface PluginHost {
 
     loadAll(): Promise<void>;
     startAll(): Promise<void>;
-    stopAll(): Promise<void>;
-    unloadAll(): Promise<void>;
+    stopAll(reason?: string): Promise<void>;
+    unloadAll(reason?: string): Promise<void>;
 }
