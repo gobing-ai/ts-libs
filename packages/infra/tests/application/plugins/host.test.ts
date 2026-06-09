@@ -21,10 +21,12 @@ function makePlugin(
         onStart?: ((_host: PluginHost) => void | Promise<void>) | null;
         onStop?: ((_host: PluginHost) => void | Promise<void>) | null;
     },
+    failFast?: boolean,
 ): Plugin {
     return {
         name,
         version: '1.0.0',
+        failFast,
         onLoad: (hooks?.onLoad ?? (async () => {})) as Plugin['onLoad'],
         onUnload: (hooks?.onUnload === null ? undefined : hooks?.onUnload) as Plugin['onUnload'],
         onStart: (hooks?.onStart === null ? undefined : hooks?.onStart) as Plugin['onStart'],
@@ -119,7 +121,7 @@ describe('PluginHost — loadAll (fail-fast)', () => {
 
 // ── Lifecycle — startAll (fail-soft) ──────────────────────────────────────
 
-describe('PluginHost — startAll (fail-soft)', () => {
+describe('PluginHost — startAll (failFast + fail-soft)', () => {
     test('calls onStart on every plugin in registration order', async () => {
         const host = new PluginHost(stubEvents());
         const order: string[] = [];
@@ -165,6 +167,82 @@ describe('PluginHost — startAll (fail-soft)', () => {
         // startAll should not throw
         await host.startAll();
         expect(order).toEqual(['good', 'after']);
+    });
+
+    test('failFast plugin rethrows and aborts startAll', async () => {
+        const host = new PluginHost(stubEvents());
+        const order: string[] = [];
+        host.register(makePlugin('good', { onStart: () => void order.push('good') }));
+        host.register(
+            makePlugin(
+                'critical',
+                {
+                    onStart: () => {
+                        throw new Error('critical-fail');
+                    },
+                },
+                true, // failFast
+            ),
+        );
+        host.register(makePlugin('after', { onStart: () => void order.push('after') }));
+
+        await expect(host.startAll()).rejects.toThrow('critical-fail');
+        // 'good' started, 'critical' threw, 'after' never reached
+        expect(order).toEqual(['good']);
+    });
+
+    test('failSoft plugin still logs+continues (existing behavior)', async () => {
+        const host = new PluginHost(stubEvents());
+        const order: string[] = [];
+        host.register(makePlugin('good', { onStart: () => void order.push('good') }));
+        host.register(
+            makePlugin(
+                'ok-to-fail',
+                {
+                    onStart: () => {
+                        throw new Error('non-critical');
+                    },
+                },
+                false, // explicit failSoft
+            ),
+        );
+        host.register(makePlugin('after', { onStart: () => void order.push('after') }));
+
+        await host.startAll(); // should not throw
+        expect(order).toEqual(['good', 'after']);
+    });
+
+    test('mixed: failFast after non-critical still aborts at the failFast plugin', async () => {
+        const host = new PluginHost(stubEvents());
+        const order: string[] = [];
+        host.register(
+            makePlugin(
+                'soft-fail',
+                {
+                    onStart: () => {
+                        throw new Error('soft');
+                    },
+                },
+                false,
+            ),
+        );
+        host.register(makePlugin('good', { onStart: () => void order.push('good') }));
+        host.register(
+            makePlugin(
+                'hard-fail',
+                {
+                    onStart: () => {
+                        throw new Error('hard');
+                    },
+                },
+                true,
+            ),
+        );
+        host.register(makePlugin('after', { onStart: () => void order.push('after') }));
+
+        await expect(host.startAll()).rejects.toThrow('hard');
+        // soft-fail: skipped; good: started; hard-fail: throws; after: not reached
+        expect(order).toEqual(['good']);
     });
 });
 
