@@ -69,21 +69,18 @@ export function getGitContext(
     workspacePath: string,
     executor: SyncProcessExecutor = new BunSyncProcessExecutor(),
 ): string | null {
-    const git = Bun.which('git');
-    if (git === null) return null;
-
-    const branch = runGit(executor, git, ['-C', workspacePath, 'branch', '--show-current']);
+    const branch = runGit(executor, ['-C', workspacePath, 'branch', '--show-current']);
     if (branch === null || branch === '') return null;
 
-    const status = runGit(executor, git, ['-C', workspacePath, 'status', '--porcelain']);
+    const status = runGit(executor, ['-C', workspacePath, 'status', '--porcelain']);
     const dirtyCount = status === null || status === '' ? 0 : status.split('\n').filter(Boolean).length;
     return ['Git context:', `branch: ${branch}`, `dirty: ${dirtyCount === 0 ? 'false' : `${dirtyCount} files`}`].join(
         '\n',
     );
 }
 
-function runGit(executor: SyncProcessExecutor, command: string, args: string[]): string | null {
-    const result = executor.runSync({ command, args, rejectOnError: false, forceBuffered: true });
+function runGit(executor: SyncProcessExecutor, args: string[]): string | null {
+    const result = executor.runSync({ command: 'git', args, rejectOnError: false, forceBuffered: true });
     if (result.exitCode !== 0) return null;
     return result.stdout.trim();
 }
