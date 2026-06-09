@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { tmpdir } from 'node:os';
 import {
     joinPath,
     NodeFileSystem,
@@ -46,7 +47,7 @@ function createVersionExecutor(): FakeExecutor {
 }
 
 async function createTempHome(name: string): Promise<string> {
-    const home = joinPath('/private/tmp', `ts-libs-ai-runner-${Date.now()}-${name}`);
+    const home = joinPath(tmpdir(), `ts-libs-ai-runner-${Date.now()}-${name}`);
     await new NodeFileSystem().mkdir(home);
     return home;
 }
