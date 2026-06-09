@@ -7,10 +7,14 @@ import type { ScheduledAction } from './types';
  * Wrap a scheduled action with OTel tracing, duration measurement, and
  * `scheduler.job.executed` event emission.
  *
- * Composes *on top of* the adapter's inline metrics (executed/failed/duration
- * counters live in the Node/Cloudflare adapters) — this wrapper adds the named
- * tracing span and the lifecycle event, neither of which the adapters provide.
- * Opt-in: wrap an action before registering it when you want that visibility.
+ * Observability is split by design across two axes, not duplicated:
+ * - The adapters (`NodeSchedulerAdapter`, `CloudflareSchedulerAdapter`) record
+ *   executed/failed/duration **metrics keyed by `cron`** for aggregate dashboards.
+ * - This opt-in wrapper adds a named **tracing span + lifecycle event keyed by
+ *   the human `name`**, for per-job diagnosis. Its timer measures the inner action
+ *   scope; the adapter's measures the full tick — nested, not double-counted.
+ *
+ * Wrap an action before registering it when you want the named span/event.
  *
  * @param name - Job name, surfaced as `scheduler.job_name` on the span/event.
  * @param action - The action to wrap (new no-arg `ScheduledAction` signature).
