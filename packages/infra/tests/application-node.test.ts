@@ -285,6 +285,47 @@ describe('runNodeApplication — stop cleanup', () => {
     });
 });
 
+describe('runNodeApplication — startup failure cleanup', () => {
+    afterEach(resetModules);
+
+    // Regression: a `start` callback that throws must not leak the Node-owned
+    // OTel providers that `initNodeTelemetry` registered before delegation.
+    // Without the rollback in runNodeApplication, the global MeterProvider stays
+    // registered after the rejection and bleeds into sibling suites.
+    test('shuts down Node telemetry when start throws', async () => {
+        const dir = tmpDir();
+        // An OTLP endpoint makes runNodeApplication register a real provider.
+        const configPath = writeYaml(
+            dir,
+            'tel.yaml',
+            `
+bootstrap:
+  telemetry:
+    enabled: true
+    endpoint: http://localhost:4318
+`,
+        );
+        try {
+            await expect(
+                runNodeApplication({
+                    configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                    start: async () => {
+                        throw new Error('boom-during-start');
+                    },
+                }),
+            ).rejects.toThrow('boom-during-start');
+
+            // The provider registered during the failed bootstrap was torn down:
+            // shutdownNodeTelemetry() nulled the providers and called metrics.disable(),
+            // reverting the global meter provider to OTel's NoopMeterProvider. Had the
+            // rollback not run, the registered MeterProvider would still be installed.
+            expect(metrics.getMeterProvider().constructor.name).toBe('NoopMeterProvider');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});
+
 // ── Additional coverage ───────────────────────────────────────────────────
 
 describe('runNodeApplication — additional coverage', () => {
