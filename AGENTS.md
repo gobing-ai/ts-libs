@@ -29,6 +29,7 @@ Never introduce a new runtime, package manager, linter, or formatter.
 | File | What it governs |
 |------|-----------------|
 | `docs/00_ADR.md` | **Authoritative** architecture & release decisions. Read before any non-trivial change to the workspace graph, dependency strategy, the release/publish flow, the ts-db facade, or cross-package boundaries. A change that contradicts an ADR requires updating the ADR first (new dated entry). |
+| `docs/03_ARCHITECTURE.md` | simplified architecture overview for each package |
 | `packages/<package>/README.md` | As a library collection project, we use package README.md to document the package's purpose and usage. |
 | `docs/PACKAGE_RELEASE.md` | How releases work (lockstep versioning, OIDC Trusted Publishing, new-package bootstrap). |
 
