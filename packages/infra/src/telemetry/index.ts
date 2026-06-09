@@ -1,4 +1,3 @@
-export { getTelemetryConfig, type TelemetryConfig, type TelemetryConfigPartial } from './config';
 export { extractSqlOperation, sanitizeSql } from './db-sanitize';
 export {
     type Counter,
@@ -18,6 +17,14 @@ export {
     initMetrics,
     shutdownMetrics,
 } from './metrics';
-export { getTracer, initTelemetry, isTelemetryEnabled, shutdownTelemetry } from './sdk';
+export {
+    getTelemetryConfig,
+    getTracer,
+    initTelemetry,
+    isTelemetryEnabled,
+    shutdownTelemetry,
+    type TelemetryConfig,
+    type TelemetryConfigPartial,
+} from './sdk';
 export type { Span, SpanOptions, Tracer } from './tracing';
 export { addSpanAttributes, addSpanEvent, getActiveSpan, traceAsync, traceSync, withSpan } from './tracing';
