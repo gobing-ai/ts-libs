@@ -109,9 +109,30 @@ export function getSchedulerJobFailedTotal(): Counter {
 
 // ── Lifecycle ───────────────────────────────────────────────────────
 
-/** Mark the metrics subsystem as initialized. Idempotent. */
+/**
+ * Pre-warm every instrument against the currently-registered meter and mark the
+ * subsystem initialized. Idempotent.
+ *
+ * Instruments are otherwise created lazily on first getter call (so metrics keep
+ * working even if this is never called — see the module contract). Calling this
+ * during bootstrap eagerly materializes them, so `isMetricsInitialized()` reflects
+ * real wiring rather than being a flag that gates nothing.
+ */
 export function initMetrics(): void {
     if (metricsInitialized) return;
+    // Eagerly materialize all instruments against the live meter.
+    getHttpClientRequestTotal();
+    getHttpClientRequestDuration();
+    getHttpClientRequestErrors();
+    getEventbusEmitsTotal();
+    getEventbusErrorsTotal();
+    getQueueJobEnqueuedTotal();
+    getQueueJobCompletedTotal();
+    getQueueJobFailedTotal();
+    getQueueJobProcessingDuration();
+    getSchedulerJobExecutedTotal();
+    getSchedulerJobDuration();
+    getSchedulerJobFailedTotal();
     metricsInitialized = true;
 }
 
