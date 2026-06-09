@@ -78,8 +78,8 @@ export class PluginHost {
     }
 
     /**
-     * Fail-soft: calls `onStart` on every plugin in registration order.
-     * A throwing hook is logged + skipped so one plugin cannot block others.
+     * Calls `onStart` on every plugin in registration order.
+     * Plugins with `failFast: true` rethrow (aborting boot); others log + skip.
      */
     async startAll(): Promise<void> {
         for (const plugin of this._plugins.values()) {
@@ -88,6 +88,9 @@ export class PluginHost {
                 this.logger.debug(`Starting plugin: ${plugin.name}`, { name: plugin.name });
                 await plugin.onStart(this);
             } catch (err) {
+                if (plugin.failFast) {
+                    throw err;
+                }
                 this.logger.error(`Plugin start hook failed: ${plugin.name}`, {
                     name: plugin.name,
                     error: (err as Error).message,
@@ -99,14 +102,15 @@ export class PluginHost {
     /**
      * Fail-soft: calls `onStop` on every plugin in **reverse** registration order.
      * A throwing hook is logged + skipped.
+     * `reason` is forwarded to each plugin's `onStop(host, reason?)`.
      */
-    async stopAll(): Promise<void> {
+    async stopAll(reason?: string): Promise<void> {
         const reversed = [...this._plugins.values()].reverse();
         for (const plugin of reversed) {
             if (!plugin.onStop) continue;
             try {
-                this.logger.debug(`Stopping plugin: ${plugin.name}`, { name: plugin.name });
-                await plugin.onStop(this);
+                this.logger.debug(`Stopping plugin: ${plugin.name}`, { name: plugin.name, reason });
+                await plugin.onStop(this, reason);
             } catch (err) {
                 this.logger.error(`Plugin stop hook failed: ${plugin.name}`, {
                     name: plugin.name,
@@ -119,14 +123,15 @@ export class PluginHost {
     /**
      * Fail-soft: calls `onUnload` on every plugin in **reverse** registration order.
      * A throwing hook is logged + skipped.
+     * `reason` is forwarded to each plugin's `onUnload(host, reason?)`.
      */
-    async unloadAll(): Promise<void> {
+    async unloadAll(reason?: string): Promise<void> {
         const reversed = [...this._plugins.values()].reverse();
         for (const plugin of reversed) {
             if (!plugin.onUnload) continue;
             try {
-                this.logger.debug(`Unloading plugin: ${plugin.name}`, { name: plugin.name });
-                await plugin.onUnload(this);
+                this.logger.debug(`Unloading plugin: ${plugin.name}`, { name: plugin.name, reason });
+                await plugin.onUnload(this, reason);
             } catch (err) {
                 this.logger.error(`Plugin unload hook failed: ${plugin.name}`, {
                     name: plugin.name,
