@@ -10,7 +10,7 @@ export {
     type SchedulerAction,
     toScheduledAction,
 } from './action';
-export { getSchedulerAdapter, initScheduler, resetSchedulerAdapter, setSchedulerAdapter } from './factory';
+export { initScheduler } from './factory';
 export { NoopSchedulerAdapter } from './noop';
 export type { ScheduledAction, SchedulerAdapter } from './types';
 export { wrapScheduledHandler } from './wrap-handler';
