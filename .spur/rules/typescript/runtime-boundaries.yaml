@@ -167,7 +167,6 @@ rules:
             - "**/tests/**"
             - "**/dist/**"
             - "packages/runtime/src/platform.ts"
-            - "packages/ai-runner/src/identity.ts"
 
   # ── Environment variables ───────────────────────────────────────────────
 
