@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { SyncProcessExecutor } from '@gobing-ai/ts-runtime';
 import { buildIdentityPreamble, getGitContext } from '../src';
 
 describe('buildIdentityPreamble', () => {
@@ -47,6 +48,21 @@ describe('buildIdentityPreamble', () => {
 });
 
 describe('getGitContext', () => {
+    test('returns null when git cannot be executed through the runtime executor', () => {
+        const executor: SyncProcessExecutor = {
+            runSync: ({ command, args }) => ({
+                command,
+                args: args ?? [],
+                exitCode: 1,
+                stdout: '',
+                stderr: 'git: command not found',
+                durationMs: 1,
+            }),
+        };
+
+        expect(getGitContext('/repo', executor)).toBeNull();
+    });
+
     test('returns branch and dirty count for a git workspace when git is available', () => {
         const dir = mkdtempSync(join(tmpdir(), 'ai-runner-git-'));
         if (Bun.which('git') === null) {
