@@ -100,13 +100,23 @@ export class ShellActionRunner implements ActionRunner {
 
     constructor(private readonly processExecutor: ProcessExecutor) {}
 
-    /** Execute a shell command with optional args and cwd. */
+    /**
+     * Execute a shell command. Two forms:
+     * - `command` + explicit `args` → run `command` as a program with those argv (no shell).
+     * - `command` alone → treat it as a shell command line and run it via `sh -c`, so operators
+     *   can use shell features (`&&`, `|`, quoting, globs) as in `bun run autofix && bun run spur-check`.
+     *
+     * The bare-`command` form is by far the common case; running it directly as a program name —
+     * the old behavior — fails with a null exit code for any line containing spaces.
+     */
     async execute(options: Record<string, unknown>, context: ActionRunContext): Promise<ActionResult> {
         const command = stringOption(options, 'command');
-        const args = arrayOption(options, 'args');
+        const explicitArgs = arrayOption(options, 'args');
+        const usesShell = explicitArgs.length === 0;
+        const spawn = usesShell ? { command: '/bin/sh', args: ['-c', command] } : { command, args: explicitArgs };
         const result = await this.processExecutor.run({
-            command,
-            args,
+            command: spawn.command,
+            args: spawn.args,
             cwd: stringOption(options, 'cwd', context.workdir),
             rejectOnError: false,
             forceBuffered: true,
