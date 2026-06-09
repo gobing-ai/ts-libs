@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { getTelemetryConfig } from '../../src/telemetry/config';
 import {
     _resetTelemetry,
     getResolvedConfig,
+    getTelemetryConfig,
     getTracer,
     initTelemetry,
     isTelemetryEnabled,
