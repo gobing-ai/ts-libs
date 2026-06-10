@@ -2,8 +2,11 @@
  * Infrastructure-level event definitions for ts-infra observability.
  *
  * Mirrors the package-local pattern in `@gobing-ai/ts-ai-runner` (`events.ts`):
- * only the events ts-infra components actually emit live here. Application-domain
- * events (history import, HTTP server, …) belong to the consuming app, not this
+ * these maps define the infra-level event *contract*. ts-infra itself currently
+ * emits only `queue.stats` (`QueueStatsAction`) and `scheduler.job.executed`
+ * (`wrapScheduledHandler`); the remaining events are contracts for the consuming
+ * app or higher-level wiring to emit on the same bus. Application-domain events
+ * (history import, HTTP server, …) belong to the consuming app, not this
  * library. Process events belong to `@gobing-ai/ts-runtime` (the owner of
  * `ProcessExecutor`) and are intentionally not re-exported here.
  *
