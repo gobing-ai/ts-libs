@@ -210,3 +210,107 @@ describe('APIClient', () => {
         await expect(client.get('/slow-body')).rejects.toThrow('aborted');
     });
 });
+
+describe('APIClient.rawRequest', () => {
+    test('returns RawHttpResponse for 200', async () => {
+        mockFetch.mockResolvedValueOnce({
+            status: 200,
+            ok: true,
+            headers: new Headers({ 'content-type': 'text/plain' }),
+            text: async () => 'hello',
+        });
+
+        const client = createClient();
+        const res = await client.rawRequest('GET', '/hello');
+
+        expect(res.status).toBe(200);
+        expect(res.body).toBe('hello');
+        expect(res.headers['content-type']).toBe('text/plain');
+    });
+
+    test('returns RawHttpResponse for 500 (does not throw)', async () => {
+        mockFetch.mockResolvedValueOnce({
+            status: 500,
+            ok: false,
+            headers: new Headers({}),
+            text: async () => 'server error',
+        });
+
+        const client = createClient();
+        const res = await client.rawRequest('GET', '/error');
+
+        expect(res.status).toBe(500);
+        expect(res.body).toBe('server error');
+    });
+
+    test('sends raw string body without JSON serialization', async () => {
+        mockFetch.mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+            expect(init?.body).toBe('plain text body');
+            return {
+                status: 200,
+                ok: true,
+                headers: new Headers({}),
+                text: async () => 'ok',
+            };
+        });
+
+        const client = createClient();
+        await client.rawRequest('POST', '/echo', 'plain text body');
+    });
+
+    test('does not force Content-Type: application/json', async () => {
+        mockFetch.mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+            expect(init?.headers).not.toHaveProperty('content-type');
+            return {
+                status: 200,
+                ok: true,
+                headers: new Headers({}),
+                text: async () => 'ok',
+            };
+        });
+
+        const client = createClient();
+        await client.rawRequest('POST', '/echo', 'data');
+    });
+
+    test('throws on network error', async () => {
+        mockFetch.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
+
+        const client = createClient();
+        await expect(client.rawRequest('GET', '/unreachable')).rejects.toThrow('connect ECONNREFUSED');
+    });
+
+    test('throws on timeout', async () => {
+        mockFetch.mockImplementationOnce((_url: string, init?: RequestInit) => {
+            const signal = init?.signal;
+            return new Promise<never>((_resolve, reject) => {
+                signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {
+                    once: true,
+                });
+            });
+        });
+
+        const client = createClient({ timeout: 5 });
+        await expect(client.rawRequest('GET', '/slow')).rejects.toThrow(APIError);
+    });
+
+    test('enforces maxResponseBytes', async () => {
+        const body = 'x'.repeat(100);
+        mockFetch.mockResolvedValueOnce({
+            status: 200,
+            ok: true,
+            headers: new Headers({}),
+            body: new ReadableStream({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode(body));
+                    controller.close();
+                },
+            }),
+        });
+
+        const client = createClient();
+        const res = await client.rawRequest('GET', '/large', undefined, { maxResponseBytes: 50 });
+
+        expect(res.body.length).toBeLessThanOrEqual(50);
+    });
+});
