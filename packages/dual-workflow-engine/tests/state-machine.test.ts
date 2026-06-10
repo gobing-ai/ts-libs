@@ -376,17 +376,19 @@ describe('StateMachineDriver — onError policy', () => {
 
 describe('StateMachineDriver — setVars cross-action flow', () => {
     test('setVars from step 1 is visible to step 2 template resolution', async () => {
-        const host = createDefaultWorkflowEngineHost().registerAction({
-            kind: 'setter',
-            async execute() {
-                return { ok: true, setVars: { x: '42' } };
-            },
-        }).registerAction({
-            kind: 'reader',
-            async execute(options: Record<string, unknown>) {
-                return { ok: true, data: { resolved: options.message } };
-            },
-        });
+        const host = createDefaultWorkflowEngineHost()
+            .registerAction({
+                kind: 'setter',
+                async execute() {
+                    return { ok: true, setVars: { x: '42' } };
+                },
+            })
+            .registerAction({
+                kind: 'reader',
+                async execute(options: Record<string, unknown>) {
+                    return { ok: true, data: { resolved: options.message } };
+                },
+            });
         const persistence = new MemoryWorkflowPersistenceAdapter();
         const driver = new StateMachineDriver({ host, persistence });
 
@@ -396,6 +398,7 @@ describe('StateMachineDriver — setVars cross-action flow', () => {
             terminalStates: ['end'],
             states: [
                 { id: 'init', onEnter: [{ kind: 'setter' }] },
+                // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow engine template syntax, not JS interpolation
                 { id: 'next', onEnter: [{ kind: 'reader', options: { message: '${vars.x}' } }] },
                 { id: 'end' },
             ],
@@ -414,18 +417,20 @@ describe('StateMachineDriver — setVars cross-action flow', () => {
 
     test('setVars is visible to a guard reading the var', async () => {
         let guardSawVar = false;
-        const host = createDefaultWorkflowEngineHost().registerAction({
-            kind: 'setter',
-            async execute() {
-                return { ok: true, setVars: { flag: 'on' } };
-            },
-        }).registerGuard({
-            kind: 'check-flag',
-            async evaluate(_options: Record<string, unknown>, context) {
-                guardSawVar = context.vars.flag === 'on';
-                return guardSawVar;
-            },
-        });
+        const host = createDefaultWorkflowEngineHost()
+            .registerAction({
+                kind: 'setter',
+                async execute() {
+                    return { ok: true, setVars: { flag: 'on' } };
+                },
+            })
+            .registerGuard({
+                kind: 'check-flag',
+                async evaluate(_options: Record<string, unknown>, context) {
+                    guardSawVar = context.vars.flag === 'on';
+                    return guardSawVar;
+                },
+            });
         const persistence = new MemoryWorkflowPersistenceAdapter();
         const driver = new StateMachineDriver({ host, persistence });
 
@@ -433,12 +438,7 @@ describe('StateMachineDriver — setVars cross-action flow', () => {
             name: 'setvars-guard',
             initialState: 'init',
             terminalStates: ['end'],
-            states: [
-                { id: 'init', onEnter: [{ kind: 'setter' }] },
-                { id: 'middle' },
-                { id: 'end' },
-                { id: 'dead' },
-            ],
+            states: [{ id: 'init', onEnter: [{ kind: 'setter' }] }, { id: 'middle' }, { id: 'end' }, { id: 'dead' }],
             transitions: [
                 { from: 'init', to: 'middle' },
                 { from: 'middle', to: 'end', guard: { kind: 'check-flag' } },
@@ -451,17 +451,19 @@ describe('StateMachineDriver — setVars cross-action flow', () => {
     });
 
     test('onExit setVars visible to subsequent state onEnter', async () => {
-        const host = createDefaultWorkflowEngineHost().registerAction({
-            kind: 'exit-setter',
-            async execute() {
-                return { ok: true, setVars: { exitVar: 'from-exit' } };
-            },
-        }).registerAction({
-            kind: 'reader',
-            async execute(options: Record<string, unknown>) {
-                return { ok: true, data: { resolved: options.message } };
-            },
-        });
+        const host = createDefaultWorkflowEngineHost()
+            .registerAction({
+                kind: 'exit-setter',
+                async execute() {
+                    return { ok: true, setVars: { exitVar: 'from-exit' } };
+                },
+            })
+            .registerAction({
+                kind: 'reader',
+                async execute(options: Record<string, unknown>) {
+                    return { ok: true, data: { resolved: options.message } };
+                },
+            });
         const persistence = new MemoryWorkflowPersistenceAdapter();
         const driver = new StateMachineDriver({ host, persistence });
 
@@ -471,6 +473,7 @@ describe('StateMachineDriver — setVars cross-action flow', () => {
             terminalStates: ['end'],
             states: [
                 { id: 'init', onExit: [{ kind: 'exit-setter' }] },
+                // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow engine template syntax, not JS interpolation
                 { id: 'next', onEnter: [{ kind: 'reader', options: { message: '${vars.exitVar}' } }] },
                 { id: 'end' },
             ],
