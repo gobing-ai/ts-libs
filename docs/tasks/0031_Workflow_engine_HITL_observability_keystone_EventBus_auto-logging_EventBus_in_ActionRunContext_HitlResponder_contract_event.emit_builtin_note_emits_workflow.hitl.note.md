@@ -1,9 +1,9 @@
 ---
 name: "Workflow engine HITL+observability keystone: EventBus auto-logging, EventBus in ActionRunContext, HitlResponder contract, event.emit builtin, note emits workflow.hitl.note"
 description: "Workflow engine HITL+observability keystone: EventBus auto-logging, EventBus in ActionRunContext, HitlResponder contract, event.emit builtin, note emits workflow.hitl.note"
-status: Backlog
+status: Done
 created_at: 2026-06-10T06:48:42.183Z
-updated_at: 2026-06-10T06:48:42.183Z
+updated_at: 2026-06-10T15:37:11.600Z
 folder: docs/tasks
 type: task
 feature-id: ""
@@ -48,76 +48,17 @@ contract and plumbing those actions stand on: the `HitlResponder` interface, the
 
 ### Requirements
 
-**R1 — EventBus auto-logging (A1).** Add an optional `logger?: Logger` to the `EventBus` constructor
-(`@gobing-ai/ts-infra`). On every `emit`, before dispatch, log at `debug`:
-`logger?.debug('event.emit', { event: String(event), syncHandlers, asyncHandlers })`. Level control is
-left to logger configuration (no per-emit level option). Absent logger = today's behavior (backward
-compatible). **Then remove the now-redundant manual emit-adjacent `logger.debug('entered'…)` /
-`'transition'…` lines in `RunLifecycle`** that only duplicate what auto-logging now covers — keep the
-semantic lifecycle logs (`'workflow run started/done/failed'`) which carry more than the raw event.
-Document in the dedup which logs stay vs. go (avoid double-logging).
+## Requirements
 
-**R2 — EventBus in `ActionRunContext` (the keystone primitive).** Add `readonly events?:
-EventBus<WorkflowEngineEvents>` to `ActionRunContext`. Thread `options.events` (already in the driver)
-into the context built in `runActions` for **both** drivers (state-machine + transition-flow). Action
-runners can then emit. Backward compatible (optional; absent on hosts run without a bus).
+- [x] **R1** — EventBus auto-logging + RunLifecycle dedup → **MET** | Evidence: `packages/infra/src/event-bus/event-bus.ts:34,93-97` (`logger?` ctor + debug `event.emit`); dedup confirmed in `run-lifecycle.ts` (only semantic `'workflow run started/done/failed'` logs remain; `'entered'`/`'transition'` debug lines removed). Test: `event-bus.test.ts:332-353`.
+- [x] **R2** — EventBus in `ActionRunContext` (keystone) → **MET** | Evidence: `dual-workflow-engine/src/types.ts:118-119` (`readonly events?`); threaded in both drivers — `state-machine.ts:30,165`, `transition-flow.ts:28,75`. Test: `host.test.ts:265`.
+- [x] **R3** — `HitlResponder` contract (types only) → **MET** | Evidence: `dual-workflow-engine/src/hitl.ts:2-29` (`HitlRequestKind`/`HitlRequest`/`HitlAnswer`/`HitlResponder`). No responder/action impl shipped (correct).
+- [x] **R4** — `event.emit` builtin → **MET** | Evidence: `host.ts:100-111` (`EventEmitActionRunner`, missing-name → `{ok:false}`, no-bus no-op), registered `'builtin'` at `host.ts:75`. Templated payload via `state-machine.ts:150` `resolveTemplates` before `runAction`. Test: `host.test.ts:265`.
+- [x] **R5** — `note` emits `workflow.hitl.note` → **MET** | Evidence: `host.ts:89-98` (`NoteActionRunner` still returns `{ok:true,data:{message}}`, additionally `void context?.events?.emit('workflow.hitl.note', …)`). Test: `host.test.ts`.
+- [x] **R6** — Exports + event map → **MET** | Evidence: `src/index.ts:11,14` (Hitl types + `EventEmitActionRunner`); `events.ts:20,22` (`workflow.custom`, `workflow.hitl.note`); README event table `README.md:693-694`.
+- [x] **R7** — Tests → **MET** | Evidence: engine `bun test` → 202 pass / 0 fail (was 193+, no regression); infra event-bus → 34 pass / 0 fail. All five new behaviors covered.
+- [x] **R8** — Gate + release → **MET** | Evidence: `bun run lint` clean (biome + 8-package typecheck); both packages at `0.3.10`; shipped via commit `62e653c` + release bump `ff943ad`.
 
-**R3 — `HitlResponder` contract (types only; no implementation).** Export from this package:
-```ts
-export type HitlRequestKind = 'confirm' | 'select' | 'input';
-export interface HitlRequest {
-  kind: HitlRequestKind;
-  prompt: string;
-  /** select: the choices; confirm: optional labels; input: ignored. */
-  options?: string[];
-  /** echoed back for correlation. */
-  runId: string;
-  node: string;
-}
-export interface HitlAnswer {
-  /** confirm → 'yes'|'no'|'cancel'; select → chosen option; input → free text. */
-  value: string;
-  /** convenience: true when the user cancelled (confirm 'cancel'). */
-  cancelled?: boolean;
-}
-export interface HitlResponder {
-  respond(request: HitlRequest): Promise<HitlAnswer>;
-}
-```
-**No responder implementation ships here** — spur (0035) provides CLI/headless responders. **No
-`hitl.*` action ships here** — those are spur actions. The responder is injected **per-host by spur via
-its action constructors** (decision: per-host, matching how `agentService`/`ruleService` are injected
-in `registerSpurBuiltins`), so this package does NOT add `hitlResponder` to `WorkflowRunOptions`.
-
-**R4 — `event.emit` builtin action (Q2).** Register a generic `EventEmitActionRunner` (`kind:
-'event.emit'`, origin `'builtin'`) in `createDefaultWorkflowEngineHost`. It emits a **typed, namespaced
-custom event** (option (a) — keep the event map honest):
-- New event in `WorkflowEngineEvents`: `'workflow.custom': (data: { name: string; payload:
-  Record<string, unknown> }) => void`.
-- Options: `name` (string, required), `payload` (object, optional). `payload` values are
-  `${...}`-templated by the driver before `execute` (it flows through `resolveTemplates` like every
-  action's options), so a node can emit run state: `{ name: 'checkpoint', payload: { task:
-  '${vars.taskId}' } }`.
-- `execute` emits via `context.events?.emit('workflow.custom', { name, payload })` (no-op if no bus)
-  and returns `{ ok: true, data: { name, payload } }`. Never blocks. Missing `name` → `{ ok:false }`.
-
-**R5 — `note` emits `workflow.hitl.note` (B1).** Keep `NoteActionRunner` non-blocking and backward
-compatible (still returns `{ ok:true, data:{message} }`). Additionally emit
-`'workflow.hitl.note': (data: { node: string; message: string }) => void` (new typed event) via
-`context.events?.emit(...)`. The engine still does NOT print the note (no TTY) — downstream subscribers
-(spur CLI) decide to display/notify. `note` reaches the bus through R2's context.events.
-
-**R6 — Exports + event map.** Export `HitlRequest`/`HitlAnswer`/`HitlResponder`/`HitlRequestKind` and
-`EventEmitActionRunner` from `src/index.ts`. Add `workflow.custom` and `workflow.hitl.note` to
-`WorkflowEngineEvents` (`events.ts`) and document both in the engine README's event table.
-
-**R7 — Tests.** EventBus auto-log (logger called on emit; silent when absent). `ActionRunContext.events`
-threaded in both drivers (an action receives a working bus). `event.emit` emits `workflow.custom` with
-templated payload; no-bus no-op; missing-name fail. `note` emits `workflow.hitl.note` while staying a
-no-op success. No regression in existing 193+ engine tests.
-
-**R8 — Gate + release.** Engine + infra own gates green; build; **version bump + publish** (this is the
-artifact spur 0035 consumes by semver). Update engine README event table + RunLifecycle dedup note.
 
 ### Q&A
 
@@ -182,6 +123,29 @@ _Pending design pass — anchors and shapes above are sufficient to implement di
 
 ### Review
 
+## Review — 2026-06-10 (dev-verify --force --fix all)
+
+**Status:** 0 actionable findings (PASS)
+**Scope:** `ts-infra` event-bus + `ts-dual-workflow-engine` (types, host, events, run-lifecycle, state-machine, transition-flow, hitl, index)
+**Mode:** verify (Phase 7 SECU + Phase 8 traceability)
+**Channel:** inline
+**Gate:** `bun run lint` → pass; engine `bun test` → 202 pass/0 fail; infra event-bus → 34 pass/0 fail
+
+### P1 — Blockers
+_None._
+
+### P2 — Warnings
+_None._
+
+### P3 — Info
+_None._
+
+### P4 — Suggestions
+_None._
+
+**SECU notes:** `event.emit` validates non-empty `name` before emit; all event emissions use non-blocking `void context?.events?.emit(...)` (R2/R4/R5 backward-compatible, no-op without a bus); no secrets, injection surface, or swallowed exceptions introduced. EventBus auto-log uses `logger?.debug` (opt-in, backward compatible). Layer boundary respected — no `hitl.*` action or responder implementation leaked into the engine (correctly deferred to spur 0035).
+
+**Verdict:** PASS — all 8 requirements MET, zero P1–P4 findings. No fixes required.
 
 
 ### Testing
