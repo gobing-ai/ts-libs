@@ -10,6 +10,7 @@ export {
 
 // Event Bus
 export {
+    type AsyncEventJobPayload,
     attachDefaultObservers,
     attachFileObserver,
     attachLogObserver,
