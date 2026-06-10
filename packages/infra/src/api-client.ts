@@ -23,7 +23,6 @@ export interface APIClientConfig {
     timeout?: number;
     fetch?: typeof globalThis.fetch;
 }
-
 /** Per-request overrides: headers, timeout, operation name, and abort signal. */
 export interface RequestOptions {
     headers?: Record<string, string>;
@@ -32,6 +31,19 @@ export interface RequestOptions {
     signal?: AbortSignal;
 }
 
+/** Options for {@link APIClient.rawRequest}: extends RequestOptions with redirect policy and response-size cap. */
+export interface RawRequestOptions extends RequestOptions {
+    /** Redirect policy (default `'manual'`). */
+    redirect?: 'follow' | 'error' | 'manual';
+    maxResponseBytes?: number;
+}
+
+/** Raw HTTP response returned by {@link APIClient.rawRequest} for all status codes. */
+export interface RawHttpResponse {
+    status: number;
+    headers: Record<string, string>;
+    body: string;
+}
 /** HTTP error with status code and response body text. */
 export class APIError extends Error {
     constructor(
@@ -146,6 +158,127 @@ export class APIClient {
                         });
                     }
 
+                    throw error;
+                } finally {
+                    if (timer) clearTimeout(timer);
+                }
+            },
+            { kind: SpanKind.CLIENT },
+        );
+    }
+
+    /**
+     * Make a raw HTTP request returning status, headers, and body for ALL status codes.
+     * Never throws on HTTP status codes (2xx, 4xx, 5xx all return a {@link RawHttpResponse}).
+     * Throws only on network/timeout errors.
+     *
+     * Deliberately does NOT force Content-Type: application/json — callers pass raw
+     * string bodies and set their own content-type header.
+     */
+    async rawRequest(method: string, path: string, body?: string, opts?: RawRequestOptions): Promise<RawHttpResponse> {
+        const url = this.buildUrl(path);
+        const headers: Record<string, string> = {
+            ...this.defaultHeaders,
+            ...opts?.headers,
+        };
+
+        const redirect = opts?.redirect ?? 'manual';
+        const maxResponseBytes = opts?.maxResponseBytes;
+        const operationName = opts?.operationName ?? `HTTP ${method} ${url}`;
+
+        return traceAsync(
+            operationName,
+            async (span: Span) => {
+                span.setAttribute(ATTR_HTTP_REQUEST_METHOD, method);
+                span.setAttribute(ATTR_URL_FULL, url);
+
+                const controller = new AbortController();
+                const timeoutMs = opts?.timeout ?? this.timeout;
+                let timer: ReturnType<typeof setTimeout> | undefined;
+
+                if (timeoutMs > 0) {
+                    timer = setTimeout(() => controller.abort(), timeoutMs);
+                }
+
+                const combinedSignal = opts?.signal
+                    ? AbortSignal.any([opts.signal, controller.signal])
+                    : controller.signal;
+
+                try {
+                    const start = performance.now();
+
+                    const response = await this.fetchFn(url, {
+                        method,
+                        headers,
+                        body: body ?? undefined,
+                        signal: combinedSignal,
+                        redirect,
+                    });
+
+                    span.setAttribute(ATTR_HTTP_RESPONSE_STATUS_CODE, response.status);
+
+                    getHttpClientRequestTotal().add(1, {
+                        'http.request.method': method,
+                        'http.response.status_code': response.status,
+                    });
+
+                    const duration = performance.now() - start;
+                    getHttpClientRequestDuration().record(duration, {
+                        'http.request.method': method,
+                        'http.response.status_code': response.status,
+                    });
+
+                    if (!response.ok) {
+                        getHttpClientRequestErrors().add(1, {
+                            'http.request.method': method,
+                            'error.type': `HTTP_${response.status}`,
+                        });
+                    }
+
+                    let text = '';
+                    if (maxResponseBytes !== undefined) {
+                        // Read up to maxResponseBytes+1 to detect truncation.
+                        const reader = response.body?.getReader();
+                        if (reader) {
+                            const chunks: string[] = [];
+                            let total = 0;
+                            const decoder = new TextDecoder();
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+                                const needed = maxResponseBytes + 1 - total;
+                                if (needed <= 0) break;
+                                const chunk = value.slice(0, needed);
+                                chunks.push(decoder.decode(chunk, { stream: !done }));
+                                total += chunk.length;
+                                if (total > maxResponseBytes) break;
+                            }
+                            reader.releaseLock();
+                            text = chunks.join('').slice(0, maxResponseBytes);
+                        }
+                    } else {
+                        text = await response.text();
+                    }
+
+                    const responseHeaders: Record<string, string> = {};
+                    response.headers.forEach((value, key) => {
+                        responseHeaders[key] = value;
+                    });
+
+                    return { status: response.status, headers: responseHeaders, body: text };
+                } catch (error) {
+                    if (error instanceof DOMException && error.name === 'AbortError') {
+                        getHttpClientRequestErrors().add(1, {
+                            'http.request.method': method,
+                            'error.type': 'Timeout',
+                        });
+                        throw new APIError(0, `Request timed out after ${timeoutMs}ms: ${method} ${url}`);
+                    }
+
+                    getHttpClientRequestErrors().add(1, {
+                        'http.request.method': method,
+                        'error.type': error instanceof Error ? error.name : 'Unknown',
+                    });
                     throw error;
                 } finally {
                     if (timer) clearTimeout(timer);
