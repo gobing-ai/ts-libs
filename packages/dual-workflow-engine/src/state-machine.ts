@@ -10,7 +10,7 @@ import type {
     WorkflowRunOptions,
     WorkflowRunResult,
 } from './types';
-import { mergeVars, resolveOnErrorPolicy, resolveTemplates } from './variables';
+import { mergeSetVars, mergeVars, resolveOnErrorPolicy, resolveTemplates } from './variables';
 
 /** Dependencies required by the state-machine driver. */
 export interface StateMachineDriverOptions {
@@ -41,7 +41,7 @@ export class StateMachineDriver {
         const runId = lifecycle.runId;
         const states = new Map(workflow.states.map((state) => [state.id, state]));
         const terminal = new Set(workflow.terminalStates ?? []);
-        const vars = mergeVars(workflow.vars, options.vars);
+        let vars = mergeVars(workflow.vars, options.vars);
         const env = allowedEnv(workflow.env?.allow ?? [], options.env);
         let current = states.get(workflow.initialState);
         let transitionsTaken = 0;
@@ -73,7 +73,7 @@ export class StateMachineDriver {
             // driver's `continue` semantics. A state with no enter actions must not
             // erase the previous result.
             if (enter.result !== undefined) lastActionResult = enter.result;
-            // 3. Stop immediately when an action explicitly declares terminal success.
+            if (enter.result?.setVars) vars = mergeSetVars(vars, enter.result.setVars);
             if (enter.outcome === 'terminal') {
                 return await lifecycle.done(current.id, transitionsTaken);
             }
@@ -112,6 +112,7 @@ export class StateMachineDriver {
                 defaultOnError,
             );
             if (exit.result !== undefined) lastActionResult = exit.result;
+            if (exit.result?.setVars) vars = mergeSetVars(vars, exit.result.setVars);
             if (exit.outcome === 'fail') return await lifecycle.fail(current.id, transitionsTaken, exit.result?.error);
 
             // 7. Persist transition and move to the target state.

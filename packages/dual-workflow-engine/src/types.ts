@@ -123,6 +123,8 @@ export interface ActionResult {
     readonly data?: Record<string, unknown>;
     readonly error?: string;
     readonly terminal?: boolean;
+    /** Variables to merge into the run's vars for subsequent steps. Shallow string→string override. */
+    readonly setVars?: Vars;
 }
 
 /** Action runner implementation registered in the workflow host. */

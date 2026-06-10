@@ -8,7 +8,7 @@ import type {
     WorkflowRunOptions,
     WorkflowRunResult,
 } from './types';
-import { mergeVars, resolveOnErrorPolicy, resolveTemplates } from './variables';
+import { mergeSetVars, mergeVars, resolveOnErrorPolicy, resolveTemplates } from './variables';
 
 /** Dependencies required by the transition-flow driver. */
 export interface TransitionFlowDriverOptions {
@@ -39,7 +39,7 @@ export class TransitionFlowDriver {
         const runId = lifecycle.runId;
         const nodes = new Map(workflow.nodes.map((node) => [node.id, node]));
         const terminal = new Set(workflow.terminalNodes ?? []);
-        const vars = mergeVars(workflow.vars, options.vars);
+        let vars = mergeVars(workflow.vars, options.vars);
         const env = allowedEnv(workflow.env?.allow ?? [], options.env);
         let current = nodes.get(workflow.initialNode);
         let transitionsTaken = 0;
@@ -81,6 +81,7 @@ export class TransitionFlowDriver {
                         lastActionResult?.ok ?? false,
                     );
                 }
+                if (lastActionResult.setVars) vars = mergeSetVars(vars, lastActionResult.setVars);
                 if (!lastActionResult.ok) {
                     const policy = resolveOnErrorPolicy(current.action.onError, defaultOnError, options.onError);
                     if (policy === 'fail') {

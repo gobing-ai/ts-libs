@@ -15,6 +15,20 @@ export function mergeVars(workflowVars: Vars = {}, overrideVars: Vars = {}): Var
     return { ...workflowVars, ...overrideVars };
 }
 
+/**
+ * Merge action-set vars into the run-local vars map. Only string→string entries
+ * are accepted; non-string values are silently dropped as a defensive measure
+ * (the action layer should never produce them, but fail safe).
+ */
+export function mergeSetVars(vars: Vars, setVars: Vars | undefined): Vars {
+    if (setVars === undefined) return vars;
+    const filtered: Vars = {};
+    for (const [key, value] of Object.entries(setVars)) {
+        if (typeof value === 'string') filtered[key] = value;
+    }
+    return mergeVars(vars, filtered);
+}
+
 /** Resolve templates inside an unknown options value. */
 export function resolveTemplates<T>(value: T, context: VariableContext): T {
     if (typeof value === 'string') {

@@ -63,6 +63,7 @@ export type {
     WorkflowStatus,
 } from './types';
 export {
+    mergeSetVars,
     mergeVars,
     resolveOnErrorPolicy,
     resolveTemplateString,

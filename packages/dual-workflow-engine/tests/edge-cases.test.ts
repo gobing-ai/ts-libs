@@ -15,6 +15,7 @@ import {
     RunCollisionError,
     resolveTemplateString,
     resolveTemplates,
+    mergeSetVars,
     ShellActionRunner,
     StateMachineDriver,
     TransitionFlowDriver,
@@ -280,5 +281,19 @@ transitions: []
         } satisfies Partial<DbAdapter> as DbAdapter);
         await db.saveTransition('r', 'a', 'b', null);
         expect(await db.listRuns()).toHaveLength(1);
+    });
+
+    test('mergeSetVars filters non-string values defensively', () => {
+        const base = { existing: 'keep' };
+        // Happy path: string values merged in, existing preserved when absent from setVars.
+        expect(mergeSetVars(base, { x: '1', y: '2' })).toEqual({ existing: 'keep', x: '1', y: '2' });
+        // Override: setVars values take precedence over existing keys.
+        expect(mergeSetVars(base, { existing: 'overridden' })).toEqual({ existing: 'overridden' });
+        // Non-string values are silently dropped.
+        expect(mergeSetVars(base, { n: 42 as unknown as string })).toEqual({ existing: 'keep' });
+        // Undefined setVars is a no-op.
+        expect(mergeSetVars(base, undefined)).toBe(base);
+        // Mixed: strings preserved, non-strings dropped.
+        expect(mergeSetVars(base, { a: 'ok', b: true as unknown as string })).toEqual({ existing: 'keep', a: 'ok' });
     });
 });

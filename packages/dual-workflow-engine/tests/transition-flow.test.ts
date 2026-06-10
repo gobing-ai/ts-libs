@@ -298,3 +298,113 @@ describe('TransitionFlowDriver — onError policy', () => {
         expect(result.transitionsTaken).toBe(0);
     });
 });
+
+describe('TransitionFlowDriver — setVars cross-action flow', () => {
+    test('setVars from node 1 is visible to node 2 template resolution', async () => {
+        const host = createDefaultWorkflowEngineHost().registerAction({
+            kind: 'setter',
+            async execute() {
+                return { ok: true, setVars: { x: '42' } };
+            },
+        }).registerAction({
+            kind: 'reader',
+            async execute(options: Record<string, unknown>) {
+                return { ok: true, data: { resolved: options.message } };
+            },
+        });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new TransitionFlowDriver({ host, persistence });
+
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'setvars-cross-node',
+            initialNode: 'init',
+            terminalNodes: ['end'],
+            nodes: [
+                { id: 'init', action: { kind: 'setter' } },
+                { id: 'next', action: { kind: 'reader', options: { message: '${vars.x}' } } },
+                { id: 'end' },
+            ],
+            edges: [
+                { from: 'init', to: 'next' },
+                { from: 'next', to: 'end' },
+            ],
+        });
+        // If x were missing, ${vars.x} would throw WorkflowValidationError.
+        expect(result.status).toBe('done');
+    });
+
+    test('setVars is visible to an edge condition reading the var', async () => {
+        let conditionSawVar = false;
+        const host = createDefaultWorkflowEngineHost().registerAction({
+            kind: 'setter',
+            async execute() {
+                return { ok: true, setVars: { flag: 'on' } };
+            },
+        }).registerGuard({
+            kind: 'check-flag',
+            async evaluate(_options: Record<string, unknown>, context) {
+                conditionSawVar = context.vars.flag === 'on';
+                return conditionSawVar;
+            },
+        });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new TransitionFlowDriver({ host, persistence });
+
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'setvars-condition',
+            initialNode: 'init',
+            terminalNodes: ['end'],
+            nodes: [
+                { id: 'init', action: { kind: 'setter' } },
+                { id: 'middle' },
+                { id: 'end' },
+                { id: 'dead' },
+            ],
+            edges: [
+                { from: 'init', to: 'middle' },
+                { from: 'middle', to: 'end', condition: { kind: 'check-flag' } },
+                { from: 'middle', to: 'dead' },
+            ],
+        });
+        expect(result.status).toBe('done');
+        expect(result.finalState).toBe('end');
+        expect(conditionSawVar).toBe(true);
+    });
+
+    test('setVars from a continued-failure action is still merged', async () => {
+        const host = createDefaultWorkflowEngineHost().registerAction({
+            kind: 'fail-setter',
+            async execute() {
+                return { ok: false, error: 'failed but continued', setVars: { errFlag: 'set' } };
+            },
+        }).registerAction({
+            kind: 'reader',
+            async execute(options: Record<string, unknown>) {
+                return { ok: true, data: { resolved: options.message } };
+            },
+        });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new TransitionFlowDriver({ host, persistence });
+
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'setvars-continue',
+            initialNode: 'init',
+            terminalNodes: ['end'],
+            defaultOnError: 'continue',
+            nodes: [
+                { id: 'init', action: { kind: 'fail-setter' } },
+                { id: 'next', action: { kind: 'reader', options: { message: '${vars.errFlag}' } } },
+                { id: 'end' },
+            ],
+            edges: [
+                { from: 'init', to: 'next' },
+                { from: 'next', to: 'end' },
+            ],
+        });
+        // If errFlag were missing, ${vars.errFlag} would throw WorkflowValidationError.
+        expect(result.status).toBe('done');
+    });
+});
