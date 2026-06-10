@@ -7,7 +7,20 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
 
-## [0.3.2] — 2026-06-05
+## [0.3.10] — 2026-06-10
+
+### Added
+
+- **`ts-infra` — EventBus auto-logging:** `EventBus` constructor accepts an optional `logger?: Logger`. On every `emit`, a `debug`-level `event.emit` log line is written before dispatch, removing the need for manual per-event logging in callers. Backward compatible — absent logger retains existing behavior.
+- **`ts-dual-workflow-engine` — EventBus in ActionRunContext:** `ActionRunContext` now carries an optional `events?: EventBus<WorkflowEngineEvents>`, threaded from `WorkflowRunOptions.events` through both drivers (state-machine + transition-flow). Action runners can emit typed workflow events directly.
+- **`ts-dual-workflow-engine` — HITL responder contract:** New `HitlRequest`, `HitlAnswer`, `HitlResponder`, and `HitlRequestKind` types exported from the engine package. Defines the interface downstream HITL action runners consume — no implementation ships here.
+- **`ts-dual-workflow-engine` — `event.emit` builtin action:** New `EventEmitActionRunner` (`kind: 'event.emit'`, origin `'builtin'`) emits typed `workflow.custom` events with templated `name` and `payload`. Registered in `createDefaultWorkflowEngineHost()`.
+- **`ts-dual-workflow-engine` — `note` emits `workflow.hitl.note`:** `NoteActionRunner` now emits a `workflow.hitl.note` event via `context.events` while remaining a no-op success. Downstream subscribers (spur CLI) decide display/notification.
+
+### Changed
+
+- **`ts-dual-workflow-engine` — EventBus logging dedup:** `RunLifecycle.enter()` and `recordTransition()` no longer emit redundant `logger.debug('entered'…)` / `logger.debug('transition'…)` lines — these are now covered by the EventBus auto-logging in `ts-infra`. Semantic lifecycle logs (`workflow run started/done/failed`, `action failed (continuing)`) are kept.
+
 
 ### Added
 

@@ -8,8 +8,10 @@ export {
     type WorkflowExtensionLogger,
     type WorkflowExtensionRef,
 } from './extensions';
+export type { HitlAnswer, HitlRequest, HitlRequestKind, HitlResponder } from './hitl';
 export {
     createDefaultWorkflowEngineHost,
+    EventEmitActionRunner,
     NoteActionRunner,
     ShellActionRunner,
     WorkflowEngineHost,

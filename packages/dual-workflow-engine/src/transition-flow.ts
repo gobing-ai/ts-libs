@@ -72,6 +72,7 @@ export class TransitionFlowDriver {
                         vars,
                         env,
                         metadata: options.metadata,
+                        events: options.events,
                     });
                 } finally {
                     lifecycle.actionDone(

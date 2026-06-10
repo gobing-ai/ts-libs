@@ -690,7 +690,8 @@ All three layers are **additive** — EventBus does not replace logging or traci
 | `workflow.action.start` | `{ node, kind }` | When an action starts executing |
 | `workflow.action.done` | `{ node, kind, durationMs, ok }` | When an action finishes (success or failure) |
 | `workflow.action.failed_continue` | `{ node, transitionsTaken, error? }` | When a non-fatal action failure is continued past (`onError: 'continue'`) |
-
+| `workflow.custom` | `{ name, payload }` | Emitted by the builtin `event.emit` action for custom user-defined events |
+| `workflow.hitl.note` | `{ node, message }` | Emitted by the builtin `note` action for workflow-visible annotations |
 ### Usage
 
 Pass an `EventBus` via `WorkflowRunOptions.events`:

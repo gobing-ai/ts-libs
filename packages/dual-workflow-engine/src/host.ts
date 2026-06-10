@@ -72,6 +72,7 @@ export function createDefaultWorkflowEngineHost(
     const host = new WorkflowEngineHost();
     host.registerAction(new NoteActionRunner(), 'builtin');
     host.registerAction(new ShellActionRunner(options.processExecutor ?? new NodeProcessExecutor()), 'builtin');
+    host.registerAction(new EventEmitActionRunner(), 'builtin');
     host.registerGuard({ kind: 'always', evaluate: async () => true }, 'builtin');
     host.registerGuard({ kind: 'never', evaluate: async () => false }, 'builtin');
     host.registerGuard(
@@ -84,13 +85,28 @@ export function createDefaultWorkflowEngineHost(
     return host;
 }
 
-/** Built-in action that records a note in result data. */
+/** Built-in action that records a note and emits a workflow.hitl.note event. */
 export class NoteActionRunner implements ActionRunner {
     readonly kind = 'note';
 
-    /** Execute a no-op note action. */
-    async execute(options: Record<string, unknown>): Promise<ActionResult> {
-        return { ok: true, data: { message: String(options.message ?? '') } };
+    /** Execute a no-op note action with observable event emission. */
+    async execute(options: Record<string, unknown>, context?: ActionRunContext): Promise<ActionResult> {
+        const message = String(options.message ?? '');
+        void context?.events?.emit('workflow.hitl.note', { node: context.stateOrNodeId, message });
+        return { ok: true, data: { message } };
+    }
+}
+
+/** Built-in action that emits a typed `workflow.custom` event on the run's event bus. */
+export class EventEmitActionRunner implements ActionRunner {
+    readonly kind = 'event.emit';
+
+    async execute(options: Record<string, unknown>, context?: ActionRunContext): Promise<ActionResult> {
+        const name = String(options.name ?? '');
+        if (!name) return { ok: false, error: 'event.emit requires a non-empty "name" option' };
+        const payload = (options.payload as Record<string, unknown>) ?? {};
+        void context?.events?.emit('workflow.custom', { name, payload });
+        return { ok: true, data: { name, payload } };
     }
 }
 

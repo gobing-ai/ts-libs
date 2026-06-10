@@ -16,4 +16,8 @@ export type WorkflowEngineEvents = {
     'workflow.action.done': (data: { node: string; kind: string; durationMs: number; ok: boolean }) => void;
     /** Emitted when a non-fatal action failure is continued past (onError: 'continue'). */
     'workflow.action.failed_continue': (data: { node: string; transitionsTaken: number; error?: string }) => void;
+    /** Emitted by the builtin `event.emit` action for custom user-defined events. */
+    'workflow.custom': (data: { name: string; payload: Record<string, unknown> }) => void;
+    /** Emitted by the builtin `note` action for workflow-visible annotations. */
+    'workflow.hitl.note': (data: { node: string; message: string }) => void;
 };

@@ -162,6 +162,7 @@ export class StateMachineDriver {
                     vars,
                     env,
                     metadata: options.metadata,
+                    events: options.events,
                 });
             } finally {
                 lifecycle.actionDone(stateId, action.kind, Date.now() - actionStartMs, last?.ok ?? false);

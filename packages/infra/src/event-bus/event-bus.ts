@@ -26,14 +26,16 @@ export class EventBus<TEvents extends EventMap> {
     private readonly asyncHandlerIds = new WeakMap<TEvents[keyof TEvents], string>();
     private readonly jobQueue: JobQueue | null;
     private readonly lifecycleBus: EventBus<BusLifecycleEvents> | null;
+    private readonly logger: Logger | undefined;
     private nextAsyncHandlerId = 0;
-
     constructor(opts?: {
         jobQueue?: JobQueue;
         lifecycleBus?: EventBus<BusLifecycleEvents>;
+        logger?: Logger;
     }) {
         this.jobQueue = opts?.jobQueue ?? null;
         this.lifecycleBus = opts?.lifecycleBus ?? null;
+        this.logger = opts?.logger;
     }
 
     on<K extends keyof TEvents>(event: K, handler: TEvents[K], opts?: SubscribeOptions): void {
@@ -87,6 +89,12 @@ export class EventBus<TEvents extends EventMap> {
         let syncCount = 0;
         let asyncCount = 0;
         let errors = 0;
+
+        this.logger?.debug('event.emit', {
+            event: eventName,
+            syncHandlers: this.syncHandlers.get(event)?.size ?? 0,
+            asyncHandlers: this.asyncHandlers.get(event)?.size ?? 0,
+        });
 
         const syncSet = this.syncHandlers.get(event);
         if (syncSet) {

@@ -328,3 +328,29 @@ describe('EventBus', () => {
         expect(bus.listenerCount('user.created')).toBe(2);
     });
 });
+
+describe('EventBus logger integration', () => {
+    test('logs event.emit at debug on every emit when logger is provided', async () => {
+        const logs: string[] = [];
+        const logger = {
+            trace: () => {},
+            debug: (msg: string) => logs.push(msg),
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            fatal: () => {},
+            child: () => logger,
+        };
+        const bus = new EventBus<TestEvents>({ logger });
+        bus.on('user.created', (_id, _name) => {});
+        await bus.emit('user.created', '42', 'Alice');
+        expect(logs).toContain('event.emit');
+    });
+
+    test('does not log when logger is absent (backward-compatible)', async () => {
+        const bus = new EventBus<TestEvents>();
+        bus.on('user.created', (_id, _name) => {});
+        // Should not throw — no logger provided
+        await bus.emit('user.created', '42', 'Alice');
+    });
+});

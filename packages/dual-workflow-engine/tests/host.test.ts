@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { EventBus } from '@gobing-ai/ts-infra';
 import { WorkflowValidationError } from '../src/errors';
+import type { WorkflowEngineEvents } from '../src/events';
 import { createDefaultWorkflowEngineHost, WorkflowEngineHost } from '../src/host';
 import type { ActionRunner, GuardRunner } from '../src/types';
 
@@ -196,7 +198,7 @@ describe('WorkflowEngineHost introspection', () => {
 describe('createDefaultWorkflowEngineHost', () => {
     test('registers all built-ins with origin "builtin"', () => {
         const host = createDefaultWorkflowEngineHost();
-        expect(host.listActions().sort()).toEqual(['note', 'shell']);
+        expect(host.listActions().sort()).toEqual(['event.emit', 'note', 'shell']);
         expect(host.listGuards().sort()).toEqual(['action-ok', 'always', 'never']);
         for (const kind of host.listActions()) expect(host.actionOrigin(kind)).toBe('builtin');
         for (const kind of host.listGuards()) expect(host.guardOrigin(kind)).toBe('builtin');
@@ -258,5 +260,115 @@ describe('createDefaultWorkflowEngineHost', () => {
             },
         );
         expect(neverTrue).toBe(false);
+    });
+
+    test('event.emit emits workflow.custom with name and payload via context.events', async () => {
+        const emitted: Array<{ name: string; payload: Record<string, unknown> }> = [];
+        const events = new EventBus<WorkflowEngineEvents>();
+        events.on('workflow.custom', (data) => emitted.push(data));
+
+        const host = createDefaultWorkflowEngineHost();
+        const result = await host.runAction(
+            'event.emit',
+            { name: 'checkpoint', payload: { task: 'build' } },
+            {
+                runId: 'r1',
+                stateOrNodeId: 's1',
+                vars: {},
+                env: {},
+                events,
+            },
+        );
+        expect(result.ok).toBe(true);
+        expect(result.data).toEqual({ name: 'checkpoint', payload: { task: 'build' } });
+        // The event may have been emitted async (void); give microtask queue a tick.
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(emitted).toEqual([{ name: 'checkpoint', payload: { task: 'build' } }]);
+    });
+
+    test('event.emit returns failure when name is missing', async () => {
+        const host = createDefaultWorkflowEngineHost();
+        const result = await host.runAction(
+            'event.emit',
+            {},
+            {
+                runId: 'r1',
+                stateOrNodeId: 's1',
+                vars: {},
+                env: {},
+            },
+        );
+        expect(result.ok).toBe(false);
+        expect(result.error).toContain('name');
+    });
+
+    test('event.emit with empty name returns failure', async () => {
+        const host = createDefaultWorkflowEngineHost();
+        const result = await host.runAction(
+            'event.emit',
+            { name: '' },
+            {
+                runId: 'r1',
+                stateOrNodeId: 's1',
+                vars: {},
+                env: {},
+            },
+        );
+        expect(result.ok).toBe(false);
+    });
+
+    test('event.emit is a no-op when no EventBus in context (no events field)', async () => {
+        const host = createDefaultWorkflowEngineHost();
+        const result = await host.runAction(
+            'event.emit',
+            { name: 'checkpoint' },
+            {
+                runId: 'r1',
+                stateOrNodeId: 's1',
+                vars: {},
+                env: {},
+            },
+        );
+        expect(result.ok).toBe(true);
+        expect(result.data).toEqual({ name: 'checkpoint', payload: {} });
+    });
+
+    test('note emits workflow.hitl.note event while staying a no-op success', async () => {
+        const notes: Array<{ node: string; message: string }> = [];
+        const events = new EventBus<WorkflowEngineEvents>();
+        events.on('workflow.hitl.note', (data) => notes.push(data));
+
+        const host = createDefaultWorkflowEngineHost();
+        const result = await host.runAction(
+            'note',
+            { message: 'hello world' },
+            {
+                runId: 'r1',
+                stateOrNodeId: 'checkpoint-1',
+                vars: {},
+                env: {},
+                events,
+            },
+        );
+        expect(result.ok).toBe(true);
+        expect(result.data).toEqual({ message: 'hello world' });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(notes).toEqual([{ node: 'checkpoint-1', message: 'hello world' }]);
+    });
+
+    test('note still works without EventBus in context (backward-compatible)', async () => {
+        const host = createDefaultWorkflowEngineHost();
+        const result = await host.runAction(
+            'note',
+            { message: 'hello' },
+            {
+                runId: 'r1',
+                stateOrNodeId: 's1',
+                vars: {},
+                env: {},
+            },
+        );
+        expect(result.ok).toBe(true);
+        expect(result.data).toEqual({ message: 'hello' });
     });
 });

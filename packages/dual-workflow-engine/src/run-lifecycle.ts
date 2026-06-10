@@ -122,7 +122,6 @@ export class RunLifecycle {
         await this.persistence.savePhase(this.runId, stateOrNodeId, 'running');
         addSpanEvent('workflow.node.enter', { node: stateOrNodeId, transitionsTaken });
         void this.events?.emit('workflow.node.enter', { node: stateOrNodeId, transitionsTaken });
-        this.logger.debug('entered', { node: stateOrNodeId, transitionsTaken });
     }
 
     /** Persist a transition and emit its observability event. */
@@ -130,7 +129,6 @@ export class RunLifecycle {
         await this.persistence.saveTransition(this.runId, from, to, trigger);
         addSpanEvent('workflow.node.transition', { from, to, ...(trigger === null ? {} : { trigger }) });
         void this.events?.emit('workflow.node.transition', { from, to, trigger });
-        this.logger.debug('transition', { from, to, trigger });
     }
 
     /** Finalize the run as succeeded and return its result. */

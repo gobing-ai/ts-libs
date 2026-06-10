@@ -115,6 +115,8 @@ export interface ActionRunContext {
     readonly vars: Vars;
     readonly env: Record<string, string>;
     readonly metadata?: Record<string, unknown>;
+    /** Optional event bus for in-process run observability. Action runners can emit workflow events through this. */
+    readonly events?: EventBus<WorkflowEngineEvents>;
 }
 
 /** Result of a single action execution. */
