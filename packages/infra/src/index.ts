@@ -1,5 +1,12 @@
 // API Client
-export { APIClient, type APIClientConfig, APIError, type RequestOptions } from './api-client';
+export {
+    APIClient,
+    type APIClientConfig,
+    APIError,
+    type RawHttpResponse,
+    type RawRequestOptions,
+    type RequestOptions,
+} from './api-client';
 
 // Event Bus
 export {
