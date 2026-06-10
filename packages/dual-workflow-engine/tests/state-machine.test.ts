@@ -398,8 +398,7 @@ describe('StateMachineDriver — setVars cross-action flow', () => {
             terminalStates: ['end'],
             states: [
                 { id: 'init', onEnter: [{ kind: 'setter' }] },
-                // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow engine template syntax, not JS interpolation
-                { id: 'next', onEnter: [{ kind: 'reader', options: { message: '${vars.x}' } }] },
+                { id: 'next', onEnter: [{ kind: 'reader', options: { message: `\${vars.x}` } }] },
                 { id: 'end' },
             ],
             transitions: [
@@ -473,8 +472,7 @@ describe('StateMachineDriver — setVars cross-action flow', () => {
             terminalStates: ['end'],
             states: [
                 { id: 'init', onExit: [{ kind: 'exit-setter' }] },
-                // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow engine template syntax, not JS interpolation
-                { id: 'next', onEnter: [{ kind: 'reader', options: { message: '${vars.exitVar}' } }] },
+                { id: 'next', onEnter: [{ kind: 'reader', options: { message: `\${vars.exitVar}` } }] },
                 { id: 'end' },
             ],
             transitions: [

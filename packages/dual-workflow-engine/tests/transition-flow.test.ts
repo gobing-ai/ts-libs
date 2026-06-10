@@ -324,8 +324,7 @@ describe('TransitionFlowDriver — setVars cross-action flow', () => {
             terminalNodes: ['end'],
             nodes: [
                 { id: 'init', action: { kind: 'setter' } },
-                // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow engine template syntax, not JS interpolation
-                { id: 'next', action: { kind: 'reader', options: { message: '${vars.x}' } } },
+                { id: 'next', action: { kind: 'reader', options: { message: `\${vars.x}` } } },
                 { id: 'end' },
             ],
             edges: [
@@ -398,8 +397,7 @@ describe('TransitionFlowDriver — setVars cross-action flow', () => {
             defaultOnError: 'continue',
             nodes: [
                 { id: 'init', action: { kind: 'fail-setter' } },
-                // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow engine template syntax, not JS interpolation
-                { id: 'next', action: { kind: 'reader', options: { message: '${vars.errFlag}' } } },
+                { id: 'next', action: { kind: 'reader', options: { message: `\${vars.errFlag}` } } },
                 { id: 'end' },
             ],
             edges: [
