@@ -5,6 +5,9 @@
  * `DBJobQueue` and `DBQueueConsumer`.
  */
 
+import type { EventBus } from '../event-bus/event-bus';
+import type { QueueEvents } from '../events';
+
 /** A queued job with status tracking, retry metadata, and timestamps. */
 export interface Job<T = unknown> {
     id: string;
@@ -54,6 +57,12 @@ export interface QueueConsumerConfig {
     baseDelay?: number;
     maxDelay?: number;
     drainTimeoutMs?: number;
+    /**
+     * Optional bus for queue lifecycle events: `queue.consumer.started` /
+     * `queue.consumer.stopped` and `queue.job.completed` / `queue.job.failed` /
+     * `queue.job.retrying`. Omitting it leaves the consumer silent (default).
+     */
+    events?: EventBus<QueueEvents>;
 }
 
 /** Consumer interface for the job queue — register handlers and control the processing loop. */
