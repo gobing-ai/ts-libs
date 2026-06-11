@@ -2,7 +2,8 @@
  * OpenTelemetry metrics — lazy-initialized instruments.
  * All degrade to no-ops when telemetry is disabled.
  */
-import { type Counter, type Histogram, metrics } from '@opentelemetry/api';
+import { type Counter, createNoopMeter, type Histogram, metrics } from '@opentelemetry/api';
+import { getResolvedConfig } from './sdk';
 
 export type { Counter, Histogram } from '@opentelemetry/api';
 
@@ -25,7 +26,24 @@ function getMeter() {
 
 const instruments: Record<string, Counter | Histogram | undefined> = {};
 
+// Master switch (`TelemetryConfig.enabled`): when explicitly disabled, getters
+// return shared no-op instruments WITHOUT touching the cache, so a later
+// re-enable rebuilds real instruments against the live meter.
+let _noopCounter: Counter | undefined;
+let _noopHistogram: Histogram | undefined;
+
+function noopCounter(): Counter {
+    if (!_noopCounter) _noopCounter = createNoopMeter().createCounter('noop');
+    return _noopCounter;
+}
+
+function noopHistogram(): Histogram {
+    if (!_noopHistogram) _noopHistogram = createNoopMeter().createHistogram('noop');
+    return _noopHistogram;
+}
+
 function getOrCreateCounter(key: string, name: string, description: string, unit = '{operation}'): Counter {
+    if (!getResolvedConfig().enabled) return noopCounter();
     if (!instruments[key]) {
         instruments[key] = getMeter().createCounter(name, { description, unit });
     }
@@ -33,6 +51,7 @@ function getOrCreateCounter(key: string, name: string, description: string, unit
 }
 
 function getOrCreateHistogram(key: string, name: string, description: string, unit = 'ms'): Histogram {
+    if (!getResolvedConfig().enabled) return noopHistogram();
     if (!instruments[key]) {
         instruments[key] = getMeter().createHistogram(name, { description, unit });
     }
