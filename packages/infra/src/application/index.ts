@@ -143,9 +143,10 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
             attachDefaultObservers(lifecycleBus);
         }
 
-        const events = options.services?.events
-            ? options.services.events
-            : new EventBus<TEvents>({ lifecycleBus: lifecycleBus as EventBus<BusLifecycleEvents> | undefined });
+        const events =
+            options.services?.events ??
+            options.config?.events?.bus ??
+            new EventBus<TEvents>({ lifecycleBus: lifecycleBus as EventBus<BusLifecycleEvents> | undefined });
 
         // ── 4. Database (injected only) ────────────────────────────────
         const db: DbAdapterLike | undefined = options.services?.db;
