@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { metrics, trace } from '@opentelemetry/api';
 import type { ApplicationConfigValidator } from '../src/application/types';
 import { ConfigValidationError, runNodeApplication } from '../src/application-node';
+import { _resetMetrics, getHttpClientRequestTotal } from '../src/telemetry/metrics';
 import { _resetNodeTelemetry } from '../src/telemetry/otel-node';
 import { _resetTelemetry } from '../src/telemetry/sdk';
 
@@ -324,6 +325,41 @@ bootstrap:
             rmSync(dir, { recursive: true, force: true });
         }
     });
+
+    // Regression: the node-telemetry plugin must register the global meter
+    // provider during loadAll, BEFORE telemetryPlugin's onStart pre-warms the
+    // instrument cache (initMetrics). The OTel metrics API has no proxy
+    // provider — instruments created earlier stay bound to the noop meter
+    // forever, silently dropping every metric.
+    test('infra instruments bind to the real meter provider, not the noop meter', async () => {
+        const dir = tmpDir();
+        const configPath = writeYaml(
+            dir,
+            'tel-order.yaml',
+            `
+bootstrap:
+  logging:
+    console: false
+  telemetry:
+    enabled: true
+    endpoint: http://localhost:4318
+`,
+        );
+        _resetMetrics();
+        try {
+            const app = await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                start: async () => {},
+            });
+
+            expect(getHttpClientRequestTotal().constructor.name).not.toBe('NoopCounterMetric');
+
+            await app.stop();
+        } finally {
+            _resetMetrics();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
 });
 
 // ── Additional coverage ───────────────────────────────────────────────────
@@ -507,6 +543,23 @@ bootstrap:
 
         expect(app.logger).toBeDefined();
         expect(app.config.telemetry.enabled).toBe(false);
+        await app.stop();
+    });
+
+    test('initializes Node telemetry from inline config with endpoint', async () => {
+        const before = trace.getTracer('probe-inline');
+        const app = await runNodeApplication({
+            config: {
+                telemetry: {
+                    enabled: true,
+                    endpoint: 'http://localhost:4318',
+                },
+                logging: { console: false },
+            },
+            start: async () => {},
+        });
+
+        expect(trace.getTracer('probe-inline')).not.toBe(before);
         await app.stop();
     });
 
