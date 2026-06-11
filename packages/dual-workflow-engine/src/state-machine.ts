@@ -88,12 +88,17 @@ export class StateMachineDriver {
             }
 
             // 5. Evaluate transition guards in declaration order and pick the first passing transition.
-            const nextTransition = await firstPassingTransition(outbound, this.options.host, {
-                runId,
-                current: current.id,
-                vars,
-                lastActionResult,
-            }, lifecycle);
+            const nextTransition = await firstPassingTransition(
+                outbound,
+                this.options.host,
+                {
+                    runId,
+                    current: current.id,
+                    vars,
+                    lastActionResult,
+                },
+                lifecycle,
+            );
 
             if (nextTransition === undefined) {
                 return await lifecycle.fail(current.id, transitionsTaken, 'no-passing-transition');
@@ -173,7 +178,13 @@ export class StateMachineDriver {
             } finally {
                 const durationMs = Date.now() - actionStartMs;
                 lifecycle.actionDone(stateId, action.kind, durationMs, last?.ok ?? false);
-                void this.options.persistence.saveActionFinalize(actionId, last?.ok !== false ? 'done' : 'failed', durationMs, last?.ok ?? false, last);
+                void this.options.persistence.saveActionFinalize(
+                    actionId,
+                    last?.ok !== false ? 'done' : 'failed',
+                    durationMs,
+                    last?.ok ?? false,
+                    last,
+                );
             }
             if (last.terminal === true) return { outcome: 'terminal', result: last };
             if (!last.ok) {
