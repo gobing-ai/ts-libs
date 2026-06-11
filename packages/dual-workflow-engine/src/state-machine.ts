@@ -93,7 +93,8 @@ export class StateMachineDriver {
                 current: current.id,
                 vars,
                 lastActionResult,
-            });
+            }, lifecycle);
+
             if (nextTransition === undefined) {
                 return await lifecycle.fail(current.id, transitionsTaken, 'no-passing-transition');
             }
@@ -156,6 +157,7 @@ export class StateMachineDriver {
                 env,
                 builtins: runtimeBuiltins(workflowName, stateId, runId, transitionsTaken, 'state-machine'),
             });
+            const actionId = await this.options.persistence.saveActionStart(runId, stateId, action.kind);
             const actionStartMs = Date.now();
             lifecycle.actionStart(stateId, action.kind);
             try {
@@ -169,7 +171,9 @@ export class StateMachineDriver {
                     events: options.events,
                 });
             } finally {
-                lifecycle.actionDone(stateId, action.kind, Date.now() - actionStartMs, last?.ok ?? false);
+                const durationMs = Date.now() - actionStartMs;
+                lifecycle.actionDone(stateId, action.kind, durationMs, last?.ok ?? false);
+                void this.options.persistence.saveActionFinalize(actionId, last?.ok !== false ? 'done' : 'failed', durationMs, last?.ok ?? false, last);
             }
             if (last.terminal === true) return { outcome: 'terminal', result: last };
             if (!last.ok) {
@@ -192,10 +196,13 @@ async function firstPassingTransition(
     transitions: StateMachineWorkflowDef['transitions'],
     host: WorkflowEngineHost,
     context: Parameters<WorkflowEngineHost['evaluateGuard']>[2],
+    lifecycle: RunLifecycle,
 ): Promise<StateMachineWorkflowDef['transitions'][number] | undefined> {
     for (const transition of transitions) {
         if (transition.guard === undefined) return transition;
-        if (await host.evaluateGuard(transition.guard.kind, transition.guard.options ?? {}, context)) return transition;
+        const passed = await host.evaluateGuard(transition.guard.kind, transition.guard.options ?? {}, context);
+        lifecycle.guardEvaluated(context.current, transition.to, transition.guard.kind, passed);
+        if (passed) return transition;
     }
     return undefined;
 }

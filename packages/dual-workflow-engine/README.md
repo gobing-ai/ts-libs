@@ -682,44 +682,36 @@ All three layers are **additive** — EventBus does not replace logging or traci
 
 | Event | Payload | When |
 |-------|---------|------|
-| `workflow.run.started` | `{ workflowName, mode, runId }` | When a run begins (inside the span) |
-| `workflow.run.done` | `{ finalState, transitionsTaken }` | When a run completes successfully |
-| `workflow.run.failed` | `{ finalState, reason }` | When a run fails |
-| `workflow.node.enter` | `{ node, transitionsTaken }` | When entering a state or node |
-| `workflow.node.transition` | `{ from, to, trigger }` | On a state/node transition |
-| `workflow.action.start` | `{ node, kind }` | When an action starts executing |
-| `workflow.action.done` | `{ node, kind, durationMs, ok }` | When an action finishes (success or failure) |
-| `workflow.action.failed_continue` | `{ node, transitionsTaken, error? }` | When a non-fatal action failure is continued past (`onError: 'continue'`) |
+| `workflow.run.started` | `{ workflowName, mode, runId, dryRun }` | When a run begins (inside the span) |
+| `workflow.run.done` | `{ runId, finalState, transitionsTaken }` | When a run completes successfully |
+| `workflow.run.failed` | `{ runId, finalState, reason }` | When a run fails |
+| `workflow.node.enter` | `{ runId, node, transitionsTaken }` | When entering a state or node |
+| `workflow.node.transition` | `{ runId, from, to, trigger }` | On a state/node transition |
+| `workflow.action.start` | `{ runId, node, kind }` | When an action starts executing |
+| `workflow.action.done` | `{ runId, node, kind, durationMs, ok }` | When an action finishes (success or failure) |
+| `workflow.action.failed_continue` | `{ runId, node, transitionsTaken, error? }` | When a non-fatal action failure is continued past (`onError: 'continue'`) |
 | `workflow.custom` | `{ name, payload }` | Emitted by the builtin `event.emit` action for custom user-defined events |
-| `workflow.hitl.note` | `{ node, message }` | Emitted by the builtin `note` action for workflow-visible annotations |
+| `workflow.hitl.note` | `{ runId, node, message }` | Emitted by the builtin `note` action for workflow-visible annotations |
+| `workflow.guard.evaluated` | `{ runId, from, to, kind, passed }` | When a guard condition is evaluated. Fires for every guard, including rejected ones |
+| `workflow.hitl.ask` | `{ runId, node, kind, message }` | When an interactive HITL prompt is presented and the engine waits for input |
+| `workflow.hitl.response` | `{ runId, node, ok }` | When an interactive HITL prompt receives a response |
+
+### Compatibility Policy
+
+The event map is a **cross-package public contract**. Policy: **additive-only** — new events allowed, new optional payload fields allowed; never rename, remove, or repurpose an existing event or field. This keeps subscribers (CLI observers, server SSE, telemetry) from breaking across semver bumps.
+
+### Subscriber Contract
+
+Event handlers registered via `EventBus.on()` or `EventBus.once()` **must** be:
+- **Fast** — handlers run synchronously on the emit call path; slow handlers stall the workflow execution
+- **Non-throwing** — handler errors are swallowed by `EventBus`; durable behavior must never depend on event delivery
+- **Best-effort** — the engine emits via `void emit()` (fire-and-forget); async handlers are not awaited; the CLI process can exit before subscribers finish
+
+For **durable** audit/history/telemetry, use the persistence layer (`WorkflowPersistenceAdapter`) — every record is written incrementally during the run via direct adapter calls, not through the event bus. Events are for ephemeral in-process observation (live progress, logging, server-mode SSE).
+
 ### Usage
 
 Pass an `EventBus` via `WorkflowRunOptions.events`:
-
-```ts
-import { WorkflowService, createDefaultWorkflowEngineHost, MemoryWorkflowPersistenceAdapter } from '@gobing-ai/ts-dual-workflow-engine';
-import { EventBus } from '@gobing-ai/ts-infra';
-import type { WorkflowEngineEvents } from '@gobing-ai/ts-dual-workflow-engine';
-
-const bus = new EventBus<WorkflowEngineEvents>();
-
-bus.on('workflow.action.done', (data) => {
-  console.log(`Action ${data.kind} on ${data.node}: ${data.ok ? 'ok' : 'fail'} (${data.durationMs}ms)`);
-});
-
-bus.on('workflow.run.done', (data) => {
-  console.log(`Run done at ${data.finalState} (${data.transitionsTaken} transitions)`);
-});
-
-const service = new WorkflowService(
-  createDefaultWorkflowEngineHost(),
-  new MemoryWorkflowPersistenceAdapter(),
-);
-
-const result = await service.run(workflow, { events: bus });
-```
-
-### Zero-overhead default
 
 When no `events` option is provided, the engine incurs zero observability overhead — no emit calls, no handler invocations. The event bus is purely opt-in.
 

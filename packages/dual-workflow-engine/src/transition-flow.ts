@@ -57,7 +57,6 @@ export class TransitionFlowDriver {
 
             // 2. Execute the node action when one is configured (skipped in dry-run).
             if (options.dryRun) {
-                // dry-run: skip action execution, continue to next node
                 if (current.action !== undefined) {
                     lastActionResult = undefined;
                 }
@@ -67,6 +66,7 @@ export class TransitionFlowDriver {
                     env,
                     builtins: runtimeBuiltins(workflow.name, current.id, runId, transitionsTaken, 'transition-flow'),
                 });
+                const actionId = await this.options.persistence.saveActionStart(runId, current.id, current.action.kind);
                 const actionStartMs = Date.now();
                 lifecycle.actionStart(current.id, current.action.kind);
                 try {
@@ -80,11 +80,14 @@ export class TransitionFlowDriver {
                         events: options.events,
                     });
                 } finally {
-                    lifecycle.actionDone(
-                        current.id,
-                        current.action.kind,
-                        Date.now() - actionStartMs,
+                    const durationMs = Date.now() - actionStartMs;
+                    lifecycle.actionDone(current.id, current.action.kind, durationMs, lastActionResult?.ok ?? false);
+                    void this.options.persistence.saveActionFinalize(
+                        actionId,
+                        lastActionResult?.ok !== false ? 'done' : 'failed',
+                        durationMs,
                         lastActionResult?.ok ?? false,
+                        lastActionResult,
                     );
                 }
                 if (lastActionResult.setVars) vars = mergeSetVars(vars, lastActionResult.setVars);
@@ -112,7 +115,7 @@ export class TransitionFlowDriver {
                 current: current.id,
                 vars,
                 lastActionResult,
-            });
+            }, lifecycle);
             if (edge === undefined) {
                 return await lifecycle.fail(current.id, transitionsTaken, 'no-passing-edge');
             }
@@ -138,10 +141,13 @@ async function firstPassingEdge(
     edges: TransitionFlowWorkflowDef['edges'],
     host: WorkflowEngineHost,
     context: Parameters<WorkflowEngineHost['evaluateGuard']>[2],
+    lifecycle: RunLifecycle,
 ): Promise<TransitionFlowWorkflowDef['edges'][number] | undefined> {
     for (const edge of edges) {
         if (edge.condition === undefined) return edge;
-        if (await host.evaluateGuard(edge.condition.kind, edge.condition.options ?? {}, context)) return edge;
+        const passed = await host.evaluateGuard(edge.condition.kind, edge.condition.options ?? {}, context);
+        lifecycle.guardEvaluated(context.current, edge.to, edge.condition.kind, passed);
+        if (passed) return edge;
     }
     return undefined;
 }

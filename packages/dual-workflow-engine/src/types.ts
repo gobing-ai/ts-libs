@@ -186,6 +186,24 @@ export interface WorkflowRunRecord {
     readonly metadata_json: string;
 }
 
+/** Persisted action run record — one row per action executed in a workflow run. */
+export interface ActionRunRecord {
+    readonly id: string;
+    readonly run_id: string;
+    readonly node: string;
+    readonly kind: string;
+    readonly status: WorkflowStatus;
+    readonly duration_ms: number | null;
+    readonly ok: number | null;
+    readonly result_json: string | null;
+    readonly started_at: string | null;
+    readonly completed_at: string | null;
+}
+
+/** Optional redaction hook: given action options, return sanitized options for persistence. */
+export type ActionRedactor = (kind: string, options: Record<string, unknown>) => Record<string, unknown>;
+
+
 /** Persistence adapter implemented by DB-backed and test stores. */
 export interface WorkflowPersistenceAdapter {
     createRun(record: WorkflowRunRecord): Promise<void>;
@@ -193,6 +211,10 @@ export interface WorkflowPersistenceAdapter {
     savePhase(runId: string, phase: string, status: WorkflowStatus): Promise<void>;
     saveTransition(runId: string, from: string, to: string, trigger: string | null): Promise<void>;
     saveWorkflowState(runId: string, state: string, data: Record<string, unknown>): Promise<void>;
+    /** Two-phase action persistence: insert a running row at action start. Returns the action row id. */
+    saveActionStart(runId: string, node: string, kind: string): Promise<string>;
+    /** Finalize an action row with duration, ok, result. */
+    saveActionFinalize(actionId: string, status: WorkflowStatus, durationMs: number, ok: boolean, result?: unknown, redactor?: ActionRedactor): Promise<void>;
     loadRun(runId: string): Promise<WorkflowRunRecord | undefined>;
     listRuns(): Promise<readonly WorkflowRunRecord[]>;
 }

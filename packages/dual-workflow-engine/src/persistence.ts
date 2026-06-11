@@ -1,7 +1,7 @@
 import type { DbAdapter } from '@gobing-ai/ts-db';
 import { RunCollisionError } from './errors';
 import { WORKFLOW_ENGINE_SCHEMA_SQL } from './schema-sql';
-import type { WorkflowPersistenceAdapter, WorkflowRunRecord, WorkflowStatus } from './types';
+import type { ActionRedactor, WorkflowPersistenceAdapter, WorkflowRunRecord, WorkflowStatus } from './types';
 
 /** Apply workflow-engine-owned schema to a database adapter. */
 export async function applyWorkflowEngineSchema(db: DbAdapter): Promise<void> {
@@ -95,6 +95,49 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         );
     }
 
+    /** Insert a running action row. Returns the row id for later finalization. */
+    async saveActionStart(runId: string, node: string, kind: string): Promise<string> {
+        const id = crypto.randomUUID();
+        const now = Date.now();
+        await this.db.run(
+            `INSERT INTO action_runs (id, run_id, node, kind, status, started_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            id,
+            runId,
+            node,
+            kind,
+            'running',
+            new Date(now).toISOString(),
+            now,
+            now,
+        );
+        return id;
+    }
+
+    /** Finalize an action row with duration, ok flag, and optional redacted result. */
+    async saveActionFinalize(
+        actionId: string,
+        status: WorkflowStatus,
+        durationMs: number,
+        ok: boolean,
+        result?: unknown,
+        _redactor?: ActionRedactor,
+    ): Promise<void> {
+        const now = Date.now();
+        await this.db.run(
+            `UPDATE action_runs
+             SET status = ?, duration_ms = ?, ok = ?, result_json = ?, completed_at = ?, updated_at = ?
+             WHERE id = ?`,
+            status,
+            durationMs,
+            ok ? 1 : 0,
+            result !== undefined ? JSON.stringify(result) : null,
+            new Date(now).toISOString(),
+            now,
+            actionId,
+        );
+    }
+
     /** Load a single run by id. */
     async loadRun(runId: string): Promise<WorkflowRunRecord | undefined> {
         await applyWorkflowEngineSchema(this.db);
@@ -126,6 +169,41 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
     async finalizeRun(runId: string, status: WorkflowStatus, completedAt: string): Promise<void> {
         const run = this.runs.get(runId);
         if (run !== undefined) this.runs.set(runId, { ...run, status, completed_at: completedAt });
+    }
+
+    readonly actionRuns: Array<{
+        id: string;
+        runId: string;
+        node: string;
+        kind: string;
+        status: WorkflowStatus;
+        durationMs: number | null;
+        ok: number | null;
+        resultJson: string | null;
+    }> = [];
+
+    /** Insert a running action row. */
+    async saveActionStart(runId: string, node: string, kind: string): Promise<string> {
+        const id = crypto.randomUUID();
+        this.actionRuns.push({ id, runId, node, kind, status: 'running', durationMs: null, ok: null, resultJson: null });
+        return id;
+    }
+
+    /** Finalize an action row. */
+    async saveActionFinalize(
+        actionId: string,
+        status: WorkflowStatus,
+        durationMs: number,
+        ok: boolean,
+        result?: unknown,
+        _redactor?: ActionRedactor,
+    ): Promise<void> {
+        const row = this.actionRuns.find((a) => a.id === actionId);
+        if (row === undefined) return;
+        row.status = status;
+        row.durationMs = durationMs;
+        row.ok = ok ? 1 : 0;
+        row.resultJson = result !== undefined ? JSON.stringify(result) : null;
     }
 
     /** Save one phase/state execution record. */

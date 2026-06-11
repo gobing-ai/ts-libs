@@ -353,7 +353,7 @@ describe('createDefaultWorkflowEngineHost', () => {
         expect(result.ok).toBe(true);
         expect(result.data).toEqual({ message: 'hello world' });
         await new Promise((resolve) => setTimeout(resolve, 10));
-        expect(notes).toEqual([{ node: 'checkpoint-1', message: 'hello world' }]);
+        expect(notes).toEqual([{ runId: 'r1', node: 'checkpoint-1', message: 'hello world' }]);
     });
 
     test('note still works without EventBus in context (backward-compatible)', async () => {

@@ -108,8 +108,18 @@ export class RunLifecycle {
             async () => {
                 await lifecycle.persistence.createRun(lifecycle.runRecord(options.metadata));
                 lifecycle.logger.info('workflow run started');
-                addSpanEvent('workflow.run.started', { workflowName, mode, runId });
-                void lifecycle.events?.emit('workflow.run.started', { workflowName, mode, runId });
+                addSpanEvent('workflow.run.started', {
+                    workflowName,
+                    mode,
+                    runId,
+                    dryRun: options.dryRun ?? false,
+                });
+                void lifecycle.events?.emit('workflow.run.started', {
+                    workflowName,
+                    mode,
+                    runId,
+                    dryRun: options.dryRun ?? false,
+                });
                 return await loop(lifecycle);
             },
             { attributes: { 'workflow.name': workflowName, 'workflow.mode': mode, 'workflow.run_id': runId } },
@@ -120,15 +130,33 @@ export class RunLifecycle {
     async enter(stateOrNodeId: string, transitionsTaken: number): Promise<void> {
         await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, { transitionsTaken });
         await this.persistence.savePhase(this.runId, stateOrNodeId, 'running');
-        addSpanEvent('workflow.node.enter', { node: stateOrNodeId, transitionsTaken });
-        void this.events?.emit('workflow.node.enter', { node: stateOrNodeId, transitionsTaken });
+        addSpanEvent('workflow.node.enter', {
+            runId: this.runId,
+            node: stateOrNodeId,
+            transitionsTaken,
+        });
+        void this.events?.emit('workflow.node.enter', {
+            runId: this.runId,
+            node: stateOrNodeId,
+            transitionsTaken,
+        });
     }
 
     /** Persist a transition and emit its observability event. */
     async recordTransition(from: string, to: string, trigger: string | null): Promise<void> {
         await this.persistence.saveTransition(this.runId, from, to, trigger);
-        addSpanEvent('workflow.node.transition', { from, to, ...(trigger === null ? {} : { trigger }) });
-        void this.events?.emit('workflow.node.transition', { from, to, trigger });
+        addSpanEvent('workflow.node.transition', {
+            runId: this.runId,
+            from,
+            to,
+            ...(trigger === null ? {} : { trigger }),
+        });
+        void this.events?.emit('workflow.node.transition', {
+            runId: this.runId,
+            from,
+            to,
+            trigger,
+        });
     }
 
     /** Finalize the run as succeeded and return its result. */
@@ -136,8 +164,8 @@ export class RunLifecycle {
         await this.persistence.savePhase(this.runId, finalState, 'done');
         await this.persistence.finalizeRun(this.runId, 'done', new Date().toISOString());
         this.logger.info('workflow run done', { finalState, transitionsTaken });
-        addSpanEvent('workflow.run.done', { finalState, transitionsTaken });
-        void this.events?.emit('workflow.run.done', { finalState, transitionsTaken });
+        addSpanEvent('workflow.run.done', { runId: this.runId, finalState, transitionsTaken });
+        void this.events?.emit('workflow.run.done', { runId: this.runId, finalState, transitionsTaken });
         return this.result('done', finalState, transitionsTaken);
     }
 
@@ -145,37 +173,60 @@ export class RunLifecycle {
     async fail(finalState: string, transitionsTaken: number, reason = 'failed'): Promise<WorkflowRunResult> {
         await this.persistence.savePhase(this.runId, finalState, 'failed');
         await this.persistence.finalizeRun(this.runId, 'failed', new Date().toISOString());
-        addSpanEvent('workflow.run.failed', { finalState, reason });
-        void this.events?.emit('workflow.run.failed', { finalState, reason });
+        addSpanEvent('workflow.run.failed', { runId: this.runId, finalState, reason });
+        void this.events?.emit('workflow.run.failed', { runId: this.runId, finalState, reason });
         this.logger.warn('workflow run failed', { finalState, transitionsTaken, reason });
         return this.result('failed', finalState, transitionsTaken, reason);
     }
 
     /** Emit action-level observability before a host action is invoked. */
     actionStart(stateOrNodeId: string, kind: string): void {
-        addSpanEvent('workflow.action.start', { node: stateOrNodeId, kind });
-        void this.events?.emit('workflow.action.start', { node: stateOrNodeId, kind });
+        addSpanEvent('workflow.action.start', { runId: this.runId, node: stateOrNodeId, kind });
+        void this.events?.emit('workflow.action.start', { runId: this.runId, node: stateOrNodeId, kind });
     }
 
     /** Emit action-level observability after a host action settles. */
     actionDone(stateOrNodeId: string, kind: string, durationMs: number, ok: boolean): void {
-        addSpanEvent('workflow.action.done', { node: stateOrNodeId, kind, durationMs, ok });
-        void this.events?.emit('workflow.action.done', { node: stateOrNodeId, kind, durationMs, ok });
+        addSpanEvent('workflow.action.done', { runId: this.runId, node: stateOrNodeId, kind, durationMs, ok });
+        void this.events?.emit('workflow.action.done', { runId: this.runId, node: stateOrNodeId, kind, durationMs, ok });
     }
 
     /** Log and trace a non-fatal action failure for the 'continue' error policy (ADR-013 observability seam). */
     warnActionFailed(stateOrNodeId: string, transitionsTaken: number, error?: string): void {
         addSpanEvent('workflow.action.failed_continue', {
+            runId: this.runId,
             node: stateOrNodeId,
             transitionsTaken,
             ...(error === undefined ? {} : { error }),
         });
         void this.events?.emit('workflow.action.failed_continue', {
+            runId: this.runId,
             node: stateOrNodeId,
             transitionsTaken,
             ...(error === undefined ? {} : { error }),
         });
         this.logger.warn('action failed (continuing)', { node: stateOrNodeId, transitionsTaken, error });
+    }
+
+    /** Emit a guard evaluation result (fired for every guard, including rejected). */
+    guardEvaluated(from: string, to: string, kind: string, passed: boolean): void {
+        void this.events?.emit('workflow.guard.evaluated', {
+            runId: this.runId,
+            from,
+            to,
+            kind,
+            passed,
+        });
+    }
+
+    /** Emit when an interactive HITL prompt is presented. */
+    hitlAsk(node: string, kind: string, message: string): void {
+        void this.events?.emit('workflow.hitl.ask', { runId: this.runId, node, kind, message });
+    }
+
+    /** Emit when an interactive HITL prompt resolves. */
+    hitlResponse(node: string, ok: boolean): void {
+        void this.events?.emit('workflow.hitl.response', { runId: this.runId, node, ok });
     }
 
     private result(

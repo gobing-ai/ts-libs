@@ -42,8 +42,10 @@ export { StateMachineDriver, type StateMachineDriverOptions } from './state-mach
 export { TransitionFlowDriver, type TransitionFlowDriverOptions } from './transition-flow';
 export type {
     ActionDef,
+    ActionRedactor,
     ActionResult,
     ActionRunContext,
+    ActionRunRecord,
     ActionRunner,
     Env,
     FlowEdgeDef,
