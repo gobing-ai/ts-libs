@@ -16,7 +16,11 @@ import { type Tracer, trace } from '@opentelemetry/api';
  * environment, and debug-level DB statement capture.
  */
 export interface TelemetryConfig {
-    /** Master switch — when false, all tracing degrades to no-ops. */
+    /**
+     * Master switch — when false, infra-created spans and metric instruments
+     * degrade to no-ops even if a global OTel provider is registered.
+     * Explicitly injected tracer ports (ADR-009 addendum) are unaffected.
+     */
     enabled: boolean;
     /** Logical service name emitted on every span. */
     serviceName: string;
@@ -29,7 +33,8 @@ export interface TelemetryConfig {
      * attribute. SQL text is redacted — parameter values, literals, and
      * identifiers are stripped before capture.
      *
-     * Default: `false`. Controlled by `OTEL_DB_STATEMENT_DEBUG` env var.
+     * Default: `false`. Set via config — ts-infra core never reads env vars
+     * (ADR-011); map an env var to this flag in your bootstrap if desired.
      */
     dbStatementDebug: boolean;
 }
