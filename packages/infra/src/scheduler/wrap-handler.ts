@@ -43,7 +43,7 @@ export function wrapScheduledHandler(
                 const durationMs = Math.round(performance.now() - startTime);
                 addSpanAttributes({ 'scheduler.duration_ms': durationMs });
 
-                systemBus?.emit('scheduler.job.executed', {
+                void systemBus?.emit('scheduler.job.executed', {
                     name,
                     durationMs,
                     ...(execError !== undefined ? { error: execError } : {}),
