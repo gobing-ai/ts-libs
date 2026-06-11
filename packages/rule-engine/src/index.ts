@@ -15,5 +15,6 @@ export * from './formatters/json';
 export * from './formatters/text';
 export * from './host/bundled-rules';
 export * from './host/rule-engine-host';
+export * from './persistence';
 export * from './resolvers/test-path-resolver';
 export * from './types';
