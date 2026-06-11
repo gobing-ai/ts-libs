@@ -4,15 +4,15 @@ Infrastructure backbone — typed event bus, queue/scheduler contracts, adapter 
 
 ## Overview
 
-`ts-infra` provides six subsystems that form the application backbone:
+`ts-infra` provides the subsystems that form the application backbone:
 
 | Subsystem | Module | Purpose |
 |-----------|--------|---------|
-| **Event Bus** | `event-bus/` | Typed pub/sub with sync + async dispatch, lifecycle self-observability |
-| **Job Queue** | core + `/job-queue-db` | Queue interfaces in core; DB-backed enqueue/consume flow (`DBJobQueue`, `DBQueueConsumer`) via opt-in subpath |
+| **Event Bus** | `event-bus/` | Typed pub/sub with sync + async dispatch, named async handlers, queue consumer bridge, lifecycle self-observability |
+| **Job Queue** | core + `/job-queue-db` | Queue interfaces in core; DB-backed enqueue/consume flow (`DBJobQueue`, `DBQueueConsumer`) via opt-in subpath; optional typed event emission |
 | **Scheduler** | core + scheduler subpaths | Scheduler contracts, registry, built-in actions, noop adapter in core; Node and Cloudflare adapters via opt-in subpaths |
-| **Telemetry** | `telemetry/` | OTel instrumentation — tracing (`traceAsync`), metrics (12 instruments), SQL sanitizer; opt-in OTLP export via the `/otel-node` subpath |
-| **API Client** | `api-client.ts` | Typed HTTP client with OTel tracing, timeout, and error handling |
+| **Telemetry** | `telemetry/` | OTel instrumentation — tracing (`traceAsync`) with master switch, metrics (12 instruments), SQL sanitizer; opt-in OTLP export via the `/otel-node` subpath |
+| **API Client** | `api-client.ts` | Typed HTTP client with OTel tracing, timeout, per-request abort, optional event emission |
 | **Logger** | `logger.ts` | LogTape-backed structured logger with levels, child loggers, injectable sinks, and mute toggle |
 | **Application Bootstrap** | `application/` | Plugin-driven lifecycle: deterministic startup → shutdown, DI orchestration, services as plugins |
 | **Plugin Host** | `application/plugins/` | Insertion-ordered plugin registry, fail-fast/fail-soft lifecycle fan-out, reason-carrying teardown |
@@ -30,6 +30,7 @@ classDiagram
             +removeAllListeners(event?) void
             +listenerCount(event) number
             +eventNames() string[]
+            +createJobHandler() JobHandler<AsyncEventJobPayload>
         }
     }
 
@@ -120,11 +121,19 @@ classDiagram
             +get~T~(path, opts?) Promise~T~
             +post~T~(path, body?, opts?) Promise~T~
             +put~T~(path, body?, opts?) Promise~T~
+            +patch~T~(path, body?, opts?) Promise~T~
             +delete~T~(path, opts?) Promise~T~
+            +rawRequest(method, path, body?, opts?) Promise~RawHttpResponse~
         }
         class APIError {
             +number status
             +string body
+        }
+        class RawHttpResponse {
+            +number status
+            +Record&lt;string,string&gt; headers
+            +string body
+            +boolean truncated?
         }
     }
 
@@ -151,11 +160,15 @@ classDiagram
     SchedulerFactory --> SchedulerAdapter : "uses injected adapter"
     SchedulerFactory --> NoopSchedulerAdapter : "default when none injected"
     EventBus --> JobQueue : "async dispatch"
+    EventBus --> QueueConsumer : "createJobHandler bridge"
     DBJobQueue --> JobQueue : "implements"
     DBQueueConsumer --> QueueConsumer : "implements"
+    DBJobQueue --> EventBus : "optional QueueEvents"
+    DBQueueConsumer --> EventBus : "optional QueueEvents"
     EventBus --> Logger : "self-observability"
     APIClient --> Tracing : "traceAsync"
     APIClient --> Metrics : "counters + histograms"
+    APIClient --> EventBus : "optional ApiClientEvents"
 ```
 
 ## How It Works
@@ -189,6 +202,21 @@ await bus.emit('user.signed_up', 'alice@test.com', 'pro');
 
 // Once (auto-removes after first emit)
 bus.once('user.signed_up', () => console.log('one-time'));
+```
+
+**Named async handlers** enable queue-backed dispatch. Use `name` to assign a stable id for jobs consumed across process restarts, and `createJobHandler()` to register the bridge on a queue consumer:
+
+```ts
+// Producer side: register async handlers with stable names
+bus.on('order.placed', (orderId) => {
+    console.log(`Order: ${orderId}`);
+}, { async: true, name: 'order-handler' });
+
+// Consumer side: register createJobHandler on your DBQueueConsumer
+const jobHandler = bus.createJobHandler();
+queueConsumer.register('order.placed', jobHandler);
+queueConsumer.register('order.updated', jobHandler);
+// → enqueued { event, args, handlerId } jobs dispatch to the matching named handler
 ```
 
 **Lifecycle events** — inject a second `EventBus` to observe bus internals:
@@ -241,31 +269,46 @@ For scheduled drains and tests, call `processOnce()` instead of starting the pol
 const processed = await consumer.processOnce();
 ```
 
-The consumer claims ready jobs, resets stuck processing jobs after the visibility timeout, retries failed jobs with exponential backoff, and marks expired jobs failed through `QueueJobDao`.
+The consumer claims ready jobs, resets stuck processing jobs after the visibility timeout, retries failed jobs with exponential backoff, and marks expired jobs failed through `QueueJobDao`. Corrupt payloads are failed individually without rejecting the batch. Poll-cycle errors are logged and retried on the next cycle — a single DAO hiccup will not crash the process.
+
+**Queue lifecycle events** are opt-in through the injected `EventBus`:
+
+```ts
+import { EventBus } from '@gobing-ai/ts-infra';
+import type { QueueEvents } from '@gobing-ai/ts-infra';
+import { DBJobQueue, DBQueueConsumer } from '@gobing-ai/ts-infra/job-queue-db';
+
+const events = new EventBus<QueueEvents>();
+events.on('queue.job.enqueued', ({ jobId, type }) => { /* ... */ });
+events.on('queue.job.completed', ({ jobId, type }) => { /* ... */ });
+events.on('queue.job.failed', ({ jobId, type, error, attempt }) => { /* ... */ });
+events.on('queue.job.retrying', ({ jobId, type, attempt, nextRetryAt }) => { /* ... */ });
+events.on('queue.consumer.started', () => { /* ... */ });
+events.on('queue.consumer.stopped', () => { /* ... */ });
+
+const queue = new DBJobQueue<Payload>(dao, events);                // emits enqueued
+const consumer = new DBQueueConsumer<Payload>(dao, { events });    // emits the rest
+```
 
 ### Scheduler — cron-like actions
 
 ```ts
-import { initScheduler, setSchedulerAdapter } from '@gobing-ai/ts-infra';
+import { initScheduler } from '@gobing-ai/ts-infra';
 import { NodeSchedulerAdapter } from '@gobing-ai/ts-infra/scheduler-node';
 
-// Node.js (interval-based)
-const scheduler = new NodeSchedulerAdapter();
-scheduler.register('60000', async () => {
-    console.log('Runs every 60 seconds');
-});
-scheduler.register('*/5 * * * *', async () => {
-    console.log('Runs every 5 minutes');
-});
-await scheduler.start();
-
-// Or use the core factory after injecting the runtime adapter
-setSchedulerAdapter(new NodeSchedulerAdapter());
-const sched = initScheduler([
+// Core factory — pass the adapter and entries in one call
+const sched = initScheduler(new NodeSchedulerAdapter(), [
     ['300000', async () => cleanupExpiredSessions()],
     ['3600000', async () => generateReports()],
 ]);
 await sched.start();
+
+// Or register directly on the adapter
+const sched2 = new NodeSchedulerAdapter();
+sched2.register('*/5 * * * *', async () => {
+    console.log('Runs every 5 minutes');
+});
+await sched2.start();
 
 // Cloudflare Workers
 import { CloudflareSchedulerAdapter } from '@gobing-ai/ts-infra/scheduler-cloudflare';
@@ -301,11 +344,39 @@ try {
     }
 }
 
+// PATCH method
+await api.patch('/users/1', { name: 'updated' });
+
+// Raw request — returns status/headers/body for ALL status codes (no throw on 4xx/5xx)
+const { status, headers, body, truncated } = await api.rawRequest('GET', '/debug', undefined, {
+    redirect: 'follow',
+    maxResponseBytes: 10_000,  // cap response body; truncated === true when exceeded
+});
+
+// Per-request abort signal (not confused with timeouts)
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 2_000);
+await api.get('/slow', { signal: controller.signal }); // throws DOMException AbortError
+
 // Custom operation name for tracing
 const items = await api.get<Item[]>('/items', { operationName: 'inventory.list' });
 ```
 
-The client auto-instruments every request: creates a `CLIENT` span, records method/URL/status attributes, emits request count + duration metrics, and records errors.
+The client auto-instruments every request: creates a `CLIENT` span, records method/URL/status attributes, emits request count + duration metrics, and records errors. Timeouts throw `APIError(0, "Request timed out after …ms")` — never a raw `DOMException`. Caller-initiated aborts rethrow the original `AbortError`.
+
+**API client events** are opt-in through the constructor:
+
+```ts
+import { EventBus } from '@gobing-ai/ts-infra';
+import type { ApiClientEvents } from '@gobing-ai/ts-infra';
+
+const events = new EventBus<ApiClientEvents>();
+events.on('api.request.error', ({ url, method, status, error }) => {
+    console.error(`HTTP error — ${method} ${url}: ${error}`);
+});
+
+const api = new APIClient({ baseUrl: '...', events });
+```
 
 ### Logger — structured JSON
 
@@ -347,7 +418,8 @@ import {
     sanitizeSql,
 } from '@gobing-ai/ts-infra';
 
-// Initialize at startup
+// Initialize at startup — the master switch is real:
+// enabled: false short-circuits ALL infra tracing + metrics to shared noop instruments
 initTelemetry({
     enabled: true,
     serviceName: 'my-api',
@@ -517,6 +589,8 @@ bootstrap:
     enabled: true
     serviceName: billing-api
     endpoint: http://otel-collector:4318
+    headers:
+      authorization: Bearer ${OTEL_TOKEN}
   database:
     enabled: true
     driver: bun-sqlite
