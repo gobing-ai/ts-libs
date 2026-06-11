@@ -188,7 +188,13 @@ export class RunLifecycle {
     /** Emit action-level observability after a host action settles. */
     actionDone(stateOrNodeId: string, kind: string, durationMs: number, ok: boolean): void {
         addSpanEvent('workflow.action.done', { runId: this.runId, node: stateOrNodeId, kind, durationMs, ok });
-        void this.events?.emit('workflow.action.done', { runId: this.runId, node: stateOrNodeId, kind, durationMs, ok });
+        void this.events?.emit('workflow.action.done', {
+            runId: this.runId,
+            node: stateOrNodeId,
+            kind,
+            durationMs,
+            ok,
+        });
     }
 
     /** Log and trace a non-fatal action failure for the 'continue' error policy (ADR-013 observability seam). */
