@@ -9,6 +9,25 @@ export type EventMap = Record<string, (...args: never[]) => void>;
 export interface SubscribeOptions {
     /** When true, the handler is dispatched through the async handler path. */
     async?: boolean;
+    /**
+     * Stable identifier for an async handler. Used as the `handlerId` in jobs
+     * enqueued through an injected `JobQueue`, so a queue consumer (see
+     * `EventBus.createJobHandler`) can dispatch jobs back to this handler —
+     * including after a process restart. Anonymous async handlers get a
+     * process-local generated id that is NOT stable across restarts.
+     * Must be unique per bus instance.
+     */
+    name?: string;
+}
+
+/** Payload shape the bus enqueues for queue-backed async handlers. */
+export interface AsyncEventJobPayload {
+    /** Event name the handler was subscribed to. */
+    event: string;
+    /** Arguments the event was emitted with. */
+    args: unknown[];
+    /** Async handler id (subscription `name` or a generated id). */
+    handlerId: string;
 }
 
 // ── Lifecycle events ────────────────────────────────────────────────
