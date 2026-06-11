@@ -31,7 +31,7 @@ erDiagram
 
 | Entity | One-line Description |
 |--------|----------------------|
-| `RuleEngine` | Orchestrates evaluation of enabled rules against a workspace directory. Supports opt-in early exit via `stopOnFirst` parameter. Accepts an optional `EventBus<RuleEngineEvents>` for structured in-process observability. |
+| `RuleEngine` | Orchestrates evaluation of enabled rules against a workspace directory. Constructor accepts `RuleEngineOptions` (host, persistence, events, runId, runMeta, etc.). Supports opt-in early exit via `stopOnFirst` parameter. |
 | `RuleEngineHost` | Capability host backed by `CapabilityRegistry` from `@gobing-ai/ts-runtime/extension` — holds evaluators, resolvers, formatters, and fixer providers, each with origin tracking for safe override detection. |
 | `CapabilityRegistry<T>` | Generic named registry (shared with `ts-rule-engine`, `ts-dual-workflow-engine`) that tags each entry with its `origin` (`'builtin'`, `'extension'`, `'caller'`). |
 | `ConstraintRule` | Declarative policy unit: id, severity, include/exclude globs, evaluator type + config, and optional fix config. |
@@ -45,6 +45,8 @@ erDiagram
 | `Fix` | Candidate byte-range replacement; collected separately from findings, written only on explicit `applyFixes()`. |
 | `RuleEngineResult` | Aggregate `{ findings, fixes }` returned from a single evaluation run. |
 | `RuleEngineEvents` | Typed event map for rule-engine observability. All events prefixed `rule.` — see [Observability](#observability). |
+| `RulePersistenceAdapter` | Durable adapter contract. Engine calls `insertRun`/`updateRunStatus` for the run, `insertEvalRun`/`updateEvalRun` per rule. DB-backed and memory-backed implementations included. |
+| `RULE_ENGINE_SCHEMA_SQL` | Engine-owned DDL export: `rule_runs` + `rule_eval_runs` tables plus the FK index. Consumers apply it up-front before creating a `DbRulePersistenceAdapter`. |
 | `bundledRulesRoot()` | Resolves the absolute path to the bundled `rules/` directory shipped with this package — portable defaults usable as the lowest-priority preset root. |
 ## Mental Model
 
@@ -65,11 +67,12 @@ flowchart TD
 Core concepts:
 
 - `ConstraintRule`: one policy check. It has an `id`, `severity`, evaluator type/config, optional include/exclude globs, and optional fix config.
-- `RuleEngine`: runs enabled rules against a `workdir`. The constructor auto-registers built-in evaluators, formatters, resolvers, and fixer providers.
+- `RuleEngine`: runs enabled rules against a `workdir`. The constructor auto-registers built-in evaluators, formatters, resolvers, and fixer providers. Accepts `RuleEngineOptions` for a custom host, `EventBus`, `processExecutor`, `persistence` adapter, `runId`, and `runMeta`.
 - `RuleEngineHost`: capability container backed by four `CapabilityRegistry` instances from `@gobing-ai/ts-runtime/extension`. Each entry tracks its origin (`'builtin'` / `'extension'` / `'caller'`) so the engine can detect and report conflicting registrations.
 - `RuleEvaluator`: implementation of one rule type, such as `regex`, `path`, or `coverage-gate`.
 - `Fix`: byte-range replacement candidate. Fixes are collected separately from findings and only written when you call `applyFixes()`.
 - Preset: YAML/JSON file that composes rule categories and can expose extension modules.
+- `RulePersistenceAdapter`: durable run/eval history. The engine writes directly to the adapter at lifecycle boundaries; a DB-backed adapter and a test-friendly memory adapter ship with the package.
 - `bundledRulesRoot()`: resolves the path to the `rules/` directory shipped with this package. Pass it as the lowest-priority root to `loadPreset()` so project-local and user-global roots shadow individual files while inheriting the rest.
 
 ## Execution Flow
@@ -819,15 +822,121 @@ When no `events` option is provided, the engine incurs zero observability overhe
 
 `rule.eval.error` is emitted when an evaluator **throws** — it signals a crash, not a policy violation. The engine still produces a `kind: 'error'` finding for the thrown rule. A normal policy violation emits **no** `rule.eval.error`. Don't conflate the two: subscribe to `rule.eval.error` for crash alerting, and inspect findings for policy results.
 
+## Persistence
+
+The engine supports a **durable persistence adapter** pattern (mirrors `@gobing-ai/ts-dual-workflow-engine`). When a `RulePersistenceAdapter` is injected via `RuleEngineOptions`, the engine writes run and per-rule evaluation rows directly — no EventBus subscriber needed.
+
+### DB Schema
+
+```mermaid
+erDiagram
+    RULE_RUNS ||--o{ RULE_EVAL_RUNS : "run_id → id"
+    RULE_RUNS {
+        TEXT       id                PK
+        TEXT       preset
+        TEXT       source_kind       "preset | file"
+        TEXT       source_value
+        TEXT       status            "running | done | failed"
+        INTEGER    rule_count
+        INTEGER    finding_count
+        INTEGER    fix_count
+        INTEGER    applied_fix_count
+        TEXT       fail_on
+        TEXT       stop_on_first
+        TEXT       fix_mode          "none | suggest | auto"
+        INTEGER    dry_run
+        TEXT       started_at        "ISO 8601"
+        TEXT       completed_at      "ISO 8601"
+        INTEGER    duration_ms
+        TEXT       metadata_json     "{}"
+        TEXT       created_at        "ISO 8601"
+        TEXT       updated_at        "ISO 8601"
+    }
+    RULE_EVAL_RUNS {
+        TEXT       id                PK
+        TEXT       run_id            FK
+        TEXT       rule_id
+        TEXT       severity          "error | warning | info"
+        TEXT       evaluator
+        TEXT       status            "running | done | failed | skipped"
+        INTEGER    finding_count
+        INTEGER    fix_count
+        INTEGER    duration_ms
+        TEXT       error
+        TEXT       findings_json
+        TEXT       fixes_json
+        TEXT       started_at        "ISO 8601"
+        TEXT       completed_at      "ISO 8601"
+        TEXT       created_at        "ISO 8601"
+        TEXT       updated_at        "ISO 8601"
+    }
+```
+
+- **`rule_runs`** is the list/query unit — one row per engine invocation.
+- **`rule_eval_runs`** is the per-rule detail unit — one row per evaluated rule, FK'd to `rule_runs`.
+- Timestamps are `TEXT` (ISO 8601) for portability across SQLite drivers including D1.
+- `status`: `running` during evaluation, `done` on normal completion (including policy failures), `failed` for engine/runtime errors. `skipped` when `stopOnFirst` prevents later rules from running.
+
+### Adapter Contract
+
+```ts
+interface RulePersistenceAdapter {
+    insertRun(input: RuleRunInput): Promise<void>;
+    updateRunStatus(runId, status, findingCount, fixCount, appliedFixCount, durationMs): Promise<void>;
+    insertEvalRun(input: RuleEvalRunInput): Promise<void>;
+    updateEvalRun(input: RuleEvalRunUpdate): Promise<void>;
+}
+```
+
+Two implementations ship with the package:
+
+| Adapter | What it does |
+|---------|-------------|
+| `DbRulePersistenceAdapter` | Writes directly to SQLite via a `@gobing-ai/ts-db` `DbAdapter`. Consumers apply the schema up-front with `RULE_ENGINE_SCHEMA_SQL`. |
+| `MemoryRulePersistenceAdapter` | Stores rows in `Map<string, Row>` — designed for unit tests. Lets test code assert on persisted run/eval state. |
+
+### Usage
+
+```ts
+import { RuleEngine, DbRulePersistenceAdapter, RULE_ENGINE_SCHEMA_SQL } from '@gobing-ai/ts-rule-engine';
+import { createDbAdapter } from '@gobing-ai/ts-db';
+
+const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+await db.exec(RULE_ENGINE_SCHEMA_SQL);
+
+const engine = new RuleEngine({
+    persistence: new DbRulePersistenceAdapter(db),
+    runId: 'my-run-1',
+    runMeta: {
+        sourceKind: 'preset',
+        sourceValue: 'recommended',
+        preset: 'recommended',
+        failOn: 'error',
+        stopOnFirst: 'false',
+        fixMode: 'none',
+        dryRun: false,
+    },
+});
+
+const result = await engine.evaluate(rules, process.cwd());
+// At this point, rule_runs has 'my-run-1' with status='done', findings, and duration.
+```
+
+- `runId`: caller-provided or engine-generated (`crypto.randomUUID()`). Persisted so downstream tools like `spur rule trace` can query history.
+- `runMeta`: metadata written to the initial run row — preset name, source/file info, fix mode, dry-run flag.
+- Persistence is **incremental**: the run row is inserted before the first rule, finalized after the last. Per-rule eval rows are inserted as each rule starts and updated when it finishes. A polling `trace` can surface partial progress.
+- When `persistence` is absent, the engine works normally — zero persistence overhead.
+
 ## Package Boundary
 
-This package owns rule definitions, preset loading, evaluators, formatters, test-path resolvers, fixer providers, extension loading, the `CapabilityRegistry` re-export from `@gobing-ai/ts-runtime/extension`, and bundled rule presets.
+This package owns rule definitions, preset loading, evaluators, formatters, test-path resolvers, fixer providers, extension loading, the `CapabilityRegistry` re-export from `@gobing-ai/ts-runtime/extension`, the persistence adapter contract and implementations, the engine-owned schema SQL, and bundled rule presets.
 
 It does **not** own:
 
 - CLI argument parsing or process exit policy
 - `ProcessExecutor` implementation (injected via `RuleEngineOptions`)
+- `DbAdapter` creation and lifecycle (injected via `RulePersistenceAdapter`)
 - Repository-specific rule catalogs (project rules live in `.spur/rules/`)
 - CI integration or publishing workflows
 
-Downstream tools (e.g. `spur`) consume the library and add their own CLI, config discovery, and execution policy.
+Downstream tools (e.g. `spur`) consume the library and add their own CLI, config discovery, run-id stamping, and execution policy.
