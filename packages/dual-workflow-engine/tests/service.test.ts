@@ -74,23 +74,20 @@ describe('WorkflowService', () => {
     test('dryRun completes without executing actions', async () => {
         let actionCalled = false;
         const host = createDefaultWorkflowEngineHost();
-        host.actions!.sideEffect = {
-            name: 'sideEffect',
-            run: async () => {
+        host.registerAction({
+            kind: 'sideEffect',
+            execute: async () => {
                 actionCalled = true;
-                return { status: 'success' };
+                return { ok: true };
             },
-        };
+        });
         const svc = new WorkflowService(host, new MemoryWorkflowPersistenceAdapter());
 
         const workflow: WorkflowDef = {
             name: 'dry-test',
             kind: 'state-machine',
             initialState: 'start',
-            states: [
-                { id: 'start', action: 'sideEffect' },
-                { id: 'done' },
-            ],
+            states: [{ id: 'start', onEnter: [{ kind: 'sideEffect' }] }, { id: 'done' }],
             transitions: [{ from: 'start', to: 'done' }],
             terminalStates: ['done'],
         };
