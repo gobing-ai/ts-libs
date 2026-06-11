@@ -2,8 +2,22 @@
  * High-level tracing helpers for application code.
  */
 
-import { context, type Span, type SpanOptions, type Tracer, trace } from '@opentelemetry/api';
-import { getTracer } from './sdk';
+import { context, INVALID_SPAN_CONTEXT, type Span, type SpanOptions, type Tracer, trace } from '@opentelemetry/api';
+import { getResolvedConfig, getTracer } from './sdk';
+
+/**
+ * Master switch (`TelemetryConfig.enabled`): when explicitly disabled, infra
+ * helpers bypass the global provider entirely. An explicitly injected tracer
+ * (ADR-009 addendum structural port) is honored regardless — the caller opted in.
+ */
+function isSuppressed(tracer: Tracer | undefined): boolean {
+    return tracer === undefined && !getResolvedConfig().enabled;
+}
+
+/** A non-recording span satisfying the `Span` interface — every method is a no-op. */
+function nonRecordingSpan(): Span {
+    return trace.wrapSpanContext(INVALID_SPAN_CONTEXT);
+}
 
 /**
  * Execute an async function within an active OTel span.
@@ -15,6 +29,8 @@ export async function traceAsync<T>(
     options?: SpanOptions,
     tracer?: Tracer,
 ): Promise<T> {
+    if (isSuppressed(tracer)) return fn(nonRecordingSpan());
+
     const resolvedTracer = tracer ?? getTracer();
     return resolvedTracer.startActiveSpan(name, options ?? {}, async (span) => {
         try {
@@ -33,6 +49,8 @@ export async function traceAsync<T>(
  * The span is automatically ended and its status set on error.
  */
 export function traceSync<T>(name: string, fn: (span: Span) => T, options?: SpanOptions, tracer?: Tracer): T {
+    if (isSuppressed(tracer)) return fn(nonRecordingSpan());
+
     const resolvedTracer = tracer ?? getTracer();
     return resolvedTracer.startActiveSpan(name, options ?? {}, (span) => {
         try {
