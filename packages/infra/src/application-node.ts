@@ -33,6 +33,7 @@ import type {
     ConfigValidationResult,
     DbAdapterLike,
     EventMap,
+    EventsOptions,
     InfraEvents,
     LoggingOptions,
     SchedulerOptions,
@@ -161,12 +162,29 @@ function loadYamlConfig<TAppConfig>(
 
 // ── Node/Bun options ──────────────────────────────────────────────────────
 
+/**
+ * Telemetry options for the Node subpath: the portable flags plus OTLP export
+ * wiring. Presence of `endpoint` (with `enabled` not false) turns on Node OTel
+ * export via `@gobing-ai/ts-infra/otel-node`.
+ */
+export interface NodeTelemetryBootstrapOptions extends TelemetryOptions {
+    /** OTLP/HTTP collector endpoint base, e.g. `http://localhost:4318`. */
+    endpoint?: string;
+    /** Extra headers sent on every OTLP request (e.g. an auth token). */
+    headers?: Record<string, string>;
+}
+
 /** Options for the Node/Bun convenience {@link runNodeApplication}. */
 export interface NodeApplicationOptions<TAppConfig = unknown, TEvents extends EventMap = InfraEvents> {
     /** YAML config loading options. When omitted, uses defaults. */
     readonly configLoader?: ApplicationConfigLoader<TAppConfig>;
     /** Inline bootstrap config (overrides YAML-loaded config). */
-    readonly config?: ApplicationBootstrapOptions<TAppConfig, TEvents>['config'];
+    readonly config?: {
+        logging?: LoggingOptions;
+        events?: EventsOptions<TEvents>;
+        telemetry?: NodeTelemetryBootstrapOptions;
+        scheduler?: SchedulerOptions;
+    };
     /** Pre-built services to inject. */
     readonly services?: ApplicationBootstrapOptions<TAppConfig, TEvents>['services'];
     /** User callback: application logic. */
@@ -232,12 +250,12 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
 
     // ── Resolve bootstrap config from YAML + inline options ────────────
     const yamlLog = yamlBootstrap.logging as Partial<LoggingOptions> | undefined;
-    const yamlTel = yamlBootstrap.telemetry as Partial<TelemetryOptions> | undefined;
+    const yamlTel = yamlBootstrap.telemetry as Partial<NodeTelemetryBootstrapOptions> | undefined;
     const yamlSched = yamlBootstrap.scheduler as Partial<SchedulerOptions> | undefined;
     const databaseOpts = (yamlBootstrap.database ?? {}) as Record<string, unknown>;
 
     const loggingOpts: Partial<LoggingOptions> = { ...yamlLog, ...options.config?.logging };
-    const telemetryOpts: Partial<TelemetryOptions> = { ...yamlTel, ...options.config?.telemetry };
+    const telemetryOpts: Partial<NodeTelemetryBootstrapOptions> = { ...yamlTel, ...options.config?.telemetry };
     const schedulerOpts: Partial<SchedulerOptions> = { ...yamlSched, ...options.config?.scheduler };
 
     const logFilePath = (yamlBootstrap.logging as Record<string, unknown> | undefined)?.filePath as string | undefined;
@@ -256,20 +274,25 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
     // ── Node-owned plugins ──────────────────────────────────────────────
     const plugins: Plugin[] = [];
     let dbAdapter: DbAdapterLike | undefined = options.services?.db;
-    const rawTel = { ...telemetryOpts } as Record<string, unknown>;
 
     // Node OTel telemetry as a failFast plugin
-    if (rawTel.enabled !== false && rawTel.endpoint) {
+    const otlpEndpoint = telemetryOpts.endpoint;
+    if (telemetryOpts.enabled !== false && otlpEndpoint) {
+        const otlpHeaders = telemetryOpts.headers;
+        const serviceName = telemetryOpts.serviceName ?? 'ts-libs';
         plugins.push({
             name: 'builtin:node-telemetry',
             version: '0.0.0',
             failFast: true,
-            onLoad: async () => {},
-            onStart: async () => {
+            // Providers must register during loadAll: the OTel metrics API has no
+            // proxy provider, so instruments created by telemetryPlugin's onStart
+            // (`initMetrics` pre-warm) bind permanently to whatever meter provider
+            // is global at that moment. loadAll runs before every onStart.
+            onLoad: async () => {
                 initNodeTelemetry({
-                    serviceName: (rawTel.serviceName as string | undefined) ?? 'ts-libs',
-                    endpoint: rawTel.endpoint as string,
-                    headers: rawTel.headers as Record<string, string> | undefined,
+                    serviceName,
+                    endpoint: otlpEndpoint,
+                    ...(otlpHeaders ? { headers: otlpHeaders } : {}),
                 });
             },
             onStop: async () => {
