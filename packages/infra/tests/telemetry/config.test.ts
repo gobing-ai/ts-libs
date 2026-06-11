@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { getTelemetryConfig } from '../../src/telemetry/sdk';
+import { _resetMetrics } from '../../src/telemetry/metrics';
+import {
+    _resetTelemetry,
+    getResolvedConfig,
+    getTelemetryConfig,
+    initTelemetry,
+    shutdownTelemetry,
+} from '../../src/telemetry/sdk';
+import { traceAsync } from '../../src/telemetry/tracing';
 
 describe('telemetry config', () => {
     test('getTelemetryConfig returns defaults with empty input', () => {
@@ -28,5 +36,24 @@ describe('telemetry config', () => {
     test('getTelemetryConfig prefers environment over appEnv', () => {
         const config = getTelemetryConfig({ environment: 'staging', appEnv: 'production' });
         expect(config.environment).toBe('staging');
+    });
+
+    test('master switch: enabled=false suppresses tracing', async () => {
+        _resetMetrics();
+        _resetTelemetry();
+        initTelemetry({ enabled: false, serviceName: 'test-master-switch' });
+
+        expect(getResolvedConfig().enabled).toBe(false);
+        let sawSpan = false;
+        await traceAsync('suppressed-test', async (span) => {
+            sawSpan = true;
+            expect(span.isRecording()).toBe(false);
+            return 42;
+        });
+        expect(sawSpan).toBe(true);
+
+        await shutdownTelemetry();
+        _resetTelemetry();
+        _resetMetrics();
     });
 });
