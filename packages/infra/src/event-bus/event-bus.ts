@@ -1,8 +1,9 @@
-import type { JobQueue } from '../job-queue/types';
+import type { JobHandler, JobQueue } from '../job-queue/types';
 import { getLogger, type Logger } from '../logger';
 import { getEventbusEmitsTotal, getEventbusErrorsTotal } from '../telemetry/metrics';
 import type {
     AsyncEnqueuedDetail,
+    AsyncEventJobPayload,
     BusLifecycleEvents,
     EmitDoneDetail,
     EventMap,
@@ -23,7 +24,8 @@ function busLogger(): Logger {
 export class EventBus<TEvents extends EventMap> {
     private readonly syncHandlers = new Map<keyof TEvents, Set<TEvents[keyof TEvents]>>();
     private readonly asyncHandlers = new Map<keyof TEvents, Set<TEvents[keyof TEvents]>>();
-    private readonly asyncHandlerIds = new WeakMap<TEvents[keyof TEvents], string>();
+    private readonly asyncHandlerIds = new Map<TEvents[keyof TEvents], string>();
+    private readonly asyncHandlersById = new Map<string, TEvents[keyof TEvents]>();
     private readonly jobQueue: JobQueue | null;
     private readonly lifecycleBus: EventBus<BusLifecycleEvents> | null;
     private readonly logger: Logger | undefined;
@@ -40,7 +42,7 @@ export class EventBus<TEvents extends EventMap> {
 
     on<K extends keyof TEvents>(event: K, handler: TEvents[K], opts?: SubscribeOptions): void {
         if (opts?.async) {
-            this.registerAsync(event, handler);
+            this.registerAsync(event, handler, opts.name);
         } else {
             this.registerSync(event, handler);
         }
@@ -70,16 +72,23 @@ export class EventBus<TEvents extends EventMap> {
             if (asyncSet.size === 0) {
                 this.asyncHandlers.delete(event);
             }
+            this.releaseAsyncIdIfUnsubscribed(handler);
         }
     }
 
     removeAllListeners<K extends keyof TEvents>(event?: K): void {
         if (event !== undefined) {
             this.syncHandlers.delete(event);
+            const asyncSet = this.asyncHandlers.get(event);
             this.asyncHandlers.delete(event);
+            if (asyncSet) {
+                for (const handler of asyncSet) this.releaseAsyncIdIfUnsubscribed(handler);
+            }
         } else {
             this.syncHandlers.clear();
             this.asyncHandlers.clear();
+            this.asyncHandlerIds.clear();
+            this.asyncHandlersById.clear();
         }
     }
 
@@ -187,13 +196,22 @@ export class EventBus<TEvents extends EventMap> {
         set.add(handler);
     }
 
-    private registerAsync<K extends keyof TEvents>(event: K, handler: TEvents[K]): void {
+    private registerAsync<K extends keyof TEvents>(event: K, handler: TEvents[K], name?: string): void {
         let set = this.asyncHandlers.get(event);
         if (!set) {
             set = new Set();
             this.asyncHandlers.set(event, set);
         }
         set.add(handler);
+
+        if (!this.asyncHandlerIds.has(handler)) {
+            const id = name ?? `handler-${++this.nextAsyncHandlerId}`;
+            if (this.asyncHandlersById.has(id)) {
+                throw new Error(`Duplicate async handler name: "${id}"`);
+            }
+            this.asyncHandlerIds.set(handler, id);
+            this.asyncHandlersById.set(id, handler);
+        }
     }
 
     private getAsyncHandlerId(handler: TEvents[keyof TEvents]): string {
@@ -202,7 +220,48 @@ export class EventBus<TEvents extends EventMap> {
 
         const id = `handler-${++this.nextAsyncHandlerId}`;
         this.asyncHandlerIds.set(handler, id);
+        this.asyncHandlersById.set(id, handler);
         return id;
+    }
+
+    /** Drop a handler's id mappings once it is subscribed to no event at all. */
+    private releaseAsyncIdIfUnsubscribed(handler: TEvents[keyof TEvents]): void {
+        for (const set of this.asyncHandlers.values()) {
+            if (set.has(handler)) return;
+        }
+        const id = this.asyncHandlerIds.get(handler);
+        if (id !== undefined) {
+            this.asyncHandlerIds.delete(handler);
+            this.asyncHandlersById.delete(id);
+        }
+    }
+
+    /**
+     * Bridge for queue-backed async dispatch: returns a `JobHandler` to
+     * register on a queue consumer for each async event's job type. It
+     * dispatches the enqueued `{ event, args, handlerId }` payload back to the
+     * matching async handler on THIS bus instance.
+     *
+     * Use named async subscriptions (`SubscribeOptions.name`) when jobs may be
+     * consumed after a process restart — anonymous handler ids are
+     * process-local and not stable across restarts.
+     *
+     * @throws when the payload references an unknown handler id, so the job
+     * lands in the queue's retry/fail path instead of vanishing silently.
+     */
+    createJobHandler(): JobHandler<AsyncEventJobPayload> {
+        return async (job) => {
+            const { event, args, handlerId } = job.payload;
+            const handler = this.asyncHandlersById.get(handlerId);
+            if (!handler) {
+                throw new Error(`No async handler registered for id "${handlerId}" (event "${event}")`);
+            }
+            // Serialization round-trips args through unknown[]; the handler type
+            // is `TEvents[K] & ((...args: unknown[]) => void)` — both satisfy the
+            // same constraint. Use unknown => unknown to bridge the covariance gap.
+            type AnyHandler = (...args: unknown[]) => unknown;
+            await (handler as unknown as AnyHandler)(...args);
+        };
     }
 
     private publishEmitDone(detail: EmitDoneDetail): void {
