@@ -70,4 +70,34 @@ describe('WorkflowService', () => {
         expect(ids).toContain('lr-1');
         expect(ids).toContain('lr-2');
     });
+
+    test('dryRun completes without executing actions', async () => {
+        let actionCalled = false;
+        const host = createDefaultWorkflowEngineHost();
+        host.actions!.sideEffect = {
+            name: 'sideEffect',
+            run: async () => {
+                actionCalled = true;
+                return { status: 'success' };
+            },
+        };
+        const svc = new WorkflowService(host, new MemoryWorkflowPersistenceAdapter());
+
+        const workflow: WorkflowDef = {
+            name: 'dry-test',
+            kind: 'state-machine',
+            initialState: 'start',
+            states: [
+                { id: 'start', action: 'sideEffect' },
+                { id: 'done' },
+            ],
+            transitions: [{ from: 'start', to: 'done' }],
+            terminalStates: ['done'],
+        };
+
+        const result = await svc.run(workflow, { runId: 'dry-1', dryRun: true });
+        expect(result.status).toBe('done');
+        expect(result.finalState).toBe('done');
+        expect(actionCalled).toBe(false);
+    });
 });

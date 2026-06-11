@@ -160,6 +160,8 @@ export interface WorkflowRunOptions {
     readonly events?: EventBus<WorkflowEngineEvents>;
     /** Run-level error policy override. Lowest precedence; action-level wins. */
     readonly onError?: OnErrorPolicy;
+    /** Validate the definition and walk the transition graph without executing actions. */
+    readonly dryRun?: boolean;
 }
 
 /** Result returned by both driver loops. */

@@ -145,6 +145,10 @@ export class StateMachineDriver {
         lifecycle: RunLifecycle,
         defaultOnError: OnErrorPolicy | undefined,
     ): Promise<RunActionsOutcome> {
+        if (options.dryRun) {
+            return { outcome: 'completed', result: undefined };
+        }
+
         let last: ActionResult | undefined;
         for (const action of actions) {
             const resolved = resolveTemplates(action.options ?? {}, {

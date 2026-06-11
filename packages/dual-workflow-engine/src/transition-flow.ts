@@ -55,8 +55,13 @@ export class TransitionFlowDriver {
             // 1. Persist current node snapshot before action execution.
             await lifecycle.enter(current.id, transitionsTaken);
 
-            // 2. Execute the node action when one is configured.
-            if (current.action !== undefined) {
+            // 2. Execute the node action when one is configured (skipped in dry-run).
+            if (options.dryRun) {
+                // dry-run: skip action execution, continue to next node
+                if (current.action !== undefined) {
+                    lastActionResult = undefined;
+                }
+            } else if (current.action !== undefined) {
                 const resolved = resolveTemplates(current.action.options ?? {}, {
                     vars,
                     env,
