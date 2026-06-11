@@ -203,7 +203,6 @@ export interface ActionRunRecord {
 /** Optional redaction hook: given action options, return sanitized options for persistence. */
 export type ActionRedactor = (kind: string, options: Record<string, unknown>) => Record<string, unknown>;
 
-
 /** Persistence adapter implemented by DB-backed and test stores. */
 export interface WorkflowPersistenceAdapter {
     createRun(record: WorkflowRunRecord): Promise<void>;
@@ -214,7 +213,14 @@ export interface WorkflowPersistenceAdapter {
     /** Two-phase action persistence: insert a running row at action start. Returns the action row id. */
     saveActionStart(runId: string, node: string, kind: string): Promise<string>;
     /** Finalize an action row with duration, ok, result. */
-    saveActionFinalize(actionId: string, status: WorkflowStatus, durationMs: number, ok: boolean, result?: unknown, redactor?: ActionRedactor): Promise<void>;
+    saveActionFinalize(
+        actionId: string,
+        status: WorkflowStatus,
+        durationMs: number,
+        ok: boolean,
+        result?: unknown,
+        redactor?: ActionRedactor,
+    ): Promise<void>;
     loadRun(runId: string): Promise<WorkflowRunRecord | undefined>;
     listRuns(): Promise<readonly WorkflowRunRecord[]>;
 }
