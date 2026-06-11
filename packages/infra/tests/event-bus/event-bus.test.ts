@@ -327,6 +327,82 @@ describe('EventBus', () => {
         expect(bus.listenerCount('user.created', 'async')).toBe(1);
         expect(bus.listenerCount('user.created')).toBe(2);
     });
+
+    test('named async handler id is stable and user-chosen', async () => {
+        const enqueued: Array<{ type: string; payload: unknown }> = [];
+        const mockJobQueue: JobQueue = {
+            async enqueue(type: string, payload: unknown) {
+                enqueued.push({ type, payload });
+                return `job-${enqueued.length}`;
+            },
+            async enqueueBatch() {
+                return [];
+            },
+            async stats() {
+                return { pending: 0, processing: 0, completed: 0, failed: 0 };
+            },
+        };
+        const bus = new EventBus<TestEvents>({ jobQueue: mockJobQueue });
+        const handler = () => {};
+        bus.on('user.created', handler, { async: true, name: 'my-handler' });
+        await bus.emit('user.created', 'u1', 'Alice');
+
+        const payload = enqueued[0]?.payload as { handlerId: string };
+        expect(payload.handlerId).toBe('my-handler');
+    });
+
+    test('duplicate async handler name throws on registration', () => {
+        const bus = new EventBus<TestEvents>();
+        const handler1 = () => {};
+        const handler2 = () => {};
+        bus.on('user.created', handler1, { async: true, name: 'dup' });
+        expect(() => bus.on('user.deleted', handler2, { async: true, name: 'dup' })).toThrow(
+            'Duplicate async handler name: "dup"',
+        );
+    });
+
+    test('createJobHandler dispatches async payload to the matching handler', async () => {
+        const bus = new EventBus<TestEvents>();
+        const received: string[] = [];
+        bus.on('user.created', (id, name) => received.push(`created:${id}:${name}`), {
+            async: true,
+            name: 'create-handler',
+        });
+        bus.on('data.synced', (count) => received.push(`synced:${count}`), {
+            async: true,
+            name: 'sync-handler',
+        });
+
+        const jobHandler = bus.createJobHandler();
+
+        await jobHandler({
+            id: 'j1',
+            type: 'user.created',
+            payload: { event: 'user.created', args: ['id1', 'Bob'], handlerId: 'create-handler' },
+        } as never);
+        expect(received).toEqual(['created:id1:Bob']);
+
+        await jobHandler({
+            id: 'j2',
+            type: 'data.synced',
+            payload: { event: 'data.synced', args: [99], handlerId: 'sync-handler' },
+        } as never);
+        expect(received).toEqual(['created:id1:Bob', 'synced:99']);
+    });
+
+    test('createJobHandler throws on unknown handler id', async () => {
+        const bus = new EventBus<TestEvents>();
+        bus.on('user.created', () => {}, { async: true, name: 'known' });
+
+        const jobHandler = bus.createJobHandler();
+        await expect(
+            jobHandler({
+                id: 'j1',
+                type: 'user.created',
+                payload: { event: 'user.created', args: [], handlerId: 'nobody' },
+            } as never),
+        ).rejects.toThrow('No async handler registered for id "nobody"');
+    });
 });
 
 describe('EventBus logger integration', () => {
