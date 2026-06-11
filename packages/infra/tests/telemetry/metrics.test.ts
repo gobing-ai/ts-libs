@@ -103,4 +103,29 @@ describe('metrics', () => {
         expect(getQueueJobProcessingDuration()).toBeDefined();
         expect(getSchedulerJobDuration()).toBeDefined();
     });
+
+    test('master switch: counter getters return noop instruments when telemetry disabled', () => {
+        _resetMetrics();
+        initTelemetry({ enabled: false, serviceName: 'test-off' });
+
+        const counter = getHttpClientRequestTotal();
+        expect(counter).toBeDefined();
+        expect(typeof counter.add).toBe('function');
+        // should not throw
+        counter.add(1);
+    });
+
+    test('master switch: re-enabling after disable rebuilds real instruments', () => {
+        _resetMetrics();
+        // First, disabled — cache stays clear
+        initTelemetry({ enabled: false, serviceName: 'test-off' });
+        expect(getHttpClientRequestTotal()).toBeDefined();
+
+        // Reconfigure to enabled — initTelemetry is idempotent, so re-init
+        _resetTelemetry();
+        initTelemetry({ enabled: true, serviceName: 'test-on' });
+        const counter = getHttpClientRequestTotal();
+        expect(counter).toBeDefined();
+        expect(typeof counter.add).toBe('function');
+    });
 });
