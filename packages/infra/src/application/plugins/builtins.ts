@@ -31,21 +31,23 @@ export function telemetryPlugin(config: ApplicationBootstrapConfig['telemetry'])
         failFast: true,
         onLoad: async () => {},
         onStart: async () => {
+            // Always record the resolved config — `enabled: false` must reach the
+            // master switch so infra spans/instruments actually go quiet.
+            initTelemetry({
+                enabled: config.enabled,
+                serviceName: config.serviceName,
+                environment: config.environment,
+                dbStatementDebug: config.dbStatementDebug,
+            });
             if (config.enabled) {
-                initTelemetry({
-                    enabled: config.enabled,
-                    serviceName: config.serviceName,
-                    environment: config.environment,
-                    dbStatementDebug: config.dbStatementDebug,
-                });
                 initMetrics();
             }
         },
         onStop: async () => {
             if (config.enabled) {
                 shutdownMetrics();
-                await shutdownTelemetry();
             }
+            await shutdownTelemetry();
         },
     };
 }
