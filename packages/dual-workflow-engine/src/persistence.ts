@@ -185,7 +185,16 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
     /** Insert a running action row. */
     async saveActionStart(runId: string, node: string, kind: string): Promise<string> {
         const id = crypto.randomUUID();
-        this.actionRuns.push({ id, runId, node, kind, status: 'running', durationMs: null, ok: null, resultJson: null });
+        this.actionRuns.push({
+            id,
+            runId,
+            node,
+            kind,
+            status: 'running',
+            durationMs: null,
+            ok: null,
+            resultJson: null,
+        });
         return id;
     }
 
