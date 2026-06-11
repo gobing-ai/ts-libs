@@ -75,7 +75,7 @@ export interface SchedulerOptions {
 
 /**
  * Fully-resolved bootstrap config (all optionals filled with defaults).
- * Constructed internally by `resolveBootstrapConfig`.
+ * Constructed internally by `runApplication`.
  */
 export interface ApplicationBootstrapConfig {
     readonly logging: Readonly<
