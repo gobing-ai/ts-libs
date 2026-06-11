@@ -92,7 +92,11 @@ export class NoteActionRunner implements ActionRunner {
     /** Execute a no-op note action with observable event emission. */
     async execute(options: Record<string, unknown>, context?: ActionRunContext): Promise<ActionResult> {
         const message = String(options.message ?? '');
-        void context?.events?.emit('workflow.hitl.note', { runId: context.runId, node: context.stateOrNodeId, message });
+        void context?.events?.emit('workflow.hitl.note', {
+            runId: context.runId,
+            node: context.stateOrNodeId,
+            message,
+        });
         return { ok: true, data: { message } };
     }
 }
