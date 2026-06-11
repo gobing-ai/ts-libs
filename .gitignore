@@ -101,3 +101,4 @@ playwright-report/
 .pi-lens/
 vendors/
 .wolf/
+/.spur/spur.*
