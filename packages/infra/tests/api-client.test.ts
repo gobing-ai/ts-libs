@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { APIClient, APIError } from '../src/api-client';
+import { EventBus } from '../src/event-bus/event-bus';
+import type { ApiClientEvents } from '../src/events';
 
 let mockFetch: ReturnType<typeof mock>;
 
@@ -12,12 +14,28 @@ afterEach(() => {
     mock.restore();
 });
 
-function createClient(opts?: { baseUrl?: string; timeout?: number; defaultHeaders?: Record<string, string> }) {
+function createClient(opts?: {
+    baseUrl?: string;
+    timeout?: number;
+    defaultHeaders?: Record<string, string>;
+    events?: EventBus<ApiClientEvents>;
+}) {
     return new APIClient({
         baseUrl: opts?.baseUrl ?? 'https://api.example.com',
         ...opts,
         fetch: mockFetch as unknown as typeof globalThis.fetch,
     });
+}
+
+function createClientWithEvents(opts?: { timeout?: number }): {
+    client: APIClient;
+    events: EventBus<ApiClientEvents>;
+    emitted: unknown[];
+} {
+    const emitted: unknown[] = [];
+    const events = new EventBus<ApiClientEvents>();
+    events.on('api.request.error', (detail) => emitted.push(detail));
+    return { client: createClient({ ...(opts ?? {}), events }), events, emitted };
 }
 
 function mockResponse(status: number, body: unknown, contentType = 'application/json') {
@@ -36,7 +54,6 @@ describe('APIClient', () => {
             baseUrl: 'https://api.example.com/',
             fetch: mockFetch as unknown as typeof globalThis.fetch,
         });
-        // Internal property tested via GET call
         mockFetch.mockResolvedValue(mockResponse(200, { ok: true }));
         client.get('/test');
         expect(mockFetch).toHaveBeenCalled();
@@ -98,6 +115,17 @@ describe('APIClient', () => {
         expect((calls[0]?.[1] as { method: string }).method).toBe('PUT');
     });
 
+    test('patch makes PATCH request', async () => {
+        mockFetch.mockResolvedValue(mockResponse(200, { id: 1, name: 'patched' }));
+
+        const client = createClient();
+        const result = await client.patch<{ id: number; name: string }>('/users/1', { name: 'patched' });
+
+        expect(result).toEqual({ id: 1, name: 'patched' });
+        const calls = mockFetch.mock.calls as unknown[][];
+        expect((calls[0]?.[1] as { method: string }).method).toBe('PATCH');
+    });
+
     test('delete makes DELETE request', async () => {
         mockFetch.mockResolvedValue(mockResponse(204, null));
 
@@ -116,8 +144,10 @@ describe('APIClient', () => {
             text: async () => '{"error":"not found"}',
         });
 
-        const client = createClient();
+        const { client, emitted } = createClientWithEvents();
         await expect(client.get('/users/999')).rejects.toThrow(APIError);
+        // JSON methods emit api.request.error on non-2xx
+        expect(emitted.length).toBe(1);
     });
 
     test('APIError contains status and body', async () => {
@@ -149,8 +179,9 @@ describe('APIClient', () => {
     test('throws on network error', async () => {
         mockFetch.mockRejectedValue(new Error('Network failure'));
 
-        const client = createClient();
+        const { client, emitted } = createClientWithEvents();
         await expect(client.get('/data')).rejects.toThrow('Network failure');
+        expect(emitted.length).toBe(1);
     });
 
     test('merges default headers with per-request headers', async () => {
@@ -185,7 +216,6 @@ describe('APIClient', () => {
         });
         await client.get('/test');
 
-        // Verify it worked without specifying timeout
         expect(mockFetch).toHaveBeenCalled();
     });
 
@@ -207,7 +237,26 @@ describe('APIClient', () => {
 
         const client = createClient({ timeout: 5 });
 
-        await expect(client.get('/slow-body')).rejects.toThrow('aborted');
+        // Timeout abort surfaces as APIError(0, "Request timed out after 5ms…")
+        await expect(client.get('/slow-body')).rejects.toThrow(/timed out after 5ms/);
+    });
+
+    test('caller-initiated abort is not relabeled as a timeout', async () => {
+        mockFetch.mockImplementationOnce(() =>
+            Promise.reject(new DOMException('The operation was aborted.', 'AbortError')),
+        );
+
+        const controller = new AbortController();
+        controller.abort();
+
+        const client = createClient();
+        const err = await client.get('/x', { signal: controller.signal }).then(
+            () => null,
+            (e: unknown) => e,
+        );
+
+        expect(err).toBeInstanceOf(DOMException);
+        expect((err as DOMException).name).toBe('AbortError');
     });
 });
 
@@ -276,11 +325,12 @@ describe('APIClient.rawRequest', () => {
     test('throws on network error', async () => {
         mockFetch.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
 
-        const client = createClient();
+        const { client, emitted } = createClientWithEvents();
         await expect(client.rawRequest('GET', '/unreachable')).rejects.toThrow('connect ECONNREFUSED');
+        expect(emitted.length).toBe(1);
     });
 
-    test('throws on timeout', async () => {
+    test('throws APIError on timeout', async () => {
         mockFetch.mockImplementationOnce((_url: string, init?: RequestInit) => {
             const signal = init?.signal;
             return new Promise<never>((_resolve, reject) => {
@@ -290,11 +340,12 @@ describe('APIClient.rawRequest', () => {
             });
         });
 
-        const client = createClient({ timeout: 5 });
-        await expect(client.rawRequest('GET', '/slow')).rejects.toThrow(APIError);
+        const { client, emitted } = createClientWithEvents({ timeout: 5 });
+        await expect(client.rawRequest('GET', '/slow')).rejects.toThrow(/timed out after 5ms/);
+        expect(emitted.length).toBe(1);
     });
 
-    test('enforces maxResponseBytes', async () => {
+    test('enforces maxResponseBytes with stream body', async () => {
         const body = 'x'.repeat(100);
         mockFetch.mockResolvedValueOnce({
             status: 200,
@@ -312,5 +363,53 @@ describe('APIClient.rawRequest', () => {
         const res = await client.rawRequest('GET', '/large', undefined, { maxResponseBytes: 50 });
 
         expect(res.body.length).toBeLessThanOrEqual(50);
+        expect(res.truncated).toBe(true);
+    });
+
+    test('maxResponseBytes falls back to text() when response has no stream body', async () => {
+        mockFetch.mockResolvedValueOnce({
+            status: 200,
+            ok: true,
+            headers: new Headers({}),
+            text: async () => 'y'.repeat(100),
+        });
+
+        const client = createClient();
+        const res = await client.rawRequest('GET', '/no-stream', undefined, { maxResponseBytes: 50 });
+
+        expect(res.body).toBe('y'.repeat(50));
+        expect(res.truncated).toBe(true);
+    });
+
+    test('truncated is absent when body fits the cap', async () => {
+        mockFetch.mockResolvedValueOnce({
+            status: 200,
+            ok: true,
+            headers: new Headers({}),
+            text: async () => 'short',
+        });
+
+        const client = createClient();
+        const res = await client.rawRequest('GET', '/short', undefined, { maxResponseBytes: 100 });
+
+        expect(res.truncated).toBeUndefined();
+    });
+
+    test('caller-initiated abort is not relabeled as a timeout', async () => {
+        mockFetch.mockImplementationOnce(() =>
+            Promise.reject(new DOMException('The operation was aborted.', 'AbortError')),
+        );
+
+        const controller = new AbortController();
+        controller.abort();
+
+        const client = createClient();
+        const err = await client.rawRequest('GET', '/x', undefined, { signal: controller.signal }).then(
+            () => null,
+            (e: unknown) => e,
+        );
+
+        expect(err).toBeInstanceOf(DOMException);
+        expect((err as DOMException).name).toBe('AbortError');
     });
 });
