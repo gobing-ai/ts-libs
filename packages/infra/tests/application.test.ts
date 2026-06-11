@@ -50,6 +50,23 @@ describe('runApplication — portable lifecycle', () => {
         await app.stop();
     });
 
+    test('uses the pre-built bus from config.events.bus', async () => {
+        const bus = new EventBus<InfraEvents>();
+        const app = await runApplication(
+            minimalOptions({
+                config: {
+                    logging: { console: false },
+                    telemetry: { enabled: false },
+                    events: { bus },
+                },
+            }),
+        );
+
+        expect(app.events).toBe(bus);
+
+        await app.stop();
+    });
+
     test('exposes injected appConfig', async () => {
         const app = await runApplication(
             minimalOptions({
