@@ -39,8 +39,16 @@ function recordingPersistence(): { adapter: WorkflowPersistenceAdapter; calls: s
             calls.push(`saveWorkflowState:${state}`);
             return inner.saveWorkflowState(runId, state, data);
         },
-        loadRun: (runId) => inner.loadRun(runId),
-        listRuns: () => inner.listRuns(),
+        saveActionStart: async (runId, node, kind) => {
+            calls.push(`saveActionStart:${node}:${kind}`);
+            return inner.saveActionStart(runId, node, kind);
+        },
+        saveActionFinalize: async (actionId, status, durationMs, ok, result, redactor) => {
+            calls.push(`saveActionFinalize:${actionId}:${status}`);
+            return inner.saveActionFinalize(actionId, status, durationMs, ok, result, redactor);
+        },
+        loadRun: async (runId) => inner.loadRun(runId),
+        listRuns: async () => inner.listRuns(),
     };
     return { adapter, calls };
 }

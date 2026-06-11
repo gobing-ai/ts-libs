@@ -334,7 +334,7 @@ describe('createDefaultWorkflowEngineHost', () => {
     });
 
     test('note emits workflow.hitl.note event while staying a no-op success', async () => {
-        const notes: Array<{ node: string; message: string }> = [];
+        const notes: Array<{ runId: string; node: string; message: string }> = [];
         const events = new EventBus<WorkflowEngineEvents>();
         events.on('workflow.hitl.note', (data) => notes.push(data));
 

@@ -12,9 +12,7 @@ describe('WorkflowEngineEvents', () => {
         // Read the README and extract the event table rows
         const readme = await Bun.file(`${import.meta.dir}/../README.md`).text();
         // Match event names in the Event Map table (lines starting with `| \`workflow.`)
-        const readmeEvents = [...readme.matchAll(/^\| `(workflow\.[a-z_.]+)` \|/gm)]
-            .map((m) => m[1])
-            .sort();
+        const readmeEvents = [...readme.matchAll(/^\| `(workflow\.[a-z_.]+)` \|/gm)].map((m) => m[1]).sort();
 
         // Known event set from events.ts — update this if events change
         const knownEvents = [
