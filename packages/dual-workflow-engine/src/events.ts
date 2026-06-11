@@ -13,15 +13,32 @@ export type WorkflowEngineEvents = {
     /** Emitted when an action starts executing. */
     'workflow.action.start': (data: { runId: string; node: string; kind: string }) => void;
     /** Emitted when an action finishes executing (success or failure). */
-    'workflow.action.done': (data: { runId: string; node: string; kind: string; durationMs: number; ok: boolean }) => void;
+    'workflow.action.done': (data: {
+        runId: string;
+        node: string;
+        kind: string;
+        durationMs: number;
+        ok: boolean;
+    }) => void;
     /** Emitted when a non-fatal action failure is continued past (onError: 'continue'). */
-    'workflow.action.failed_continue': (data: { runId: string; node: string; transitionsTaken: number; error?: string }) => void;
+    'workflow.action.failed_continue': (data: {
+        runId: string;
+        node: string;
+        transitionsTaken: number;
+        error?: string;
+    }) => void;
     /** Emitted by the builtin `event.emit` action for custom user-defined events. */
     'workflow.custom': (data: { name: string; payload: Record<string, unknown> }) => void;
     /** Emitted by the builtin `note` action for workflow-visible annotations. */
     'workflow.hitl.note': (data: { runId: string; node: string; message: string }) => void;
     /** Emitted when a guard condition is evaluated. Fires for every guard, including rejected ones. */
-    'workflow.guard.evaluated': (data: { runId: string; from: string; to: string; kind: string; passed: boolean }) => void;
+    'workflow.guard.evaluated': (data: {
+        runId: string;
+        from: string;
+        to: string;
+        kind: string;
+        passed: boolean;
+    }) => void;
     /** Emitted when an interactive HITL prompt is presented and the engine waits for input. */
     'workflow.hitl.ask': (data: { runId: string; node: string; kind: string; message: string }) => void;
     /** Emitted when an interactive HITL prompt receives a response. */
