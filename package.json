@@ -33,7 +33,7 @@
         "build": "bun scripts/builder.ts build",
         "smoke:dist": "bun scripts/builder.ts smoke-dist-imports",
         "typecheck": "bun scripts/builder.ts typecheck",
-        "lint": "biome check . && bun run typecheck",
+        "lint": "biome check . --error-on-warnings && bun run typecheck",
         "format": "biome check . --write",
         "autofix": "bun run format && bun run typecheck",
         "test": "NODE_ENV=test bun test --coverage --coverage-dir=.coverage --reporter=dots",
