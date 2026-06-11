@@ -11,6 +11,7 @@ import {
 } from './fixers/fixers';
 import { registerBuiltins } from './host/builtins';
 import { RuleEngineHost } from './host/rule-engine-host';
+import type { RulePersistenceAdapter } from './persistence/adapter';
 import type { ConstraintFinding, ConstraintRule, Fix, FixMode, RuleEngineResult, RuleEvaluator } from './types';
 import { createFinding, SEVERITY_RANK } from './types';
 
@@ -24,6 +25,12 @@ export interface RuleEngineOptions {
     events?: EventBus<RuleEngineEvents>;
     /** Optional logger; defaults to the shared `rule-engine` category logger. */
     logger?: Logger;
+    /** Optional persistence adapter for durable run/eval history. */
+    persistence?: RulePersistenceAdapter;
+    /** Caller-provided run ID; engine generates one if absent. */
+    runId?: string;
+    /** Caller metadata for the run row (preset, failOn, source info, etc.). */
+    runMeta?: Record<string, unknown>;
 }
 
 /** Orchestrates enabled constraint rules through a typed evaluator host. */
@@ -33,6 +40,9 @@ export class RuleEngine {
 
     private readonly events: EventBus<RuleEngineEvents> | undefined;
     private readonly logger: Logger;
+    private readonly persistence: RulePersistenceAdapter | undefined;
+    private readonly runId: string;
+    private readonly runMeta: Record<string, unknown> | undefined;
 
     constructor(options: RuleEngineOptions = {}) {
         this.host = options.host ?? new RuleEngineHost();
@@ -40,6 +50,9 @@ export class RuleEngine {
         registerBuiltinFixers(this.host, options.processExecutor);
         this.events = options.events;
         this.logger = options.logger ?? getLogger('rule-engine');
+        this.persistence = options.persistence;
+        this.runId = options.runId ?? crypto.randomUUID();
+        this.runMeta = options.runMeta;
     }
 
     /** Register or replace an evaluator. */
@@ -70,6 +83,10 @@ export class RuleEngine {
      * provider by evaluator type and calls `createFixes`. The effective fix mode
      * is the minimum of the rule's configured mode and `maxFixMode`.
      *
+     * When `options.persistence` is set, this method writes a run row before
+     * evaluation and per-rule eval rows during the loop. A `done`/`failed`
+     * status is written after the loop completes.
+     *
      * @param rules - Normalized rule definitions to evaluate.
      * @param workdir - Working directory to scan.
      * @param maxFixMode - Highest fix authority requested by the caller.
@@ -87,6 +104,21 @@ export class RuleEngine {
         const enabledRules = rules.filter((r) => r.enabled !== false);
         const runStartMs = Date.now();
 
+        // Insert the run row before any evaluation.
+        const runMeta = this.runMeta ?? {};
+        await this.persistence?.insertRun({
+            id: this.runId,
+            sourceKind: (runMeta.sourceKind as 'preset' | 'file') ?? 'preset',
+            sourceValue: runMeta.sourceValue as string | undefined,
+            preset: runMeta.preset as string | undefined,
+            ruleCount: enabledRules.length,
+            failOn: runMeta.failOn as string | undefined,
+            stopOnFirst: runMeta.stopOnFirst as string | undefined,
+            fixMode: maxFixMode,
+            dryRun: (runMeta.dryRun as boolean) ?? false,
+            metadataJson: runMeta.metadataJson as string | undefined,
+        });
+
         return await traceAsync(
             'rule.run',
             async () => {
@@ -103,6 +135,15 @@ export class RuleEngine {
                     if (rule.enabled === false) continue;
                     index++;
 
+                    // Persist eval start.
+                    await this.persistence?.insertEvalRun({
+                        id: `${this.runId}:${rule.id}`,
+                        runId: this.runId,
+                        ruleId: rule.id,
+                        severity: rule.severity,
+                        evaluator: rule.evaluator.type,
+                    });
+
                     const evalStartMs = Date.now();
                     this.logger.debug('eval start', { ruleId: rule.id, index, total: enabledRules.length });
                     addSpanEvent('rule.eval.start', { ruleId: rule.id, index, total: enabledRules.length });
@@ -110,6 +151,7 @@ export class RuleEngine {
 
                     let ruleFindings: ConstraintFinding[] = [];
                     let ruleEvalFixes: Fix[] = [];
+                    let evalError: string | undefined;
                     try {
                         const result = await this.host.evaluators
                             .get(rule.evaluator.type)
@@ -117,15 +159,15 @@ export class RuleEngine {
                         ruleFindings = result.findings;
                         ruleEvalFixes = result.fixes;
                     } catch (error) {
-                        const message = error instanceof Error ? error.message : String(error);
+                        evalError = error instanceof Error ? error.message : String(error);
                         ruleFindings = [
-                            createFinding(rule, message, null, {
+                            createFinding(rule, evalError, null, {
                                 code: `evaluator:${rule.evaluator.type}`,
                                 kind: 'error',
                             }),
                         ];
-                        addSpanEvent('rule.eval.error', { ruleId: rule.id, error: message });
-                        void this.events?.emit('rule.eval.error', { ruleId: rule.id, error: message });
+                        addSpanEvent('rule.eval.error', { ruleId: rule.id, error: evalError });
+                        void this.events?.emit('rule.eval.error', { ruleId: rule.id, error: evalError });
                     }
 
                     const durationMs = Date.now() - evalStartMs;
@@ -138,6 +180,17 @@ export class RuleEngine {
                         ruleId: rule.id,
                         findings: ruleFindings.length,
                         durationMs,
+                    });
+
+                    // Persist eval completion.
+                    await this.persistence?.updateEvalRun({
+                        runId: this.runId,
+                        ruleId: rule.id,
+                        status: evalError ? 'failed' : 'done',
+                        findingCount: ruleFindings.length,
+                        fixCount: ruleEvalFixes.length,
+                        durationMs,
+                        ...(evalError ? { error: evalError } : {}),
                     });
 
                     findings.push(...ruleFindings);
@@ -192,6 +245,16 @@ export class RuleEngine {
                     durationMs: runDurationMs,
                     stoppedEarly: stoppedEarlyLocal,
                 });
+
+                // Finalize the run row.
+                await this.persistence?.updateRunStatus(
+                    this.runId,
+                    'done',
+                    findings.length,
+                    fixes.length,
+                    0, // appliedFixCount — set by the caller after applying fixes
+                    runDurationMs,
+                );
 
                 return { findings, fixes };
             },
