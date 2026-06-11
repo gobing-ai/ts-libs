@@ -1,62 +1,62 @@
 {
-  "name": "@gobing-ai/ts-dual-workflow-engine",
-  "version": "0.3.12",
-  "description": "@gobing-ai/ts-dual-workflow-engine — State-machine and transition-flow workflow runtime.",
-  "keywords": [
-    "typescript",
-    "workflow",
-    "state-machine",
-    "transition-flow",
-    "dag"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/gobing-ai/ts-libs.git",
-    "directory": "packages/dual-workflow-engine"
-  },
-  "author": "Robin Min <minlongbing@gmail.com>",
-  "contributors": [
-    "Robin Min <minlongbing@gmail.com>"
-  ],
-  "type": "module",
-  "private": false,
-  "sideEffects": false,
-  "license": "Apache-2.0",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+    "name": "@gobing-ai/ts-dual-workflow-engine",
+    "version": "0.3.12",
+    "description": "@gobing-ai/ts-dual-workflow-engine — State-machine and transition-flow workflow runtime.",
+    "keywords": [
+        "typescript",
+        "workflow",
+        "state-machine",
+        "transition-flow",
+        "dag"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/gobing-ai/ts-libs.git",
+        "directory": "packages/dual-workflow-engine"
+    },
+    "author": "Robin Min <minlongbing@gmail.com>",
+    "contributors": [
+        "Robin Min <minlongbing@gmail.com>"
+    ],
+    "type": "module",
+    "private": false,
+    "sideEffects": false,
+    "license": "Apache-2.0",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "schemas",
+        "src",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json && bun ../../scripts/builder.ts fix-dist-esm-extensions dist",
+        "test": "NODE_ENV=test bun test --coverage --coverage-dir=.coverage --reporter=dots",
+        "test:full": "NODE_ENV=test bun test --update-snapshots --coverage --coverage-dir=.coverage",
+        "typecheck": "tsc --noEmit",
+        "lint": "biome check . && bun run typecheck",
+        "format": "biome check . --write",
+        "check": "bun run lint && bun run test",
+        "prepublishOnly": "bun run build",
+        "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-dual-workflow-engine-v<version> && git push --tags' && exit 1"
+    },
+    "dependencies": {
+        "@gobing-ai/ts-db": "workspace:*",
+        "@gobing-ai/ts-infra": "workspace:*",
+        "@gobing-ai/ts-runtime": "workspace:*",
+        "zod": "^4.1.0"
+    },
+    "devDependencies": {
+        "@types/bun": "1.3.14"
+    },
+    "publishConfig": {
+        "access": "public"
     }
-  },
-  "files": [
-    "dist",
-    "schemas",
-    "src",
-    "README.md"
-  ],
-  "scripts": {
-    "build": "tsc -p tsconfig.build.json && bun ../../scripts/builder.ts fix-dist-esm-extensions dist",
-    "test": "NODE_ENV=test bun test --coverage --coverage-dir=.coverage --reporter=dots",
-    "test:full": "NODE_ENV=test bun test --update-snapshots --coverage --coverage-dir=.coverage",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome check . && bun run typecheck",
-    "format": "biome check . --write",
-    "check": "bun run lint && bun run test",
-    "prepublishOnly": "bun run build",
-    "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-dual-workflow-engine-v<version> && git push --tags' && exit 1"
-  },
-  "dependencies": {
-    "@gobing-ai/ts-db": "workspace:*",
-    "@gobing-ai/ts-infra": "workspace:*",
-    "@gobing-ai/ts-runtime": "workspace:*",
-    "zod": "^4.1.0"
-  },
-  "devDependencies": {
-    "@types/bun": "1.3.14"
-  },
-  "publishConfig": {
-    "access": "public"
-  }
 }
