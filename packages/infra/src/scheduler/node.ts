@@ -2,6 +2,7 @@
  * Node.js scheduler adapter using a simple setInterval-based approach.
  * No external cron library dependency — cron expressions are parsed minimally.
  */
+import { getLogger } from '../logger';
 import {
     getSchedulerJobDuration,
     getSchedulerJobExecutedTotal,
@@ -13,21 +14,28 @@ import type { ScheduledAction, SchedulerAdapter } from './types';
 function parseInterval(cron: string): number {
     // Support simple patterns: "* * * * *" (every minute), "*/5 * * * *" (every 5 min)
     // Also support direct ms strings like "60000"
-    const num = Number(cron);
-    if (!Number.isNaN(num)) return num;
+    const trimmed = cron.trim();
+    const num = Number(trimmed);
+    if (trimmed !== '' && !Number.isNaN(num)) {
+        // Guard against 0/negative intervals — setInterval would spin hot.
+        if (num > 0) return num;
+    } else {
+        const parts = trimmed.split(/\s+/);
+        if (parts.length === 5 && parts[0] === '*') {
+            return 60_000; // every minute
+        }
 
-    const parts = cron.trim().split(/\s+/);
-    if (parts.length === 5 && parts[0] === '*') {
-        return 60_000; // every minute default
+        // */N pattern
+        const match = parts[0]?.match(/^\*\/(\d+)$/);
+        if (match && Number(match[1]) > 0) {
+            return Number(match[1]) * 60_000;
+        }
     }
 
-    // */N pattern
-    const match = parts[0]?.match(/^\*\/(\d+)$/);
-    if (match) {
-        return Number(match[1]) * 60_000;
-    }
-
-    return 60_000; // fallback: every minute
+    // Real cron field expressions ("0 3 * * *") are NOT supported — running
+    // them every minute silently would badly misfire, so warn on fallback.
+    getLogger('scheduler.node').warn('Unsupported cron expression — falling back to a 60s interval', { cron });
+    return 60_000;
 }
 
 interface ScheduledEntry {
