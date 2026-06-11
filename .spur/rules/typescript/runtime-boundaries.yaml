@@ -17,6 +17,7 @@ exclude:
   - "**/tests/**"
   - "**/*.test.ts"
   - "**/*.spec.ts"
+  - "**/*.d.ts"
   - "**/node_modules/**"
   - "**/dist/**"
 
@@ -184,6 +185,7 @@ rules:
             - "packages/**/*.ts"
           exclude:
             - "**/tests/**"
+            - "**/*.d.ts"
             - "**/dist/**"
             - "packages/runtime/src/config.ts"
             - "packages/runtime/src/bun-sqlite.ts"
