@@ -8,6 +8,7 @@ export { EventBus } from './event-bus';
 export { attachFileObserver, type FileObserverWriter } from './file-observer';
 export type {
     AsyncEnqueuedDetail,
+    AsyncEventJobPayload,
     BusLifecycleEvents,
     EmitDoneDetail,
     EventMap,
