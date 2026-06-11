@@ -1,6 +1,6 @@
 # @gobing-ai/ts-dual-workflow-engine
 
-State-machine and transition-flow workflow runtime with pluggable action runners, guard runners, trust-gated extension loading, and memory or database persistence.
+State-machine and transition-flow workflow runtime with pluggable action runners, guard runners, trust-gated extension loading, memory or database persistence, and rich observability.
 
 ## What It Provides
 
@@ -13,37 +13,145 @@ State-machine and transition-flow workflow runtime with pluggable action runners
 
 The package exposes:
 
+### Runners & Host
+
 | Export | Purpose |
 |--------|---------|
 | `WorkflowService` | High-level loader and runner for both workflow kinds |
 | `StateMachineDriver` | Direct state-machine execution |
 | `TransitionFlowDriver` | Direct transition-flow execution |
 | `WorkflowEngineHost` | Capability registry for action runners and guard runners |
-| `createDefaultWorkflowEngineHost()` | Creates a host with built-in `note`, `shell`, and `always` capabilities |
-| `NoteActionRunner` | Built-in action that records a note in result data |
-| `ShellActionRunner` | Built-in shell action backed by `@gobing-ai/ts-runtime` `ProcessExecutor` |
-| `RunLifecycle` | Shared run bookkeeping: identity, persistence sequencing, OTel spans, structured logging, and optional event bus emission |
+| `createDefaultWorkflowEngineHost()` | Creates a host with built-in `note`, `shell`, `event.emit`, `always`, `never`, and `action-ok` capabilities |
+
+### Built-in Actions & Guards
+
+| Export | Purpose |
+|--------|---------|
+| `NoteActionRunner` | Records a note in result data and emits `workflow.hitl.note` |
+| `ShellActionRunner` | Shell command backed by `@gobing-ai/ts-runtime` `ProcessExecutor` |
+| `EventEmitActionRunner` | Emits `workflow.custom` events for user-defined observability |
+| `always` guard | Always passes |
+| `never` guard | Always rejects |
+| `action-ok` guard | Passes when the last action succeeded (`lastActionResult?.ok === true`) |
+
+### Persistence
+
+| Export | Purpose |
+|--------|---------|
 | `MemoryWorkflowPersistenceAdapter` | In-memory persistence for tests and short-lived runs |
 | `DbWorkflowPersistenceAdapter` | DB-backed persistence over `@gobing-ai/ts-db` |
-| `applyWorkflowEngineSchema()` | Installs the package-owned DB schema |
-| `WORKFLOW_ENGINE_SCHEMA_SQL` | Raw SQL DDL for the workflow engine tables |
+| `applyWorkflowEngineSchema()` | Installs the package-owned DB schema (idempotent; safe to call before every write) |
+| `WORKFLOW_ENGINE_SCHEMA_SQL` | Raw SQL DDL for the 5 workflow engine tables |
+
+### Configuration & Validation
+
+| Export | Purpose |
+|--------|---------|
 | `loadWorkflowDef()` / `loadWorkflowDefFromText()` | YAML/JSON workflow loading and validation |
 | `validateWorkflowDef()` | Semantic invariant checking beyond Zod schema |
-| `loadWorkflowExtensionsIntoHost()` | Trust-gated extension module loading for actions and guards |
-| `mergeVars()` / `resolveTemplates()` / `resolveTemplateString()` | Variable merging and `${...}` template resolution |
-| `resolveOnErrorPolicy()` | Resolves effective `OnErrorPolicy` from action, workflow default, and run options |
-| `OnErrorPolicy` | Type: `'fail' | 'continue'` — action error-handling strategy |
-| `allowedEnv()` / `runtimeBuiltins()` | Environment allowlist projection and built-in template injection |
 | `StateMachineWorkflowDefSchema` / `TransitionFlowWorkflowDefSchema` / `WorkflowDefSchema` | Zod schemas for workflow definition validation |
 | `ActionDefSchema` / `GuardDefSchema` | Zod schemas for action and guard definitions |
-| `FSMError` / `WorkflowValidationError` / `RunCollisionError` | Structured error classes |
+
+### Extensions
+
+| Export | Purpose |
+|--------|---------|
+| `loadWorkflowExtensionsIntoHost()` | Trust-gated extension module loading for actions and guards |
 | `WorkflowExtensionRef` / `LoadWorkflowExtensionsOptions` / `WorkflowExtensionKind` | Extension loading types |
+
+### Runtime
+
+| Export | Purpose |
+|--------|---------|
+| `RunLifecycle` | Shared run bookkeeping: identity, persistence sequencing, OTel spans, structured logging, and optional event bus emission |
+| `mergeVars()` / `mergeSetVars()` | Variable merging with run-override semantics |
+| `resolveTemplates()` / `resolveTemplateString()` | `${...}` template resolution in options objects |
+| `runtimeBuiltins()` | Injects runtime template values (`workflow`, `runId`, `state`, `iteration`, etc.) |
+| `allowedEnv()` | Environment allowlist projection over `process.env` |
+| `resolveOnErrorPolicy()` | Resolves effective `OnErrorPolicy` from action, workflow default, and run options |
+
+### Types & Errors
+
+| Export | Purpose |
+|--------|---------|
+| `WorkflowEngineEvents` | Typed event map — all events prefixed `workflow.` |
+| `OnErrorPolicy` | Type: `'fail' | 'continue'` |
+| `HitlRequest` / `HitlAnswer` / `HitlResponder` | Human-in-the-loop interaction contracts (interfaces only; no implementation) |
+| `FSMError` / `WorkflowValidationError` / `RunCollisionError` | Structured error classes |
 | `ActionRunner` / `GuardRunner` / `WorkflowDef` / `WorkflowRunResult` … | Type-only exports for all domain types |
-| `WorkflowEngineEvents` | Typed event map for workflow-engine observability. All events prefixed `workflow.` — see [Observability](#observability) |
+
+## DB Schema
+
+The engine owns 5 tables. `applyWorkflowEngineSchema()` installs them idempotently (all `CREATE TABLE IF NOT EXISTS`). The schema applies every write path (`createRun`, `loadRun`, `listRuns`) so late-schema callers always find the tables.
+
+```mermaid
+erDiagram
+    runs {
+        TEXT id PK "run identifier (caller-provided or auto-generated)"
+        TEXT workflow_name "human-readable workflow name"
+        TEXT mode "'state-machine' or 'transition-flow'"
+        TEXT status "NOT NULL — 'running'|'done'|'failed'"
+        TEXT agent "agent identifier"
+        TEXT started_at "ISO 8601 timestamp"
+        TEXT completed_at "ISO 8601, null until terminal"
+        TEXT metadata_json "JSON object, defaults '{}'"
+        INTEGER created_at "epoch ms"
+        INTEGER updated_at "epoch ms"
+    }
+
+    phase_runs {
+        TEXT id PK "composite key: {runId}:phase:{phase}:{uuid}"
+        TEXT run_id FK "references runs.id"
+        TEXT phase "state or node id"
+        TEXT status "NOT NULL — 'running'|'done'|'failed'"
+        TEXT started_at "ISO 8601, nullable"
+        TEXT completed_at "ISO 8601, nullable"
+        INTEGER created_at "epoch ms"
+        INTEGER updated_at "epoch ms"
+    }
+
+    transition_runs {
+        TEXT id PK "composite key: {runId}:transition:{from}:{to}:{uuid}"
+        TEXT run_id FK "references runs.id"
+        TEXT from_state "source state/node id"
+        TEXT to_state "target state/node id"
+        TEXT trigger "guard kind or null for unconditional"
+        TEXT status "NOT NULL — always 'done'"
+        INTEGER created_at "epoch ms"
+        INTEGER updated_at "epoch ms"
+    }
+
+    workflow_states {
+        TEXT id PK "composite key: {runId}:state:{state}:{uuid}"
+        TEXT run_id FK "references runs.id"
+        TEXT state "state or node id"
+        TEXT data_json "serialized workflow data"
+        INTEGER created_at "epoch ms"
+        INTEGER updated_at "epoch ms"
+    }
+
+    action_runs {
+        TEXT id PK "UUID"
+        TEXT run_id FK "references runs.id"
+        TEXT node "state or node id where the action executed"
+        TEXT kind "action kind string"
+        TEXT status "NOT NULL — 'running'|'done'|'failed'"
+        INTEGER duration_ms "wall-clock ms, populated on finalize"
+        INTEGER ok "1 for success, 0 for failure, null until finalize"
+        TEXT result_json "serialized action result, null for noop"
+        TEXT started_at "ISO 8601, nullable"
+        TEXT completed_at "ISO 8601, nullable"
+        INTEGER created_at "epoch ms"
+        INTEGER updated_at "epoch ms"
+    }
+
+    runs ||--o{ phase_runs : "has"
+    runs ||--o{ transition_runs : "has"
+    runs ||--o{ workflow_states : "has"
+    runs ||--o{ action_runs : "has"
+```
 
 ## Architecture
-
-### Component Relationships
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -67,6 +175,7 @@ The package exposes:
        │  • persistence (createRun, savePhase,  │
        │    saveTransition, finalizeRun)        │
        │  • OTel span + structured logging      │
+       │  • event bus emission (opt-in)         │
        └───────────────┬───────────────────────┘
                        │
           ┌────────────┼────────────┐
@@ -80,6 +189,7 @@ The package exposes:
 ```
 
 ### State-Machine Step Execution
+
 The state-machine driver runs a loop until reaching a terminal state, failure, or iteration bound. Each iteration:
 
 1. Persists the state snapshot and marks its phase `running`
@@ -310,18 +420,23 @@ const result = await driver.run(
 result.status; // "done"
 result.finalState; // "done"
 captureAction.seen; // ["approved"]
+```
 
-// A workflow with error resilience — non-fatal failures log and continue.
-const host2 = new WorkflowEngineHost()
+The driver persists each state snapshot, phase update, transition, and final run status through the configured persistence adapter.
+
+### Error Resilience — `onError: 'continue'`
+
+```ts
+const host = new WorkflowEngineHost()
     .registerAction(failableAction)
     .registerGuard({ kind: 'always', evaluate: async () => true });
 
-const resilientDriver = new StateMachineDriver({
-    host: host2,
+const driver = new StateMachineDriver({
+    host,
     persistence: new MemoryWorkflowPersistenceAdapter(),
 });
 
-const resilientResult = await resilientDriver.run({
+const result = await driver.run({
     name: 'resilient-approval',
     initialState: 'draft',
     terminalStates: ['done'],
@@ -332,10 +447,7 @@ const resilientResult = await resilientDriver.run({
     ],
     transitions: [{ from: 'draft', to: 'done', guard: { kind: 'always' } }],
 });
-
 ```
-
-The driver persists each state snapshot, phase update, transition, and final run status through the configured persistence adapter.
 
 ## Transition Flow Example
 
@@ -367,7 +479,7 @@ result.status; // "done"
 result.finalState; // "done"
 ```
 
-The default host includes built-in `note` and `shell` action runners plus an `always` guard. For production systems, register domain-specific runners and keep shell execution explicit.
+The default host includes built-in `note`, `shell`, `event.emit`, `always`, `never`, and `action-ok` capabilities. For production systems, register domain-specific runners and keep shell execution explicit.
 
 ## Load Workflows from YAML
 
@@ -378,7 +490,7 @@ const workflow = await loadWorkflowDef('./workflows/approval.yaml');
 await service.run(workflow, { runId: 'approval-1' });
 ```
 
-`loadWorkflowDef(path)` reads YAML or JSON from disk. File loads honor a top-level `$schema` ref by default, then validate the internal structural schema and semantic references before returning a `WorkflowDef`. The `$schema` value resolves from the bundled package schema (shipped under `node_modules/@gobing-ai/ts-dual-workflow-engine/schemas/`) — no network access; quote the value, since YAML treats a leading `@` as reserved. Relative paths and (opt-in) remote URLs also work; see `@gobing-ai/ts-runtime` → *Structured config*. `loadWorkflowDefFromText(text, source)` handles inline definitions with internal validation only.
+`loadWorkflowDef(path)` reads YAML or JSON from disk. File loads honor a top-level `$schema` ref by default, then validate the internal structural schema and semantic references before returning a `WorkflowDef`. The `$schema` value resolves from the bundled package schema — no network access; quote the value, since YAML treats a leading `@` as reserved. `loadWorkflowDefFromText(text, source)` handles inline definitions with internal validation only.
 
 ### State-machine YAML
 
@@ -524,7 +636,7 @@ const service = new WorkflowService(
 );
 ```
 
-Use `service.listRuns()` to read persisted run records. The adapter stores run status, phase snapshots, state snapshots, and transitions.
+Use `service.listRuns()` to read persisted run records. The adapter stores runs, phase snapshots, transition records, workflow state snapshots, and action runs across 5 tables. Schema is applied idempotently on every write path — late callers always find the tables. `DbWorkflowPersistenceAdapter` throws `RunCollisionError` on duplicate run ids. Corrupt payloads or DB errors during `processOnce()`/poll cycles on a queue consumer (when used with `@gobing-ai/ts-infra`'s `EventBus.createJobHandler()` bridge) are handled gracefully.
 
 ## Custom Actions and Guards
 
@@ -554,7 +666,7 @@ host.registerGuard({
 });
 ```
 
-Registered actions and guards are available to any workflow definition by their `kind` string. Internally, the host uses `CapabilityRegistry` from `@gobing-ai/ts-runtime/extension` to track registrations with origin metadata (`'builtin'`, `'extension'`, or `'core'`).
+Registered actions and guards are available to any workflow definition by their `kind` string. Internally, the host uses `CapabilityRegistry` from `@gobing-ai/ts-runtime/extension` to track registrations with origin metadata (`'builtin'`, `'extension'`, or `'core'`). Query origin with `host.actionOrigin(kind)` / `host.guardOrigin(kind)`.
 
 ## Extension Loading
 
@@ -602,17 +714,7 @@ await loadWorkflowExtensionsIntoHost(
 );
 ```
 
-Each entry in `actions[]` is registered via `host.registerAction(..., 'extension')`; entries in `guards[]` are registered via `host.registerGuard(..., 'extension')`. When a ref has `kind: 'actions'`, only the module's `actions[]` entries are registered; `guards[]` entries in the same module are ignored (and vice versa).
-
-Override warnings are emitted through an optional `logger.warn` callback when an extension replaces a built-in capability:
-
-```ts
-await loadWorkflowExtensionsIntoHost(host, refs, {
-  allowExtensions: true,
-  moduleLoader: (absPath) => import(absPath),
-  logger: { warn: (msg) => console.warn(msg) },
-});
-```
+When a ref has `kind: 'actions'`, only the module's `actions[]` entries are registered; `guards[]` in the same module are ignored (and vice versa). Override warnings are emitted through an optional `logger.warn` callback when an extension replaces a built-in capability.
 
 ### Security
 
@@ -623,8 +725,6 @@ await loadWorkflowExtensionsIntoHost(host, refs, {
 - The caller controls the `moduleLoader` function. Tests use a stub; production callers use `(absPath) => import(absPath)`. The loader itself has no ambient code-loading capability.
 
 ## Zod Schemas
-
-The package exports Zod schemas for programmatic validation:
 
 ```ts
 import { StateMachineWorkflowDefSchema, WorkflowDefSchema } from '@gobing-ai/ts-dual-workflow-engine';
@@ -666,7 +766,7 @@ resolveTemplateString('Run ${runId} in ${runtime}', {
 
 ## Observability
 
-The workflow engine uses a **three-layer observability model** (ADR-015):
+The workflow engine uses a **three-layer observability model**:
 
 | Layer | Tool | Consumer |
 |-------|------|----------|
@@ -689,35 +789,43 @@ All three layers are **additive** — EventBus does not replace logging or traci
 | `workflow.node.transition` | `{ runId, from, to, trigger }` | On a state/node transition |
 | `workflow.action.start` | `{ runId, node, kind }` | When an action starts executing |
 | `workflow.action.done` | `{ runId, node, kind, durationMs, ok }` | When an action finishes (success or failure) |
-| `workflow.action.failed_continue` | `{ runId, node, transitionsTaken, error? }` | When a non-fatal action failure is continued past (`onError: 'continue'`) |
-| `workflow.custom` | `{ name, payload }` | Emitted by the builtin `event.emit` action for custom user-defined events |
-| `workflow.hitl.note` | `{ runId, node, message }` | Emitted by the builtin `note` action for workflow-visible annotations |
-| `workflow.guard.evaluated` | `{ runId, from, to, kind, passed }` | When a guard condition is evaluated. Fires for every guard, including rejected ones |
-| `workflow.hitl.ask` | `{ runId, node, kind, message }` | When an interactive HITL prompt is presented and the engine waits for input |
-| `workflow.hitl.response` | `{ runId, node, ok }` | When an interactive HITL prompt receives a response |
+| `workflow.action.failed_continue` | `{ runId, node, transitionsTaken, error? }` | When a non-fatal action failure is continued past |
+| `workflow.custom` | `{ name, payload }` | Emitted by the builtin `event.emit` action |
+| `workflow.hitl.note` | `{ runId, node, message }` | Emitted by the builtin `note` action |
+| `workflow.guard.evaluated` | `{ runId, from, to, kind, passed }` | When a guard condition is evaluated (fires for every guard) |
+| `workflow.hitl.ask` | `{ runId, node, kind, message }` | When an interactive HITL prompt is presented |
+| `workflow.hitl.response` | `{ runId, node, ok }` | When a HITL prompt receives a response |
 
 ### Compatibility Policy
 
-The event map is a **cross-package public contract**. Policy: **additive-only** — new events allowed, new optional payload fields allowed; never rename, remove, or repurpose an existing event or field. This keeps subscribers (CLI observers, server SSE, telemetry) from breaking across semver bumps.
+The event map is a **cross-package public contract**. Policy: **additive-only** — new events allowed, new optional payload fields allowed; never rename, remove, or repurpose an existing event or field.
 
 ### Subscriber Contract
 
 Event handlers registered via `EventBus.on()` or `EventBus.once()` **must** be:
 - **Fast** — handlers run synchronously on the emit call path; slow handlers stall the workflow execution
 - **Non-throwing** — handler errors are swallowed by `EventBus`; durable behavior must never depend on event delivery
-- **Best-effort** — the engine emits via `void emit()` (fire-and-forget); async handlers are not awaited; the CLI process can exit before subscribers finish
+- **Best-effort** — the engine emits via `void emit()` (fire-and-forget); async handlers are not awaited
 
-For **durable** audit/history/telemetry, use the persistence layer (`WorkflowPersistenceAdapter`) — every record is written incrementally during the run via direct adapter calls, not through the event bus. Events are for ephemeral in-process observation (live progress, logging, server-mode SSE).
+For **durable** audit/history/telemetry, use the persistence layer — every record is written incrementally during the run via direct adapter calls, not through the event bus.
 
 ### Usage
 
 Pass an `EventBus` via `WorkflowRunOptions.events`:
 
+```ts
+import { EventBus } from '@gobing-ai/ts-infra';
+import type { WorkflowEngineEvents } from '@gobing-ai/ts-dual-workflow-engine';
+
+const events = new EventBus<WorkflowEngineEvents>();
+events.on('workflow.action.done', ({ runId, kind, durationMs, ok }) => {
+    console.log(`Action ${kind} in run ${runId}: ${durationMs}ms, ok=${ok}`);
+});
+
+await service.run(workflow, { runId: 'r1', events });
+```
+
 When no `events` option is provided, the engine incurs zero observability overhead — no emit calls, no handler invocations. The event bus is purely opt-in.
-
-### Action-level events
-
-`workflow.action.start` and `workflow.action.done` fire for nodes that have an action configured. A node without an action emits neither. `durationMs` is measured from action start to settlement, and `ok` reflects the action result (`true` for success, `false` for failure).
 
 ## RunLifecycle
 
@@ -725,8 +833,9 @@ When no `events` option is provided, the engine incurs zero observability overhe
 
 - **Run identity** — generates a `runId` (or honors caller-provided), timestamps, and run record
 - **Persistence sequencing** — `createRun` → `savePhase`/`saveWorkflowState` per step → `finalizeRun` at the end
-- **Observability** — wraps the full run in an OTel span, emits span events, logs each lifecycle event through `@gobing-ai/ts-infra` logger, and optionally emits `WorkflowEngineEvents` via an injected `EventBus` (see [Observability](#observability))
-- **Error resilience** — `warnActionFailed()` logs non-fatal warnings for `onError: 'continue'` actions, using the same structured-logging observability seam as `fail()`
+- **Observability** — wraps the full run in an OTel span, emits span events, logs each lifecycle event through `@gobing-ai/ts-infra` logger, and optionally emits `WorkflowEngineEvents` via an injected `EventBus`
+- **Error resilience** — `warnActionFailed()` logs non-fatal warnings for `onError: 'continue'` actions
+
 ```ts
 import { RunLifecycle, type RunLifecycleDeps } from '@gobing-ai/ts-dual-workflow-engine';
 
@@ -759,7 +868,7 @@ Run failures caused by actions or guards are returned as `WorkflowRunResult` wit
 Actions, workflow definitions, and `WorkflowRunOptions` accept `onError?: 'fail' | 'continue'`.
 The resolved policy follows precedence `action.onError ?? workflow.defaultOnError ?? runOptions.onError ?? 'fail'`.
 
-- **`'fail'`** (default): the run halts immediately with `status: 'failed'` — today's behavior.
+- **`'fail'`** (default): the run halts immediately with `status: 'failed'`.
 - **`'continue'`**: logs a structured warning through `RunLifecycle.warnActionFailed()` and advances to the next
   state, node, guard, or edge evaluation. A node with no outbound edges that fails with `'continue'` still
   terminates as `done`.
@@ -770,3 +879,4 @@ The resolved policy follows precedence `action.onError ?? workflow.defaultOnErro
 - Persistence is adapter-based. Downstream apps own DB lifecycle and migration ordering.
 - Action and guard runners are the extension points. Keep domain behavior there, not in workflow parsing.
 - The host's `CapabilityRegistry` tracks the origin (`'builtin'`, `'extension'`, `'core'`) of every registered action and guard — query it with `host.actionOrigin(kind)` / `host.guardOrigin(kind)`.
+- HITL types (`HitlRequest`, `HitlAnswer`, `HitlResponder`) are interfaces only — this package ships no HITL implementation.
