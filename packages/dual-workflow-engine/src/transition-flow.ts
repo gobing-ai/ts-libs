@@ -110,12 +110,17 @@ export class TransitionFlowDriver {
             }
 
             // 4. Evaluate edge conditions in declaration order and pick the first passing edge.
-            const edge = await firstPassingEdge(outbound, this.options.host, {
-                runId,
-                current: current.id,
-                vars,
-                lastActionResult,
-            }, lifecycle);
+            const edge = await firstPassingEdge(
+                outbound,
+                this.options.host,
+                {
+                    runId,
+                    current: current.id,
+                    vars,
+                    lastActionResult,
+                },
+                lifecycle,
+            );
             if (edge === undefined) {
                 return await lifecycle.fail(current.id, transitionsTaken, 'no-passing-edge');
             }
