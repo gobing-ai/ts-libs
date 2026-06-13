@@ -58,6 +58,7 @@ function recordingPersistence(): { adapter: WorkflowPersistenceAdapter; calls: s
             calls.push(`reseedRun:${runId}:${newState}`);
             return inner.reseedRun(runId, newState);
         },
+        loadCurrentState: async (runId) => inner.loadCurrentState(runId),
     };
     return { adapter, calls };
 }
