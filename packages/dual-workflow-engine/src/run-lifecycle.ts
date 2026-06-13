@@ -91,6 +91,24 @@ export class RunLifecycle {
     }
 
     /**
+     * Build a lifecycle for an external, single-hop transition request — NOT a run.
+     * Unlike {@link run} / {@link resume} this opens no `workflow.run` span and
+     * creates no run record: an external transition is one guarded hop on an
+     * already-existing run, so it must not masquerade as a run in traces. It exists
+     * only to let {@link WorkflowService.requestTransition} reuse {@link recordTransition}
+     * and {@link guardEvaluated} so the transition persist+emit mechanics live in one
+     * place instead of being hand-rolled at the service layer.
+     */
+    static forExternalTransition(
+        workflowName: string,
+        runId: string,
+        deps: RunLifecycleDeps,
+        externalKey: string | undefined,
+    ): RunLifecycle {
+        return new RunLifecycle(runId, workflowName, 'state-machine', deps, externalKey);
+    }
+
+    /**
      * Create the run record and execute `loop` inside the run's OTel span. The
      * driver's control loop is the body; it receives this lifecycle to drive
      * per-step persistence and terminal results.
