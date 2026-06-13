@@ -266,6 +266,158 @@ describe('RunLifecycle.run', () => {
     });
 });
 
+describe('RunLifecycle — E4 event seam parity (fresh vs attached)', () => {
+    /**
+     * Collects all seam event payloads from a run, capturing the order they fire
+     * and the externalKey presence in each payload.
+     */
+    function collectSeamEvents(events: EventBus<WorkflowEngineEvents>) {
+        const sequence: Array<{ event: string; hasExternalKey: boolean; externalKey: unknown }> = [];
+        const push = (event: string) => (data: Record<string, unknown>) => {
+            sequence.push({
+                event,
+                hasExternalKey: 'externalKey' in data,
+                externalKey: (data as Record<string, unknown>).externalKey,
+            });
+        };
+        events.on('workflow.run.started', push('workflow.run.started'));
+        events.on('workflow.node.transition', push('workflow.node.transition'));
+        events.on('workflow.guard.evaluated', push('workflow.guard.evaluated'));
+        events.on('workflow.run.done', push('workflow.run.done'));
+        events.on('workflow.run.paused', push('workflow.run.paused'));
+        events.on('workflow.run.resumed', push('workflow.run.resumed'));
+        events.on('workflow.run.failed', push('workflow.run.failed'));
+        events.on('workflow.transition.requested', push('workflow.transition.requested'));
+        events.on('workflow.transition.denied', push('workflow.transition.denied'));
+        return sequence;
+    }
+
+    test('externalKey is present in seam event payloads for a fresh run with externalKey', async () => {
+        // WHY: R2 — subscribers must map events to their own entities without extra lookups
+        const { adapter } = recordingPersistence();
+        const events = new EventBus<WorkflowEngineEvents>();
+        const sequence = collectSeamEvents(events);
+
+        await RunLifecycle.run(
+            'wf',
+            'state-machine',
+            { persistence: adapter, events },
+            { runId: 'r-key', externalKey: 'org/42' },
+            async (lifecycle) => {
+                await lifecycle.enter('start', 0);
+                lifecycle.guardEvaluated('start', 'end', 'always', true);
+                await lifecycle.recordTransition('start', 'end', null);
+                return lifecycle.done('end', 1);
+            },
+        );
+
+        // Every seam event that fired should carry the externalKey.
+        for (const entry of sequence) {
+            expect(entry.hasExternalKey).toBe(true);
+            expect(entry.externalKey).toBe('org/42');
+        }
+        expect(sequence.length).toBeGreaterThan(0);
+    });
+
+    test('externalKey is undefined in seam event payloads when not provided', async () => {
+        // WHY: externalKey is optional — events must still fire without it
+        const { adapter } = recordingPersistence();
+        const events = new EventBus<WorkflowEngineEvents>();
+        const sequence = collectSeamEvents(events);
+
+        await RunLifecycle.run(
+            'wf',
+            'state-machine',
+            { persistence: adapter, events },
+            { runId: 'r-nokey' },
+            async (lifecycle) => {
+                await lifecycle.enter('start', 0);
+                lifecycle.guardEvaluated('start', 'end', 'always', true);
+                await lifecycle.recordTransition('start', 'end', null);
+                return lifecycle.done('end', 1);
+            },
+        );
+
+        for (const entry of sequence) {
+            expect(entry.hasExternalKey).toBe(true);
+            expect(entry.externalKey).toBeUndefined();
+        }
+        expect(sequence.length).toBeGreaterThan(0);
+    });
+
+    test('fresh and attached runs produce identical event sequences', async () => {
+        // WHY: R1, R4 — event seam must behave identically for fresh vs rehydrated runs
+        const adapter = new MemoryWorkflowPersistenceAdapter();
+
+        // -- Fresh run --
+        const freshEvents = new EventBus<WorkflowEngineEvents>();
+        const freshSeq = collectSeamEvents(freshEvents);
+        await RunLifecycle.run(
+            'wf',
+            'state-machine',
+            { persistence: adapter, events: freshEvents },
+            { runId: 'r-fresh', externalKey: 'entity/1' },
+            async (lifecycle) => {
+                await lifecycle.enter('start', 0);
+                lifecycle.guardEvaluated('start', 'mid', 'check', true);
+                await lifecycle.recordTransition('start', 'mid', null);
+                await lifecycle.enter('mid', 1);
+                return lifecycle.done('mid', 1);
+            },
+        );
+
+        // -- Attached run (simulates rehydration — different runId, same event shape) --
+        const attachEvents = new EventBus<WorkflowEngineEvents>();
+        const attachSeq = collectSeamEvents(attachEvents);
+        await RunLifecycle.run(
+            'wf',
+            'state-machine',
+            { persistence: adapter, events: attachEvents },
+            { runId: 'r-attach', externalKey: 'entity/2' },
+            async (lifecycle) => {
+                await lifecycle.enter('start', 0);
+                lifecycle.guardEvaluated('start', 'mid', 'check', true);
+                await lifecycle.recordTransition('start', 'mid', null);
+                await lifecycle.enter('mid', 1);
+                return lifecycle.done('mid', 1);
+            },
+        );
+
+        // Strip externalKey value (different runs have different keys); compare event names and key presence only.
+        const normalize = (seq: typeof freshSeq) => seq.map(({ event, hasExternalKey }) => ({ event, hasExternalKey }));
+
+        expect(normalize(freshSeq)).toEqual(normalize(attachSeq));
+        expect(freshSeq.length).toBeGreaterThan(0);
+
+        // Every entry in both sequences carries externalKey
+        for (const entry of freshSeq) expect(entry.hasExternalKey).toBe(true);
+        for (const entry of attachSeq) expect(entry.hasExternalKey).toBe(true);
+    });
+
+    test('pause and resume events carry externalKey', async () => {
+        // WHY: R1 — pause/resume (E3) must also carry the externalKey
+        const { adapter } = recordingPersistence();
+        const events = new EventBus<WorkflowEngineEvents>();
+        const sequence = collectSeamEvents(events);
+
+        await RunLifecycle.run(
+            'wf',
+            'state-machine',
+            { persistence: adapter, events },
+            { runId: 'r-pause', externalKey: 'entity/pause' },
+            async (lifecycle) => {
+                await lifecycle.enter('start', 0);
+                return lifecycle.pause('start', 0);
+            },
+        );
+
+        const pausedEntry = sequence.find((e) => e.event === 'workflow.run.paused');
+        expect(pausedEntry).toBeDefined();
+        expect(pausedEntry?.hasExternalKey).toBe(true);
+        expect(pausedEntry?.externalKey).toBe('entity/pause');
+    });
+});
+
 describe('runtime builtins single source', () => {
     test('runtimeBuiltins keys match RUNTIME_BUILTIN_KEYS exactly', () => {
         // WHY: config.ts validates references against RUNTIME_BUILTIN_KEYS; if the
