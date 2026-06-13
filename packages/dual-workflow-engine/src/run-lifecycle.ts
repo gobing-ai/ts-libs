@@ -71,6 +71,7 @@ export interface RunLifecycleDeps {
  */
 export class RunLifecycle {
     readonly runId: string;
+    readonly externalKey?: string;
     private readonly persistence: WorkflowPersistenceAdapter;
     private readonly events: EventBus<WorkflowEngineEvents> | undefined;
     private readonly logger: Logger;
@@ -80,8 +81,10 @@ export class RunLifecycle {
         private readonly workflowName: string,
         private readonly mode: WorkflowMode,
         deps: RunLifecycleDeps,
+        externalKey?: string,
     ) {
         this.runId = runId;
+        this.externalKey = externalKey;
         this.persistence = deps.persistence;
         this.events = deps.events;
         this.logger = (deps.logger ?? getLogger('workflow')).child({ runId, workflow: workflowName, mode });
@@ -117,7 +120,8 @@ export class RunLifecycle {
                 } else {
                     record = await deps.persistence.createOrAttachRun(proposed);
                 }
-                const lifecycle = new RunLifecycle(record.id, workflowName, mode, deps);
+                const extKey = record.external_key ?? undefined;
+                const lifecycle = new RunLifecycle(record.id, workflowName, mode, deps, extKey);
                 lifecycle.logger.info('workflow run started');
                 addSpanEvent('workflow.run.started', {
                     workflowName,
@@ -130,6 +134,7 @@ export class RunLifecycle {
                     mode,
                     runId: lifecycle.runId,
                     dryRun: options.dryRun ?? false,
+                    externalKey: extKey,
                 });
                 return await loop(lifecycle);
             },
@@ -146,12 +151,13 @@ export class RunLifecycle {
         mode: WorkflowMode,
         deps: RunLifecycleDeps,
         runId: string,
+        externalKey: string | undefined,
         loop: (lifecycle: RunLifecycle) => Promise<WorkflowRunResult>,
     ): Promise<WorkflowRunResult> {
         return await traceAsync(
             'workflow.run',
             async () => {
-                const lifecycle = new RunLifecycle(runId, workflowName, mode, deps);
+                const lifecycle = new RunLifecycle(runId, workflowName, mode, deps, externalKey);
                 lifecycle.logger.info('workflow run resumed');
                 return await loop(lifecycle);
             },
@@ -189,6 +195,7 @@ export class RunLifecycle {
             from,
             to,
             trigger,
+            externalKey: this.externalKey,
         });
     }
 
@@ -198,7 +205,12 @@ export class RunLifecycle {
         await this.persistence.finalizeRun(this.runId, 'done', new Date().toISOString());
         this.logger.info('workflow run done', { finalState, transitionsTaken });
         addSpanEvent('workflow.run.done', { runId: this.runId, finalState, transitionsTaken });
-        void this.events?.emit('workflow.run.done', { runId: this.runId, finalState, transitionsTaken });
+        void this.events?.emit('workflow.run.done', {
+            runId: this.runId,
+            finalState,
+            transitionsTaken,
+            externalKey: this.externalKey,
+        });
         return this.result('done', finalState, transitionsTaken);
     }
 
@@ -207,7 +219,12 @@ export class RunLifecycle {
         await this.persistence.savePhase(this.runId, finalState, 'failed');
         await this.persistence.finalizeRun(this.runId, 'failed', new Date().toISOString());
         addSpanEvent('workflow.run.failed', { runId: this.runId, finalState, reason });
-        void this.events?.emit('workflow.run.failed', { runId: this.runId, finalState, reason });
+        void this.events?.emit('workflow.run.failed', {
+            runId: this.runId,
+            finalState,
+            reason,
+            externalKey: this.externalKey,
+        });
         this.logger.warn('workflow run failed', { finalState, transitionsTaken, reason });
         return this.result('failed', finalState, transitionsTaken, reason);
     }
@@ -222,6 +239,7 @@ export class RunLifecycle {
             runId: this.runId,
             node: stateOrNodeId,
             transitionsTaken,
+            externalKey: this.externalKey,
         });
         return this.result('paused', stateOrNodeId, transitionsTaken);
     }
@@ -229,8 +247,7 @@ export class RunLifecycle {
     /** Emit the resumed event (called by WorkflowService after re-creating a lifecycle for resume). */
     emitResumed(node: string): void {
         addSpanEvent('workflow.run.resumed', { runId: this.runId, node });
-        void this.events?.emit('workflow.run.resumed', { runId: this.runId, node });
-        this.logger.info('workflow run resumed', { node });
+        void this.events?.emit('workflow.run.resumed', { runId: this.runId, node, externalKey: this.externalKey });
     }
 
     /** Emit action-level observability before a host action is invoked. */
@@ -276,6 +293,7 @@ export class RunLifecycle {
             to,
             kind,
             passed,
+            externalKey: this.externalKey,
         });
     }
 
