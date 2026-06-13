@@ -36,6 +36,7 @@ export class TransitionFlowDriver {
         workflow: TransitionFlowWorkflowDef,
         runId: string,
         resumeFromNode: string,
+        externalKey: string | undefined,
         options: WorkflowRunOptions = {},
     ): Promise<WorkflowRunResult> {
         return await RunLifecycle.resume(
@@ -43,6 +44,7 @@ export class TransitionFlowDriver {
             'transition-flow',
             { persistence: this.options.persistence, events: options.events },
             runId,
+            externalKey,
             (lifecycle) => this.loop(workflow, options, lifecycle, resumeFromNode),
         );
     }
