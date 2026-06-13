@@ -1,16 +1,15 @@
+import { runActionSequence } from './action-step';
 import { FSMError } from './errors';
 import type { WorkflowEngineHost } from './host';
-import { allowedEnv, RunLifecycle, runtimeBuiltins } from './run-lifecycle';
+import { allowedEnv, RunLifecycle } from './run-lifecycle';
 import type {
-    ActionDef,
     ActionResult,
-    OnErrorPolicy,
     StateMachineWorkflowDef,
     WorkflowPersistenceAdapter,
     WorkflowRunOptions,
     WorkflowRunResult,
 } from './types';
-import { mergeSetVars, mergeVars, resolveOnErrorPolicy, resolveTemplates } from './variables';
+import { mergeSetVars, mergeVars } from './variables';
 
 /** Dependencies required by the state-machine driver. */
 export interface StateMachineDriverOptions {
@@ -83,18 +82,21 @@ export class StateMachineDriver {
                 await lifecycle.enter(current.id, transitionsTaken);
 
                 // 2. Execute this state's on-enter actions in declaration order.
-                const enter = await this.runActions(
-                    current.onEnter ?? [],
-                    workflow.name,
-                    current.id,
-                    runId,
-                    vars,
-                    env,
-                    options,
-                    transitionsTaken,
-                    lifecycle,
-                    defaultOnError,
-                );
+                const enter = options.dryRun
+                    ? EMPTY_OUTCOME
+                    : await runActionSequence(current.onEnter ?? [], vars, {
+                          host: this.options.host,
+                          persistence: this.options.persistence,
+                          lifecycle,
+                          workflowName: workflow.name,
+                          stateOrNodeId: current.id,
+                          runId,
+                          mode: 'state-machine',
+                          transitionsTaken,
+                          env,
+                          options,
+                          defaultOnError,
+                      });
                 // Retain the last action result (including failures the policy continued
                 // past) so downstream guards can inspect it — matching the transition-flow
                 // driver's `continue` semantics. A state with no enter actions must not
@@ -138,18 +140,21 @@ export class StateMachineDriver {
             }
 
             // 6. Execute this state's on-exit actions before changing state.
-            const exit = await this.runActions(
-                current.onExit ?? [],
-                workflow.name,
-                current.id,
-                runId,
-                vars,
-                env,
-                options,
-                transitionsTaken,
-                lifecycle,
-                defaultOnError,
-            );
+            const exit = options.dryRun
+                ? EMPTY_OUTCOME
+                : await runActionSequence(current.onExit ?? [], vars, {
+                      host: this.options.host,
+                      persistence: this.options.persistence,
+                      lifecycle,
+                      workflowName: workflow.name,
+                      stateOrNodeId: current.id,
+                      runId,
+                      mode: 'state-machine',
+                      transitionsTaken,
+                      env,
+                      options,
+                      defaultOnError,
+                  });
             if (exit.result !== undefined) lastActionResult = exit.result;
             if (exit.result?.setVars) vars = mergeSetVars(vars, exit.result.setVars);
             if (exit.outcome === 'fail') return await lifecycle.fail(current.id, transitionsTaken, exit.result?.error);
@@ -165,76 +170,10 @@ export class StateMachineDriver {
             current = nextState;
         }
     }
-
-    /**
-     * Run a state's actions in order. Returns the last action result (retained even
-     * when a failure was continued past, so downstream guards can inspect it) plus an
-     * `outcome` discriminator: `terminal` (an action declared terminal success),
-     * `fail` (a failure under a 'fail' policy — caller must halt), or `completed`.
-     */
-    private async runActions(
-        actions: readonly ActionDef[],
-        workflowName: string,
-        stateId: string,
-        runId: string,
-        vars: Record<string, string>,
-        env: Record<string, string>,
-        options: WorkflowRunOptions,
-        transitionsTaken: number,
-        lifecycle: RunLifecycle,
-        defaultOnError: OnErrorPolicy | undefined,
-    ): Promise<RunActionsOutcome> {
-        if (options.dryRun) {
-            return { outcome: 'completed', result: undefined };
-        }
-
-        let last: ActionResult | undefined;
-        for (const action of actions) {
-            const resolved = resolveTemplates(action.options ?? {}, {
-                vars,
-                env,
-                builtins: runtimeBuiltins(workflowName, stateId, runId, transitionsTaken, 'state-machine'),
-            });
-            const actionId = await this.options.persistence.saveActionStart(runId, stateId, action.kind);
-            const actionStartMs = Date.now();
-            lifecycle.actionStart(stateId, action.kind);
-            try {
-                last = await this.options.host.runAction(action.kind, resolved, {
-                    runId,
-                    workdir: options.workdir,
-                    stateOrNodeId: stateId,
-                    vars,
-                    env,
-                    metadata: options.metadata,
-                    events: options.events,
-                });
-            } finally {
-                const durationMs = Date.now() - actionStartMs;
-                lifecycle.actionDone(stateId, action.kind, durationMs, last?.ok ?? false);
-                void this.options.persistence.saveActionFinalize(
-                    actionId,
-                    last?.ok !== false ? 'done' : 'failed',
-                    durationMs,
-                    last?.ok ?? false,
-                    last,
-                );
-            }
-            if (last.terminal === true) return { outcome: 'terminal', result: last };
-            if (!last.ok) {
-                const policy = resolveOnErrorPolicy(action.onError, defaultOnError, options.onError);
-                if (policy === 'fail') return { outcome: 'fail', result: last };
-                lifecycle.warnActionFailed(stateId, transitionsTaken, last.error);
-            }
-        }
-        return { outcome: 'completed', result: last };
-    }
 }
 
-/** Result of running a state's actions: the last action result plus a control-flow discriminator. */
-interface RunActionsOutcome {
-    readonly outcome: 'completed' | 'terminal' | 'fail';
-    readonly result: ActionResult | undefined;
-}
+/** Dry-run sentinel: no action ran, so there is nothing to retain and nothing to halt on. */
+const EMPTY_OUTCOME = { outcome: 'completed', result: undefined } as const;
 
 async function firstPassingTransition(
     transitions: StateMachineWorkflowDef['transitions'],
