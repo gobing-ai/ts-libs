@@ -74,7 +74,6 @@ export class RunLifecycle {
     private readonly persistence: WorkflowPersistenceAdapter;
     private readonly events: EventBus<WorkflowEngineEvents> | undefined;
     private readonly logger: Logger;
-    private readonly startedAt: string;
 
     private constructor(
         runId: string,
@@ -85,7 +84,6 @@ export class RunLifecycle {
         this.runId = runId;
         this.persistence = deps.persistence;
         this.events = deps.events;
-        this.startedAt = new Date().toISOString();
         this.logger = (deps.logger ?? getLogger('workflow')).child({ runId, workflow: workflowName, mode });
     }
 
@@ -101,28 +99,41 @@ export class RunLifecycle {
         options: WorkflowRunOptions,
         loop: (lifecycle: RunLifecycle) => Promise<WorkflowRunResult>,
     ): Promise<WorkflowRunResult> {
-        const runId = options.runId ?? crypto.randomUUID();
-        const lifecycle = new RunLifecycle(runId, workflowName, mode, deps);
         return await traceAsync(
             'workflow.run',
             async () => {
-                await lifecycle.persistence.createRun(lifecycle.runRecord(options.metadata));
+                const startedAt = new Date().toISOString();
+                const proposed = RunLifecycle.runRecord(
+                    options.runId ?? crypto.randomUUID(),
+                    workflowName,
+                    mode,
+                    startedAt,
+                    options.metadata,
+                    options.externalKey,
+                );
+                let record = proposed;
+                if (options.externalKey === undefined) {
+                    await deps.persistence.createRun(proposed);
+                } else {
+                    record = await deps.persistence.createOrAttachRun(proposed);
+                }
+                const lifecycle = new RunLifecycle(record.id, workflowName, mode, deps);
                 lifecycle.logger.info('workflow run started');
                 addSpanEvent('workflow.run.started', {
                     workflowName,
                     mode,
-                    runId,
+                    runId: lifecycle.runId,
                     dryRun: options.dryRun ?? false,
                 });
                 void lifecycle.events?.emit('workflow.run.started', {
                     workflowName,
                     mode,
-                    runId,
+                    runId: lifecycle.runId,
                     dryRun: options.dryRun ?? false,
                 });
                 return await loop(lifecycle);
             },
-            { attributes: { 'workflow.name': workflowName, 'workflow.mode': mode, 'workflow.run_id': runId } },
+            { attributes: { 'workflow.name': workflowName, 'workflow.mode': mode } },
         );
     }
 
@@ -252,15 +263,23 @@ export class RunLifecycle {
         };
     }
 
-    private runRecord(metadata: unknown): WorkflowRunRecord {
+    private static runRecord(
+        runId: string,
+        workflowName: string,
+        mode: WorkflowMode,
+        startedAt: string,
+        metadata: unknown,
+        externalKey?: string,
+    ): WorkflowRunRecord {
         return {
-            id: this.runId,
-            workflow_name: this.workflowName,
-            mode: this.mode,
+            id: runId,
+            workflow_name: workflowName,
+            mode,
             status: 'running',
-            started_at: this.startedAt,
+            started_at: startedAt,
             metadata_json: JSON.stringify(metadata ?? {}),
             completed_at: null,
+            external_key: externalKey ?? null,
         };
     }
 }
