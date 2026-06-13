@@ -43,4 +43,6 @@ export type WorkflowEngineEvents = {
     'workflow.hitl.ask': (data: { runId: string; node: string; kind: string; message: string }) => void;
     /** Emitted when an interactive HITL prompt receives a response. */
     'workflow.hitl.response': (data: { runId: string; node: string; ok: boolean }) => void;
+    /** Emitted when a run's state is force-set via reseed (consumer-side authority reconciliation). */
+    'workflow.run.reseeded': (data: { runId: string; fromState: string; toState: string }) => void;
 };
