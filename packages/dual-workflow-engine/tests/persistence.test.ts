@@ -53,7 +53,7 @@ describe('applyWorkflowEngineSchema', () => {
     });
 
     test('splits multi-statement SQL and skips empty fragments', async () => {
-        // WORKFLOW_ENGINE_SCHEMA_SQL has 5 statements separated by ';'.
+        // WORKFLOW_ENGINE_SCHEMA_SQL has 6 statements separated by ';'.
         // The split produces a trailing empty string after the final ';'.
         // applyWorkflowEngineSchema must handle it (trim + length > 0 check).
         const execCalls: string[] = [];
@@ -63,7 +63,7 @@ describe('applyWorkflowEngineSchema', () => {
             },
         } as unknown as DbAdapter;
         await applyWorkflowEngineSchema(db);
-        expect(execCalls.length).toBe(5);
+        expect(execCalls.length).toBe(6);
     });
 });
 
