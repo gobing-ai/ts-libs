@@ -28,7 +28,12 @@ describe('WorkflowEngineEvents', () => {
             'workflow.node.transition',
             'workflow.run.done',
             'workflow.run.failed',
+            'workflow.run.paused',
+            'workflow.run.reseeded',
+            'workflow.run.resumed',
             'workflow.run.started',
+            'workflow.transition.denied',
+            'workflow.transition.requested',
         ].sort();
 
         expect(readmeEvents.length).toBe(knownEvents.length);
