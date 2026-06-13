@@ -1,7 +1,13 @@
 import type { DbAdapter } from '@gobing-ai/ts-db';
 import { RunCollisionError } from './errors';
 import { WORKFLOW_ENGINE_SCHEMA_SQL } from './schema-sql';
-import type { ActionRedactor, WorkflowPersistenceAdapter, WorkflowRunRecord, WorkflowStatus } from './types';
+import type {
+    ActionRedactor,
+    WorkflowPersistenceAdapter,
+    WorkflowReseedResult,
+    WorkflowRunRecord,
+    WorkflowStatus,
+} from './types';
 
 /** Apply workflow-engine-owned schema to a database adapter. */
 export async function applyWorkflowEngineSchema(db: DbAdapter): Promise<void> {
@@ -21,12 +27,13 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         if (existing !== undefined) throw new RunCollisionError(record.id);
         await applyWorkflowEngineSchema(this.db);
         await this.db.run(
-            `INSERT INTO runs (id, workflow_name, mode, status, started_at, completed_at, metadata_json, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO runs (id, workflow_name, mode, status, external_key, started_at, completed_at, metadata_json, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             record.id,
             record.workflow_name,
             record.mode,
             record.status,
+            record.external_key ?? null,
             record.started_at,
             record.completed_at,
             record.metadata_json,
@@ -150,6 +157,49 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         await applyWorkflowEngineSchema(this.db);
         return await this.db.queryAll<WorkflowRunRecord>('SELECT * FROM runs ORDER BY started_at DESC');
     }
+
+    /** Look up a run by its external key within a workflow definition. */
+    async findRunByKey(workflowName: string, externalKey: string): Promise<WorkflowRunRecord | undefined> {
+        await applyWorkflowEngineSchema(this.db);
+        const row = await this.db.queryFirst<WorkflowRunRecord>(
+            'SELECT * FROM runs WHERE workflow_name = ? AND external_key = ?',
+            workflowName,
+            externalKey,
+        );
+        return row ?? undefined;
+    }
+
+    /** Create a run or attach to an existing one by external key. */
+    async createOrAttachRun(record: WorkflowRunRecord): Promise<WorkflowRunRecord> {
+        await applyWorkflowEngineSchema(this.db);
+        if (record.external_key) {
+            const existing = await this.findRunByKey(record.workflow_name, record.external_key);
+            if (existing) return existing;
+        }
+        try {
+            await this.createRun(record);
+        } catch (error) {
+            if (record.external_key) {
+                const existing = await this.findRunByKey(record.workflow_name, record.external_key);
+                if (existing) return existing;
+            }
+            throw error;
+        }
+        return { ...record };
+    }
+
+    /** Force-set the current state of a run (reseed). */
+    async reseedRun(runId: string, newState: string): Promise<WorkflowReseedResult> {
+        const now = Date.now();
+        await applyWorkflowEngineSchema(this.db);
+        const previous = await this.db.queryFirst<{ state: string }>(
+            'SELECT state FROM workflow_states WHERE run_id = ? ORDER BY created_at DESC LIMIT 1',
+            runId,
+        );
+        await this.saveWorkflowState(runId, newState, { reseeded: true, reseededAt: new Date(now).toISOString() });
+        await this.saveTransition(runId, previous?.state ?? '', newState, '__reseed__');
+        return { fromState: previous?.state ?? null, toState: newState };
+    }
 }
 
 /** In-memory persistence adapter for tests and embedding. */
@@ -238,5 +288,31 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
     /** List persisted workflow runs. */
     async listRuns(): Promise<readonly WorkflowRunRecord[]> {
         return [...this.runs.values()];
+    }
+
+    /** Look up a run by its external key within a workflow definition. */
+    async findRunByKey(workflowName: string, externalKey: string): Promise<WorkflowRunRecord | undefined> {
+        for (const run of this.runs.values()) {
+            if (run.workflow_name === workflowName && run.external_key === externalKey) return run;
+        }
+        return undefined;
+    }
+
+    /** Create a run or attach to an existing one by external key. */
+    async createOrAttachRun(record: WorkflowRunRecord): Promise<WorkflowRunRecord> {
+        if (record.external_key) {
+            const existing = await this.findRunByKey(record.workflow_name, record.external_key);
+            if (existing) return existing;
+        }
+        await this.createRun(record);
+        return { ...record };
+    }
+
+    /** Force-set the current state of a run (reseed). */
+    async reseedRun(runId: string, newState: string): Promise<WorkflowReseedResult> {
+        const previous = this.states.findLast((state) => state.runId === runId);
+        await this.saveWorkflowState(runId, newState, { reseeded: true, reseededAt: new Date().toISOString() });
+        await this.saveTransition(runId, previous?.state ?? '', newState, '__reseed__');
+        return { fromState: previous?.state ?? null, toState: newState };
     }
 }
