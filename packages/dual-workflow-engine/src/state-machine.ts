@@ -33,53 +33,84 @@ export class StateMachineDriver {
         );
     }
 
+    /** Resume a paused state-machine run from the given state, skipping on-enter. */
+    async resume(
+        workflow: StateMachineWorkflowDef,
+        runId: string,
+        resumeFromState: string,
+        options: WorkflowRunOptions = {},
+    ): Promise<WorkflowRunResult> {
+        return await RunLifecycle.resume(
+            workflow.name,
+            'state-machine',
+            { persistence: this.options.persistence, events: options.events },
+            runId,
+            (lifecycle) => this.loop(workflow, options, lifecycle, resumeFromState),
+        );
+    }
+
     private async loop(
         workflow: StateMachineWorkflowDef,
         options: WorkflowRunOptions,
         lifecycle: RunLifecycle,
+        resumeFromState?: string,
     ): Promise<WorkflowRunResult> {
         const runId = lifecycle.runId;
         const states = new Map(workflow.states.map((state) => [state.id, state]));
         const terminal = new Set(workflow.terminalStates ?? []);
         let vars = mergeVars(workflow.vars, options.vars);
         const env = allowedEnv(workflow.env?.allow ?? [], options.env);
-        let current = states.get(workflow.initialState);
+        let current = resumeFromState !== undefined ? states.get(resumeFromState) : states.get(workflow.initialState);
         let transitionsTaken = 0;
         let lastActionResult: ActionResult | undefined;
         const iterationBound = workflow.iterationBound ?? 50;
         const defaultOnError = workflow.defaultOnError;
+        let isResume = resumeFromState !== undefined;
 
-        if (current === undefined) throw new FSMError(`Initial state "${workflow.initialState}" is not declared`);
+        if (current === undefined) {
+            const label = resumeFromState ?? workflow.initialState;
+            throw new FSMError(`State "${label}" is not declared`);
+        }
 
         while (true) {
-            // 1. Persist current state snapshot before work starts.
-            await lifecycle.enter(current.id, transitionsTaken);
+            if (isResume) {
+                // Resume: skip enter actions on the first iteration (already ran before pause).
+                isResume = false;
+            } else {
+                // 1. Persist current state snapshot before work starts.
+                await lifecycle.enter(current.id, transitionsTaken);
 
-            // 2. Execute this state's on-enter actions in declaration order.
-            const enter = await this.runActions(
-                current.onEnter ?? [],
-                workflow.name,
-                current.id,
-                runId,
-                vars,
-                env,
-                options,
-                transitionsTaken,
-                lifecycle,
-                defaultOnError,
-            );
-            // Retain the last action result (including failures the policy continued
-            // past) so downstream guards can inspect it — matching the transition-flow
-            // driver's `continue` semantics. A state with no enter actions must not
-            // erase the previous result.
-            if (enter.result !== undefined) lastActionResult = enter.result;
-            if (enter.result?.setVars) vars = mergeSetVars(vars, enter.result.setVars);
-            if (enter.outcome === 'terminal') {
-                return await lifecycle.done(current.id, transitionsTaken);
-            }
-            // 4. Halt only when an action failed under a 'fail' policy.
-            if (enter.outcome === 'fail') {
-                return await lifecycle.fail(current.id, transitionsTaken, lastActionResult?.error);
+                // 2. Execute this state's on-enter actions in declaration order.
+                const enter = await this.runActions(
+                    current.onEnter ?? [],
+                    workflow.name,
+                    current.id,
+                    runId,
+                    vars,
+                    env,
+                    options,
+                    transitionsTaken,
+                    lifecycle,
+                    defaultOnError,
+                );
+                // Retain the last action result (including failures the policy continued
+                // past) so downstream guards can inspect it — matching the transition-flow
+                // driver's `continue` semantics. A state with no enter actions must not
+                // erase the previous result.
+                if (enter.result !== undefined) lastActionResult = enter.result;
+                if (enter.result?.setVars) vars = mergeSetVars(vars, enter.result.setVars);
+                if (enter.outcome === 'terminal') {
+                    return await lifecycle.done(current.id, transitionsTaken);
+                }
+                // 4. Halt only when an action failed under a 'fail' policy.
+                if (enter.outcome === 'fail') {
+                    return await lifecycle.fail(current.id, transitionsTaken, lastActionResult?.error);
+                }
+
+                // Pause: if the state declares pause, stop advancing and persist the paused position.
+                if (current.pause === true) {
+                    return await lifecycle.pause(current.id, transitionsTaken);
+                }
             }
 
             const outbound = workflow.transitions.filter((transition) => transition.from === current?.id);
