@@ -19,13 +19,26 @@ export async function applyWorkflowEngineSchema(db: DbAdapter): Promise<void> {
 
 /** SQLite/D1-compatible workflow persistence adapter backed by ts-db. */
 export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter {
+    /** Memoized schema-ensure; the DDL runs at most once per adapter instance. */
+    private schemaReady: Promise<void> | undefined;
+
     constructor(private readonly db: DbAdapter) {}
+
+    /**
+     * Apply the workflow-engine schema once per adapter, latching the in-flight
+     * promise so concurrent first calls share a single DDL pass. Every public
+     * read/write awaits this instead of re-running the idempotent DDL per call.
+     */
+    private ensureSchema(): Promise<void> {
+        this.schemaReady ??= applyWorkflowEngineSchema(this.db);
+        return this.schemaReady;
+    }
 
     /** Create a run row, rejecting duplicate run ids. */
     async createRun(record: WorkflowRunRecord): Promise<void> {
         const existing = await this.loadRun(record.id);
         if (existing !== undefined) throw new RunCollisionError(record.id);
-        await applyWorkflowEngineSchema(this.db);
+        await this.ensureSchema();
         await this.db.run(
             `INSERT INTO runs (id, workflow_name, mode, status, external_key, started_at, completed_at, metadata_json, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -147,20 +160,20 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
 
     /** Load a single run by id. */
     async loadRun(runId: string): Promise<WorkflowRunRecord | undefined> {
-        await applyWorkflowEngineSchema(this.db);
+        await this.ensureSchema();
         const row = await this.db.queryFirst<WorkflowRunRecord>('SELECT * FROM runs WHERE id = ?', runId);
         return row ?? undefined;
     }
 
     /** List persisted workflow runs. */
     async listRuns(): Promise<readonly WorkflowRunRecord[]> {
-        await applyWorkflowEngineSchema(this.db);
+        await this.ensureSchema();
         return await this.db.queryAll<WorkflowRunRecord>('SELECT * FROM runs ORDER BY started_at DESC');
     }
 
     /** Look up a run by its external key within a workflow definition. */
     async findRunByKey(workflowName: string, externalKey: string): Promise<WorkflowRunRecord | undefined> {
-        await applyWorkflowEngineSchema(this.db);
+        await this.ensureSchema();
         const row = await this.db.queryFirst<WorkflowRunRecord>(
             'SELECT * FROM runs WHERE workflow_name = ? AND external_key = ?',
             workflowName,
@@ -171,7 +184,7 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
 
     /** Create a run or attach to an existing one by external key. */
     async createOrAttachRun(record: WorkflowRunRecord): Promise<WorkflowRunRecord> {
-        await applyWorkflowEngineSchema(this.db);
+        await this.ensureSchema();
         if (record.external_key) {
             const existing = await this.findRunByKey(record.workflow_name, record.external_key);
             if (existing) return existing;
@@ -191,7 +204,7 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
     /** Force-set the current state of a run (reseed). */
     async reseedRun(runId: string, newState: string): Promise<WorkflowReseedResult> {
         const now = Date.now();
-        await applyWorkflowEngineSchema(this.db);
+        await this.ensureSchema();
         const previous = await this.db.queryFirst<{ state: string }>(
             'SELECT state FROM workflow_states WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
             runId,
@@ -203,7 +216,7 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
 
     /** Load the current state name for a run. */
     async loadCurrentState(runId: string): Promise<string | undefined> {
-        await applyWorkflowEngineSchema(this.db);
+        await this.ensureSchema();
         const row = await this.db.queryFirst<{ state: string }>(
             'SELECT state FROM workflow_states WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
             runId,
@@ -213,7 +226,7 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
 
     /** List runs with status 'paused'. Ordered most-recent-first. */
     async listPausedRuns(options?: { workflowName?: string; limit?: number }): Promise<readonly WorkflowRunRecord[]> {
-        await applyWorkflowEngineSchema(this.db);
+        await this.ensureSchema();
         const where = ["status = 'paused'"];
         const params: unknown[] = [];
         if (options?.workflowName !== undefined) {
