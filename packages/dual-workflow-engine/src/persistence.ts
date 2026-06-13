@@ -210,6 +210,21 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         );
         return row?.state;
     }
+
+    /** List runs with status 'paused'. Ordered most-recent-first. */
+    async listPausedRuns(options?: { workflowName?: string; limit?: number }): Promise<readonly WorkflowRunRecord[]> {
+        await applyWorkflowEngineSchema(this.db);
+        const where = ["status = 'paused'"];
+        const params: unknown[] = [];
+        if (options?.workflowName !== undefined) {
+            where.push('workflow_name = ?');
+            params.push(options.workflowName);
+        }
+        const limit = options?.limit ?? 100;
+        const sql = `SELECT * FROM runs WHERE ${where.join(' AND ')} ORDER BY updated_at DESC, rowid DESC LIMIT ?`;
+        params.push(limit);
+        return await this.db.queryAll<WorkflowRunRecord>(sql, ...params);
+    }
 }
 
 /** In-memory persistence adapter for tests and embedding. */
@@ -330,5 +345,16 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
     async loadCurrentState(runId: string): Promise<string | undefined> {
         const last = this.states.findLast((s) => s.runId === runId);
         return last?.state;
+    }
+
+    /** List runs with status 'paused'. Ordered most-recent-first. */
+    async listPausedRuns(options?: { workflowName?: string; limit?: number }): Promise<readonly WorkflowRunRecord[]> {
+        let runs = [...this.runs.values()].filter((r) => r.status === 'paused');
+        if (options?.workflowName !== undefined) {
+            runs = runs.filter((r) => r.workflow_name === options.workflowName);
+        }
+        // Memory adapter has no updated_at tracking; use insertion order (reverse = most-recent-first).
+        runs.reverse();
+        return runs.slice(0, options?.limit ?? 100);
     }
 }
