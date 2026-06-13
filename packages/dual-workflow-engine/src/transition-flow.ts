@@ -31,75 +31,119 @@ export class TransitionFlowDriver {
         );
     }
 
+    /** Resume a paused transition-flow run from the given node, skipping node action. */
+    async resume(
+        workflow: TransitionFlowWorkflowDef,
+        runId: string,
+        resumeFromNode: string,
+        options: WorkflowRunOptions = {},
+    ): Promise<WorkflowRunResult> {
+        return await RunLifecycle.resume(
+            workflow.name,
+            'transition-flow',
+            { persistence: this.options.persistence, events: options.events },
+            runId,
+            (lifecycle) => this.loop(workflow, options, lifecycle, resumeFromNode),
+        );
+    }
+
     private async loop(
         workflow: TransitionFlowWorkflowDef,
         options: WorkflowRunOptions,
         lifecycle: RunLifecycle,
+        resumeFromNode?: string,
     ): Promise<WorkflowRunResult> {
         const runId = lifecycle.runId;
         const nodes = new Map(workflow.nodes.map((node) => [node.id, node]));
         const terminal = new Set(workflow.terminalNodes ?? []);
         let vars = mergeVars(workflow.vars, options.vars);
         const env = allowedEnv(workflow.env?.allow ?? [], options.env);
-        let current = nodes.get(workflow.initialNode);
+        let current = resumeFromNode !== undefined ? nodes.get(resumeFromNode) : nodes.get(workflow.initialNode);
         let transitionsTaken = 0;
         let lastActionResult: ActionResult | undefined;
         const iterationBound = workflow.iterationBound ?? 50;
         const defaultOnError = workflow.defaultOnError;
+        let isResume = resumeFromNode !== undefined;
 
         if (current === undefined) {
-            throw new FSMError(`Initial node "${workflow.initialNode}" is not declared`);
+            const label = resumeFromNode ?? workflow.initialNode;
+            throw new FSMError(`Node "${label}" is not declared`);
         }
 
         while (true) {
-            // 1. Persist current node snapshot before action execution.
-            await lifecycle.enter(current.id, transitionsTaken);
+            if (isResume) {
+                // Resume: skip enter + node action on the first iteration (already ran before pause).
+                isResume = false;
+            } else {
+                // 1. Persist current node snapshot before action execution.
+                await lifecycle.enter(current.id, transitionsTaken);
 
-            // 2. Execute the node action when one is configured (skipped in dry-run).
-            if (options.dryRun) {
-                if (current.action !== undefined) {
-                    lastActionResult = undefined;
-                }
-            } else if (current.action !== undefined) {
-                const resolved = resolveTemplates(current.action.options ?? {}, {
-                    vars,
-                    env,
-                    builtins: runtimeBuiltins(workflow.name, current.id, runId, transitionsTaken, 'transition-flow'),
-                });
-                const actionId = await this.options.persistence.saveActionStart(runId, current.id, current.action.kind);
-                const actionStartMs = Date.now();
-                lifecycle.actionStart(current.id, current.action.kind);
-                try {
-                    lastActionResult = await this.options.host.runAction(current.action.kind, resolved, {
-                        runId,
-                        workdir: options.workdir,
-                        stateOrNodeId: current.id,
+                // 2. Execute the node action when one is configured (skipped in dry-run).
+                if (options.dryRun) {
+                    if (current.action !== undefined) {
+                        lastActionResult = undefined;
+                    }
+                } else if (current.action !== undefined) {
+                    const resolved = resolveTemplates(current.action.options ?? {}, {
                         vars,
                         env,
-                        metadata: options.metadata,
-                        events: options.events,
+                        builtins: runtimeBuiltins(
+                            workflow.name,
+                            current.id,
+                            runId,
+                            transitionsTaken,
+                            'transition-flow',
+                        ),
                     });
-                } finally {
-                    const durationMs = Date.now() - actionStartMs;
-                    lifecycle.actionDone(current.id, current.action.kind, durationMs, lastActionResult?.ok ?? false);
-                    void this.options.persistence.saveActionFinalize(
-                        actionId,
-                        lastActionResult?.ok !== false ? 'done' : 'failed',
-                        durationMs,
-                        lastActionResult?.ok ?? false,
-                        lastActionResult,
+                    const actionId = await this.options.persistence.saveActionStart(
+                        runId,
+                        current.id,
+                        current.action.kind,
                     );
-                }
-                if (lastActionResult.setVars) vars = mergeSetVars(vars, lastActionResult.setVars);
-                if (!lastActionResult.ok) {
-                    const policy = resolveOnErrorPolicy(current.action.onError, defaultOnError, options.onError);
-                    if (policy === 'fail') {
-                        return await lifecycle.fail(current.id, transitionsTaken, lastActionResult.error);
+                    const actionStartMs = Date.now();
+                    lifecycle.actionStart(current.id, current.action.kind);
+                    try {
+                        lastActionResult = await this.options.host.runAction(current.action.kind, resolved, {
+                            runId,
+                            workdir: options.workdir,
+                            stateOrNodeId: current.id,
+                            vars,
+                            env,
+                            metadata: options.metadata,
+                            events: options.events,
+                        });
+                    } finally {
+                        const durationMs = Date.now() - actionStartMs;
+                        lifecycle.actionDone(
+                            current.id,
+                            current.action.kind,
+                            durationMs,
+                            lastActionResult?.ok ?? false,
+                        );
+                        void this.options.persistence.saveActionFinalize(
+                            actionId,
+                            lastActionResult?.ok !== false ? 'done' : 'failed',
+                            durationMs,
+                            lastActionResult?.ok ?? false,
+                            lastActionResult,
+                        );
                     }
-                    lifecycle.warnActionFailed(current.id, transitionsTaken, lastActionResult.error);
+                    if (lastActionResult.setVars) vars = mergeSetVars(vars, lastActionResult.setVars);
+                    if (!lastActionResult.ok) {
+                        const policy = resolveOnErrorPolicy(current.action.onError, defaultOnError, options.onError);
+                        if (policy === 'fail') {
+                            return await lifecycle.fail(current.id, transitionsTaken, lastActionResult.error);
+                        }
+                        lifecycle.warnActionFailed(current.id, transitionsTaken, lastActionResult.error);
+                    }
+                    if (lastActionResult.terminal === true) {
+                        return await lifecycle.done(current.id, transitionsTaken);
+                    }
                 }
-                if (lastActionResult.terminal === true) {
-                    return await lifecycle.done(current.id, transitionsTaken);
+
+                // Pause: if the node declares pause, stop advancing and persist the paused position.
+                if (current.pause === true) {
+                    return await lifecycle.pause(current.id, transitionsTaken);
                 }
             }
 
