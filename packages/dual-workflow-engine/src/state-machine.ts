@@ -38,6 +38,7 @@ export class StateMachineDriver {
         workflow: StateMachineWorkflowDef,
         runId: string,
         resumeFromState: string,
+        externalKey: string | undefined,
         options: WorkflowRunOptions = {},
     ): Promise<WorkflowRunResult> {
         return await RunLifecycle.resume(
@@ -45,6 +46,7 @@ export class StateMachineDriver {
             'state-machine',
             { persistence: this.options.persistence, events: options.events },
             runId,
+            externalKey,
             (lifecycle) => this.loop(workflow, options, lifecycle, resumeFromState),
         );
     }
