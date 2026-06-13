@@ -140,6 +140,8 @@ describe('State-machine resume', () => {
         const resumed = await service.resumeRun(wf, 'resume-1');
         expect(resumed.status).toBe('done');
         expect(resumed.finalState).toBe('approved');
+        expect(await persistence.loadRun('resume-1')).toMatchObject({ status: 'done' });
+        expect(await service.listPausedRuns()).toHaveLength(0);
     });
 
     test('emits workflow.run.resumed event on resume', async () => {
@@ -159,6 +161,25 @@ describe('State-machine resume', () => {
         const [resumedEvt] = resumedEvents;
         expect(resumedEvt?.runId).toBe('resume-event');
         expect(resumedEvt?.node).toBe('review');
+    });
+
+    test('resume after restart emits externalKey from persisted run', async () => {
+        const events = new EventBus<WorkflowEngineEvents>();
+        const resumedEvents: Array<{ runId: string; node: string; externalKey?: string }> = [];
+        void events.on('workflow.run.resumed', (data) => resumedEvents.push(data));
+
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const host = createDefaultWorkflowEngineHost();
+        const wf = pauseWorkflow();
+        await new WorkflowService(host, persistence).run(wf, {
+            runId: 'resume-key',
+            externalKey: 'entity/resume',
+            events,
+        });
+
+        await new WorkflowService(host, persistence).resumeRun(wf, 'resume-key', { events });
+
+        expect(resumedEvents).toEqual([{ runId: 'resume-key', node: 'review', externalKey: 'entity/resume' }]);
     });
 
     test('resume on non-paused run throws WorkflowResumeError', async () => {
@@ -225,6 +246,7 @@ describe('State-machine resume', () => {
         const resumed = await service2.resumeRun(wf, 'restart-run');
         expect(resumed.status).toBe('done');
         expect(resumed.finalState).toBe('approved');
+        expect(await service2.listPausedRuns()).toHaveLength(0);
     });
 });
 
@@ -251,6 +273,8 @@ describe('Transition-flow pause', () => {
         const resumed = await service.resumeRun(wf, 'tf-resume-1');
         expect(resumed.status).toBe('done');
         expect(resumed.finalState).toBe('end');
+        expect(await persistence.loadRun('tf-resume-1')).toMatchObject({ status: 'done' });
+        expect(await service.listPausedRuns()).toHaveLength(0);
     });
 
     test('emits pause and resumed events', async () => {
