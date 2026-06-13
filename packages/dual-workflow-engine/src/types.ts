@@ -5,7 +5,7 @@ import type { EventBus } from '@gobing-ai/ts-infra';
 import type { WorkflowEngineEvents } from './events';
 
 /** Workflow execution status persisted for runs and phases. */
-export type WorkflowStatus = 'running' | 'done' | 'failed';
+export type WorkflowStatus = 'running' | 'done' | 'failed' | 'paused';
 
 /** Runtime variables and user variables available to workflow definitions. */
 export type Vars = Record<string, string>;
@@ -36,6 +36,8 @@ export interface StateDef {
     readonly description?: string;
     readonly onEnter?: readonly ActionDef[];
     readonly onExit?: readonly ActionDef[];
+    /** When true, the engine pauses the run at this state instead of auto-advancing. */
+    readonly pause?: boolean;
 }
 
 /** One transition in a state-machine workflow. */
@@ -74,6 +76,8 @@ export interface FlowNodeDef {
     readonly description?: string;
     readonly type?: 'action' | 'gate' | 'parallel' | 'decision';
     readonly action?: ActionDef;
+    /** When true, the engine pauses the run at this node instead of auto-advancing. */
+    readonly pause?: boolean;
 }
 
 /** Transition-flow edge definition. */
@@ -276,4 +280,6 @@ export interface WorkflowPersistenceAdapter {
     reseedRun(runId: string, newState: string): Promise<WorkflowReseedResult>;
     /** Load the current state name for a run (latest state snapshot). Returns undefined if no state recorded. */
     loadCurrentState(runId: string): Promise<string | undefined>;
+    /** List runs with status 'paused'. Optional filters: workflow name, limit. Ordered most-recent-first. */
+    listPausedRuns(options?: { workflowName?: string; limit?: number }): Promise<readonly WorkflowRunRecord[]>;
 }
