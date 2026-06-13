@@ -162,6 +162,8 @@ export interface WorkflowRunOptions {
     readonly onError?: OnErrorPolicy;
     /** Validate the definition and walk the transition graph without executing actions. */
     readonly dryRun?: boolean;
+    /** Optional caller-supplied external key, unique per workflow definition. */
+    readonly externalKey?: string;
 }
 
 /** Result returned by both driver loops. */
@@ -184,6 +186,14 @@ export interface WorkflowRunRecord {
     readonly started_at: string;
     readonly completed_at: string | null;
     readonly metadata_json: string;
+    /** Optional caller-supplied external key, unique per workflow definition. */
+    readonly external_key?: string | null;
+}
+
+/** Result of force-setting the current state of a run. */
+export interface WorkflowReseedResult {
+    readonly fromState: string | null;
+    readonly toState: string;
 }
 
 /** Persisted action run record — one row per action executed in a workflow run. */
@@ -223,4 +233,10 @@ export interface WorkflowPersistenceAdapter {
     ): Promise<void>;
     loadRun(runId: string): Promise<WorkflowRunRecord | undefined>;
     listRuns(): Promise<readonly WorkflowRunRecord[]>;
+    /** Look up a run by its external key within a workflow definition. Returns undefined if not found. */
+    findRunByKey(workflowName: string, externalKey: string): Promise<WorkflowRunRecord | undefined>;
+    /** Create a run or attach to an existing one by external key. Atomic create-or-attach semantics. */
+    createOrAttachRun(record: WorkflowRunRecord): Promise<WorkflowRunRecord>;
+    /** Force-set the current state of a run (consumer-side authority reconciliation). */
+    reseedRun(runId: string, newState: string): Promise<WorkflowReseedResult>;
 }
