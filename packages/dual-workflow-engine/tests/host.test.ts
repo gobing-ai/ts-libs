@@ -199,7 +199,7 @@ describe('createDefaultWorkflowEngineHost', () => {
     test('registers all built-ins with origin "builtin"', () => {
         const host = createDefaultWorkflowEngineHost();
         expect(host.listActions().sort()).toEqual(['event.emit', 'note', 'shell']);
-        expect(host.listGuards().sort()).toEqual(['action-ok', 'always', 'never']);
+        expect(host.listGuards().sort()).toEqual(['action-ok', 'always', 'never', 'shell']);
         for (const kind of host.listActions()) expect(host.actionOrigin(kind)).toBe('builtin');
         for (const kind of host.listGuards()) expect(host.guardOrigin(kind)).toBe('builtin');
     });
@@ -260,6 +260,7 @@ describe('createDefaultWorkflowEngineHost', () => {
             },
         );
         expect(neverTrue).toBe(false);
+        expect(host.hasGuard('shell')).toBe(true);
     });
 
     test('event.emit emits workflow.custom with name and payload via context.events', async () => {
