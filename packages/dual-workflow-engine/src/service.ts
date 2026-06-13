@@ -88,11 +88,14 @@ export class WorkflowService {
             }
         }
 
+        const run = await this.persistence.loadRun(runId);
+        const extKey = run?.external_key ?? undefined;
         const result = await this.persistence.reseedRun(runId, newState);
         void options?.events?.emit('workflow.run.reseeded', {
             runId,
             fromState: result.fromState ?? '',
             toState: result.toState,
+            externalKey: extKey,
         });
     }
 
@@ -112,20 +115,21 @@ export class WorkflowService {
         }
 
         // Re-open the run as running.
+        const extKey = run.external_key ?? undefined;
         await this.persistence.finalizeRun(runId, 'running', '');
-        void options?.events?.emit('workflow.run.resumed', { runId, node: currentState });
+        void options?.events?.emit('workflow.run.resumed', { runId, node: currentState, externalKey: extKey });
 
         // Resume through the appropriate driver, starting from the paused state (skip on-enter).
         if (workflow.kind === 'transition-flow') {
             return await new TransitionFlowDriver({
                 host: this.host,
                 persistence: this.persistence,
-            }).resume(workflow, runId, currentState, options);
+            }).resume(workflow, runId, currentState, extKey, options);
         }
         return await new StateMachineDriver({
             host: this.host,
             persistence: this.persistence,
-        }).resume(workflow as StateMachineWorkflowDef, runId, currentState, options);
+        }).resume(workflow as StateMachineWorkflowDef, runId, currentState, extKey, options);
     }
 
     /** List runs currently paused. Optional filters and ordering. */
@@ -173,6 +177,8 @@ export class WorkflowService {
         options?: WorkflowRunOptions,
     ): Promise<TransitionRequestResult> {
         const currentState = await this.persistence.loadCurrentState(runId);
+        const run = await this.persistence.loadRun(runId);
+        const extKey = run?.external_key ?? undefined;
         if (currentState === undefined) {
             return {
                 allowed: false,
@@ -194,6 +200,7 @@ export class WorkflowService {
                 from: currentState,
                 to: toState,
                 reason: denied.reason,
+                externalKey: extKey,
             });
             return denied;
         }
@@ -210,6 +217,14 @@ export class WorkflowService {
                     workdir: options?.workdir,
                 },
             );
+            void options?.events?.emit('workflow.guard.evaluated', {
+                runId,
+                from: currentState,
+                to: toState,
+                kind: transition.guard.kind,
+                passed: guardResult.passed,
+                externalKey: extKey,
+            });
             if (!guardResult.passed) {
                 const denied = {
                     allowed: false as const,
@@ -223,6 +238,7 @@ export class WorkflowService {
                     from: currentState,
                     to: toState,
                     reason: denied.reason,
+                    externalKey: extKey,
                 });
                 return denied;
             }
@@ -236,12 +252,14 @@ export class WorkflowService {
             from: currentState,
             to: toState,
             trigger: transition.trigger ?? null,
+            externalKey: extKey,
         });
         void options?.events?.emit('workflow.transition.requested', {
             runId,
             from: currentState,
             to: toState,
             trigger: transition.trigger ?? null,
+            externalKey: extKey,
         });
         return { allowed: true, fromState: currentState, toState };
     }
