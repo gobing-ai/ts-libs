@@ -36,7 +36,11 @@
                     "id": { "type": "string", "minLength": 1 },
                     "description": { "type": "string" },
                     "type": { "enum": ["action", "gate", "parallel", "decision"] },
-                    "action": { "$ref": "#/$defs/action" }
+                    "action": { "$ref": "#/$defs/action" },
+                    "pause": {
+                        "type": "boolean",
+                        "description": "When true, the engine pauses the run at this node instead of auto-advancing."
+                    }
                 }
             }
         },
