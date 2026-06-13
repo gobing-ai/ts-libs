@@ -1,5 +1,5 @@
 export { loadWorkflowDef, loadWorkflowDefFromText, validateWorkflowDef } from './config';
-export { FSMError, RunCollisionError, WorkflowValidationError } from './errors';
+export { FSMError, RunCollisionError, WorkflowResumeError, WorkflowValidationError } from './errors';
 export type { WorkflowEngineEvents } from './events';
 export {
     type LoadWorkflowExtensionsOptions,
