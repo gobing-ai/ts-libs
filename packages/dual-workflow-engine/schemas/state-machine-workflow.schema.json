@@ -36,7 +36,11 @@
                     "id": { "type": "string", "minLength": 1 },
                     "description": { "type": "string" },
                     "onEnter": { "type": "array", "items": { "$ref": "#/$defs/action" } },
-                    "onExit": { "type": "array", "items": { "$ref": "#/$defs/action" } }
+                    "onExit": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+                    "pause": {
+                        "type": "boolean",
+                        "description": "When true, the engine pauses the run at this state instead of auto-advancing."
+                    }
                 }
             }
         },
