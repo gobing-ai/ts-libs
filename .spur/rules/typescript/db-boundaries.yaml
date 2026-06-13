@@ -95,3 +95,61 @@ rules:
       - "**/schema-sql.ts"
       - "**/tests/**"
       - "**/*.test.ts"
+
+  - id: raw-sql-confined-to-persistence-seams
+    description: >-
+      Raw SQL statements (SELECT…FROM, INSERT INTO, UPDATE…SET, DELETE FROM, and
+      table DDL) encode database structure — table and column names. When they
+      spread across drivers, handlers, and business logic, a schema change ripples
+      everywhere and the package can never be refactored cleanly. So raw SQL must
+      stay confined to each package's dedicated persistence + schema seam (its
+      `persistence`/`db-adapter` and `schema`/`schema-sql` files); everything else
+      consumes the persistence layer's typed methods, not SQL text. `packages/db`
+      is exempt — it is the facade that owns SQL on everyone's behalf (ADR-005).
+      A match outside the allowlist means the statement belongs in the package's
+      persistence seam, or the allowlist needs an ADR-traceable addition.
+    severity: error
+    evaluator:
+      # `rg` (ripgrep): linear-time, and its include/exclude globs are forwarded
+      # straight to ripgrep — correct `**` semantics, the dialect spur prefers over
+      # the in-process `regex` evaluator. Pattern matches SQL *statements*, not the
+      # execution functions, so SQL can't leak regardless of how it is run.
+      type: rg
+      config:
+        # DML branches are clause-anchored (…FROM, …SET) so prose like "update the
+        # record" cannot trip them; the DDL branch anchors on `TABLE <name> (`/`;`
+        # (with optional IF [NOT] EXISTS + quoting) so "create a table of contents"
+        # is skipped too. Tighter DDL form adapted from spur-new's dao-boundary.
+        pattern: '\b(SELECT\s+[\s\S]{0,300}?\s+FROM\s|INSERT\s+INTO\s|UPDATE\s+[a-zA-Z_."]+\s+SET\s|DELETE\s+FROM\s)|(CREATE|ALTER|DROP)\s+TABLE\s+(IF\s+(NOT\s+)?EXISTS\s+)?["''`]?[A-Za-z_][A-Za-z0-9_]*["''`]?\s*[(;]'
+        flags: 'i'
+    include:
+      - "packages/**/src/**/*.ts"
+    exclude:
+      - "packages/db/**"
+      - "packages/dual-workflow-engine/src/persistence.ts"
+      - "packages/dual-workflow-engine/src/schema-sql.ts"
+      - "packages/llm-jsonl-importer/src/importer.ts"
+      - "packages/llm-jsonl-importer/src/schema-sql.ts"
+      - "packages/rule-engine/src/persistence/db-adapter.ts"
+      - "packages/rule-engine/src/persistence/schema.ts"
+      - "**/tests/**"
+      - "**/*.test.ts"
+
+  - id: no-sql-text-imports
+    description: >-
+      `.sql` text-imports (`import sql from './x.sql' with { type: 'text' }`) move
+      SQL out of the source the scanner can see AND are non-portable through the
+      build/publish pipeline (the `.sql` asset is not emitted to `dist`). Keep SQL
+      inline in `.ts` inside the package's persistence seam, or derive DDL via the
+      schema helpers — never a text-import. Forbidden everywhere, including the
+      persistence seams. Adapted from spur-new's dao-boundary (ADR-005).
+    severity: error
+    evaluator:
+      type: rg
+      config:
+        pattern: 'from\s+["''][^"'']*\.sql["'']'
+    include:
+      - "packages/**/src/**/*.ts"
+    exclude:
+      - "**/tests/**"
+      - "**/*.test.ts"
