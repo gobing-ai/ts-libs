@@ -49,6 +49,15 @@ function recordingPersistence(): { adapter: WorkflowPersistenceAdapter; calls: s
         },
         loadRun: async (runId) => inner.loadRun(runId),
         listRuns: async () => inner.listRuns(),
+        findRunByKey: async (workflowName, externalKey) => inner.findRunByKey(workflowName, externalKey),
+        createOrAttachRun: async (record) => {
+            calls.push(`createOrAttachRun:${record.external_key ?? 'none'}`);
+            return inner.createOrAttachRun(record);
+        },
+        reseedRun: async (runId, newState) => {
+            calls.push(`reseedRun:${runId}:${newState}`);
+            return inner.reseedRun(runId, newState);
+        },
     };
     return { adapter, calls };
 }
@@ -146,6 +155,44 @@ describe('RunLifecycle.run', () => {
             lifecycle.done('end', 0),
         );
         expect(result.runId).toMatch(/^[0-9a-f-]{36}$/);
+    });
+
+    test('uses create-or-attach semantics when an external key is supplied', async () => {
+        const { adapter, calls } = recordingPersistence();
+        const result = await RunLifecycle.run(
+            'wf',
+            'state-machine',
+            { persistence: adapter },
+            { runId: 'r-keyed', externalKey: 'task:0042' },
+            async (lifecycle) => lifecycle.done('end', 0),
+        );
+
+        expect(calls[0]).toBe('createOrAttachRun:task:0042');
+        expect(calls).not.toContain('createRun:r-keyed:running');
+        expect(result.runId).toBe('r-keyed');
+    });
+
+    test('attached external-key run uses the existing run id', async () => {
+        const inner = new MemoryWorkflowPersistenceAdapter();
+        await inner.createRun({
+            id: 'existing',
+            workflow_name: 'wf',
+            mode: 'state-machine',
+            status: 'running',
+            started_at: new Date().toISOString(),
+            completed_at: null,
+            metadata_json: '{}',
+            external_key: 'task:0042',
+        });
+        const result = await RunLifecycle.run(
+            'wf',
+            'state-machine',
+            { persistence: inner },
+            { runId: 'new-attempt', externalKey: 'task:0042' },
+            async (lifecycle) => lifecycle.done('end', 0),
+        );
+
+        expect(result.runId).toBe('existing');
     });
 
     test('emits start/done observability through an injected logger', async () => {
