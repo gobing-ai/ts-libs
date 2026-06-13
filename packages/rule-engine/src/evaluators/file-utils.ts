@@ -124,12 +124,28 @@ export function relativeParent(path: string): string {
     return parent === '.' ? '' : parent;
 }
 
-/** Return true when a path matches any supplied fragment or suffix. */
+/**
+ * Return true when a path matches any supplied pattern.
+ *
+ * Each pattern is matched in two passes, most-specific first:
+ *  1. If it contains a glob metachar (`*`), try anchored {@link matchesGlob} —
+ *     so `packages/**\/*.ts` resolves segment-by-segment instead of collapsing
+ *     to a bare fragment (the latter silently matched nothing, leaving every
+ *     glob-scoped loose-mode rule scanning zero files).
+ *  2. Otherwise (or if the glob did not match), fall back to the legacy
+ *     fragment/suffix substring test, where stars are stripped — preserving
+ *     bare fragments like `.ts`, `src/`, `/tests/` that loose-mode evaluators
+ *     have always accepted, and keeping unanchored patterns like `*.ts`
+ *     (→ suffix `.ts`) matching nested paths.
+ */
 export function matchesAny(path: string, patterns: string[] | undefined): boolean {
     if (patterns === undefined || patterns.length === 0) return true;
+    const normalizedPath = path.replaceAll('\\', '/');
     return patterns.some((pattern) => {
-        const clean = pattern.replaceAll('\\', '/').replaceAll('**/', '').replaceAll('*', '');
-        return clean.length === 0 || path.includes(clean) || path.endsWith(clean);
+        const normalized = pattern.replaceAll('\\', '/');
+        if (normalized.includes('*') && matchesGlob(normalizedPath, normalized)) return true;
+        const clean = normalized.replaceAll('**/', '').replaceAll('*', '');
+        return clean.length === 0 || normalizedPath.includes(clean) || normalizedPath.endsWith(clean);
     });
 }
 
