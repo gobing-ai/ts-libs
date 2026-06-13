@@ -782,20 +782,24 @@ All three layers are **additive** — EventBus does not replace logging or traci
 
 | Event | Payload | When |
 |-------|---------|------|
-| `workflow.run.started` | `{ workflowName, mode, runId, dryRun }` | When a run begins (inside the span) |
-| `workflow.run.done` | `{ runId, finalState, transitionsTaken }` | When a run completes successfully |
-| `workflow.run.failed` | `{ runId, finalState, reason }` | When a run fails |
+| `workflow.run.started` | `{ workflowName, mode, runId, dryRun, externalKey? }` | When a run begins (inside the span) |
+| `workflow.run.done` | `{ runId, finalState, transitionsTaken, externalKey? }` | When a run completes successfully |
+| `workflow.run.failed` | `{ runId, finalState, reason, externalKey? }` | When a run fails |
 | `workflow.node.enter` | `{ runId, node, transitionsTaken }` | When entering a state or node |
-| `workflow.node.transition` | `{ runId, from, to, trigger }` | On a state/node transition |
+| `workflow.node.transition` | `{ runId, from, to, trigger, externalKey? }` | On a state/node transition |
 | `workflow.action.start` | `{ runId, node, kind }` | When an action starts executing |
 | `workflow.action.done` | `{ runId, node, kind, durationMs, ok }` | When an action finishes (success or failure) |
 | `workflow.action.failed_continue` | `{ runId, node, transitionsTaken, error? }` | When a non-fatal action failure is continued past |
 | `workflow.custom` | `{ name, payload }` | Emitted by the builtin `event.emit` action |
 | `workflow.hitl.note` | `{ runId, node, message }` | Emitted by the builtin `note` action |
-| `workflow.guard.evaluated` | `{ runId, from, to, kind, passed }` | When a guard condition is evaluated (fires for every guard) |
+| `workflow.guard.evaluated` | `{ runId, from, to, kind, passed, externalKey? }` | When a guard condition is evaluated (fires for every guard) |
 | `workflow.hitl.ask` | `{ runId, node, kind, message }` | When an interactive HITL prompt is presented |
 | `workflow.hitl.response` | `{ runId, node, ok }` | When a HITL prompt receives a response |
-
+| `workflow.run.reseeded` | `{ runId, fromState, toState, externalKey? }` | When a run's state is force-set via reseed |
+| `workflow.transition.requested` | `{ runId, from, to, trigger, externalKey? }` | When an external transition request is allowed and committed |
+| `workflow.transition.denied` | `{ runId, from, to, reason, externalKey? }` | When an external transition request is denied |
+| `workflow.run.paused` | `{ runId, node, transitionsTaken, externalKey? }` | When a run pauses at a declared pause point |
+| `workflow.run.resumed` | `{ runId, node, externalKey? }` | When a paused run is resumed |
 ### Compatibility Policy
 
 The event map is a **cross-package public contract**. Policy: **additive-only** — new events allowed, new optional payload fields allowed; never rename, remove, or repurpose an existing event or field.
@@ -808,6 +812,18 @@ Event handlers registered via `EventBus.on()` or `EventBus.once()` **must** be:
 - **Best-effort** — the engine emits via `void emit()` (fire-and-forget); async handlers are not awaited
 
 For **durable** audit/history/telemetry, use the persistence layer — every record is written incrementally during the run via direct adapter calls, not through the event bus.
+
+### Delivery Scope
+
+Event subscriptions are **process-local**: subscribe at startup, receive every event the run produces within
+that process. When a run spans multiple processes (e.g. created in process A, re-attached in process B via
+E1 durable runs, or resumed after restart via E3), each process receives only the events emitted during
+its own execution window. **Cross-process event delivery is explicitly out of scope** — consumers who need
+run-agnostic event history should build on the persistence layer instead.
+
+This design keeps the EventBus zero-config and test-friendly: no message broker, no serialization, no
+delivery guarantees. A subscriber in one process never receives events from another process's run
+execution.
 
 ### Usage
 
