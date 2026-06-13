@@ -1,7 +1,14 @@
 import { NodeProcessExecutor, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import { type CapabilityOrigin, CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 import { WorkflowValidationError } from './errors';
-import type { ActionResult, ActionRunContext, ActionRunner, GuardContext, GuardRunner } from './types';
+import type {
+    ActionResult,
+    ActionRunContext,
+    ActionRunner,
+    GuardContext,
+    GuardEvaluationResult,
+    GuardRunner,
+} from './types';
 
 /** Registry owner for workflow actions and guards. */
 export class WorkflowEngineHost {
@@ -60,8 +67,18 @@ export class WorkflowEngineHost {
 
     /** Evaluate a registered guard. */
     async evaluateGuard(kind: string, options: Record<string, unknown>, context: GuardContext): Promise<boolean> {
+        return (await this.evaluateGuardResult(kind, options, context)).passed;
+    }
+
+    /** Evaluate a registered guard and preserve any machine-readable report it returns. */
+    async evaluateGuardResult(
+        kind: string,
+        options: Record<string, unknown>,
+        context: GuardContext,
+    ): Promise<GuardEvaluationResult> {
         if (!this.guards.has(kind)) throw new WorkflowValidationError(`Unknown workflow guard "${kind}"`);
-        return await this.guards.get(kind).evaluate(options, context);
+        const result = await this.guards.get(kind).evaluate(options, context);
+        return typeof result === 'boolean' ? { passed: result } : result;
     }
 }
 
@@ -73,6 +90,7 @@ export function createDefaultWorkflowEngineHost(
     host.registerAction(new NoteActionRunner(), 'builtin');
     host.registerAction(new ShellActionRunner(options.processExecutor ?? new NodeProcessExecutor()), 'builtin');
     host.registerAction(new EventEmitActionRunner(), 'builtin');
+    host.registerGuard(new ShellGuardRunner(options.processExecutor ?? new NodeProcessExecutor()), 'builtin');
     host.registerGuard({ kind: 'always', evaluate: async () => true }, 'builtin');
     host.registerGuard({ kind: 'never', evaluate: async () => false }, 'builtin');
     host.registerGuard(
@@ -137,7 +155,7 @@ export class ShellActionRunner implements ActionRunner {
         const result = await this.processExecutor.run({
             command: spawn.command,
             args: spawn.args,
-            cwd: stringOption(options, 'cwd', context.workdir),
+            cwd: optionalStringOption(options, 'cwd', context.workdir),
             rejectOnError: false,
             forceBuffered: true,
         });
@@ -149,10 +167,42 @@ export class ShellActionRunner implements ActionRunner {
     }
 }
 
+/** Built-in shell guard backed by ts-runtime ProcessExecutor; passes when the command exits with 0. */
+export class ShellGuardRunner implements GuardRunner {
+    readonly kind = 'shell';
+
+    constructor(private readonly processExecutor: ProcessExecutor) {}
+
+    async evaluate(options: Record<string, unknown>, context: GuardContext): Promise<GuardEvaluationResult> {
+        const command = stringOption(options, 'command');
+        const explicitArgs = arrayOption(options, 'args');
+        const usesShell = explicitArgs.length === 0;
+        const spawn = usesShell ? { command: '/bin/sh', args: ['-c', command] } : { command, args: explicitArgs };
+        const result = await this.processExecutor.run({
+            command: spawn.command,
+            args: spawn.args,
+            cwd: optionalStringOption(options, 'cwd', context.workdir),
+            rejectOnError: false,
+            forceBuffered: true,
+        });
+        return {
+            passed: result.exitCode === 0,
+            report: { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode },
+        };
+    }
+}
+
 function stringOption(options: Record<string, unknown>, key: string, fallback?: string): string {
     const value = options[key];
     if (typeof value === 'string') return value;
     if (fallback !== undefined) return fallback;
+    throw new WorkflowValidationError(`Action option "${key}" must be a string`);
+}
+
+function optionalStringOption(options: Record<string, unknown>, key: string, fallback?: string): string | undefined {
+    const value = options[key];
+    if (typeof value === 'string') return value;
+    if (value === undefined) return fallback;
     throw new WorkflowValidationError(`Action option "${key}" must be a string`);
 }
 
