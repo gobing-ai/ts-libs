@@ -193,12 +193,22 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         const now = Date.now();
         await applyWorkflowEngineSchema(this.db);
         const previous = await this.db.queryFirst<{ state: string }>(
-            'SELECT state FROM workflow_states WHERE run_id = ? ORDER BY created_at DESC LIMIT 1',
+            'SELECT state FROM workflow_states WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
             runId,
         );
         await this.saveWorkflowState(runId, newState, { reseeded: true, reseededAt: new Date(now).toISOString() });
         await this.saveTransition(runId, previous?.state ?? '', newState, '__reseed__');
         return { fromState: previous?.state ?? null, toState: newState };
+    }
+
+    /** Load the current state name for a run. */
+    async loadCurrentState(runId: string): Promise<string | undefined> {
+        await applyWorkflowEngineSchema(this.db);
+        const row = await this.db.queryFirst<{ state: string }>(
+            'SELECT state FROM workflow_states WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
+            runId,
+        );
+        return row?.state;
     }
 }
 
@@ -314,5 +324,11 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
         await this.saveWorkflowState(runId, newState, { reseeded: true, reseededAt: new Date().toISOString() });
         await this.saveTransition(runId, previous?.state ?? '', newState, '__reseed__');
         return { fromState: previous?.state ?? null, toState: newState };
+    }
+
+    /** Load the current state name for a run. */
+    async loadCurrentState(runId: string): Promise<string | undefined> {
+        const last = this.states.findLast((s) => s.runId === runId);
+        return last?.state;
     }
 }
