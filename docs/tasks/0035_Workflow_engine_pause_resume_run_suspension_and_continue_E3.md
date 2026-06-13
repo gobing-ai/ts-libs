@@ -88,24 +88,41 @@ invocation resumes it.
 
 **Review — 2026-06-13**
 
-**Status:** 0 findings (self-review during implementation)
+**Status:** 1 finding fixed
 **Scope:** `packages/dual-workflow-engine/src/*`, `packages/dual-workflow-engine/tests/*`, `packages/dual-workflow-engine/schemas/*`
 **Mode:** verify
 **Channel:** current
 **Gate:** `bun run spur-check` -> pass; `bun run build` -> pass
 
-**Verdict:** PASS. All R1-R5 requirements implemented and verified.
+#### P1 — Blockers
+| # | Title | Dimension | Location | Recommendation |
+|---|-------|-----------|----------|----------------|
 
+#### P2 — Warnings
+| # | Title | Dimension | Location | Recommendation |
+|---|-------|-----------|----------|----------------|
 
+#### P3 — Info
+| # | Title | Dimension | Location | Recommendation |
+|---|-------|-----------|----------|----------------|
+| 1 | Missing regression that resumed runs leave paused discovery | Correctness | `packages/dual-workflow-engine/tests/pause-resume.test.ts` | Assert resumed state-machine and transition-flow runs persist `done` status and no longer appear in `listPausedRuns()` |
+
+#### P4 — Suggestions
+| # | Title | Dimension | Location | Recommendation |
+|---|-------|-----------|----------|----------------|
+
+**Fix-pass 2026-06-13:** 1 fixed, 0 failed, 0 skipped.
+
+**Verdict:** PASS. All R1-R5 requirements implemented and verified after fix pass.
 
 ### Testing
 
 - Command: `bun test packages/dual-workflow-engine/tests/pause-resume.test.ts`
-- Result: 20/20 tests pass
+- Result: 20/20 tests pass; command exits nonzero only because isolated-file coverage is below the repository coverage gate
 - Command: `bun run lint`
 - Result: pass — Biome clean and per-package typecheck clean
 - Command: `bun run spur-check`
-- Result: pass — lint/typecheck, pre-check spur rules, 1432/1432 tests, post-check coverage gate
+- Result: pass — lint/typecheck, pre-check spur rules, 1436/1436 tests, post-check coverage gate
 - Command: `bun run build`
 - Result: pass — all packages built
 
@@ -118,5 +135,4 @@ invocation resumes it.
 | test | packages/dual-workflow-engine/tests/pause-resume.test.ts | Main | 2026-06-13 |
 
 ### References
-
 
