@@ -1,6 +1,7 @@
+import { runActionStep } from './action-step';
 import { FSMError } from './errors';
 import type { WorkflowEngineHost } from './host';
-import { allowedEnv, RunLifecycle, runtimeBuiltins } from './run-lifecycle';
+import { allowedEnv, RunLifecycle } from './run-lifecycle';
 import type {
     ActionResult,
     TransitionFlowWorkflowDef,
@@ -8,7 +9,7 @@ import type {
     WorkflowRunOptions,
     WorkflowRunResult,
 } from './types';
-import { mergeSetVars, mergeVars, resolveOnErrorPolicy, resolveTemplates } from './variables';
+import { mergeSetVars, mergeVars } from './variables';
 
 /** Dependencies required by the transition-flow driver. */
 export interface TransitionFlowDriverOptions {
@@ -86,60 +87,26 @@ export class TransitionFlowDriver {
                         lastActionResult = undefined;
                     }
                 } else if (current.action !== undefined) {
-                    const resolved = resolveTemplates(current.action.options ?? {}, {
-                        vars,
-                        env,
-                        builtins: runtimeBuiltins(
-                            workflow.name,
-                            current.id,
-                            runId,
-                            transitionsTaken,
-                            'transition-flow',
-                        ),
-                    });
-                    const actionId = await this.options.persistence.saveActionStart(
+                    const step = await runActionStep(current.action, vars, {
+                        host: this.options.host,
+                        persistence: this.options.persistence,
+                        lifecycle,
+                        workflowName: workflow.name,
+                        stateOrNodeId: current.id,
                         runId,
-                        current.id,
-                        current.action.kind,
-                    );
-                    const actionStartMs = Date.now();
-                    lifecycle.actionStart(current.id, current.action.kind);
-                    try {
-                        lastActionResult = await this.options.host.runAction(current.action.kind, resolved, {
-                            runId,
-                            workdir: options.workdir,
-                            stateOrNodeId: current.id,
-                            vars,
-                            env,
-                            metadata: options.metadata,
-                            events: options.events,
-                        });
-                    } finally {
-                        const durationMs = Date.now() - actionStartMs;
-                        lifecycle.actionDone(
-                            current.id,
-                            current.action.kind,
-                            durationMs,
-                            lastActionResult?.ok ?? false,
-                        );
-                        void this.options.persistence.saveActionFinalize(
-                            actionId,
-                            lastActionResult?.ok !== false ? 'done' : 'failed',
-                            durationMs,
-                            lastActionResult?.ok ?? false,
-                            lastActionResult,
-                        );
-                    }
-                    if (lastActionResult.setVars) vars = mergeSetVars(vars, lastActionResult.setVars);
-                    if (!lastActionResult.ok) {
-                        const policy = resolveOnErrorPolicy(current.action.onError, defaultOnError, options.onError);
-                        if (policy === 'fail') {
-                            return await lifecycle.fail(current.id, transitionsTaken, lastActionResult.error);
-                        }
-                        lifecycle.warnActionFailed(current.id, transitionsTaken, lastActionResult.error);
-                    }
-                    if (lastActionResult.terminal === true) {
+                        mode: 'transition-flow',
+                        transitionsTaken,
+                        env,
+                        options,
+                        defaultOnError,
+                    });
+                    lastActionResult = step.result;
+                    if (step.result?.setVars) vars = mergeSetVars(vars, step.result.setVars);
+                    if (step.outcome === 'terminal') {
                         return await lifecycle.done(current.id, transitionsTaken);
+                    }
+                    if (step.outcome === 'fail') {
+                        return await lifecycle.fail(current.id, transitionsTaken, step.result?.error);
                     }
                 }
 

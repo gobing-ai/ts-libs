@@ -443,3 +443,46 @@ describe('allowedEnv', () => {
         expect(allowedEnv([], { ANY: 'value' })).toEqual({});
     });
 });
+
+describe('RunLifecycle.forExternalTransition', () => {
+    test('creates no run record — an external transition is a hop, not a run', () => {
+        // WHY: the external-transition path attaches to an existing run. If it created a
+        // record (or opened a workflow.run span) it would masquerade as a run in traces.
+        const { adapter, calls } = recordingPersistence();
+        RunLifecycle.forExternalTransition('wf', 'r1', { persistence: adapter }, undefined);
+        expect(calls).toEqual([]);
+    });
+
+    test('recordTransition persists and emits node.transition carrying the external key', async () => {
+        // WHY: WorkflowService.requestTransition reuses this seam so the transition
+        // persist+emit lives in one place; the external key must survive the seam.
+        const { adapter, calls } = recordingPersistence();
+        const events = new EventBus<WorkflowEngineEvents>();
+        const seen: string[] = [];
+        events.on('workflow.node.transition', (d) =>
+            seen.push(`${d.from}->${d.to}:${d.trigger}:${d.externalKey ?? ''}`),
+        );
+
+        const lifecycle = RunLifecycle.forExternalTransition('wf', 'r1', { persistence: adapter, events }, 'entity/1');
+        await lifecycle.recordTransition('start', 'done', 'fast-track');
+
+        expect(calls).toEqual(['saveTransition:start->done:fast-track']);
+        expect(seen).toEqual(['start->done:fast-track:entity/1']);
+    });
+
+    test('guardEvaluated emits with the external key for attached transitions', () => {
+        const events = new EventBus<WorkflowEngineEvents>();
+        const seen: string[] = [];
+        events.on('workflow.guard.evaluated', (d) => seen.push(`${d.kind}:${d.passed}:${d.externalKey ?? ''}`));
+
+        const lifecycle = RunLifecycle.forExternalTransition(
+            'wf',
+            'r1',
+            { persistence: new MemoryWorkflowPersistenceAdapter(), events },
+            'entity/9',
+        );
+        lifecycle.guardEvaluated('start', 'review', 'allow-if-reviewed', false);
+
+        expect(seen).toEqual(['allow-if-reviewed:false:entity/9']);
+    });
+});
