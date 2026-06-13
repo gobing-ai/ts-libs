@@ -1,5 +1,5 @@
 import { loadWorkflowDef } from './config';
-import { FSMError } from './errors';
+import { FSMError, WorkflowResumeError } from './errors';
 import type { WorkflowEngineHost } from './host';
 import { StateMachineDriver } from './state-machine';
 import { TransitionFlowDriver } from './transition-flow';
@@ -94,6 +94,43 @@ export class WorkflowService {
             fromState: result.fromState ?? '',
             toState: result.toState,
         });
+    }
+
+    /** Resume a paused run, continuing execution from where it stopped. */
+    async resumeRun(workflow: WorkflowDef, runId: string, options?: WorkflowRunOptions): Promise<WorkflowRunResult> {
+        const run = await this.persistence.loadRun(runId);
+        if (run === undefined) {
+            throw new WorkflowResumeError(`Run "${runId}" not found`);
+        }
+        if (run.status !== 'paused') {
+            throw new WorkflowResumeError(`Run "${runId}" is not paused (status: ${run.status})`);
+        }
+
+        const currentState = await this.persistence.loadCurrentState(runId);
+        if (currentState === undefined) {
+            throw new WorkflowResumeError(`Run "${runId}" has no persisted state to resume from`);
+        }
+
+        // Re-open the run as running.
+        await this.persistence.finalizeRun(runId, 'running', '');
+        void options?.events?.emit('workflow.run.resumed', { runId, node: currentState });
+
+        // Resume through the appropriate driver, starting from the paused state (skip on-enter).
+        if (workflow.kind === 'transition-flow') {
+            return await new TransitionFlowDriver({
+                host: this.host,
+                persistence: this.persistence,
+            }).resume(workflow, runId, currentState, options);
+        }
+        return await new StateMachineDriver({
+            host: this.host,
+            persistence: this.persistence,
+        }).resume(workflow as StateMachineWorkflowDef, runId, currentState, options);
+    }
+
+    /** List runs currently paused. Optional filters and ordering. */
+    async listPausedRuns(options?: { workflowName?: string; limit?: number }): Promise<readonly WorkflowRunRecord[]> {
+        return await this.persistence.listPausedRuns(options);
     }
 
     /**
