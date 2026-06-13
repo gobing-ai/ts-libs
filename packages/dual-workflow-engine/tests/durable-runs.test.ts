@@ -357,13 +357,15 @@ describe('WorkflowService — E1 durable named runs', () => {
     test('reseedRun validates state-machine target state and emits corrective event', async () => {
         const events = new EventBus<WorkflowEngineEvents>();
         const seen: string[] = [];
-        events.on('workflow.run.reseeded', (data) => seen.push(`${data.runId}:${data.fromState}->${data.toState}`));
-        await adapter.createRun(makeRecord({ id: 'r1' }));
+        events.on('workflow.run.reseeded', (data) =>
+            seen.push(`${data.runId}:${data.fromState}->${data.toState}:${data.externalKey ?? ''}`),
+        );
+        await adapter.createRun(makeRecord({ id: 'r1', external_key: 'entity/reseed' }));
         await adapter.saveWorkflowState('r1', 'start', {});
 
         await service.reseedRun(simpleWorkflow(), 'r1', 'done', { events });
 
-        expect(seen).toEqual(['r1:start->done']);
+        expect(seen).toEqual(['r1:start->done:entity/reseed']);
     });
 
     test('reseedRun rejects undeclared state when workflow definition is provided', async () => {
