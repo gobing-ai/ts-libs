@@ -6,12 +6,17 @@ CREATE TABLE IF NOT EXISTS runs (
     mode TEXT,
     status TEXT NOT NULL,
     agent TEXT,
+    external_key TEXT,
     started_at TEXT NOT NULL,
     completed_at TEXT,
     metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_external_key
+    ON runs (workflow_name, external_key)
+    WHERE external_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS phase_runs (
     id TEXT PRIMARY KEY,
