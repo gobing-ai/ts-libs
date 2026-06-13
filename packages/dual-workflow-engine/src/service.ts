@@ -1,11 +1,12 @@
 import { loadWorkflowDef } from './config';
 import { FSMError, WorkflowResumeError } from './errors';
 import type { WorkflowEngineHost } from './host';
+import { RunLifecycle } from './run-lifecycle';
 import { StateMachineDriver } from './state-machine';
 import { TransitionFlowDriver } from './transition-flow';
 import type {
     StateMachineWorkflowDef,
-    TransitionDeniedReason,
+    TransitionDenied,
     TransitionRequestResult,
     WorkflowDef,
     WorkflowPersistenceAdapter,
@@ -74,20 +75,41 @@ export class WorkflowService {
         newStateOrOptions?: string | WorkflowRunOptions,
         maybeOptions?: WorkflowRunOptions,
     ): Promise<void> {
-        const workflow = typeof workflowOrRunId === 'string' ? undefined : workflowOrRunId;
-        const runId = typeof workflowOrRunId === 'string' ? workflowOrRunId : runIdOrNewState;
-        const newState = typeof workflowOrRunId === 'string' ? runIdOrNewState : (newStateOrOptions as string);
-        const options =
-            typeof workflowOrRunId === 'string' ? (newStateOrOptions as WorkflowRunOptions | undefined) : maybeOptions;
+        // Normalize the two overloads to a single typed shape exactly once, so the
+        // commit path below never re-discriminates or casts.
+        const args =
+            typeof workflowOrRunId === 'string'
+                ? {
+                      workflow: undefined,
+                      runId: workflowOrRunId,
+                      newState: runIdOrNewState,
+                      options: newStateOrOptions as WorkflowRunOptions | undefined,
+                  }
+                : {
+                      workflow: workflowOrRunId,
+                      runId: runIdOrNewState,
+                      newState: newStateOrOptions as string,
+                      options: maybeOptions,
+                  };
 
-        if (workflow !== undefined) {
-            if (workflow.kind === 'transition-flow')
-                throw new FSMError('reseedRun only supports state-machine workflows');
-            if (!workflow.states.some((state) => state.id === newState)) {
-                throw new FSMError(`Cannot reseed run "${runId}" to undeclared state "${newState}"`);
-            }
+        if (args.workflow !== undefined) {
+            this.assertReseedTargetDeclared(args.workflow, args.runId, args.newState);
         }
+        await this.commitReseed(args.runId, args.newState, args.options);
+    }
 
+    /** Reject a reseed target the workflow definition does not allow (state-machine states only). */
+    private assertReseedTargetDeclared(workflow: WorkflowDef, runId: string, newState: string): void {
+        if (workflow.kind === 'transition-flow') {
+            throw new FSMError('reseedRun only supports state-machine workflows');
+        }
+        if (!workflow.states.some((state) => state.id === newState)) {
+            throw new FSMError(`Cannot reseed run "${runId}" to undeclared state "${newState}"`);
+        }
+    }
+
+    /** Persist the reseed and emit the corrective event with the run's external key. */
+    private async commitReseed(runId: string, newState: string, options?: WorkflowRunOptions): Promise<void> {
         const run = await this.persistence.loadRun(runId);
         const extKey = run?.external_key ?? undefined;
         const result = await this.persistence.reseedRun(runId, newState);
@@ -180,29 +202,32 @@ export class WorkflowService {
         const run = await this.persistence.loadRun(runId);
         const extKey = run?.external_key ?? undefined;
         if (currentState === undefined) {
+            // No state recorded yet: nothing to transition from, and no `from` to
+            // address a denial event at — return the denial without emitting.
             return {
                 allowed: false,
-                reason: 'no-such-transition' as TransitionDeniedReason,
+                reason: 'no-such-transition',
                 detail: `No state recorded for run "${runId}"`,
             };
         }
 
+        // An external transition is a single guarded hop on an existing run, not a
+        // run itself — borrow a span-free lifecycle so the transition persist+emit
+        // mechanics reuse the same seam the drivers use (no new workflow.run span).
+        const lifecycle = RunLifecycle.forExternalTransition(
+            workflow.name,
+            runId,
+            { persistence: this.persistence, events: options?.events },
+            extKey,
+        );
+
         // Find the matching transition from current state to requested state.
         const transition = workflow.transitions.find((t) => t.from === currentState && t.to === toState);
         if (transition === undefined) {
-            const denied = {
-                allowed: false as const,
-                reason: 'no-such-transition' as TransitionDeniedReason,
+            return this.denyTransition(options, runId, currentState, toState, extKey, {
+                reason: 'no-such-transition',
                 detail: `No transition from "${currentState}" to "${toState}"`,
-            };
-            void options?.events?.emit('workflow.transition.denied', {
-                runId,
-                from: currentState,
-                to: toState,
-                reason: denied.reason,
-                externalKey: extKey,
             });
-            return denied;
         }
 
         // Evaluate guard if present.
@@ -217,50 +242,52 @@ export class WorkflowService {
                     workdir: options?.workdir,
                 },
             );
-            void options?.events?.emit('workflow.guard.evaluated', {
-                runId,
-                from: currentState,
-                to: toState,
-                kind: transition.guard.kind,
-                passed: guardResult.passed,
-                externalKey: extKey,
-            });
+            lifecycle.guardEvaluated(currentState, toState, transition.guard.kind, guardResult.passed);
             if (!guardResult.passed) {
-                const denied = {
-                    allowed: false as const,
-                    reason: 'guard-failed' as TransitionDeniedReason,
+                return this.denyTransition(options, runId, currentState, toState, extKey, {
+                    reason: 'guard-failed',
                     detail: `Guard "${transition.guard.kind}" denied transition from "${currentState}" to "${toState}"`,
                     guardKind: transition.guard.kind,
                     ...(guardResult.report === undefined ? {} : { guardReport: guardResult.report }),
-                };
-                void options?.events?.emit('workflow.transition.denied', {
-                    runId,
-                    from: currentState,
-                    to: toState,
-                    reason: denied.reason,
-                    externalKey: extKey,
                 });
-                return denied;
             }
         }
 
-        // Commit: persist transition + state update.
-        await this.persistence.saveTransition(runId, currentState, toState, transition.trigger ?? null);
+        // Commit: persist the transition + emit node.transition through the shared
+        // lifecycle seam, then the external-only state snapshot and requested event.
+        const trigger = transition.trigger ?? null;
+        await lifecycle.recordTransition(currentState, toState, trigger);
         await this.persistence.saveWorkflowState(runId, toState, {});
-        void options?.events?.emit('workflow.node.transition', {
-            runId,
-            from: currentState,
-            to: toState,
-            trigger: transition.trigger ?? null,
-            externalKey: extKey,
-        });
         void options?.events?.emit('workflow.transition.requested', {
             runId,
             from: currentState,
             to: toState,
-            trigger: transition.trigger ?? null,
+            trigger,
             externalKey: extKey,
         });
         return { allowed: true, fromState: currentState, toState };
+    }
+
+    /**
+     * Build a `TransitionDenied` result and emit its `workflow.transition.denied`
+     * event in one place — the single denial seam for the external-transition path,
+     * so the event payload and the returned reason can never drift apart.
+     */
+    private denyTransition(
+        options: WorkflowRunOptions | undefined,
+        runId: string,
+        from: string,
+        to: string,
+        externalKey: string | undefined,
+        denial: Omit<TransitionDenied, 'allowed'>,
+    ): TransitionDenied {
+        void options?.events?.emit('workflow.transition.denied', {
+            runId,
+            from,
+            to,
+            reason: denial.reason,
+            externalKey,
+        });
+        return { allowed: false, ...denial };
     }
 }
