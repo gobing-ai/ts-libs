@@ -140,13 +140,20 @@ export interface GuardContext {
     readonly runId: string;
     readonly current: string;
     readonly vars: Vars;
+    readonly workdir?: string;
     readonly lastActionResult?: ActionResult;
+}
+
+/** Rich guard evaluation result. Boolean guard runners remain supported for compatibility. */
+export interface GuardEvaluationResult {
+    readonly passed: boolean;
+    readonly report?: unknown;
 }
 
 /** Guard runner implementation registered in the workflow host. */
 export interface GuardRunner {
     readonly kind: string;
-    evaluate(options: Record<string, unknown>, context: GuardContext): Promise<boolean>;
+    evaluate(options: Record<string, unknown>, context: GuardContext): Promise<boolean | GuardEvaluationResult>;
 }
 
 /** Input for running a workflow. */
@@ -196,6 +203,34 @@ export interface WorkflowReseedResult {
     readonly toState: string;
 }
 
+/** Reason categories when an external transition request is denied. */
+export type TransitionDeniedReason = 'no-such-transition' | 'guard-failed';
+
+/** Result when an external transition request is allowed. */
+export interface TransitionAllowed {
+    readonly allowed: true;
+    /** The state the run has moved to. */
+    readonly toState: string;
+    /** The state the run moved from. */
+    readonly fromState: string;
+}
+
+/** Result when an external transition request is denied. */
+export interface TransitionDenied {
+    readonly allowed: false;
+    /** Machine-readable reason category. */
+    readonly reason: TransitionDeniedReason;
+    /** Human-readable detail from the guard (when guard-failed) or transition lookup. */
+    readonly detail: string;
+    /** The guard kind that was evaluated (when guard-failed). */
+    readonly guardKind?: string;
+    /** Machine-readable guard report/output when a guard was evaluated. */
+    readonly guardReport?: unknown;
+}
+
+/** Discriminated union result for external transition requests. */
+export type TransitionRequestResult = TransitionAllowed | TransitionDenied;
+
 /** Persisted action run record — one row per action executed in a workflow run. */
 export interface ActionRunRecord {
     readonly id: string;
@@ -239,4 +274,6 @@ export interface WorkflowPersistenceAdapter {
     createOrAttachRun(record: WorkflowRunRecord): Promise<WorkflowRunRecord>;
     /** Force-set the current state of a run (consumer-side authority reconciliation). */
     reseedRun(runId: string, newState: string): Promise<WorkflowReseedResult>;
+    /** Load the current state name for a run (latest state snapshot). Returns undefined if no state recorded. */
+    loadCurrentState(runId: string): Promise<string | undefined>;
 }
