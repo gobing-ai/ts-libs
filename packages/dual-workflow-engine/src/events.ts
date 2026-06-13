@@ -45,4 +45,13 @@ export type WorkflowEngineEvents = {
     'workflow.hitl.response': (data: { runId: string; node: string; ok: boolean }) => void;
     /** Emitted when a run's state is force-set via reseed (consumer-side authority reconciliation). */
     'workflow.run.reseeded': (data: { runId: string; fromState: string; toState: string }) => void;
+    /** Emitted when an external transition request is allowed and committed. */
+    'workflow.transition.requested': (data: {
+        runId: string;
+        from: string;
+        to: string;
+        trigger: string | null;
+    }) => void;
+    /** Emitted when an external transition request is denied. */
+    'workflow.transition.denied': (data: { runId: string; from: string; to: string; reason: string }) => void;
 };
