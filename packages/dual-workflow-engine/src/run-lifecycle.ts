@@ -137,6 +137,28 @@ export class RunLifecycle {
         );
     }
 
+    /**
+     * Resume an existing run without creating a new record. Used by driver resume paths.
+     * The caller is responsible for ensuring the run exists and emitting the resumed event.
+     */
+    static async resume(
+        workflowName: string,
+        mode: WorkflowMode,
+        deps: RunLifecycleDeps,
+        runId: string,
+        loop: (lifecycle: RunLifecycle) => Promise<WorkflowRunResult>,
+    ): Promise<WorkflowRunResult> {
+        return await traceAsync(
+            'workflow.run',
+            async () => {
+                const lifecycle = new RunLifecycle(runId, workflowName, mode, deps);
+                lifecycle.logger.info('workflow run resumed');
+                return await loop(lifecycle);
+            },
+            { attributes: { 'workflow.name': workflowName, 'workflow.mode': mode } },
+        );
+    }
+
     /** Persist the current state/node snapshot and mark its phase running. */
     async enter(stateOrNodeId: string, transitionsTaken: number): Promise<void> {
         await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, { transitionsTaken });
@@ -188,6 +210,27 @@ export class RunLifecycle {
         void this.events?.emit('workflow.run.failed', { runId: this.runId, finalState, reason });
         this.logger.warn('workflow run failed', { finalState, transitionsTaken, reason });
         return this.result('failed', finalState, transitionsTaken, reason);
+    }
+
+    /** Finalize the run as paused and return its result. */
+    async pause(stateOrNodeId: string, transitionsTaken: number): Promise<WorkflowRunResult> {
+        await this.persistence.savePhase(this.runId, stateOrNodeId, 'paused');
+        await this.persistence.finalizeRun(this.runId, 'paused', new Date().toISOString());
+        this.logger.info('workflow run paused', { stateOrNodeId, transitionsTaken });
+        addSpanEvent('workflow.run.paused', { runId: this.runId, node: stateOrNodeId, transitionsTaken });
+        void this.events?.emit('workflow.run.paused', {
+            runId: this.runId,
+            node: stateOrNodeId,
+            transitionsTaken,
+        });
+        return this.result('paused', stateOrNodeId, transitionsTaken);
+    }
+
+    /** Emit the resumed event (called by WorkflowService after re-creating a lifecycle for resume). */
+    emitResumed(node: string): void {
+        addSpanEvent('workflow.run.resumed', { runId: this.runId, node });
+        void this.events?.emit('workflow.run.resumed', { runId: this.runId, node });
+        this.logger.info('workflow run resumed', { node });
     }
 
     /** Emit action-level observability before a host action is invoked. */
