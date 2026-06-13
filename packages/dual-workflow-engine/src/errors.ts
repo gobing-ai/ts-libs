@@ -27,3 +27,14 @@ export class RunCollisionError extends Error {
         this.name = 'RunCollisionError';
     }
 }
+
+/** Error raised when attempting to resume a run that is not paused. */
+export class WorkflowResumeError extends Error {
+    constructor(
+        message: string,
+        readonly details?: unknown,
+    ) {
+        super(message);
+        this.name = 'WorkflowResumeError';
+    }
+}
