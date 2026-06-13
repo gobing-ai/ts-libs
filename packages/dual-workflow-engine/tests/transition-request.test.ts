@@ -268,6 +268,78 @@ describe('requestTransition — Memory adapter', () => {
         await service.requestTransition(wf, 'r9', 'start', { events });
         expect(seen).toEqual(['denied:done->start:no-such-transition']);
     });
+
+    test('emits guard evaluation with externalKey for attached request transitions', async () => {
+        const events = new EventBus<WorkflowEngineEvents>();
+        const seen: Array<{ from: string; to: string; kind: string; passed: boolean; externalKey?: string }> = [];
+        events.on('workflow.guard.evaluated', (d) =>
+            seen.push({
+                from: d.from,
+                to: d.to,
+                kind: d.kind,
+                passed: d.passed,
+                externalKey: d.externalKey,
+            }),
+        );
+
+        const hostWithGuard = new WorkflowEngineHost();
+        hostWithGuard.registerGuard(new FlagGuardRunner());
+        const svc = new WorkflowService(hostWithGuard, adapter);
+        await adapter.createRun(makeRecord({ id: 'e4-guard-allow', external_key: 'entity/e4-allow' }));
+        await adapter.saveWorkflowState('e4-guard-allow', 'start', {});
+
+        const result = await svc.requestTransition(workflowWithGuards(), 'e4-guard-allow', 'review', { events });
+
+        expect(result.allowed).toBe(true);
+        expect(seen).toEqual([
+            {
+                from: 'start',
+                to: 'review',
+                kind: 'allow-if-reviewed',
+                passed: true,
+                externalKey: 'entity/e4-allow',
+            },
+        ]);
+    });
+
+    test('emits guard failure and denial with externalKey for attached request transitions', async () => {
+        const events = new EventBus<WorkflowEngineEvents>();
+        const seen: string[] = [];
+        events.on('workflow.guard.evaluated', (d) =>
+            seen.push(`guard:${d.from}->${d.to}:${d.kind}:${d.passed}:${d.externalKey ?? ''}`),
+        );
+        events.on('workflow.transition.denied', (d) =>
+            seen.push(`denied:${d.from}->${d.to}:${d.reason}:${d.externalKey ?? ''}`),
+        );
+
+        const hostWithGuard = new WorkflowEngineHost();
+        hostWithGuard.registerGuard(new FlagGuardRunner());
+        const svc = new WorkflowService(hostWithGuard, adapter);
+        const wf: StateMachineWorkflowDef = {
+            name: 'test-wf',
+            initialState: 'start',
+            terminalStates: ['done'],
+            states: [{ id: 'start' }, { id: 'review' }],
+            transitions: [
+                {
+                    from: 'start',
+                    to: 'review',
+                    trigger: 'submit',
+                    guard: { kind: 'allow-if-reviewed', options: { flag: 'no' } },
+                },
+            ],
+        };
+        await adapter.createRun(makeRecord({ id: 'e4-guard-deny', external_key: 'entity/e4-deny' }));
+        await adapter.saveWorkflowState('e4-guard-deny', 'start', {});
+
+        const result = await svc.requestTransition(wf, 'e4-guard-deny', 'review', { events });
+
+        expect(result.allowed).toBe(false);
+        expect(seen).toEqual([
+            'guard:start->review:allow-if-reviewed:false:entity/e4-deny',
+            'denied:start->review:guard-failed:entity/e4-deny',
+        ]);
+    });
 });
 
 // ─── Concurrency serialization tests ──────────────────────────────────
