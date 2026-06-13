@@ -58,6 +58,8 @@ export const StateMachineWorkflowDefSchema = z
                     description: z.string().optional(),
                     onEnter: z.array(ActionDefSchema).optional(),
                     onExit: z.array(ActionDefSchema).optional(),
+                    /** When true, the engine pauses the run at this state instead of auto-advancing. */
+                    pause: z.boolean().optional(),
                 })
                 .strict(),
         ),
@@ -97,6 +99,8 @@ export const TransitionFlowWorkflowDefSchema = z
                     description: z.string().optional(),
                     type: z.enum(['action', 'gate', 'parallel', 'decision']).optional(),
                     action: ActionDefSchema.optional(),
+                    /** When true, the engine pauses the run at this node instead of auto-advancing. */
+                    pause: z.boolean().optional(),
                 })
                 .strict(),
         ),
