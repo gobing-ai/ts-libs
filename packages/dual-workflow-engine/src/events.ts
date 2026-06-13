@@ -54,4 +54,8 @@ export type WorkflowEngineEvents = {
     }) => void;
     /** Emitted when an external transition request is denied. */
     'workflow.transition.denied': (data: { runId: string; from: string; to: string; reason: string }) => void;
+    /** Emitted when a run pauses at a declared pause point. */
+    'workflow.run.paused': (data: { runId: string; node: string; transitionsTaken: number }) => void;
+    /** Emitted when a paused run is resumed. */
+    'workflow.run.resumed': (data: { runId: string; node: string }) => void;
 };
