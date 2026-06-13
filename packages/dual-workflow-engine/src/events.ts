@@ -1,15 +1,32 @@
 /** Typed event map for workflow-engine run observability. All events prefixed `workflow.`. */
 export type WorkflowEngineEvents = {
     /** Emitted when a run begins (inside the span). */
-    'workflow.run.started': (data: { workflowName: string; mode: string; runId: string; dryRun: boolean }) => void;
+    'workflow.run.started': (data: {
+        workflowName: string;
+        mode: string;
+        runId: string;
+        dryRun: boolean;
+        externalKey?: string;
+    }) => void;
     /** Emitted when a run completes successfully. */
-    'workflow.run.done': (data: { runId: string; finalState: string; transitionsTaken: number }) => void;
+    'workflow.run.done': (data: {
+        runId: string;
+        finalState: string;
+        transitionsTaken: number;
+        externalKey?: string;
+    }) => void;
     /** Emitted when a run fails. */
-    'workflow.run.failed': (data: { runId: string; finalState: string; reason: string }) => void;
+    'workflow.run.failed': (data: { runId: string; finalState: string; reason: string; externalKey?: string }) => void;
     /** Emitted when entering a state or node. */
     'workflow.node.enter': (data: { runId: string; node: string; transitionsTaken: number }) => void;
     /** Emitted on a state/node transition. */
-    'workflow.node.transition': (data: { runId: string; from: string; to: string; trigger: string | null }) => void;
+    'workflow.node.transition': (data: {
+        runId: string;
+        from: string;
+        to: string;
+        trigger: string | null;
+        externalKey?: string;
+    }) => void;
     /** Emitted when an action starts executing. */
     'workflow.action.start': (data: { runId: string; node: string; kind: string }) => void;
     /** Emitted when an action finishes executing (success or failure). */
@@ -38,24 +55,42 @@ export type WorkflowEngineEvents = {
         to: string;
         kind: string;
         passed: boolean;
+        externalKey?: string;
     }) => void;
     /** Emitted when an interactive HITL prompt is presented and the engine waits for input. */
     'workflow.hitl.ask': (data: { runId: string; node: string; kind: string; message: string }) => void;
     /** Emitted when an interactive HITL prompt receives a response. */
     'workflow.hitl.response': (data: { runId: string; node: string; ok: boolean }) => void;
     /** Emitted when a run's state is force-set via reseed (consumer-side authority reconciliation). */
-    'workflow.run.reseeded': (data: { runId: string; fromState: string; toState: string }) => void;
+    'workflow.run.reseeded': (data: {
+        runId: string;
+        fromState: string;
+        toState: string;
+        externalKey?: string;
+    }) => void;
     /** Emitted when an external transition request is allowed and committed. */
     'workflow.transition.requested': (data: {
         runId: string;
         from: string;
         to: string;
         trigger: string | null;
+        externalKey?: string;
     }) => void;
     /** Emitted when an external transition request is denied. */
-    'workflow.transition.denied': (data: { runId: string; from: string; to: string; reason: string }) => void;
+    'workflow.transition.denied': (data: {
+        runId: string;
+        from: string;
+        to: string;
+        reason: string;
+        externalKey?: string;
+    }) => void;
     /** Emitted when a run pauses at a declared pause point. */
-    'workflow.run.paused': (data: { runId: string; node: string; transitionsTaken: number }) => void;
+    'workflow.run.paused': (data: {
+        runId: string;
+        node: string;
+        transitionsTaken: number;
+        externalKey?: string;
+    }) => void;
     /** Emitted when a paused run is resumed. */
-    'workflow.run.resumed': (data: { runId: string; node: string }) => void;
+    'workflow.run.resumed': (data: { runId: string; node: string; externalKey?: string }) => void;
 };
