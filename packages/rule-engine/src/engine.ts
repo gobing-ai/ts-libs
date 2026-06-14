@@ -180,6 +180,7 @@ export class RuleEngine {
                         ruleId: rule.id,
                         findings: ruleFindings.length,
                         durationMs,
+                        details: ruleFindings,
                     });
 
                     // Persist eval completion.
