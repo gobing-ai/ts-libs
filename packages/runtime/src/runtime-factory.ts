@@ -1,7 +1,7 @@
 import type { Config } from './config';
 import type { FileSystem } from './file-system';
 import type { ProcessExecutor, ProcessExecutorConfig } from './process-executor';
-import type { LoadConfigOptions, RuntimeCapabilities, RuntimeName } from './types';
+import type { DatabaseConfig, LoadConfigOptions, RuntimeCapabilities, RuntimeDbAdapter, RuntimeName } from './types';
 
 /**
  * Abstract factory for creating runtime-aware infrastructure.
@@ -25,4 +25,16 @@ export interface RuntimeFactory {
 
     /** Load config from the runtime's config backend. */
     loadConfig(options?: LoadConfigOptions): Promise<Config>;
+
+    /**
+     * Create a runtime-specific database adapter.
+     *
+     * ts-runtime owns *connection* (opens the adapter at `config.url`); the
+     * consumer owns *schema* (migrations). The returned adapter is connected
+     * but NOT migrated.
+     *
+     * On runtimes without a SQL database (`capabilities.hasSqlDatabase === false`)
+     * this throws {@link D1NotConfiguredError}.
+     */
+    createDbAdapter(config: DatabaseConfig): Promise<RuntimeDbAdapter>;
 }

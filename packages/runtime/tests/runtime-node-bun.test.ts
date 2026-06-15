@@ -50,6 +50,7 @@ describe('nodeBunFactory', () => {
                 hasFilesystem: true,
                 hasProcessExecution: true,
                 hasPersistentStorage: true,
+                hasSqlDatabase: true,
             });
         });
     });

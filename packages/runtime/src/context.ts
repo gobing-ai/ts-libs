@@ -41,6 +41,7 @@ export class RuntimeContext<TServices extends RuntimeServiceMap = RuntimeService
                 hasFilesystem: true,
                 hasProcessExecution: true,
                 hasPersistentStorage: true,
+                hasSqlDatabase: true,
             } satisfies RuntimeCapabilities);
 
         this.register('config', (options.services?.config ?? buildConfigFromObject({})) as TServices['config']);

@@ -5,7 +5,7 @@ import type { FileSystem } from './file-system';
 import { createNodeFileSystem } from './file-system-node';
 import { ProcessExecutor, type ProcessExecutorConfig } from './process-executor';
 import type { RuntimeFactory } from './runtime-factory';
-import type { LoadConfigOptions } from './types';
+import type { DatabaseConfig, LoadConfigOptions, RuntimeDbAdapter } from './types';
 
 // Lazy re-initialisable singleton for test isolation.
 let _nodeFileSystem: FileSystem | undefined;
@@ -24,11 +24,11 @@ export function _resetNodeFileSystem(): void {
  */
 export const nodeBunFactory: RuntimeFactory = {
     runtimeName: 'node-bun',
-
     capabilities: {
         hasFilesystem: true,
         hasProcessExecution: true,
         hasPersistentStorage: true,
+        hasSqlDatabase: true,
     },
 
     createFileSystem: () => getNodeFileSystem(),
@@ -37,6 +37,20 @@ export const nodeBunFactory: RuntimeFactory = {
 
     async loadConfig(options?: LoadConfigOptions): Promise<Config> {
         return loadNodeConfig(options);
+    },
+
+    async createDbAdapter(config: DatabaseConfig): Promise<RuntimeDbAdapter> {
+        // Dynamic import via a variable specifier keeps ts-db out of the
+        // static dependency graph (it depends on ts-runtime, so a static dep
+        // would cycle). The variable prevents tsc from type-resolving the
+        // module at build time (ts-db builds after ts-runtime); at runtime
+        // Bun resolves it via the workspace + tsconfig paths. Connection only
+        // — the caller owns schema/migrations.
+        const moduleSpecifier = '@gobing-ai/ts-db';
+        const mod = (await import(moduleSpecifier)) as {
+            createDbAdapter: (config: { driver: 'bun-sqlite'; url?: string }) => RuntimeDbAdapter;
+        };
+        return mod.createDbAdapter({ driver: 'bun-sqlite', url: config.url });
     },
 };
 

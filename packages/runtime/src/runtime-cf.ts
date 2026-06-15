@@ -1,10 +1,11 @@
 import { parse as parseYaml } from 'yaml';
 import type { Config } from './config';
 import { buildConfigFromObject } from './config';
+import { D1NotConfiguredError } from './db-errors';
 import { createCfFileSystem } from './file-system-cf';
 import type { ProcessExecutorConfig } from './process-executor';
 import type { RuntimeFactory } from './runtime-factory';
-import type { LoadConfigOptions } from './types';
+import type { DatabaseConfig, LoadConfigOptions, RuntimeDbAdapter } from './types';
 
 /** Binding name for the YAML config text blob set in wrangler.toml. */
 const CONFIG_YAML_BINDING = 'CONFIG_YAML';
@@ -14,17 +15,24 @@ const CONFIG_YAML_BINDING = 'CONFIG_YAML';
  */
 export const cloudflareWorkersFactory: RuntimeFactory = {
     runtimeName: 'cloudflare-workers',
-
     capabilities: {
         hasFilesystem: false,
         hasProcessExecution: false,
         hasPersistentStorage: false,
+        hasSqlDatabase: false,
     },
 
     createFileSystem: () => createCfFileSystem(),
 
     createProcessExecutor: (_config?: ProcessExecutorConfig): never => {
         throw new Error('ProcessExecutor is not available on Cloudflare Workers.');
+    },
+
+    createDbAdapter(_config: DatabaseConfig): Promise<RuntimeDbAdapter> {
+        // The D1 DbAdapter ships in a future ts-db round. The method exists on
+        // the interface so consumer code is forward-compatible and needs no
+        // change when D1 lands. Until then, surface a clear typed failure.
+        return Promise.reject(new D1NotConfiguredError());
     },
 
     async loadConfig(options?: LoadConfigOptions): Promise<Config> {

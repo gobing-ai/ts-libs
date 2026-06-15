@@ -43,3 +43,5 @@ rules:
       # Tested at flat tests/ level (ddl.test.ts, define-table.test.ts).
       - "packages/db/src/schema/ddl.ts"
       - "packages/db/src/schema/define-table.ts"
+      # D1NotConfiguredError tested via create-db-adapter.test.ts (DB seam).
+      - "packages/runtime/src/db-errors.ts"

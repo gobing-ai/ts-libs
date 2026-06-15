@@ -17,6 +17,7 @@ and Cloudflare Workers through a factory pattern that auto-detects the runtime.
 | Runtime factory | `RuntimeFactory` → `loadRuntimeFactory()` | `nodeBunFactory` | `cloudflareWorkersFactory` |
 | File system | `FileSystem` | `createNodeFileSystem()` (sync `node:fs`) | `createCfFileSystem()` (stub) |
 | Process execution | `ProcessExecutor` (class) | `run()` via execa, `runStreaming()` via `Bun.spawn` | throws |
+| SQL database | `createDbAdapter(config)` → `DbAdapter` | Bun SQLite via `@gobing-ai/ts-db` | throws `D1NotConfiguredError` (D1 round pending) |
 | Configuration | `Config` (Zod schema) | YAML + env vars | CONFIG_YAML blob + env vars |
 | Context | `RuntimeContext` | service locator | service locator |
 | Path utilities | `SEP`, `basenamePath`, `dirnamePath`, `joinPath`, `resolvePath`, `relativePath`, … | runtime-portable (zero `node:*`) | runtime-portable (zero `node:*`) |
@@ -31,24 +32,24 @@ classDiagram
     class RuntimeFactory {
         <<interface>>
         +string runtimeName
-        +RuntimeCapabilities capabilities
         +createFileSystem() FileSystem
         +createProcessExecutor() ProcessExecutor
         +loadConfig() Promise~Config~
+        +createDbAdapter(config) Promise~DbAdapter~
     }
 
     class nodeBunFactory {
-        +string runtimeName
         +createFileSystem() createNodeFileSystem()
         +createProcessExecutor() ProcessExecutor
         +loadConfig() Promise~Config~
+        +createDbAdapter() Promise~DbAdapter~
     }
 
     class cloudflareWorkersFactory {
-        +string runtimeName
         +createFileSystem() createCfFileSystem()
         +createProcessExecutor() never
         +loadConfig() Promise~Config~
+        +createDbAdapter() never
     }
 
     class FileSystem {
@@ -368,7 +369,36 @@ cffs.readFile('/x');     // throws: "use D1, KV, or R2"
 The old `getFs()` / `setFileSystem` global swap and `SyncFileSystem` are marked `@deprecated` —
 use `createNodeFileSystem()` or `ctx.require('fileSystem')` instead.
 
-### 8. Graceful disposal
+### 8. Database adapter (`createDbAdapter`)
+
+The factory's `createDbAdapter(config)` opens a connected adapter satisfying the `RuntimeDbAdapter` contract
+(the runtime-facing subset of `@gobing-ai/ts-db`'s `DbAdapter`) at the configured path. **ts-runtime owns
+connection; the consumer owns schema** — the returned adapter is connected but NOT migrated. The consumer
+composes its own migrations on top.
+
+```ts
+import { loadRuntimeFactory } from '@gobing-ai/ts-runtime';
+
+const factory = await loadRuntimeFactory();
+
+if (factory.capabilities.hasSqlDatabase) {
+    const adapter = await factory.createDbAdapter({ url: '.spur/spur.db' });
+    // adapter is connected — apply YOUR migrations here, then use DAOs.
+    adapter.close();
+}
+```
+
+On Cloudflare Workers, `capabilities.hasSqlDatabase` is `false` and `createDbAdapter` throws a typed
+`D1NotConfiguredError` — the method exists on the interface so consumer code is forward-compatible and
+needs no change when the D1 round ships.
+
+**Dependency note:** `@gobing-ai/ts-db` is not a static dependency of `ts-runtime` (it would create a
+cycle, since `ts-db` depends on `ts-runtime`). The factory interface uses a structural
+`RuntimeDbAdapter` type (defined locally) that a ts-db `DbAdapter` satisfies via structural subtyping;
+`nodeBunFactory.createDbAdapter` loads `ts-db` via a dynamic `import()` at runtime. Consumers that call
+`createDbAdapter` must have `@gobing-ai/ts-db` in their dependency graph.
+
+### 9. Graceful disposal
 
 `RuntimeContext.dispose()` calls `dispose()` on every registered service that implements the pattern:
 
