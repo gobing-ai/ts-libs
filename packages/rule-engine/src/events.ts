@@ -1,6 +1,6 @@
-/** Typed event map for rule-engine run observability. All events prefixed `rule.`. */
 import type { ConstraintFinding } from './types';
 
+/** Typed event map for rule-engine run observability. All events prefixed `rule.`. */
 export type RuleEngineEvents = {
     /** Emitted before the first rule is evaluated. */
     'rule.run.start': (data: { rules: number; total: number }) => void;
