@@ -8,6 +8,7 @@
  * including D1.
  */
 
+/** DDL for the rule-engine persistence tables (`rule_runs`, `rule_eval_runs`). */
 export const RULE_ENGINE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS rule_runs (
     id TEXT PRIMARY KEY,
