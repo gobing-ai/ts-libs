@@ -7,6 +7,14 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
 
+## [0.3.20] — 2026-06-19
+
+### Fixed
+
+- **`ts-dual-workflow-engine` — Guard and condition template resolution:** Guards (state-machine driver) and conditions (transition-flow driver) now resolve `${vars.*}` templates in their options before evaluation, matching the interpolation behavior actions already had. Previously, raw un-interpolated options reached guard/condition evaluators, so shell-based guards like `spur task check ${vars.wbs}` failed with a literal bad substitution. The external transition path (`WorkflowService.requestTransition`) was fixed the same way for parity.
+- **`ts-db` — Custom migration journal table names:** The embedded migration fallback path rejected custom journal table names (e.g. `my_migrations`) that the entry validator accepted, because the fallback re-validated with a tighter regex (`^__[a-z_]+$`) than the entry rule (`^[A-Za-z_]\w*$`). Both paths now use the single `validateMigrationTableName` validator, and the validated name flows through to both the file-based migrator and the embedded fallback.
+- **`ts-runtime` — Async YAML config loading:** `readYamlConfig` in the Node/Bun runtime factory was synchronous but the `FileSystem` contract returns a union (sync or async). Under an async backend, `fs.exists()` was always truthy and `readFile()` returned an un-awaited Promise, causing config loading to silently break. Both calls are now properly `await`ed.
+
 ## [0.3.10] — 2026-06-10
 
 ### Added
@@ -277,6 +285,7 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
+[0.3.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.19...HEAD
 [0.3.2]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.1...HEAD
 [0.3.1]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.0...@gobing-ai/ts-libs-v0.3.1
 [0.3.0]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.9...@gobing-ai/ts-libs-v0.3.0
