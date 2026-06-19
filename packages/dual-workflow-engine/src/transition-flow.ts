@@ -9,7 +9,7 @@ import type {
     WorkflowRunOptions,
     WorkflowRunResult,
 } from './types';
-import { mergeSetVars, mergeVars } from './variables';
+import { mergeSetVars, mergeVars, resolveTemplates } from './variables';
 
 /** Dependencies required by the transition-flow driver. */
 export interface TransitionFlowDriverOptions {
@@ -163,7 +163,13 @@ async function firstPassingEdge(
 ): Promise<TransitionFlowWorkflowDef['edges'][number] | undefined> {
     for (const edge of edges) {
         if (edge.condition === undefined) return edge;
-        const passed = await host.evaluateGuard(edge.condition.kind, edge.condition.options ?? {}, context);
+        // Resolve ${vars.*} templates in condition options before evaluation — conditions use
+        // the same var interpolation as actions (symmetry with state-machine guard resolution).
+        const resolvedOptions = resolveTemplates(edge.condition.options ?? {}, {
+            vars: context.vars,
+            env: {},
+        });
+        const passed = await host.evaluateGuard(edge.condition.kind, resolvedOptions, context);
         lifecycle.guardEvaluated(context.current, edge.to, edge.condition.kind, passed);
         if (passed) return edge;
     }
