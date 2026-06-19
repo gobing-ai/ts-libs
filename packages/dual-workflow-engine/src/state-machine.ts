@@ -9,7 +9,7 @@ import type {
     WorkflowRunOptions,
     WorkflowRunResult,
 } from './types';
-import { mergeSetVars, mergeVars } from './variables';
+import { mergeSetVars, mergeVars, resolveTemplates } from './variables';
 
 /** Dependencies required by the state-machine driver. */
 export interface StateMachineDriverOptions {
@@ -183,7 +183,13 @@ async function firstPassingTransition(
 ): Promise<StateMachineWorkflowDef['transitions'][number] | undefined> {
     for (const transition of transitions) {
         if (transition.guard === undefined) return transition;
-        const passed = await host.evaluateGuard(transition.guard.kind, transition.guard.options ?? {}, context);
+        // Resolve ${vars.*} templates in guard options before evaluation — guards use the
+        // same var interpolation as actions (e.g. `spur task check ${vars.wbs}`).
+        const resolvedOptions = resolveTemplates(transition.guard.options ?? {}, {
+            vars: context.vars,
+            env: {},
+        });
+        const passed = await host.evaluateGuard(transition.guard.kind, resolvedOptions, context);
         lifecycle.guardEvaluated(context.current, transition.to, transition.guard.kind, passed);
         if (passed) return transition;
     }
