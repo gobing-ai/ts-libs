@@ -62,7 +62,7 @@ export const nodeBunFactory: RuntimeFactory = {
  */
 async function loadNodeConfig(options?: LoadConfigOptions): Promise<Config> {
     const fs = getNodeFileSystem();
-    const raw = readYamlConfig(fs);
+    const raw = await readYamlConfig(fs);
     return buildConfigFromObject(raw ?? {}, options);
 }
 
@@ -76,15 +76,18 @@ async function loadNodeConfig(options?: LoadConfigOptions): Promise<Config> {
  *
  * Returns `null` if no config file is found.
  */
-function readYamlConfig(fs: FileSystem): Record<string, unknown> | null {
+async function readYamlConfig(fs: FileSystem): Promise<Record<string, unknown> | null> {
     const candidates = [getProcessEnv().CONFIG_PATH, 'config/config.yaml', 'config/config.example.yaml'].filter(
         (p): p is string => typeof p === 'string' && p.length > 0,
     );
 
     for (const candidate of candidates) {
         const resolved = fs.resolve(candidate);
-        if (fs.exists(resolved)) {
-            const content = fs.readFile(resolved) as string;
+        // Await the union-return FileSystem contract — a bare `fs.exists(...)` is always
+        // truthy under an async backend, and the `readFile` Promise must be awaited rather
+        // than cast to string (parity with the migrate.ts fs.exists fix).
+        if (await fs.exists(resolved)) {
+            const content = await fs.readFile(resolved);
             try {
                 return parseYaml(content) as Record<string, unknown>;
             } catch {
