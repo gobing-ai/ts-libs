@@ -91,6 +91,26 @@ describe('applyMigrations', () => {
         }
     });
 
+    test('accepts a custom journal table name through the embedded fallback path', async () => {
+        // Why: the embedded path once re-validated the table name with a tighter regex
+        // (`^__[a-z_]+$`) than the entry validator (`^[A-Za-z_]\w*$`), so a legal custom
+        // name like `my_migrations` passed the file-based gate but threw in the fallback.
+        // One validator must govern both paths.
+        const tempAdapter = new BunSqliteAdapter({ databaseUrl: ':memory:' });
+        try {
+            await applyMigrations(tempAdapter, {
+                migrationsFolder: '/nonexistent/path',
+                migrationsTable: 'my_migrations',
+            });
+            const rows = await tempAdapter.queryAll<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='queue_jobs'",
+            );
+            expect(rows).toHaveLength(1);
+        } finally {
+            tempAdapter.close();
+        }
+    });
+
     test('applies migrations idempotently (second call is safe)', async () => {
         const tempAdapter = new BunSqliteAdapter({ databaseUrl: ':memory:' });
         try {
