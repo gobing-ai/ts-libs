@@ -14,6 +14,7 @@ import type {
     WorkflowRunRecord,
     WorkflowRunResult,
 } from './types';
+import { resolveTemplates } from './variables';
 
 /** High-level workflow service for loading, running, and listing persisted workflow runs. */
 export class WorkflowService {
@@ -232,16 +233,19 @@ export class WorkflowService {
 
         // Evaluate guard if present.
         if (transition.guard !== undefined) {
-            const guardResult = await this.host.evaluateGuardResult(
-                transition.guard.kind,
-                transition.guard.options ?? {},
-                {
-                    runId,
-                    current: currentState,
-                    vars: {},
-                    workdir: options?.workdir,
-                },
-            );
+            // Resolve ${vars.*} templates in guard options against the workflow's vars —
+            // external transitions (requestTransition) must interpolate the same way the
+            // driver's firstPassingTransition does (e.g. `spur task check ${vars.wbs}`).
+            const resolvedGuardOptions = resolveTemplates(transition.guard.options ?? {}, {
+                vars: workflow.vars ?? {},
+                env: {},
+            });
+            const guardResult = await this.host.evaluateGuardResult(transition.guard.kind, resolvedGuardOptions, {
+                runId,
+                current: currentState,
+                vars: workflow.vars ?? {},
+                workdir: options?.workdir,
+            });
             lifecycle.guardEvaluated(currentState, toState, transition.guard.kind, guardResult.passed);
             if (!guardResult.passed) {
                 return this.denyTransition(options, runId, currentState, toState, extKey, {
