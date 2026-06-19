@@ -449,6 +449,37 @@ describe('StateMachineDriver — setVars cross-action flow', () => {
         expect(guardSawVar).toBe(true);
     });
 
+    test('guard options resolve vars templates before evaluation', async () => {
+        // Regression: shell guards received raw options without var interpolation, so
+        // `spur task check ${vars.wbs}` reached /bin/sh as a literal bad substitution.
+        // Guards must resolve templates the same way actions do.
+        let guardSawResolvedVar = false;
+        const host = createDefaultWorkflowEngineHost().registerGuard({
+            kind: 'var-check',
+            async evaluate(options: Record<string, unknown>) {
+                guardSawResolvedVar = options.command === 'echo 0042';
+                return guardSawResolvedVar;
+            },
+        });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new StateMachineDriver({ host, persistence });
+
+        const result = await driver.run({
+            name: 'guard-var-resolution',
+            initialState: 'init',
+            terminalStates: ['end'],
+            vars: { wbs: '0042' },
+            states: [{ id: 'init' }, { id: 'end' }, { id: 'dead' }],
+            transitions: [
+                { from: 'init', to: 'end', guard: { kind: 'var-check', options: { command: `echo \${vars.wbs}` } } },
+                { from: 'init', to: 'dead' },
+            ],
+        });
+        expect(result.status).toBe('done');
+        expect(result.finalState).toBe('end');
+        expect(guardSawResolvedVar).toBe(true);
+    });
+
     test('onExit setVars visible to subsequent state onEnter', async () => {
         const host = createDefaultWorkflowEngineHost()
             .registerAction({
