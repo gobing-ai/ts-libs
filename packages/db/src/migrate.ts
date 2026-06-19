@@ -66,10 +66,11 @@ async function applyEmbeddedMigrations(
     journalTable: string,
     logger: MigrationLogger,
 ): Promise<void> {
-    // Validate journal table name — this is an internal constant, never user input.
-    if (!/^__[a-z_]+$/.test(journalTable)) {
-        throw new Error(`Invalid migration journal table name: ${journalTable}`);
-    }
+    // The caller (`applyMigrations`) already ran the journal name through
+    // `validateMigrationTableName`; re-validate with the same rule so a custom but
+    // legal name (e.g. `my_migrations`) isn't rejected here while the file-based path
+    // accepted it — one validator, no divergence between the two migration paths.
+    validateMigrationTableName(journalTable);
     // Get already-applied hashes
     const appliedHashes = new Set<string>();
     try {
@@ -152,7 +153,9 @@ export async function applyMigrations(adapter: DbAdapter, options?: MigrationOpt
 
             await drizzleMigrate(adapter.getDrizzleDb(), {
                 migrationsFolder: folder,
-                ...(options?.migrationsTable !== undefined ? { migrationsTable: options.migrationsTable } : {}),
+                // Pass the validated `table`, not the raw option — keep one validated
+                // name flowing to both the file-based migrator and the embedded fallback.
+                ...(options?.migrationsTable !== undefined ? { migrationsTable: table } : {}),
             });
             logger.info('Database migrations complete');
             return;
