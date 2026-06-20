@@ -9,7 +9,7 @@
  * - `start` returns `number | void` instead of `void`. The number becomes the
  *   process exit code (void = 0). This is the Commander convention.
  * - After `start` resolves, the runtime is shut down gracefully
- *   (`app.stop('shutdown')`) and `process.exit(code)` is called.
+ *   (`app.stop('shutdown')`) and the process terminates via `exitProcess(code)`.
  * - If `start` throws (or startup fails), the error message is written to
  *   stderr and the process exits with code 1. `runNodeApplication`'s built-in
  *   reverse-order cleanup (telemetry, owned DB, user `stop` callback) runs
@@ -32,6 +32,7 @@
  * ```
  */
 
+import { echoError, exitProcess } from '@gobing-ai/ts-utils';
 import type { ApplicationRuntime, ApplicationStopReason, EventMap, InfraEvents } from './application/types';
 import { type NodeApplicationOptions, runNodeApplication } from './application-node';
 
@@ -60,7 +61,7 @@ export interface CliApplicationOptions<TAppConfig = unknown, TEvents extends Eve
  * telemetry, events, DB, scheduler, plugins), then maps the `start` result to
  * a process exit code and terminates. See the module docstring for details.
  *
- * @returns Never resolves — calls `process.exit` internally.
+ * @returns Never resolves — terminates the process via `exitProcess` internally.
  */
 export async function runCliApplication<TAppConfig = unknown, TEvents extends EventMap = InfraEvents>(
     options: CliApplicationOptions<TAppConfig, TEvents>,
@@ -84,8 +85,8 @@ export async function runCliApplication<TAppConfig = unknown, TEvents extends Ev
         // released. We just normalize the exit code and surface the message.
         exitCode = 1;
         const msg = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Error: ${msg}\n`);
+        echoError(`Error: ${msg}`);
     }
 
-    process.exit(exitCode);
+    return exitProcess(exitCode);
 }

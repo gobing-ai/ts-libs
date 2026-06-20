@@ -13,7 +13,7 @@
     },
     "packages/ai-runner": {
       "name": "@gobing-ai/ts-ai-runner",
-      "version": "0.3.18",
+      "version": "0.3.20",
       "dependencies": {
         "@gobing-ai/ts-db": "workspace:*",
         "@gobing-ai/ts-infra": "workspace:*",
@@ -25,7 +25,7 @@
     },
     "packages/db": {
       "name": "@gobing-ai/ts-db",
-      "version": "0.3.18",
+      "version": "0.3.20",
       "dependencies": {
         "@gobing-ai/ts-runtime": "workspace:*",
         "@gobing-ai/ts-utils": "workspace:*",
@@ -49,7 +49,7 @@
     },
     "packages/dual-workflow-engine": {
       "name": "@gobing-ai/ts-dual-workflow-engine",
-      "version": "0.3.18",
+      "version": "0.3.20",
       "dependencies": {
         "@gobing-ai/ts-db": "workspace:*",
         "@gobing-ai/ts-infra": "workspace:*",
@@ -62,8 +62,9 @@
     },
     "packages/infra": {
       "name": "@gobing-ai/ts-infra",
-      "version": "0.3.18",
+      "version": "0.3.20",
       "dependencies": {
+        "@gobing-ai/ts-utils": "workspace:*",
         "@logtape/logtape": "^2.0.0",
       },
       "devDependencies": {
@@ -101,7 +102,7 @@
     },
     "packages/llm-jsonl-importer": {
       "name": "@gobing-ai/ts-llm-jsonl-importer",
-      "version": "0.3.18",
+      "version": "0.3.20",
       "dependencies": {
         "@gobing-ai/ts-db": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
@@ -114,7 +115,7 @@
     },
     "packages/rule-engine": {
       "name": "@gobing-ai/ts-rule-engine",
-      "version": "0.3.18",
+      "version": "0.3.20",
       "dependencies": {
         "@gobing-ai/ts-ai-runner": "workspace:*",
         "@gobing-ai/ts-db": "workspace:*",
@@ -129,7 +130,7 @@
     },
     "packages/runtime": {
       "name": "@gobing-ai/ts-runtime",
-      "version": "0.3.18",
+      "version": "0.3.20",
       "dependencies": {
         "@gobing-ai/ts-utils": "workspace:*",
         "execa": "^9.5.0",
@@ -143,7 +144,7 @@
     },
     "packages/utils": {
       "name": "@gobing-ai/ts-utils",
-      "version": "0.3.18",
+      "version": "0.3.20",
       "devDependencies": {
         "@types/bun": "1.3.14",
       },

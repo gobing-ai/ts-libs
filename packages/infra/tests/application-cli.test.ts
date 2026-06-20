@@ -1,35 +1,35 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createBufferTarget, setDefaultExitTarget, setDefaultOutputTargets } from '@gobing-ai/ts-utils';
 import type { ApplicationRuntime } from '../src/application/types';
 import { type CliApplicationOptions, runCliApplication } from '../src/application-cli';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /**
- * Swap `process.exit` and `process.stderr.write` so tests can capture the
- * exit code and stderr without terminating the runner. Returns restore().
+ * Intercept the sanctioned exit/output seams (`exitProcess` / `echoError`) so
+ * tests capture the exit code and stderr without terminating the runner — via
+ * the injectable ts-utils targets, not by monkey-patching `process`. Returns
+ * restore().
  */
 function captureExit(): { codes: number[]; stderr: string[]; restore: () => void } {
     const codes: number[] = [];
-    const stderr: string[] = [];
-    const origExit = process.exit;
-    const origStderrWrite = process.stderr.write.bind(process.stderr);
+    const stderrTarget = createBufferTarget();
 
-    // `process.exit` is typed `(code?: number) => never`. In tests we never
-    // actually terminate — we record and return. Cast keeps TS happy.
-    process.exit = ((code?: number) => {
+    // exitProcess is typed `(code?: number) => never`; in tests we record and
+    // return instead of terminating. The cast satisfies the never-returning type.
+    const restoreExit = setDefaultExitTarget(((code?: number) => {
         codes.push(code ?? 0);
-    }) as typeof process.exit;
-    process.stderr.write = ((chunk: string) => {
-        stderr.push(String(chunk));
-        return true;
-    }) as typeof process.stderr.write;
+    }) as (code?: number) => never);
+    const restoreOutput = setDefaultOutputTargets({ stderr: stderrTarget });
 
     return {
         codes,
-        stderr,
+        get stderr() {
+            return stderrTarget.chunks;
+        },
         restore: () => {
-            process.exit = origExit;
-            process.stderr.write = origStderrWrite;
+            restoreExit();
+            restoreOutput();
         },
     };
 }
