@@ -35,6 +35,7 @@ export function translateSlashCommand(agent: AgentName, input: string): string {
         case 'codex':
             return `$${plugin}-${command}${suffix}`;
         case 'pi':
+        case 'omp':
             return `/skill:${plugin}-${command}${suffix}`;
         default:
             return `/${plugin}-${command}${suffix}`;
