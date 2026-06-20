@@ -6,6 +6,7 @@ import {
     type AgentEvents,
     AiRunner,
     type AiRunnerProcessEvents,
+    buildAgentCommand,
     DISPLAY_ORDER,
     DoctorRunner,
     getAgentShim,
@@ -287,9 +288,38 @@ describe('DoctorRunner', () => {
         const doctor = new DoctorRunner({ runner, agentDetector: new AgentDetector({ runner }), env: {} });
         const results = await doctor.runAll();
         expect(results).toHaveLength(DISPLAY_ORDER.length);
-        expect(results.find((result) => result.agent === 'antigravity')).toMatchObject({
-            tier: 2,
+        expect(results.find((result) => result.agent === 'antigravity-cli')).toMatchObject({
+            tier: 1,
             authenticated: false,
         });
+    });
+});
+
+describe('one-shot ↔ team command-build parity (R5)', () => {
+    // WHY: team-launched argv must equal one-shot argv for equivalent PromptOptions.
+    // Before the shared buildAgentCommand seam, TeamOrchestrator built its own preamble
+    // inline and never translated slash input, so the two paths diverged silently.
+    test('one-shot buildPromptCommand and team buildAgentCommand produce identical argv', () => {
+        const runner = new AiRunner({ defaultCwd: '/repo' });
+        const options = {
+            input: 'Implement task 0005',
+            purpose: 'Implement scoped changes',
+            systemPrompt: 'Follow repo rules.',
+            taskId: '0005',
+            peers: [{ id: 'planner', type: 'claude', purpose: 'Plan' }],
+        };
+        const oneShot = runner.buildPromptCommand('codex', options, { cwd: '/repo' });
+        const team = buildAgentCommand('codex', options, { workspace: '/repo' });
+        expect(team).toEqual(oneShot);
+    });
+
+    test('parity holds across every canonical agent (modulo no-identity baseline)', () => {
+        const runner = new AiRunner({ defaultCwd: '/ws' });
+        for (const agent of DISPLAY_ORDER) {
+            const opts = { input: 'x', model: 'm', mode: 'json' as const };
+            const oneShot = runner.buildPromptCommand(agent, opts, { cwd: '/ws' });
+            const team = buildAgentCommand(agent, opts, { workspace: '/ws' });
+            expect(team).toEqual(oneShot);
+        }
     });
 });
