@@ -1,7 +1,7 @@
 import { getLogger, type Logger } from '@gobing-ai/ts-infra';
 import { getProcessEnv, joinPath, NodeFileSystem } from '@gobing-ai/ts-runtime';
 import { AgentDetector, type DetectedAgent } from './agent-detector';
-import { type AgentName, DISPLAY_ORDER, isAgentName, TIER2_AGENTS } from './agents/shims';
+import { type AgentName, DISPLAY_ORDER, resolveAgentName, TIER2_AGENTS } from './agents/shims';
 import { type AgentRunResult, AiRunner } from './ai-runner';
 
 /** Health-check result for one coding agent. */
@@ -20,6 +20,10 @@ export interface DoctorResult {
     tier: 1 | 2;
     /** Agent-specific channels or models when available. */
     channels: string[];
+    /** True when the resolved canonical id is marked deprecated. */
+    deprecated?: boolean;
+    /** Canonical replacement when the resolved id is deprecated, if any. */
+    replacedBy?: AgentName;
     /** Probe error when unavailable. */
     error: string | null;
 }
@@ -60,6 +64,14 @@ const AUTH_PATTERNS: Partial<Record<AgentName, { positive: RegExp; negative: Reg
     pi: {
         positive: /\S/,
         negative: /not[\s_-]*authenticated|not[\s_-]*logged[\s_-]*in|unauthenticated|no[\s_-]+providers?/i,
+    },
+    omp: {
+        positive: /\S/,
+        negative: /not[\s_-]*authenticated|not[\s_-]*logged[\s_-]*in|unauthenticated|no[\s_-]+providers?/i,
+    },
+    hermes: {
+        positive: /(^|[^a-z])ok([^a-z]|$)|healthy|configured|ready/i,
+        negative: /not[\s_-]*(configured|healthy|ok)|unhealthy|missing[\s_-]+dependenc|error|failed/i,
     },
 };
 
@@ -110,10 +122,10 @@ export class DoctorRunner {
     }
 
     private async buildResult(detected: DetectedAgent): Promise<DoctorResult> {
-        const tier = TIER2_AGENTS.has(detected.name as AgentName) ? 2 : 1;
+        const canonical = resolveAgentName(detected.name) ?? null;
+        const tier = canonical !== null && TIER2_AGENTS.has(canonical) ? 2 : 1;
         this.logger.debug('checking agent', { agent: detected.name, installed: detected.installed, tier });
-        const authenticated =
-            detected.installed && isAgentName(detected.name) ? await this.checkAuth(detected.name) : false;
+        const authenticated = detected.installed && canonical !== null ? await this.checkAuth(canonical) : false;
         return {
             agent: detected.name,
             installed: detected.installed,
@@ -122,6 +134,8 @@ export class DoctorRunner {
             usable: detected.installed && detected.version !== null && authenticated,
             tier,
             channels: detected.channels,
+            deprecated: detected.deprecated,
+            replacedBy: detected.replacedBy,
             error: detected.error,
         };
     }
@@ -130,9 +144,12 @@ export class DoctorRunner {
         const home = this.env.HOME || this.env.USERPROFILE || '';
         if (agent === 'gemini') return this.geminiSettingsContainCredentials(home);
         if (agent === 'codex') return this.checkCodexAuth(home);
-        // pi reads provider keys from the environment; require a non-empty value
-        // rather than mere presence (an empty export is not a usable credential).
-        if (agent === 'pi' && (isNonEmpty(this.env.GOOGLE_API_KEY) || isNonEmpty(this.env.ANTHROPIC_API_KEY)))
+        // pi and omp read provider keys from the environment; require a non-empty
+        // value rather than mere presence (an empty export is not a usable credential).
+        if (
+            (agent === 'pi' || agent === 'omp') &&
+            (isNonEmpty(this.env.GOOGLE_API_KEY) || isNonEmpty(this.env.ANTHROPIC_API_KEY))
+        )
             return true;
         return (await this.probeAuthOutput(agent)) === true;
     }
