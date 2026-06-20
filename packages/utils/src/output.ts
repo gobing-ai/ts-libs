@@ -47,6 +47,45 @@ export function setDefaultOutputTargets(opts: { stdout?: WriteTarget; stderr?: W
     };
 }
 
+/** Terminates the current process with `code`. Anything matching `(code?: number) => never`. */
+export type ExitTarget = (code?: number) => never;
+
+// Resolved lazily, not at module load: reading `process.exit` eagerly would throw on import in
+// runtimes without `process` (e.g. Cloudflare Workers). `undefined` means "fall back to process".
+let defaultExitTarget: ExitTarget | undefined;
+
+function processExit(): ExitTarget {
+    const proc = (globalThis as { process?: { exit?: ExitTarget } }).process;
+    const exit = proc?.exit;
+    if (exit === undefined) {
+        throw new Error('No exit target available: set one via setDefaultExitTarget or pass an explicit target');
+    }
+    return exit;
+}
+
+/**
+ * Terminate the process with the given exit code — the single sanctioned seam
+ * for `process.exit` in the workspace (enforced by the `no-direct-process-exit`
+ * spur rule). Defaults to `0`. Pass or set an {@link ExitTarget} to intercept
+ * in tests or non-`process` runtimes.
+ */
+export function exitProcess(code = 0, target: ExitTarget = defaultExitTarget ?? processExit()): never {
+    return target(code);
+}
+
+/**
+ * Override the default exit target.
+ *
+ * Returns a rollback function that restores the previous target.
+ */
+export function setDefaultExitTarget(target: ExitTarget | undefined): () => void {
+    const prev = defaultExitTarget;
+    defaultExitTarget = target;
+    return () => {
+        defaultExitTarget = prev;
+    };
+}
+
 /** In-memory `WriteTarget` that records all chunks for later retrieval. */
 export interface BufferTarget extends WriteTarget {
     readonly chunks: string[];

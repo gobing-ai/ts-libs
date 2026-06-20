@@ -1,6 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 
-import { createBufferTarget, echo, echoError, setDefaultOutputTargets, type WriteTarget } from '../src/output';
+import {
+    createBufferTarget,
+    type ExitTarget,
+    echo,
+    echoError,
+    exitProcess,
+    setDefaultExitTarget,
+    setDefaultOutputTargets,
+    type WriteTarget,
+} from '../src/output';
 
 function createMockTarget(output: string[]): WriteTarget {
     return {
@@ -36,6 +45,72 @@ describe('process-less runtime (e.g. Workers)', () => {
             expect(() => echo('x')).toThrow('No stdout target available');
         } finally {
             if (proc) proc.stdout = original;
+        }
+    });
+
+    test('exitProcess throws a guiding error when no target and no process.exit is available', () => {
+        // Same lazy-resolution contract as echo: never read process.exit at module load,
+        // and fail with a clear message when the runtime has no exit.
+        const proc = (globalThis as { process?: { exit?: unknown } }).process;
+        const original = proc?.exit;
+        if (proc) proc.exit = undefined;
+        try {
+            expect(() => exitProcess(0)).toThrow('No exit target available');
+        } finally {
+            if (proc) proc.exit = original;
+        }
+    });
+});
+
+describe('exitProcess', () => {
+    test('calls the explicit target with the given code', () => {
+        const codes: number[] = [];
+        const target = ((code?: number) => {
+            codes.push(code ?? 0);
+        }) as ExitTarget;
+
+        exitProcess(42, target);
+
+        expect(codes).toEqual([42]);
+    });
+
+    test('defaults the exit code to 0', () => {
+        const codes: number[] = [];
+        const target = ((code?: number) => {
+            codes.push(code ?? 0);
+        }) as ExitTarget;
+
+        exitProcess(undefined, target);
+
+        expect(codes).toEqual([0]);
+    });
+
+    test('routes through the default target and restores it', () => {
+        const codes: number[] = [];
+        const restore = setDefaultExitTarget(((code?: number) => {
+            codes.push(code ?? 0);
+        }) as ExitTarget);
+
+        try {
+            exitProcess(7);
+            expect(codes).toEqual([7]);
+        } finally {
+            restore();
+        }
+
+        // After restore, the default is cleared — falls back to process.exit,
+        // which the explicit-target form bypasses. Assert the override is gone
+        // by setting a fresh sentinel and confirming the old one is not called.
+        const restored: number[] = [];
+        const restore2 = setDefaultExitTarget(((code?: number) => {
+            restored.push(code ?? 0);
+        }) as ExitTarget);
+        try {
+            exitProcess(9);
+            expect(restored).toEqual([9]);
+            expect(codes).toEqual([7]); // unchanged — previous target was restored away
+        } finally {
+            restore2();
         }
     });
 });

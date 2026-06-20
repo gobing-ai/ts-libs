@@ -48,13 +48,17 @@ rules:
             - "packages/runtime/src/process-executor.ts"
 
   - id: no-direct-process-exit
-    description: "process.exit() must go through @gobing-ai/ts-utils output helpers."
+    description: "process.exit() must go through @gobing-ai/ts-utils exitProcess()."
     severity: error
     evaluator:
       type: forbidden-import
       config:
         forbidden:
+          # Dot access: process.exit(...)
           - pattern: "process\\.exit\\b"
+            matchMode: usage
+          # Bracket/computed access: process['exit'] / process[\"exit\"]
+          - pattern: "process\\s*\\[\\s*[\"']exit[\"']\\s*\\]"
             matchMode: usage
         scope:
           include:
@@ -62,7 +66,25 @@ rules:
           exclude:
             - "**/tests/**"
             - "**/dist/**"
+            # The single sanctioned seam: exitProcess() lives here and owns the
+            # only legitimate process.exit call in the workspace.
             - "packages/utils/src/output.ts"
+
+  - id: no-shadow-exit-helper
+    description: "exitProcess() may only be defined in @gobing-ai/ts-utils output.ts; other modules must import it, not redeclare it (prevents bypassing the sanctioned exit seam)."
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        # Catch local re-declarations of an exit helper that would shadow the
+        # canonical ts-utils export: function exitProcess / const exitProcess =
+        pattern: "(function\\s+exitProcess\\b|(?:const|let|var)\\s+exitProcess\\s*=)"
+    include:
+      - "packages/**/src/**/*.ts"
+    exclude:
+      - "**/tests/**"
+      - "**/dist/**"
+      - "packages/utils/src/output.ts"
 
   # ── File system I/O ────────────────────────────────────────────────────
 
