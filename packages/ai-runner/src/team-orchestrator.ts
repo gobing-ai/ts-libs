@@ -2,9 +2,9 @@ import type { InboxMessageDao } from '@gobing-ai/ts-db/inbox';
 import { EventBus } from '@gobing-ai/ts-infra';
 import type { AgentSpec } from './agent-spec';
 import { loadAgentSpecs } from './agent-spec';
-import { type AgentName, getAgentShim, isAgentName } from './agents/shims';
+import { type AgentName, resolveAgentName } from './agents/shims';
+import { buildAgentCommand } from './ai-runner';
 import type { AgentEvents } from './events';
-import { buildIdentityPreamble } from './identity';
 import { formatMessage } from './messages';
 import { TeamAgentProcess } from './team-agent-process';
 
@@ -53,20 +53,15 @@ export class TeamOrchestrator {
             type: peer.type,
             purpose: peer.purpose,
         }));
-        const identityPreamble = buildIdentityPreamble({
-            agentId: spec.id,
-            agentType: spec.type,
-            workspace: spec.workspace,
-            purpose: spec.purpose,
-            systemPrompt: typeof spec.config.systemPrompt === 'string' ? spec.config.systemPrompt : undefined,
-            peers,
-        });
-        const command = getAgentShim(agentType).getPromptCommand({
-            input: identityPreamble,
-            purpose: spec.purpose,
-            systemPrompt: typeof spec.config.systemPrompt === 'string' ? spec.config.systemPrompt : undefined,
-            peers,
-        });
+        const command = buildAgentCommand(
+            agentType,
+            {
+                purpose: spec.purpose,
+                systemPrompt: typeof spec.config.systemPrompt === 'string' ? spec.config.systemPrompt : undefined,
+                peers,
+            },
+            { workspace: spec.workspace },
+        );
         const process = this.processFactory({
             spec,
             command: [command.command, ...command.args],
@@ -135,8 +130,9 @@ export class TeamOrchestrator {
     }
 
     private requireAgentName(type: string): AgentName {
-        if (!isAgentName(type)) throw new Error(`Unsupported agent type: ${type}`);
-        return type;
+        const canonical = resolveAgentName(type);
+        if (canonical === undefined) throw new Error(`Unsupported agent type: ${type}`);
+        return canonical;
     }
 
     private async injectPendingMessages(process: TeamAgentProcess): Promise<boolean> {
