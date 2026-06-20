@@ -36,16 +36,19 @@ describe('translateSlashCommand', () => {
         expect(translateSlashCommand('codex', '/rd3:dev-run 0004')).toBe('$rd3-dev-run 0004');
     });
 
-    test('pi uses the /skill:plugin-command form', () => {
+    test('pi and omp use the /skill:plugin-command form', () => {
         expect(translateSlashCommand('pi', '/rd3:dev-run')).toBe('/skill:rd3-dev-run');
         expect(translateSlashCommand('pi', '/rd3:dev-run 0004')).toBe('/skill:rd3-dev-run 0004');
+        expect(translateSlashCommand('omp', '/rd3:dev-run')).toBe('/skill:rd3-dev-run');
+        expect(translateSlashCommand('omp', '/rd3:dev-fixall x')).toBe('/skill:rd3-dev-fixall x');
     });
 
     test('other agents collapse the namespace to /plugin-command', () => {
         expect(translateSlashCommand('gemini', '/rd3:dev-run')).toBe('/rd3-dev-run');
         expect(translateSlashCommand('opencode', '/rd3:dev-run 0004')).toBe('/rd3-dev-run 0004');
-        expect(translateSlashCommand('antigravity', '/rd3:dev-run')).toBe('/rd3-dev-run');
+        expect(translateSlashCommand('antigravity-cli', '/rd3:dev-run')).toBe('/rd3-dev-run');
         expect(translateSlashCommand('openclaw', '/rd3:dev-run')).toBe('/rd3-dev-run');
+        expect(translateSlashCommand('hermes', '/rd3:dev-run')).toBe('/rd3-dev-run');
     });
 
     test('non-slash-command input is returned unchanged for every agent', () => {
