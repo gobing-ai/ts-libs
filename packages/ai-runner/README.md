@@ -17,7 +17,9 @@ bun add @gobing-ai/ts-ai-runner
 | `AiRunner` | Runs help, version, auth, prompt, and slash commands through a pluggable process executor; can also build a prompt command without executing it. Emits typed events via optional `EventBus<AgentEvents>`. |
 | `AgentDetector` | Probes supported agent CLIs and parses version output |
 | `DoctorRunner` | Combines installation and authentication checks into a usability report |
-| `getAgentShim()` | Returns the pure command builder for one supported agent |
+| `getAgentShim()` | Returns the pure command builder for one supported agent (resolves aliases to canonical) |
+| `resolveAgentName()` | Maps a canonical id or alias to its canonical `AgentName`; warns on deprecated/alias ids |
+| `buildAgentCommand()` | Shared command-build seam (identity preamble + shim dispatch) used by both one-shot and team paths |
 | `translateSlashCommand()` | Converts Claude-style `/plugin:command` inputs to each agent's dialect |
 | `isClaudeStyleSlashCommand()` | Tests whether input matches the `/plugin:command` pattern |
 | `buildIdentityPreamble()` / `getGitContext()` | Builds team-mode identity, communication context, and git metadata for prompts |
@@ -30,7 +32,7 @@ bun add @gobing-ai/ts-ai-runner
 | `AGENT_SHIMS` / `TIER1_PRIORITY` / `TIER2_AGENTS` / `DISPLAY_ORDER` | Agent registry constants |
 | `isAgentName()` | Type guard for supported agent identifiers |
 
-Supported agent identifiers: `claude`, `codex`, `gemini`, `pi`, `opencode` (tier 1), `antigravity`, `openclaw` (tier 2).
+Supported agent identifiers: `claude`, `codex`, `gemini` (deprecated), `pi`, `omp`, `opencode`, `antigravity-cli`, `openclaw`, `hermes`. The `antigravity` id is a deprecated alias of `antigravity-cli`. See [Deprecation & Aliases](#deprecation--aliases).
 
 ## Architecture
 
@@ -410,6 +412,8 @@ interface AgentShim {
     readonly name: AgentName;
     readonly command: string;
     readonly tier: 1 | 2;
+    readonly aliases?: readonly string[];
+    readonly deprecated?: { readonly since: string; readonly replacedBy?: AgentName };
     getHelpCommand(): ShimCommand;
     getVersionCommand(): ShimCommand;
     getPromptCommand(options: PromptOptions): ShimCommand;
@@ -423,13 +427,40 @@ Agent-specific behavior:
 |-------|-----|------|------------|--------------|
 | `claude` | `claude` | 1 | `claude auth status` | `-p`, `--continue`, `--model`, `--output-format` |
 | `codex` | `codex` | 1 | `codex login status` | `exec <prompt>`, `exec resume --last`, `-m`, `--json` |
-| `gemini` | `gemini` | 1 | env-only | `-p`, `-r latest` (resume), `-m`, `-o` |
+| `gemini` *(deprecated)* | `gemini` | 1 | env-only | `-p`, `-r latest` (resume), `-m`, `-o` |
 | `pi` | `pi` | 1 | `pi --list-models` | `--no-session`, `-p`, `-c` (resume), `--model`, `--mode` |
+| `omp` | `omp` | 1 | `omp --list-models` | `--no-session`, `-p`, `-c` (resume), `--model`, `--mode` |
 | `opencode` | `opencode` | 1 | `opencode providers` | `run`, `-c`, `-m`, `--format json` |
-| `antigravity` | `agy` | 2 | env-only | `chat` |
+| `antigravity-cli` | `agy` | 1 | env-only | `-p`, `--continue`, `--model` |
 | `openclaw` | `openclaw` | 2 | `openclaw health` | `agent --local -m` |
-
 This is the right layer for UI previews, audit logging, and custom launchers.
+
+## Deprecation & Aliases
+
+The registry carries lifecycle metadata so agent ids can be retired without breaking existing callers.
+
+**`resolveAgentName(input)`** maps any canonical id or alias to its canonical `AgentName`. Resolving a deprecated or aliased id emits exactly one `warn` through the logger seam and never throws.
+
+```ts
+import { resolveAgentName } from '@gobing-ai/ts-ai-runner';
+
+resolveAgentName('antigravity');     // → 'antigravity-cli' (alias), warns
+resolveAgentName('gemini');          // → 'gemini' (deprecated canonical), warns
+resolveAgentName('antigravity-cli'); // → 'antigravity-cli' (canonical, no warn)
+resolveAgentName('cursor');          // → undefined
+```
+
+**Current deprecation map:**
+
+| Id | Status | Canonical | Notes |
+|----|--------|-----------|-------|
+| `antigravity` | alias of `antigravity-cli` | `antigravity-cli` | Old tier-2 id; both use binary `agy`. Resolving warns. |
+| `gemini` | deprecated | `gemini` (self) → replaced by `antigravity-cli` | Gemini CLI sunset 2026-06-18. Shim stays functional. |
+| `omp` | canonical | `omp` | First-class; NOT a pi alias. |
+| `hermes` | canonical | `hermes` | First-class; OpenClaw-compatible but distinct binary. |
+
+`getAgentShim()` and `isAgentName()` are alias-aware: passing `'antigravity'` resolves to the `antigravity-cli` shim. `DoctorResult` and `DetectedAgent` surface `deprecated` + `replacedBy` when the resolved canonical id is marked deprecated.
+
 
 ## Team Mode Primitives
 
@@ -566,8 +597,8 @@ const ampShim: AgentShim = {
 In the same file, add the new agent to these three places:
 
 ```ts
-// 1. The AgentName union type
-export type AgentName = 'claude' | 'codex' | 'gemini' | 'pi' | 'opencode' | 'antigravity' | 'openclaw' | 'amp';
+// 1. The AgentName union type (canonical ids only — aliases are metadata, not union members)
+export type AgentName = 'claude' | 'codex' | 'gemini' | 'pi' | 'omp' | 'opencode' | 'antigravity-cli' | 'openclaw' | 'hermes' | 'amp';
 
 // 2. The AGENT_SHIMS registry
 export const AGENT_SHIMS: Readonly<Record<AgentName, AgentShim>> = {
@@ -577,7 +608,7 @@ export const AGENT_SHIMS: Readonly<Record<AgentName, AgentShim>> = {
 
 // 3. DISPLAY_ORDER (determines doctor/detector output order)
 export const DISPLAY_ORDER: readonly AgentName[] = [
-    'claude', 'codex', 'gemini', 'pi', 'opencode', 'antigravity', 'openclaw', 'amp',
+    'claude', 'codex', 'gemini', 'pi', 'omp', 'opencode', 'antigravity-cli', 'openclaw', 'hermes', 'amp',
 ];
 ```
 
