@@ -7,6 +7,29 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
 
+
+## [0.3.21] — 2026-06-20
+
+### Breaking Changes
+
+- **`ts-runtime` — Deprecated FileSystem surface retired:** `NodeFileSystem`, `NodeSyncFileSystem`, `CloudflareFileSystem` classes and the `getFs()`/`setFileSystem()` global singletons have been removed from the runtime barrel. Use `createNodeFileSystem()` or `createCfFileSystem()` from their named subpaths instead. The canonical union-return `FileSystem` interface (with `rename` added) is now the only filesystem type. Utility functions (`walkDir`, `readJsonFile`, `atomicWriteFile`, etc.) accept the canonical `FileSystem` and default to `createNodeFileSystem()`.
+
+### Added
+
+- **`ts-rule-engine` — FileSystem injection port:** `RuleEngineOptions.fileSystem?: FileSystem` and the per-evaluation `RuleContext.fileSystem` field provide a testable DI seam. All evaluators and fixer providers now read the filesystem from context (default `createNodeFileSystem()`) instead of constructing their own `new NodeFileSystem()`. Inject a fake filesystem in tests through `new RuleEngine({ fileSystem: fakeFs })`.
+- **`ts-infra` — `runCliApplication` bootstrap:** A new `runCliApplication` convenience function wraps the CLI lifecycle through `exitProcess` and `echoError`, giving CLI tools a standard bootstrap with proper exit-code handling.
+- **`ts-utils` — `exitProcess` seam:** New `exitProcess` function and `ExitTarget` injection port for testable process exit in CLI applications.
+
+### Changed
+
+- **`ts-rule-engine` — Evaluator modules reorganized:** `file-utils.ts` has been split into focused evaluator modules, clarifying module boundaries and reducing the blast radius of future changes.
+- **`ts-rule-engine` — `bundledRulesRoot()` / `listBundledRuleFiles()` now async:** These functions return `Promise<string | null>` and `Promise<string[]>` respectively, reflecting the canonical `FileSystem`'s union-return contract. Callers should `await` the result.
+
+### Fixed
+
+- **`ts-ai-runner` — Coding agent shims refreshed:** Detection shims updated for the latest coding agent releases, improving agent compatibility checks and doctor diagnostics.
+- **`ts-runtime` — V8 function-coverage phantoms eliminated:** Evaluator classes (`PathEvaluator`, `SchemaArtifactEvaluator`, `CoverageGateEvaluator`, `ForbiddenImportEvaluator`) now have explicit constructors so V8 no longer counts compiler-synthesized defaults as uncovered functions.
+
 ## [0.3.20] — 2026-06-19
 
 ### Fixed
