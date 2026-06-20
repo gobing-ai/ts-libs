@@ -38,6 +38,9 @@ rules:
       # Pure type re-exports — no runtime behavior to test.
       - "**/span-context.ts"
       - "**/scheduler/action.ts"
+      # Aggregating barrel — implementation split into glob-match.ts,
+      # file-discovery.ts, config-access.ts, each with its own test.
+      - "packages/rule-engine/src/evaluators/file-utils.ts"
       # Pure type aliases — no runtime behavior to test.
       - "**/events/app-events.ts"
       # Tested at flat tests/ level (ddl.test.ts, define-table.test.ts).
