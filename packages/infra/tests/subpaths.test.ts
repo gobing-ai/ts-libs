@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import packageJson from '../package.json' with { type: 'json' };
+import { runCliApplication } from '../src/application-cli';
 import { DBJobQueue, DBQueueConsumer } from '../src/job-queue-db';
 import { CloudflareSchedulerAdapter } from '../src/scheduler-cloudflare';
 import { NodeSchedulerAdapter } from '../src/scheduler-node';
@@ -20,6 +21,18 @@ describe('@gobing-ai/ts-infra adapter subpaths', () => {
     test('exports runtime-specific scheduler adapters from source entries', () => {
         expect(NodeSchedulerAdapter).toBeDefined();
         expect(CloudflareSchedulerAdapter).toBeDefined();
+    });
+
+    test('exports the CLI bootstrap from the application-cli source entry', () => {
+        expect(runCliApplication).toBeDefined();
+        expect(typeof runCliApplication).toBe('function');
+    });
+
+    test('declares export map entry for the CLI subpath', () => {
+        expect(packageJson.exports['./application-cli']).toEqual({
+            types: './dist/application-cli.d.ts',
+            import: './dist/application-cli.js',
+        });
     });
 
     test('declares package export map entries for adapter subpaths', () => {

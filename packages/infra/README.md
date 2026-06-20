@@ -614,6 +614,35 @@ Validation errors include the config file path and section name for diagnostics.
 `@gobing-ai/ts-infra` import stays portable and adapter-light. A future ADR
 may decide whether type-only re-exports are acceptable.
 
+#### CLI convenience bootstrap
+
+For fire-and-forget CLIs (Commander, Yargs, etc.), `@gobing-ai/ts-infra/application-cli`
+wraps `runNodeApplication` with the one thing every CLI does at the end: map the
+command result to a process exit code, and terminate. Same option shape, same
+defaults, same callback contract — no surprises.
+
+```ts
+import { runCliApplication } from '@gobing-ai/ts-infra/application-cli';
+import { Command } from 'commander';
+
+await runCliApplication({
+    async start(app) {
+        const program = new Command().name('mycli');
+        // ...register commands...
+        program.parse();               // Commander sets exit code on error
+        return process.exitCode;       // forward to runCliApplication
+    },
+});
+```
+
+Differences from `runNodeApplication`:
+- `start` returns `number | void` — the number becomes the exit code (void = 0)
+- On success, calls `app.stop('shutdown')` then `process.exit(code)`
+- On error, writes the message to stderr and exits 1 (after graceful teardown)
+
+Use this for CLIs. For long-running services (servers, daemons, workers), use
+`runNodeApplication` directly — it returns a runtime handle you control.
+
 ## Usage
 
 ### Install

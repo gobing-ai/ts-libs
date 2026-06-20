@@ -55,6 +55,10 @@
         "./application-node": {
             "types": "./dist/application-node.d.ts",
             "import": "./dist/application-node.js"
+        },
+        "./application-cli": {
+            "types": "./dist/application-cli.d.ts",
+            "import": "./dist/application-cli.js"
         }
     },
     "files": [
