@@ -113,7 +113,9 @@ export class AiRunner {
 
     /** Build an agent prompt command without executing it. */
     buildPromptCommand(agent: AgentName, promptOptions: PromptOptions, options: AgentRunOptions = {}): ShimCommand {
-        return getAgentShim(agent).getPromptCommand(this.withIdentityPreamble(agent, promptOptions, options));
+        return buildAgentCommand(agent, promptOptions, {
+            workspace: options.cwd ?? this.defaultCwd ?? getProcessCwd(),
+        });
     }
 
     /** Run an agent authentication command, or return null when unsupported. */
@@ -164,26 +166,6 @@ export class AiRunner {
             durationMs: result.durationMs,
         };
     }
-
-    private withIdentityPreamble(
-        agent: AgentName,
-        promptOptions: PromptOptions,
-        options: AgentRunOptions,
-    ): PromptOptions {
-        if (!hasIdentityOptions(promptOptions)) return promptOptions;
-        const workspace = options.cwd ?? this.defaultCwd ?? getProcessCwd();
-        const preamble = buildIdentityPreamble({
-            agentId: agent,
-            agentType: agent,
-            workspace,
-            purpose: promptOptions.purpose,
-            systemPrompt: promptOptions.systemPrompt,
-            taskId: promptOptions.taskId,
-            peers: promptOptions.peers,
-        });
-        const input = promptOptions.input === undefined ? preamble : `${preamble}\n${promptOptions.input}`;
-        return { ...promptOptions, input };
-    }
 }
 
 function hasIdentityOptions(options: PromptOptions): boolean {
@@ -193,4 +175,37 @@ function hasIdentityOptions(options: PromptOptions): boolean {
         options.taskId !== undefined ||
         (options.peers !== undefined && options.peers.length > 0)
     );
+}
+
+/**
+ * Shared command-build seam: identity preamble + shim dispatch. Both the
+ * one-shot path (`AiRunner.buildPromptCommand`) and the team-mode path
+ * (`TeamOrchestrator.startAgent`) resolve argv through this single function
+ * so equivalent `PromptOptions` produce equivalent argv (R5 parity).
+ */
+export function buildAgentCommand(
+    agent: AgentName,
+    promptOptions: PromptOptions,
+    context: { workspace: string },
+): ShimCommand {
+    return getAgentShim(agent).getPromptCommand(applyIdentityPreamble(agent, promptOptions, context));
+}
+
+function applyIdentityPreamble(
+    agent: AgentName,
+    promptOptions: PromptOptions,
+    context: { workspace: string },
+): PromptOptions {
+    if (!hasIdentityOptions(promptOptions)) return promptOptions;
+    const preamble = buildIdentityPreamble({
+        agentId: agent,
+        agentType: agent,
+        workspace: context.workspace,
+        purpose: promptOptions.purpose,
+        systemPrompt: promptOptions.systemPrompt,
+        taskId: promptOptions.taskId,
+        peers: promptOptions.peers,
+    });
+    const input = promptOptions.input === undefined ? preamble : `${preamble}\n${promptOptions.input}`;
+    return { ...promptOptions, input };
 }
