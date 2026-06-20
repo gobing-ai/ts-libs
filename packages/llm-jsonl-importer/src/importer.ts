@@ -1,4 +1,4 @@
-import { createNodeFileSystem, type FileSystem, joinPath, resolvePath } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, type FileSystem, resolvePath, walkDir } from '@gobing-ai/ts-runtime';
 import { HistoryImportError } from './errors';
 import { sha256 } from './hash';
 import { redactRecord } from './redaction';
@@ -227,27 +227,11 @@ async function discoverFiles(
             if (matchesPattern(root, definition.filePatterns)) found.add(root);
             continue;
         }
-        for (const file of await walkFiles(fileSystem, root)) {
+        for (const file of await walkDir(root, fileSystem)) {
             if (matchesPattern(file, definition.filePatterns)) found.add(file);
         }
     }
     return [...found].sort();
-}
-
-async function walkFiles(fileSystem: FileSystem, root: string): Promise<readonly string[]> {
-    const entries = [...(await fileSystem.readDir(root))].sort();
-    const found: string[] = [];
-    for (const entry of entries) {
-        const path = joinPath(root, entry);
-        const stat = await fileSystem.stat(path);
-        if (stat === null) continue;
-        if (stat.isDirectory()) {
-            found.push(...(await walkFiles(fileSystem, path)));
-            continue;
-        }
-        if (stat.isFile()) found.push(path);
-    }
-    return found;
 }
 
 function matchesPattern(path: string, patterns: readonly string[]): boolean {

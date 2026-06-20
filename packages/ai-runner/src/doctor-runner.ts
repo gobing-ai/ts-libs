@@ -40,6 +40,8 @@ export interface DoctorRunnerOptions {
     env?: Record<string, string | undefined>;
     /** Logger for health-check diagnostics. Defaults to `getLogger('doctor')`. */
     logger?: Logger;
+    /** Filesystem for auth-file checks. Defaults to `createNodeFileSystem()`; inject to test without disk. */
+    fileSystem?: FileSystem;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -86,7 +88,7 @@ export class DoctorRunner {
     private readonly runner: AiRunner;
     private readonly timeout: number;
     private readonly env: Record<string, string | undefined>;
-    private readonly fs: FileSystem = createNodeFileSystem();
+    private readonly fs: FileSystem;
     private readonly logger: Logger;
 
     constructor(options: DoctorRunnerOptions = {}) {
@@ -94,6 +96,7 @@ export class DoctorRunner {
         this.detector = options.agentDetector ?? new AgentDetector({ runner: this.runner });
         this.timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
         this.env = options.env ?? getProcessEnv();
+        this.fs = options.fileSystem ?? createNodeFileSystem();
         this.logger = options.logger ?? getLogger('doctor');
     }
 

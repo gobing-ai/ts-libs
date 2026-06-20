@@ -34,6 +34,8 @@ export interface RuleLoaderOptions {
     validateSchema?: boolean;
     /** Optional fetch implementation for remote HTTP(S) schema refs. */
     fetch?: (input: string) => Promise<Response>;
+    /** Filesystem for reading roots. Defaults to `createNodeFileSystem()`; inject to test without disk. */
+    fileSystem?: FileSystem;
 }
 
 /** Options for loading a single rule file directly from disk. */
@@ -68,7 +70,10 @@ interface MergedRoots {
  * the rest of a preset's categories from the lower-priority roots.
  */
 export async function loadPreset(name: string, options: RuleLoaderOptions): Promise<LoadedPreset> {
-    const merged = await buildMergedRoots(options.roots.map((root) => resolvePath(root)));
+    const merged = await buildMergedRoots(
+        options.roots.map((root) => resolvePath(root)),
+        options.fileSystem,
+    );
     const presetPath = findMergedPreset(merged, name);
     if (presetPath === null) return { rules: [], extensions: [] };
     const preset = PresetDefinitionSchema.parse(await readStructuredFile(presetPath, options)) as PresetDefinition;
@@ -206,8 +211,10 @@ async function loadPresetEntry(
  * Roots are processed in the order supplied (highest priority first). The first
  * root to provide a given relative path owns that file; later roots are shadowed.
  */
-async function buildMergedRoots(roots: readonly string[]): Promise<MergedRoots> {
-    const fs = createNodeFileSystem();
+async function buildMergedRoots(
+    roots: readonly string[],
+    fs: FileSystem = createNodeFileSystem(),
+): Promise<MergedRoots> {
     const files = new Map<string, string>();
     const categories = new Set<string>();
     for (const root of roots) {

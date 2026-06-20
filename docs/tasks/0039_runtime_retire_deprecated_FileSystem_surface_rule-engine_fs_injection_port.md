@@ -158,11 +158,14 @@ Sequenced inside-out; run the touched package's suite after every leg.
 ### Review
 
 
----
+### Follow-up 2026-06-20 — deferred minors closed
+The three deferred items from the post-merge re-review are now resolved:
+- **#3 RESOLVED** — `importer.ts` `walkFiles` deleted; replaced with canonical `walkDir(root, fileSystem)` from `@gobing-ai/ts-runtime` (behavior-equivalent — importer post-filters via `matchesPattern`; dropped now-unused `joinPath` import).
+- **#4 RESOLVED** — `DoctorRunnerOptions.fileSystem?: FileSystem` added and wired to `this.fs`; the testable fs seam the migration claimed is now surfaced.
+- **#5 RESOLVED** — `RuleLoaderOptions.fileSystem?: FileSystem` added, threaded into `buildMergedRoots(roots, fs)`; config loading no longer hard-constructs the fs.
 
-## Post-merge re-review 2026-06-20 (dev-review --focus all over packages/)
+All additive (default path unchanged); existing suites validate behavior. Gate: biome+tsc 8/8 · 1515 pass / 0 fail · spur-check 39 rules + both presets · build 8/8.
 
-A full re-sweep after 7aa26ac surfaced a **correctness defect the original Phase-7 verify missed** — now fixed.
 
 ### 🔴 Defect (was major) — injected fileSystem bypassed fixer providers
 `engine.ts:166` threaded `fileSystem` into the **evaluator** context but `:221` built the **fixer** context as `{ rule, workdir }`, dropping it. `RegexFixerProvider`/`PathFixerProvider` read `context.fileSystem ?? createNodeFileSystem()`, so the fallback always won — an injected virtual fs silently never reached fixers. Contradicted R1's "threaded to evaluators AND fixers."
