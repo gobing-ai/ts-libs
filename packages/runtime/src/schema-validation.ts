@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import type { FileSystem } from './file-system';
-import { getFs } from './fs';
+import { createNodeFileSystem } from './file-system-node';
 import { dirnamePath, getProcessCwd, isAbsolutePath, joinPath } from './path';
 
 /** Default time budget for a single remote schema fetch. */
@@ -68,7 +68,7 @@ export class StructuredConfigSchemaError extends Error {
 
 /** Reads a config file from disk, parses it (YAML or JSON), and validates against its declared `$schema`. */
 export async function loadStructuredConfig(path: string, options: StructuredConfigLoadOptions = {}): Promise<unknown> {
-    const content = await (options.fileSystem ?? getFs()).readFile(path);
+    const content = await (options.fileSystem ?? createNodeFileSystem()).readFile(path);
     return await parseStructuredConfig(content, path, options);
 }
 
@@ -360,7 +360,7 @@ async function readSchema(schemaLocation: string, options: StructuredConfigLoadO
         }
         return await readBoundedBody(response, schemaLocation);
     }
-    return await (options.fileSystem ?? getFs()).readFile(schemaLocation);
+    return await (options.fileSystem ?? createNodeFileSystem()).readFile(schemaLocation);
 }
 
 /**

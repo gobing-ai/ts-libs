@@ -11,7 +11,7 @@
  * @module rule-engine/fixers/test-stub-fixer
  */
 
-import { isAbsolutePath, joinPath, NodeFileSystem, type ProcessExecutor } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, isAbsolutePath, joinPath, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 import type { TestPathResolver } from '../resolvers/test-path-resolver';
 import type { Fix } from '../types';
@@ -20,11 +20,11 @@ import type { RuleFixerInput, RuleFixerProvider } from './fixers';
 /** File-system seam for dependency injection in tests. */
 export interface TestStubFileSystem {
     /** Resolve to true if the path exists on disk. */
-    exists(path: string): Promise<boolean>;
+    exists(path: string): boolean | Promise<boolean>;
 }
 
 /** Real file-system implementation backed by the runtime FileSystem seam. */
-export const realFileSystem: TestStubFileSystem = new NodeFileSystem();
+export const realFileSystem: TestStubFileSystem = createNodeFileSystem();
 
 /** Dependencies injected into {@link TestStubFixer}. */
 export interface TestStubFixerDeps {

@@ -2,18 +2,19 @@ import { describe, expect, test } from 'bun:test';
 
 import {
     buildConfigFromObject,
-    CloudflareFileSystem,
+    createCfFileSystem,
     createNodeFileSystem,
     createRuntimeContext,
     type FileSystem,
-    NodeFileSystem,
     ProcessExecutor,
 } from '../src/index';
 
 describe('@gobing-ai/ts-runtime barrel', () => {
     test('exports filesystem, process, context, and config APIs', () => {
-        expect(new NodeFileSystem()).toBeInstanceOf(NodeFileSystem);
-        expect(new CloudflareFileSystem()).toBeInstanceOf(CloudflareFileSystem);
+        const nodeFs: FileSystem = createNodeFileSystem();
+        const cfFs: FileSystem = createCfFileSystem();
+        expect(typeof nodeFs.resolve('package.json')).toBe('string');
+        expect(typeof cfFs.getProjectRoot()).toBe('string');
         expect(new ProcessExecutor()).toBeInstanceOf(ProcessExecutor);
         expect(createRuntimeContext().require('config').app.port).toBe(3000);
         expect(buildConfigFromObject({ app: { env: 'test' } }).app.env).toBe('test');

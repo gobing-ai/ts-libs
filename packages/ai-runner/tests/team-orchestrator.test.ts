@@ -149,15 +149,15 @@ describe('TeamOrchestrator', () => {
         expect((await dao.inbox('coder')).at(-1)).toMatchObject({ status: 'failed' });
         await orchestrator.sendMessage('planner', 'missing', 'queued for stopped agent');
         expect(orchestrator.getRunningAgents().has('coder')).toBeTrue();
-        expect(orchestrator.getAgentStatus('coder')).toBe('running');
-        expect(orchestrator.getPeerSpecs(workspace, 'coder').map((spec) => spec.id)).toEqual(['planner']);
+        expect(await orchestrator.getAgentStatus('coder')).toBe('running');
+        expect((await orchestrator.getPeerSpecs(workspace, 'coder')).map((spec) => spec.id)).toEqual(['planner']);
 
         const stoppedEvents: Array<Parameters<AgentEvents['agent.stopped']>[0]> = [];
         orchestrator.on('agent.stopped', (event) => stoppedEvents.push(event));
         await orchestrator.restartAgent('coder');
         await orchestrator.stopAgent('missing');
         await orchestrator.stopAll();
-        expect(orchestrator.getAgentStatus('coder')).toBe('stopped');
+        expect(await orchestrator.getAgentStatus('coder')).toBe('stopped');
         expect(stoppedEvents).toContainEqual({ agentId: 'coder', exitCode: null });
         expect(busEvents).toContain('started:coder:codex');
         expect(busEvents).toContain('stopped:coder:null');
@@ -183,7 +183,7 @@ describe('TeamOrchestrator', () => {
         await orchestrator.stopAll();
 
         expect(created[0]?.sent[0]).toContain('hello');
-        expect(orchestrator.getAgentStatus('coder')).toBe('stopped');
+        expect(await orchestrator.getAgentStatus('coder')).toBe('stopped');
     });
 });
 

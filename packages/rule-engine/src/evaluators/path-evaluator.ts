@@ -1,4 +1,4 @@
-import { joinPath, NodeFileSystem } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, joinPath } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -19,13 +19,12 @@ import { configArray, configString, discoverFiles, matchesGlob } from './file-ut
  *   exact paths relative to the workdir (`require` = must exist, `forbid` = must not).
  */
 export class PathEvaluator implements RuleEvaluator {
-    private readonly fs: NodeFileSystem;
-
+    /** Evaluate required or forbidden paths in either config form. */
+    // Explicit constructor avoids a V8 function-coverage phantom (synthesized default ctor).
     constructor() {
-        this.fs = new NodeFileSystem();
+        // no-op; all state comes from evaluate() context
     }
 
-    /** Evaluate required or forbidden paths in either config form. */
     async evaluate(rule: ConstraintRule, context: RuleContext): Promise<RuleEvaluationResult> {
         const config = rule.evaluator.config ?? {};
         const must = config.must;
@@ -43,7 +42,8 @@ export class PathEvaluator implements RuleEvaluator {
     ): Promise<RuleEvaluationResult> {
         const include = rule.include ?? ['**'];
         const exclude = rule.exclude ?? [];
-        const files = await discoverFiles({ workdir: context.workdir });
+        const fs = context.fileSystem ?? createNodeFileSystem();
+        const files = await discoverFiles({ workdir: context.workdir, fs });
         const inScope = (file: string) =>
             include.some((glob) => matchesGlob(file, glob)) && !exclude.some((glob) => matchesGlob(file, glob));
         const findings = [];
@@ -83,9 +83,10 @@ export class PathEvaluator implements RuleEvaluator {
     ): Promise<RuleEvaluationResult> {
         const paths = configArray(config, 'paths', undefined, { evaluator: 'path' });
         const mode = configString(config, 'mode', 'require');
+        const fs = context.fileSystem ?? createNodeFileSystem();
         const findings = [];
         for (const path of paths) {
-            const exists = await this.fs.exists(joinPath(context.workdir, path));
+            const exists = await fs.exists(joinPath(context.workdir, path));
             if (mode === 'forbid' && exists) {
                 findings.push(createFinding(rule, `Forbidden path exists: ${path}`, path, { code: 'path:forbidden' }));
             }

@@ -1,6 +1,6 @@
 import type { EventBus, Logger } from '@gobing-ai/ts-infra';
 import { addSpanEvent, getLogger, traceAsync } from '@gobing-ai/ts-infra';
-import type { ProcessExecutor } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, type FileSystem, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { RuleEngineEvents } from './events';
 import {
     applyFixes as applyFixesImpl,
@@ -19,6 +19,12 @@ import { createFinding, SEVERITY_RANK } from './types';
 export interface RuleEngineOptions {
     /** Optional executor supplied to process-backed evaluators. */
     processExecutor?: ProcessExecutor;
+    /**
+     * Filesystem port (ADR-011 union-return {@link FileSystem}); defaults to
+     * `createNodeFileSystem()`. Threaded through {@link RuleContext} to every
+     * evaluator and fixer provider so hosts can inject a virtual fs in tests.
+     */
+    fileSystem?: FileSystem;
     /** Optional preconfigured host. */
     host?: RuleEngineHost;
     /** Optional event bus for structured run observability (R-A4). */
@@ -43,6 +49,7 @@ export class RuleEngine {
     private readonly persistence: RulePersistenceAdapter | undefined;
     private readonly runId: string;
     private readonly runMeta: Record<string, unknown> | undefined;
+    private readonly fileSystem: FileSystem;
 
     constructor(options: RuleEngineOptions = {}) {
         this.host = options.host ?? new RuleEngineHost();
@@ -53,6 +60,7 @@ export class RuleEngine {
         this.persistence = options.persistence;
         this.runId = options.runId ?? crypto.randomUUID();
         this.runMeta = options.runMeta;
+        this.fileSystem = options.fileSystem ?? createNodeFileSystem();
     }
 
     /** Register or replace an evaluator. */
@@ -155,7 +163,7 @@ export class RuleEngine {
                     try {
                         const result = await this.host.evaluators
                             .get(rule.evaluator.type)
-                            .evaluate(rule, { rule, workdir });
+                            .evaluate(rule, { rule, workdir, fileSystem: this.fileSystem });
                         ruleFindings = result.findings;
                         ruleEvalFixes = result.fixes;
                     } catch (error) {
@@ -272,7 +280,7 @@ export class RuleEngine {
      * @returns Application details and optional diff.
      */
     async applyFixes(workdir: string, fixes: readonly Fix[], dryRun = false): Promise<FixApplicationResult> {
-        return applyFixesImpl(workdir, fixes, dryRun);
+        return applyFixesImpl(workdir, fixes, dryRun, this.fileSystem);
     }
 }
 

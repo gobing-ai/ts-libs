@@ -161,4 +161,45 @@ describe('RuleEngine', () => {
         expect(lines.filter((line) => line === 'debug:eval start')).toHaveLength(2);
         expect(lines).toContain('info:rule run done');
     });
+
+    test('injected fileSystem reaches evaluators through RuleContext', async () => {
+        const readPaths: string[] = [];
+        const fakeFs = {
+            getProjectRoot: () => '/fake',
+            resolve: (...segs: string[]) => `/fake/${segs.join('/')}`,
+            exists: (_path: string) => false,
+            readFile: (path: string) => {
+                readPaths.push(path);
+                return 'hello';
+            },
+            writeFile: (_path: string, _content: string) => {},
+            rename: (_src: string, _dest: string) => {},
+            appendFile: (_path: string, _content: string) => {},
+            ensureDir: (_path: string) => {},
+            readDir: (_path: string) => [],
+            deleteFile: (_path: string) => {},
+            createWriteStream: (_path: string) => ({
+                write: (_chunk: string) => {},
+                end: () => {},
+            }),
+            copy: (_src: string, _dest: string) => {},
+            stat: (_path: string) => null,
+        };
+
+        const host = new RuleEngineHost();
+        host.evaluators.register(
+            'fs-probe',
+            {
+                async evaluate(_rule, context) {
+                    const fs = context.fileSystem;
+                    if (fs) void (await fs.readFile('/tmp/test.txt'));
+                    return { findings: [], fixes: [] };
+                },
+            },
+            'extension',
+        );
+
+        await new RuleEngine({ host, fileSystem: fakeFs }).evaluate([rule('probe', 'fs-probe')], '/workdir');
+        expect(readPaths).toEqual(['/tmp/test.txt']);
+    });
 });

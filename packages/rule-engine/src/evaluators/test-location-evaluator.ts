@@ -1,6 +1,8 @@
+import { createNodeFileSystem } from '@gobing-ai/ts-runtime';
 import type { CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 import { type TestPathResolver, TypeScriptTestPathResolver } from '../resolvers/test-path-resolver';
 import {
+    type ConstraintFinding,
     type ConstraintRule,
     createFinding,
     type RuleContext,
@@ -45,8 +47,9 @@ export class TestLocationEvaluator implements RuleEvaluator {
         const forbid = config.forbid ?? [];
         const include = rule.include ?? ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx'];
         const exclude = rule.exclude ?? [];
-        const allFiles = await discoverFiles({ workdir: context.workdir });
-        const findings = [];
+        const findings: ConstraintFinding[] = [];
+        const fs = context.fileSystem ?? createNodeFileSystem();
+        const allFiles = await discoverFiles({ workdir: context.workdir, fs });
 
         const testPatterns = config.requireCorrespondingTest ? [expected] : include;
         const testFiles = allFiles.filter((file) => testPatterns.some((pattern) => matchesGlob(file, pattern)));

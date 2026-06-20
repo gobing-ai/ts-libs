@@ -4,22 +4,24 @@ import { basename, isAbsolute } from 'node:path';
 import { bundledRulesRoot, listBundledRuleFiles, loadPreset } from '../../src';
 
 describe('bundledRulesRoot', () => {
-    test('resolves an existing absolute directory shipped with the package', () => {
-        const root = bundledRulesRoot();
+    test('resolves an existing absolute directory shipped with the package', async () => {
+        const root = await bundledRulesRoot();
         expect(root).not.toBeNull();
         expect(isAbsolute(root as string)).toBe(true);
         expect(existsSync(root as string)).toBe(true);
         expect(basename(root as string)).toBe('rules');
     });
 
-    test('is memoized — repeated calls return the same path', () => {
-        expect(bundledRulesRoot()).toBe(bundledRulesRoot());
+    test('is memoized — repeated calls return the same path', async () => {
+        const a = await bundledRulesRoot();
+        const b = await bundledRulesRoot();
+        expect(a).toBe(b);
     });
 });
 
 describe('listBundledRuleFiles', () => {
-    test('lists the bundled presets and category rule files as sorted relative paths', () => {
-        const files = listBundledRuleFiles();
+    test('lists the bundled presets and category rule files as sorted relative paths', async () => {
+        const files = await listBundledRuleFiles();
         // Presets live at the root; category rules live under their folders.
         expect(files).toContain('example.yaml');
         expect(files).toContain('quality/tsdoc-exports.yaml');
@@ -33,7 +35,7 @@ describe('listBundledRuleFiles', () => {
 
 describe('loadPreset against the bundled root', () => {
     test('example composes every bundled category into a non-empty ruleset', async () => {
-        const root = bundledRulesRoot();
+        const root = await bundledRulesRoot();
         const { rules } = await loadPreset('example', { roots: [root as string] });
         const ids = rules.map((rule) => rule.id);
         // One rule from each composed category proves the preset graph resolves.

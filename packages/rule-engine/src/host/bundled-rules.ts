@@ -1,4 +1,4 @@
-import { dirnamePath, joinPath, NodeSyncFileSystem, type SyncFileSystem } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, dirnamePath, type FileSystem, joinPath } from '@gobing-ai/ts-runtime';
 
 /**
  * Directory name holding the rule presets and category folders bundled with this
@@ -9,7 +9,8 @@ const BUNDLED_RULES_DIR = 'rules';
 
 /** Memoized result so the upward filesystem walk runs at most once per process. */
 let cachedRoot: string | null | undefined;
-const defaultFs = new NodeSyncFileSystem();
+/** In-flight resolution to prevent racing concurrent calls. */
+let resolving: Promise<string | null> | undefined;
 
 /**
  * Resolve the absolute path to the rule presets bundled with
@@ -26,26 +27,28 @@ const defaultFs = new NodeSyncFileSystem();
  * which makes it robust to the build's `src`→`dist` layout shift. Returns `null`
  * if the directory is absent (e.g. a partial install that excluded the assets).
  */
-export function bundledRulesRoot(): string | null {
-    return bundledRulesRootWithFs(defaultFs);
+export async function bundledRulesRoot(): Promise<string | null> {
+    if (cachedRoot !== undefined) return cachedRoot;
+    if (resolving !== undefined) return resolving;
+    resolving = bundledRulesRootWithFs(createNodeFileSystem());
+    cachedRoot = await resolving;
+    resolving = undefined;
+    return cachedRoot;
 }
 
-function bundledRulesRootWithFs(fs: SyncFileSystem): string | null {
-    if (cachedRoot !== undefined) return cachedRoot;
+async function bundledRulesRootWithFs(fs: FileSystem): Promise<string | null> {
     let dir = import.meta.dirname;
-    // Walk to filesystem root at most; the package root is only a few levels up.
     while (true) {
         const candidate = joinPath(dir, BUNDLED_RULES_DIR);
-        if (fs.stat(candidate)?.isDirectory() === true) {
-            cachedRoot = candidate;
-            return cachedRoot;
+        const st = await fs.stat(candidate);
+        if (st?.isDirectory() === true) {
+            return candidate;
         }
         const parent = dirnamePath(dir);
         if (parent === dir) break;
         dir = parent;
     }
-    cachedRoot = null;
-    return cachedRoot;
+    return null;
 }
 
 /**
@@ -56,20 +59,21 @@ function bundledRulesRootWithFs(fs: SyncFileSystem): string | null {
  * (e.g. a per-user global rules directory) on first run. Returns an empty array
  * when no bundled directory is present.
  */
-export function listBundledRuleFiles(): string[] {
-    const root = bundledRulesRoot();
+export async function listBundledRuleFiles(): Promise<string[]> {
+    const root = await bundledRulesRoot();
     if (root === null) return [];
-    return walk(defaultFs, root, '').sort();
+    return (await walk(createNodeFileSystem(), root, '')).sort();
 }
 
 /** Recursively collect YAML/JSON files under `dir`, returning paths relative to the walk origin. */
-function walk(fs: SyncFileSystem, dir: string, relPrefix: string): string[] {
+async function walk(fs: FileSystem, dir: string, relPrefix: string): Promise<string[]> {
     const acc: string[] = [];
-    for (const entry of fs.readDir(dir)) {
+    for (const entry of await fs.readDir(dir)) {
         const abs = joinPath(dir, entry);
         const rel = relPrefix.length > 0 ? `${relPrefix}/${entry}` : entry;
-        if (fs.stat(abs)?.isDirectory() === true) {
-            acc.push(...walk(fs, abs, rel));
+        const st = await fs.stat(abs);
+        if (st?.isDirectory() === true) {
+            acc.push(...(await walk(fs, abs, rel)));
         } else if (/\.(ya?ml|json)$/i.test(entry)) {
             acc.push(rel);
         }

@@ -1,3 +1,4 @@
+import { createNodeFileSystem } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -61,7 +62,8 @@ export class SecretsScannerEvaluator implements RuleEvaluator {
         const scope = config.scope as { include?: unknown; exclude?: unknown } | undefined;
         const include = stringArray(scope?.include) ?? rule.include;
         const exclude = stringArray(scope?.exclude) ?? rule.exclude;
-        const files = await scanFiles({ workdir: context.workdir, include, exclude, matchMode: 'loose' });
+        const fs = context.fileSystem ?? createNodeFileSystem();
+        const files = await scanFiles({ workdir: context.workdir, include, exclude, matchMode: 'loose', fs });
 
         const findings = [];
         for (const { file, content } of files) {

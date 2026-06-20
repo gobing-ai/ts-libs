@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
 import {
+    createNodeFileSystem,
     joinPath,
-    NodeFileSystem,
     ProcessExecutor,
     type ProcessOptions,
     type ProcessResult,
@@ -48,7 +48,7 @@ function createVersionExecutor(): FakeExecutor {
 
 async function createTempHome(name: string): Promise<string> {
     const home = joinPath(tmpdir(), `ts-libs-ai-runner-${Date.now()}-${name}`);
-    await new NodeFileSystem().mkdir(home);
+    await createNodeFileSystem().ensureDir(home);
     return home;
 }
 
@@ -168,8 +168,8 @@ describe('DoctorRunner', () => {
 
     test('trusts codex CLI unauthenticated output over a stale auth.json file', async () => {
         const home = await createTempHome('codex-stale');
-        const fs = new NodeFileSystem();
-        await fs.mkdir(joinPath(home, '.codex'));
+        const fs = createNodeFileSystem();
+        await fs.ensureDir(joinPath(home, '.codex'));
         await fs.writeFile(joinPath(home, '.codex', 'auth.json'), '{"token":"stale"}');
         const executor = new FakeExecutor((options) =>
             options.args?.includes('--version') === true ? { stdout: 'codex 1.0.0' } : { stdout: 'Not logged in' },
@@ -184,8 +184,8 @@ describe('DoctorRunner', () => {
 
     test('falls back to extensionless codex auth file when CLI output is inconclusive', async () => {
         const home = await createTempHome('codex-auth');
-        const fs = new NodeFileSystem();
-        await fs.mkdir(joinPath(home, '.codex'));
+        const fs = createNodeFileSystem();
+        await fs.ensureDir(joinPath(home, '.codex'));
         await fs.writeFile(joinPath(home, '.codex', 'auth'), '{"token":"live"}');
         const executor = new FakeExecutor((options) =>
             options.args?.includes('--version') === true ? { stdout: 'codex 1.0.0' } : { stdout: 'codex login status' },
@@ -199,12 +199,12 @@ describe('DoctorRunner', () => {
     });
 
     test('requires gemini settings to contain credential-like content', async () => {
-        const fs = new NodeFileSystem();
+        const fs = createNodeFileSystem();
         const prefsOnlyHome = await createTempHome('gemini-prefs');
-        await fs.mkdir(joinPath(prefsOnlyHome, '.gemini'));
+        await fs.ensureDir(joinPath(prefsOnlyHome, '.gemini'));
         await fs.writeFile(joinPath(prefsOnlyHome, '.gemini', 'settings.json'), '{"theme":"dark"}');
         const tokenHome = await createTempHome('gemini-token');
-        await fs.mkdir(joinPath(tokenHome, '.gemini'));
+        await fs.ensureDir(joinPath(tokenHome, '.gemini'));
         await fs.writeFile(joinPath(tokenHome, '.gemini', 'settings.json'), '{"token":"live"}');
         const executor = new FakeExecutor(() => ({ stdout: 'gemini 1.0.0' }));
         const runner = new AiRunner({ processExecutor: executor });

@@ -1,3 +1,4 @@
+import { createNodeFileSystem } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -44,7 +45,8 @@ export class ImportBoundaryEvaluator implements RuleEvaluator {
         const compiled = boundaries.map((boundary, index) => compileBoundary(boundary, index));
 
         // Scan all files once (read up front); apply each boundary's globs in-memory below.
-        const allFiles = await scanFiles({ workdir: context.workdir, matchMode: 'glob' });
+        const fs = context.fileSystem ?? createNodeFileSystem();
+        const allFiles = await scanFiles({ workdir: context.workdir, matchMode: 'glob', fs });
 
         const findings = [];
         for (const boundary of compiled) {

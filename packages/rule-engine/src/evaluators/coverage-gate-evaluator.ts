@@ -1,4 +1,4 @@
-import { isAbsolutePath, NodeFileSystem, relativePath, resolvePath } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, isAbsolutePath, relativePath, resolvePath } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -44,20 +44,20 @@ interface CoverageGateConfig {
  * error, so the gate degrades gracefully when coverage was not generated.
  */
 export class CoverageGateEvaluator implements RuleEvaluator {
-    private readonly fs: NodeFileSystem;
-
+    /** Evaluate per-file coverage against the configured threshold. */
+    // Explicit constructor avoids a V8 function-coverage phantom (synthesized default ctor).
     constructor() {
-        this.fs = new NodeFileSystem();
+        // no-op; all state comes from evaluate() context
     }
 
-    /** Evaluate per-file coverage against the configured threshold. */
     async evaluate(rule: ConstraintRule, context: RuleContext): Promise<RuleEvaluationResult> {
+        const fs = context.fileSystem ?? createNodeFileSystem();
         const config = (rule.evaluator.config ?? {}) as CoverageGateConfig;
         const lcovPath = config.lcovPath
             ? resolvePath(context.workdir, config.lcovPath)
             : resolvePath(context.workdir, 'coverage', 'lcov.info');
 
-        if (!(await this.fs.exists(lcovPath))) {
+        if (!(await fs.exists(lcovPath))) {
             return {
                 findings: [
                     createFinding(rule, 'No lcov file found — coverage not generated. Skipping gate.', lcovPath, {
@@ -67,8 +67,7 @@ export class CoverageGateEvaluator implements RuleEvaluator {
                 fixes: [],
             };
         }
-
-        const coverage = parseLcov(await this.fs.readFile(lcovPath));
+        const coverage = parseLcov(await fs.readFile(lcovPath));
         const threshold = config.threshold ?? 90;
         const exemptions = new Map((config.exemptions ?? []).map((entry) => [entry.path, entry]));
         const findings = [];

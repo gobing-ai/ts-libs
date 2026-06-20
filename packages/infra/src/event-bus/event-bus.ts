@@ -163,6 +163,8 @@ export class EventBus<TEvents extends EventMap> {
         const durationMs = performance.now() - startMs;
         const detail = args.length === 1 ? args[0] : args.length > 1 ? args : undefined;
 
+        // Metrics are emitted inline here; traces (span attributes + events) are attached
+        // by attachTelemetryObserver in default-observers.ts — see that file for the trace layer.
         getEventbusEmitsTotal().add(1, { event: eventName });
         if (errors > 0) getEventbusErrorsTotal().add(errors, { event: eventName });
 

@@ -241,6 +241,7 @@ function virtualFileSystem(files: Record<string, string>): FileSystem {
         ensureDir: () => undefined,
         readDir: () => [],
         deleteFile: () => undefined,
+        rename: () => undefined,
         copy: () => undefined,
         stat: (path) =>
             path in files

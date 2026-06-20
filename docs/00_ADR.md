@@ -247,3 +247,18 @@ making user-stop and the Node-owned services (telemetry, DB) plugins and collaps
 `stopAll(reason) → unloadAll(reason)`. **Behavior change:** the portable layer no longer closes a
 caller-injected `services.db` (caller-owned rule — *close what you create, never what you were handed*);
 only bootstrap-created adapters (Node subpath) are closed via a `dbPlugin`.
+
+---
+
+## ADR-019: Deprecated FileSystem Surface Removal — Single Canonical `FileSystem` Interface
+
+**Status:** Accepted · **Date:** 2026-06-20 · **Targets:** `@gobing-ai/ts-runtime` · **Amends:** ADR-011
+
+Deleted the deprecated `FileSystem`/`SyncFileSystem` interfaces, `NodeFileSystem`/`NodeSyncFileSystem`/
+`CloudflareFileSystem` classes, `getFs()`/`setFileSystem()` singletons, and `ensureDirForFileSync()` from
+`packages/runtime/src/fs.ts`. The canonical `FileSystem` interface (union-return, from `file-system.ts`)
+and `createNodeFileSystem()`/`createCfFileSystem()` factories are the only filesystem surface.
+Utility functions (`walkDir`, `readJsonFile`, `atomicWriteFile`, etc.) now accept the canonical
+`FileSystem` and default to `createNodeFileSystem()`. `RuleEngineOptions.fileSystem?: FileSystem` (and
+`RuleContext.fileSystem`) provides a testable DI seam for the rule engine. **Breaking change:**
+deprecated runtime exports removed; consumers must migrate to `createNodeFileSystem()`.

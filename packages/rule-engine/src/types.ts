@@ -1,3 +1,4 @@
+import type { FileSystem } from '@gobing-ai/ts-runtime';
 import { assertRelativeExtensionPath } from '@gobing-ai/ts-runtime/extension';
 import { z } from 'zod';
 
@@ -156,6 +157,13 @@ export interface RuleContext {
     workdir: string;
     /** Rule being evaluated. */
     rule: ConstraintRule;
+    /**
+     * Filesystem port (ADR-011 union-return {@link FileSystem}); defaults to
+     * `createNodeFileSystem()` when constructed by `RuleEngine`. Evaluators and
+     * fixer providers MUST read files through this port rather than constructing
+     * their own filesystem instance, so a host can inject a virtual fs in tests.
+     */
+    fileSystem?: FileSystem;
 }
 
 /** Evaluator implementation contract. */

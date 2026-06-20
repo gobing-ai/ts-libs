@@ -18,6 +18,7 @@ import {
     mkdirSync,
     readdirSync,
     readFileSync,
+    renameSync,
     rmSync,
     statSync,
     writeFileSync,
@@ -63,13 +64,17 @@ export function createNodeFileSystem(root?: string): FileSystem {
             rmSync(path, { recursive: true, force: true });
         },
 
-        createWriteStream: (path: string) => {
-            ensureParentDir(path);
-            return createWriteStream(path, { flags: 'a' });
+        rename: (src: string, dest: string) => {
+            renameSync(src, dest);
         },
 
         copy: (src: string, dest: string) => {
             cpSync(src, dest, { recursive: true });
+        },
+
+        createWriteStream: (path: string) => {
+            ensureParentDir(path);
+            return createWriteStream(path, { flags: 'a' });
         },
 
         stat: (path: string) => {

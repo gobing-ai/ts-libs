@@ -5,9 +5,9 @@
  */
 
 import {
+    createNodeFileSystem,
     dirnamePath,
-    type LegacyFileSystem as FileSystem,
-    NodeFileSystem,
+    type FileSystem,
     relativePath,
     resolvePath,
     walkDir,
@@ -35,7 +35,7 @@ export const DEFAULT_EXCLUDES = new Set(['.git', 'node_modules', 'dist', '.cover
 
 /** Resolve source files for evaluators using conservative path-fragment matching. */
 export async function discoverFiles(options: SourceDiscoveryOptions): Promise<string[]> {
-    const fs = options.fs ?? new NodeFileSystem();
+    const fs = options.fs ?? createNodeFileSystem();
     const allFiles = await walkDir(options.workdir, fs, DEFAULT_EXCLUDES);
     return allFiles
         .map((path) => relativePath(options.workdir, path))
@@ -48,7 +48,7 @@ export async function discoverFiles(options: SourceDiscoveryOptions): Promise<st
 }
 
 /** Read a file from a workdir-relative path. */
-export async function readWorkdirFile(workdir: string, filePath: string, fs = new NodeFileSystem()): Promise<string> {
+export async function readWorkdirFile(workdir: string, filePath: string, fs = createNodeFileSystem()): Promise<string> {
     return await fs.readFile(resolvePath(workdir, filePath));
 }
 
@@ -95,7 +95,7 @@ export interface ScanFilesOptions {
  * the returned paths.
  */
 export async function scanFiles(options: ScanFilesOptions): Promise<ScannedFile[]> {
-    const fs = options.fs ?? new NodeFileSystem();
+    const fs = options.fs ?? createNodeFileSystem();
     const files =
         options.matchMode === 'loose'
             ? await discoverFiles({ workdir: options.workdir, include: options.include, exclude: options.exclude, fs })

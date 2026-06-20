@@ -1,9 +1,10 @@
 import {
     basenamePath,
+    createNodeFileSystem,
     dirnamePath,
+    type FileSystem,
     joinPath,
     loadStructuredConfig,
-    NodeFileSystem,
     relativePath,
     resolvePath,
     SEP,
@@ -206,7 +207,7 @@ async function loadPresetEntry(
  * root to provide a given relative path owns that file; later roots are shadowed.
  */
 async function buildMergedRoots(roots: readonly string[]): Promise<MergedRoots> {
-    const fs = new NodeFileSystem();
+    const fs = createNodeFileSystem();
     const files = new Map<string, string>();
     const categories = new Set<string>();
     for (const root of roots) {
@@ -258,7 +259,7 @@ function mergedFilesInCategory(merged: MergedRoots, category: string): string[] 
 }
 
 /** Recursively collect YAML/JSON file paths under a directory, skipping root-level `presets/`. */
-async function walkYamlFiles(fs: NodeFileSystem, dir: string, depth = 0): Promise<string[]> {
+async function walkYamlFiles(fs: FileSystem, dir: string, depth = 0): Promise<string[]> {
     const stat = await fs.stat(dir);
     if (stat === null || !stat.isDirectory()) return [];
     const acc: string[] = [];
@@ -276,7 +277,7 @@ async function walkYamlFiles(fs: NodeFileSystem, dir: string, depth = 0): Promis
 }
 
 /** List immediate subdirectory names of a root (excluding `presets`). */
-async function listImmediateDirs(fs: NodeFileSystem, dir: string): Promise<string[]> {
+async function listImmediateDirs(fs: FileSystem, dir: string): Promise<string[]> {
     const stat = await fs.stat(dir);
     if (stat === null || !stat.isDirectory()) return [];
     const dirs: string[] = [];

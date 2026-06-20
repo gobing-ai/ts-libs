@@ -1,5 +1,5 @@
 import { getLogger, type Logger } from '@gobing-ai/ts-infra';
-import { getProcessEnv, joinPath, NodeFileSystem } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, type FileSystem, getProcessEnv, joinPath } from '@gobing-ai/ts-runtime';
 import { AgentDetector, type DetectedAgent } from './agent-detector';
 import { type AgentName, DISPLAY_ORDER, resolveAgentName, TIER2_AGENTS } from './agents/shims';
 import { type AgentRunResult, AiRunner } from './ai-runner';
@@ -86,7 +86,7 @@ export class DoctorRunner {
     private readonly runner: AiRunner;
     private readonly timeout: number;
     private readonly env: Record<string, string | undefined>;
-    private readonly fs = new NodeFileSystem();
+    private readonly fs: FileSystem = createNodeFileSystem();
     private readonly logger: Logger;
 
     constructor(options: DoctorRunnerOptions = {}) {

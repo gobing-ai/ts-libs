@@ -1,3 +1,4 @@
+import { createNodeFileSystem } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -54,7 +55,8 @@ export class TsdocExportEvaluator implements RuleEvaluator {
         const exclude = rule.exclude ?? [];
         // Single, strict glob scoping — collapses the previous double-scoping (loose
         // discoverFiles prefilter + per-file matchesGlob) into one pass.
-        const files = await scanFiles({ workdir: context.workdir, include, exclude, matchMode: 'glob' });
+        const fs = context.fileSystem ?? createNodeFileSystem();
+        const files = await scanFiles({ workdir: context.workdir, include, exclude, matchMode: 'glob', fs });
 
         const findings = [];
         for (const { file, content } of files) {

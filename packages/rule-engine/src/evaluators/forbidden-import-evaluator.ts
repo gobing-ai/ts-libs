@@ -1,3 +1,4 @@
+import { createNodeFileSystem } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -36,6 +37,11 @@ interface ScanEntry {
  */
 export class ForbiddenImportEvaluator implements RuleEvaluator {
     /** Evaluate import/usage against the configured forbidden set. */
+    // Explicit constructor avoids a V8 function-coverage phantom (synthesized default ctor).
+    constructor() {
+        // no-op; all state comes from evaluate() context
+    }
+
     async evaluate(rule: ConstraintRule, context: RuleContext): Promise<RuleEvaluationResult> {
         const config = rule.evaluator.config ?? {};
         return Array.isArray(config.forbidden)
@@ -50,11 +56,13 @@ export class ForbiddenImportEvaluator implements RuleEvaluator {
         config: Record<string, unknown>,
     ): Promise<RuleEvaluationResult> {
         const forbidden = configArray(config, 'patterns', undefined, { evaluator: 'forbidden-import' });
+        const fs = context.fileSystem ?? createNodeFileSystem();
         const files = await scanFiles({
             workdir: context.workdir,
             include: rule.include ?? ['.ts', '.tsx', '.js', '.jsx'],
             exclude: rule.exclude,
             matchMode: 'loose',
+            fs,
         });
         const findings = [];
         for (const { file, content } of files) {
@@ -89,10 +97,10 @@ export class ForbiddenImportEvaluator implements RuleEvaluator {
         }
         const exclude = stringArray(scope?.exclude) ?? [];
         const entries = (config.forbidden as ForbiddenEntry[]).map(compileEntry);
+        const fs = context.fileSystem ?? createNodeFileSystem();
 
         // Anchored `**`-glob scoping: scanFiles' 'glob' mode applies matchesGlob precisely.
-        const files = await scanFiles({ workdir: context.workdir, include, exclude, matchMode: 'glob' });
-
+        const files = await scanFiles({ workdir: context.workdir, include, exclude, matchMode: 'glob', fs });
         const findings = [];
         for (const { file, content } of files) {
             const lines = content.split('\n');

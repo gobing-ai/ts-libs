@@ -61,6 +61,10 @@ export function createCfFileSystem(): FileSystem {
             throw new Error(`FileSystem.deleteFile: ${UNSUPPORTED}`);
         },
 
+        rename: (_src: string, _dest: string): never => {
+            throw new Error(`FileSystem.rename: ${UNSUPPORTED}`);
+        },
+
         createWriteStream: (_path: string): never => {
             throw new Error(`FileSystem.createWriteStream: ${UNSUPPORTED}`);
         },

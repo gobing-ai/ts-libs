@@ -6,9 +6,10 @@
  */
 
 import {
+    createNodeFileSystem,
+    type FileSystem,
     isAbsolutePath,
     joinPath,
-    NodeFileSystem,
     type ProcessExecutor,
     relativePath,
     resolvePath,
@@ -66,7 +67,7 @@ export async function applyFixes(
     workdir: string,
     fixes: readonly Fix[],
     dryRun = false,
-    fs: NodeFileSystem = new NodeFileSystem(),
+    fs: FileSystem = createNodeFileSystem(),
 ): Promise<FixApplicationResult> {
     const byFile = new Map<string, Fix[]>();
     for (const fix of fixes) {
@@ -117,7 +118,7 @@ export async function applyFixes(
             const isFullDeletion =
                 next.length === 0 && selected.applied.some((fix) => fix.start === 0 && fix.end === original.length);
             if (isFullDeletion) {
-                await fs.unlink(absPath);
+                await fs.deleteFile(absPath);
             } else {
                 await fs.writeFile(absPath, next);
             }
@@ -173,10 +174,10 @@ function isValidRange(start: number, end: number, contentLength: number): boolea
  * replacement string (supports `$1` / `$&` back-references).
  */
 export class RegexFixerProvider implements RuleFixerProvider {
-    private readonly fs = new NodeFileSystem();
-
     /** Produce fixes for regex-evaluator findings. */
     async createFixes({ rule, context, findings, fix }: RuleFixerInput): Promise<Fix[]> {
+        const fs = context.fileSystem ?? createNodeFileSystem();
+
         if (fix.mode === 'none' || fix.replacement === undefined) return [];
         // After the guard above, mode is guaranteed to not be 'none'.
         const fixMode = fix.mode as Exclude<FixMode, 'none'>;
@@ -191,8 +192,8 @@ export class RegexFixerProvider implements RuleFixerProvider {
             if (!finding.filePath) continue;
             const absPath = resolveWorkdirPath(context.workdir, finding.filePath);
             if (!isInsideWorkdir(context.workdir, absPath) || finding.line == null) continue;
-            if (!(await this.fs.exists(absPath))) continue;
-            const source = await this.fs.readFile(absPath);
+            if (!(await fs.exists(absPath))) continue;
+            const source = await fs.readFile(absPath);
             const line = getLineRange(source, finding.line);
             if (!line) continue;
             for (const match of source.slice(line.start, line.end).matchAll(regex)) {
@@ -220,18 +221,16 @@ export class RegexFixerProvider implements RuleFixerProvider {
  * `applyFixes` interprets a zero-length result spanning the full file as a deletion.
  */
 export class PathFixerProvider implements RuleFixerProvider {
-    private readonly fs = new NodeFileSystem();
-
     /** Produce deletion fixes for path-evaluator findings. */
     async createFixes({ rule, context, findings, fix }: RuleFixerInput): Promise<Fix[]> {
+        const fs = context.fileSystem ?? createNodeFileSystem();
         if (fix.mode !== 'auto' || rule.evaluator.config?.must !== 'absent') return [];
         const fixes: Fix[] = [];
         for (const finding of findings) {
             if (!finding.filePath) continue;
             const absPath = resolveWorkdirPath(context.workdir, finding.filePath);
-            if (!isInsideWorkdir(context.workdir, absPath)) continue;
-            if (!(await this.fs.exists(absPath))) continue;
-            const content = await this.fs.readFile(absPath);
+            if (!(await fs.exists(absPath))) continue;
+            const content = await fs.readFile(absPath);
             fixes.push({
                 ruleId: rule.id,
                 filePath: finding.filePath,

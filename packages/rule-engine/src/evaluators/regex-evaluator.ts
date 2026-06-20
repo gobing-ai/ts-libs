@@ -1,3 +1,4 @@
+import { createNodeFileSystem } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -31,11 +32,13 @@ export class RegexEvaluator implements RuleEvaluator {
         );
         const mode = configString(config, 'mode', 'forbid');
         const regex = new RegExp(pattern, flags);
+        const fs = context.fileSystem ?? createNodeFileSystem();
         const files = await scanFiles({
             workdir: context.workdir,
             include: rule.include,
             exclude: rule.exclude,
             matchMode: 'loose',
+            fs,
         });
         const findings = [];
 

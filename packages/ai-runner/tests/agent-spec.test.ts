@@ -21,7 +21,7 @@ describe('AgentSpec persistence', () => {
             dir,
         );
 
-        const specs = loadAgentSpecs(dir);
+        const specs = await loadAgentSpecs(dir);
         expect(specs).toHaveLength(1);
         expect(specs[0]).toMatchObject({
             id: 'coder',
@@ -31,7 +31,7 @@ describe('AgentSpec persistence', () => {
         });
 
         await deleteAgentSpec('coder', dir);
-        expect(loadAgentSpecs(dir)).toEqual([]);
+        expect(await loadAgentSpecs(dir)).toEqual([]);
     });
 
     test('validateAgentId rejects invalid ids', () => {
@@ -55,13 +55,13 @@ describe('AgentSpec persistence', () => {
         ].join('\n');
         writeFileSync(join(dir, 'a.yaml'), source);
         writeFileSync(join(dir, 'b.yaml'), source);
-        expect(() => loadAgentSpecs(dir)).toThrow('Duplicate agent id "coder"');
+        return expect(loadAgentSpecs(dir)).rejects.toThrow('Duplicate agent id "coder"');
     });
 
     test('loadAgentSpecs rejects missing required fields', () => {
         const dir = mkdtempSync(join(tmpdir(), 'agent-spec-missing-'));
         writeFileSync(join(dir, 'a.yaml'), 'id: coder\nname: Coder\ntype: codex');
-        expect(() => loadAgentSpecs(dir)).toThrow(ValueError);
+        return expect(loadAgentSpecs(dir)).rejects.toThrow(ValueError);
     });
 
     test('loadAgentSpecs rejects non-array tags', () => {
@@ -78,7 +78,7 @@ describe('AgentSpec persistence', () => {
             '',
         ].join('\n');
         writeFileSync(join(dir, 'a.yaml'), source);
-        expect(() => loadAgentSpecs(dir)).toThrow('"tags" must be a string array');
+        return expect(loadAgentSpecs(dir)).rejects.toThrow('"tags" must be a string array');
     });
 
     test('loadAgentSpecs rejects non-object config', () => {
@@ -94,11 +94,11 @@ describe('AgentSpec persistence', () => {
             '',
         ].join('\n');
         writeFileSync(join(dir, 'a.yaml'), source);
-        expect(() => loadAgentSpecs(dir)).toThrow('"config" must be an object');
+        return expect(loadAgentSpecs(dir)).rejects.toThrow('"config" must be an object');
     });
 
-    test('loadAgentSpecs returns empty array for missing directory', () => {
-        const specs = loadAgentSpecs('/nonexistent/agent-spec-dir');
+    test('loadAgentSpecs returns empty array for missing directory', async () => {
+        const specs = await loadAgentSpecs('/nonexistent/agent-spec-dir');
         expect(specs).toEqual([]);
     });
 });

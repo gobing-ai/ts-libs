@@ -1,4 +1,4 @@
-import { joinPath, NodeFileSystem } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, joinPath } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -22,14 +22,14 @@ import { stringArray } from './file-utils';
  * - `requireRequiredArray` — enforce that `required` is a non-empty array (default: `false`).
  */
 export class SchemaArtifactEvaluator implements RuleEvaluator {
-    private readonly fs: NodeFileSystem;
-
+    /** Evaluate the configured JSON schema artifact. */
+    // Explicit constructor avoids a V8 function-coverage phantom (synthesized default ctor).
     constructor() {
-        this.fs = new NodeFileSystem();
+        // no-op; all state comes from evaluate() context
     }
 
-    /** Evaluate the configured JSON schema artifact. */
     async evaluate(rule: ConstraintRule, context: RuleContext): Promise<RuleEvaluationResult> {
+        const fs = context.fileSystem ?? createNodeFileSystem();
         const config = rule.evaluator.config ?? {};
         const file = config.file;
         if (typeof file !== 'string' || file.length === 0) {
@@ -41,9 +41,10 @@ export class SchemaArtifactEvaluator implements RuleEvaluator {
         const requiredDefs = stringArray(config.requiredDefs);
         const requireRequiredArray = config.requireRequiredArray === true;
 
-        // Check existence.
         const absolutePath = joinPath(context.workdir, file);
-        const exists = await this.fs.exists(absolutePath);
+
+        // Check existence.
+        const exists = await fs.exists(absolutePath);
         if (!exists) {
             return {
                 findings: [
@@ -58,7 +59,7 @@ export class SchemaArtifactEvaluator implements RuleEvaluator {
         // Read and parse.
         let schema: Record<string, unknown>;
         try {
-            const raw = await this.fs.readFile(absolutePath);
+            const raw = await fs.readFile(absolutePath);
             schema = JSON.parse(raw) as Record<string, unknown>;
         } catch (err) {
             return {

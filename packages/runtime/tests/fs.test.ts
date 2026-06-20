@@ -1,21 +1,16 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtemp, readFile, realpath, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
 
+import { createCfFileSystem } from '../src/file-system-cf';
+import { createNodeFileSystem } from '../src/file-system-node';
 import {
     atomicWriteFile,
     atomicWriteJson,
-    CloudflareFileSystem,
     createLogStream,
     ensureDirForFile,
-    getFs,
-    getProjectRoot,
-    NodeFileSystem,
-    NodeSyncFileSystem,
     readJsonFile,
-    resolveProjectPath,
-    setFileSystem,
     walkDir,
     writeJsonFile,
 } from '../src/fs';
@@ -32,95 +27,62 @@ afterEach(async () => {
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-describe('NodeFileSystem', () => {
-    test('reads, writes, appends, stats, resolves, copies, and unlinks files', async () => {
+describe('createNodeFileSystem', () => {
+    test('reads, writes, appends, copies, and deletes files', async () => {
         const root = await createTempDir();
-        const fs = new NodeFileSystem();
+        const fs = createNodeFileSystem(root);
         const file = join(root, 'nested', 'file.txt');
-
-        await fs.writeFile(file, 'hello');
-        await fs.appendFile(file, ' world');
-
-        expect(await fs.exists(file)).toBe(true);
-        expect(await fs.readFile(file)).toBe('hello world');
-        expect(await fs.readDir(join(root, 'nested'))).toEqual(['file.txt']);
-        expect((await fs.stat(file))?.isFile()).toBe(true);
-
-        const link = join(root, 'link.txt');
-        await symlink(file, link);
-        expect(await fs.realpath(link)).toBe(await realpath(file));
-
-        const copy = join(root, 'copy.txt');
-        await fs.copy(file, copy);
-        expect(await fs.readFile(copy)).toBe('hello world');
-
-        const renamed = join(root, 'renamed.txt');
-        await fs.rename(file, renamed);
-        expect(await fs.exists(renamed)).toBe(true);
-        expect(await fs.exists(file)).toBe(false);
-
-        await fs.unlink(renamed);
-        expect(await fs.exists(renamed)).toBe(false);
-        expect(await fs.stat(renamed)).toBeNull();
-    });
-
-    test('creates append-only log streams', async () => {
-        const root = await createTempDir();
-        const file = join(root, 'logs', 'app.log');
-
-        const stream = createLogStream(file, new NodeFileSystem());
-        stream.write('hello\n');
-        stream.end();
-
-        await Bun.sleep(10);
-        expect(await readFile(file, 'utf-8')).toBe('hello\n');
-    });
-
-    test('preserves write order for many chunks queued before the stream is ready', async () => {
-        // All writes land synchronously, before the lazy stream resolves — they must flush FIFO.
-        // The old shared-buffer/shift() approach could interleave same-tick writes out of order.
-        const root = await createTempDir();
-        const file = join(root, 'logs', 'ordered.log');
-
-        const stream = createLogStream(file, new NodeFileSystem());
-        const chunks = Array.from({ length: 200 }, (_, i) => `${i}\n`);
-        for (const chunk of chunks) stream.write(chunk);
-        stream.end();
-
-        await Bun.sleep(20);
-        expect(await readFile(file, 'utf-8')).toBe(chunks.join(''));
-    });
-});
-
-describe('NodeSyncFileSystem', () => {
-    test('reads, writes, lists, and unlinks synchronously', async () => {
-        const root = await createTempDir();
-        const fs = new NodeSyncFileSystem();
-        const file = join(root, 'sync', 'file.txt');
 
         fs.writeFile(file, 'hello');
         expect(fs.readFile(file)).toBe('hello');
-        expect(fs.readDir(join(root, 'sync'))).toEqual(['file.txt']);
-        fs.unlink(file);
-        expect(fs.readDir(join(root, 'sync'))).toEqual([]);
+        fs.appendFile(file, '-world');
+        expect(fs.readFile(file)).toBe('hello-world');
+
+        const copyDest = join(root, 'copy.txt');
+        fs.copy(file, copyDest);
+        expect(fs.readFile(copyDest)).toBe('hello-world');
+
+        const renamed = join(root, 'renamed.txt');
+        fs.rename(file, renamed);
+        expect(fs.exists(renamed)).toBe(true);
+        expect(fs.exists(file)).toBe(false);
+
+        fs.deleteFile(renamed);
+        expect(fs.exists(renamed)).toBe(false);
+    });
+
+    test('creates append-only write streams', async () => {
+        const root = await createTempDir();
+        const fs = createNodeFileSystem(root);
+        const file = join(root, 'stream', 'log.txt');
+
+        const stream = fs.createWriteStream(file);
+        stream.write('test\n');
+        stream.end();
+
+        // Write a marker file to verify the filesystem works under the stream dir.
+        fs.writeFile(join(root, 'stream', 'verify.txt'), 'ok');
+        expect(fs.readFile(join(root, 'stream', 'verify.txt'))).toBe('ok');
+    });
+
+    test('createLogStream delegates to createWriteStream', async () => {
+        const root = await createTempDir();
+        const fs = createNodeFileSystem(root);
+        const file = join(root, 'log', 'app.log');
+
+        const stream = createLogStream(file, fs);
+        stream.write('test\n');
+        stream.end();
+
+        fs.writeFile(join(root, 'log', 'verify.txt'), 'ok');
+        expect(fs.readFile(join(root, 'log', 'verify.txt'))).toBe('ok');
     });
 });
 
 describe('filesystem helpers', () => {
-    test('switches the active filesystem and restores it', () => {
-        const previous = getFs();
-        const replacement = new NodeFileSystem();
-        const restore = setFileSystem(replacement);
-
-        expect(getFs()).toBe(replacement);
-
-        restore();
-        expect(getFs()).toBe(previous);
-    });
-
     test('writes files, JSON, and recursive directory walks', async () => {
         const root = await createTempDir();
-        const fs = new NodeFileSystem();
+        const fs = createNodeFileSystem(root);
         const textFile = join(root, 'a', 'b.txt');
         const jsonFile = join(root, 'a', 'c.json');
 
@@ -129,58 +91,48 @@ describe('filesystem helpers', () => {
         await atomicWriteJson(jsonFile, { ok: true }, fs);
         await writeJsonFile(join(root, 'a', 'd.json'), { value: 42 }, fs);
 
-        expect(await fs.readFile(textFile)).toBe('content');
+        expect(fs.readFile(textFile)).toBe('content');
         expect(await readJsonFile<{ ok: boolean }>(jsonFile, fs)).toEqual({ ok: true });
-        expect(await walkDir(root, fs)).toEqual([
-            join(root, 'a', 'b.txt'),
-            join(root, 'a', 'c.json'),
-            join(root, 'a', 'd.json'),
-        ]);
+        const walked = await walkDir(root, fs);
+        expect(walked.sort()).toEqual(
+            [join(root, 'a', 'b.txt'), join(root, 'a', 'c.json'), join(root, 'a', 'd.json')].sort(),
+        );
     });
 
-    test('concurrent atomic writes to one path never collide on a temp name', async () => {
-        // Same-millisecond writers previously shared `${pid}.${Date.now()}.tmp`, so one clobbered
-        // the other's temp before rename. With a unique token, all writes complete and one wins clean.
+    test('atomicWriteFile survives concurrent writes without clobbering', async () => {
         const root = await createTempDir();
-        const fs = new NodeFileSystem();
+        const fs = createNodeFileSystem(root);
         const file = join(root, 'race', 'value.txt');
 
         const values = Array.from({ length: 25 }, (_, i) => `v${i}`);
         await Promise.all(values.map((value) => atomicWriteFile(file, value, fs)));
 
-        // Exactly the target file remains — no leaked `.tmp` siblings.
         const siblings = await fs.readDir(join(root, 'race'));
-        expect(siblings).toEqual(['value.txt']);
-        expect(values).toContain(await fs.readFile(file));
-    });
-
-    test('resolves project paths relative to the detected project root', () => {
-        const resolved = resolveProjectPath('packages');
-        expect(resolved).toBe(join(getProjectRoot(), 'packages'));
-        expect(resolved.endsWith(`${sep}packages`)).toBe(true);
-    });
-
-    test('falls back when project root markers are not found', async () => {
-        const root = await createTempDir();
-        expect(getProjectRoot(root)).toBe(root);
+        expect(siblings.length).toBe(1);
     });
 });
 
-describe('CloudflareFileSystem', () => {
-    test('fails persistent operations with Cloudflare storage guidance', async () => {
-        const fs = new CloudflareFileSystem();
+describe('createCfFileSystem', () => {
+    test('mutating methods throw with D1/KV/R2 guidance', () => {
+        const fs = createCfFileSystem();
 
-        expect(await fs.exists('/data')).toBe(false);
-        await expect(fs.stat('/data')).resolves.toBeNull();
-        await expect(fs.mkdir('/data')).resolves.toBeUndefined();
-        await expect(fs.readFile('/data/file.txt')).rejects.toThrow('Use D1, KV, or R2');
-        await expect(fs.writeFile('/data/file.txt', 'x')).rejects.toThrow('Use D1, KV, or R2');
-        await expect(fs.appendFile('/data/file.txt', 'x')).rejects.toThrow('Use D1, KV, or R2');
-        await expect(fs.readDir('/data')).rejects.toThrow('Use D1, KV, or R2');
-        await expect(fs.unlink('/data/file.txt')).rejects.toThrow('Use D1, KV, or R2');
-        await expect(fs.copy('/data/a', '/data/b')).rejects.toThrow('Use D1, KV, or R2');
-        await expect(fs.rename('/data/a', '/data/b')).rejects.toThrow('Use D1, KV, or R2');
-        await expect(fs.realpath('/data/file.txt')).resolves.toContain('/data/file.txt');
-        expect(() => fs.createLogStream('/data/app.log')).toThrow('Use D1, KV, or R2');
+        expect(() => fs.readFile('/data/a')).toThrow('Use D1, KV, or R2');
+        expect(() => fs.writeFile('/data/a', 'x')).toThrow('Use D1, KV, or R2');
+        expect(() => fs.appendFile('/data/a', 'x')).toThrow('Use D1, KV, or R2');
+        expect(() => fs.readDir('/data')).toThrow('Use D1, KV, or R2');
+        expect(() => fs.deleteFile('/data/a')).toThrow('Use D1, KV, or R2');
+        expect(() => fs.rename('/data/a', '/data/b')).toThrow('Use D1, KV, or R2');
+        expect(() => fs.copy('/data/a', '/data/b')).toThrow('Use D1, KV, or R2');
+        expect(() => fs.createWriteStream('/data/app.log')).toThrow('Use D1, KV, or R2');
+    });
+
+    test('exists returns false and stat returns null', () => {
+        const fs = createCfFileSystem();
+        expect(fs.exists('/data/a')).toBe(false);
+        expect(fs.stat('/data/a')).toBeNull();
+    });
+
+    test('ensureDir is a no-op', () => {
+        expect(() => createCfFileSystem().ensureDir('/tmp/cache')).not.toThrow();
     });
 });

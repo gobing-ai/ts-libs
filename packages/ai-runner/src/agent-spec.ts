@@ -1,9 +1,9 @@
 import {
     basenamePath,
+    createNodeFileSystem,
+    type FileSystem,
     joinPath,
-    NodeSyncFileSystem,
     parseYamlObject,
-    type SyncFileSystem,
     stringifyYamlObject,
 } from '@gobing-ai/ts-runtime';
 
@@ -36,11 +36,13 @@ export function validateAgentId(id: string): string {
 }
 
 /** Load and validate all YAML agent spec files from `configDir`. Throws `ValueError` on parse failures or duplicate IDs. */
-export function loadAgentSpecs(configDir: string, fs: SyncFileSystem = new NodeSyncFileSystem()): AgentSpec[] {
-    const entries = safeReadDir(configDir, fs)
+export async function loadAgentSpecs(configDir: string, fs: FileSystem = createNodeFileSystem()): Promise<AgentSpec[]> {
+    const entries = (await safeReadDir(configDir, fs))
         .filter((entry) => entry.endsWith('.yaml') || entry.endsWith('.yml'))
         .sort();
-    const specs = entries.map((entry) => parseAgentSpec(fs.readFile(joinPath(configDir, entry)), entry));
+    const specs = await Promise.all(
+        entries.map(async (entry) => parseAgentSpec(await fs.readFile(joinPath(configDir, entry)), entry)),
+    );
     const seen = new Set<string>();
     for (const spec of specs) {
         validateAgentId(spec.id);
@@ -54,26 +56,26 @@ export function loadAgentSpecs(configDir: string, fs: SyncFileSystem = new NodeS
 export async function saveAgentSpec(
     spec: AgentSpec,
     configDir: string,
-    fs: SyncFileSystem = new NodeSyncFileSystem(),
+    fs: FileSystem = createNodeFileSystem(),
 ): Promise<void> {
     validateAgentId(spec.id);
-    fs.mkdir(configDir);
-    fs.writeFile(joinPath(configDir, `${spec.id}.yaml`), serializeAgentSpec(spec));
+    await fs.ensureDir(configDir);
+    await fs.writeFile(joinPath(configDir, `${spec.id}.yaml`), serializeAgentSpec(spec));
 }
 
 /** Remove the YAML file for agent `id` from `configDir`. Does nothing if the file doesn't exist. */
 export async function deleteAgentSpec(
     id: string,
     configDir: string,
-    fs: SyncFileSystem = new NodeSyncFileSystem(),
+    fs: FileSystem = createNodeFileSystem(),
 ): Promise<void> {
     validateAgentId(id);
-    fs.unlink(joinPath(configDir, `${id}.yaml`));
+    await fs.deleteFile(joinPath(configDir, `${id}.yaml`));
 }
 
-function safeReadDir(configDir: string, fs: SyncFileSystem = new NodeSyncFileSystem()): string[] {
+async function safeReadDir(configDir: string, fs: FileSystem = createNodeFileSystem()): Promise<string[]> {
     try {
-        return fs.readDir(configDir);
+        return await fs.readDir(configDir);
     } catch (error) {
         if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
             return [];

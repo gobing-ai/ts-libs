@@ -35,20 +35,20 @@ export class TeamOrchestrator {
         this.events = options.events ?? new EventBus<AgentEvents>();
     }
 
-    loadSpecs(): AgentSpec[] {
-        this.specs = loadAgentSpecs(this.configDir);
+    async loadSpecs(): Promise<AgentSpec[]> {
+        this.specs = await loadAgentSpecs(this.configDir);
         return [...this.specs];
     }
 
-    getSpec(id: string): AgentSpec | undefined {
-        if (this.specs.length === 0) this.loadSpecs();
+    async getSpec(id: string): Promise<AgentSpec | undefined> {
+        if (this.specs.length === 0) await this.loadSpecs();
         return this.specs.find((spec) => spec.id === id);
     }
 
     async startAgent(id: string): Promise<TeamAgentProcess> {
-        const spec = this.requireSpec(id);
+        const spec = await this.requireSpec(id);
         const agentType = this.requireAgentName(spec.type);
-        const peers = this.getPeerSpecs(spec.workspace, spec.id).map((peer) => ({
+        const peers = (await this.getPeerSpecs(spec.workspace, spec.id)).map((peer) => ({
             id: peer.id,
             type: peer.type,
             purpose: peer.purpose,
@@ -103,14 +103,14 @@ export class TeamOrchestrator {
         return new Map(this.running);
     }
 
-    getAgentStatus(id: string): 'running' | 'stopped' | 'errored' | 'unknown' {
+    async getAgentStatus(id: string): Promise<'running' | 'stopped' | 'errored' | 'unknown'> {
         const process = this.running.get(id);
-        if (process === undefined) return this.getSpec(id) === undefined ? 'unknown' : 'stopped';
+        if (process === undefined) return (await this.getSpec(id)) === undefined ? 'unknown' : 'stopped';
         return process.getStatus();
     }
 
-    getPeerSpecs(workspace: string, excludeId?: string): AgentSpec[] {
-        if (this.specs.length === 0) this.loadSpecs();
+    async getPeerSpecs(workspace: string, excludeId?: string): Promise<AgentSpec[]> {
+        if (this.specs.length === 0) await this.loadSpecs();
         return this.specs.filter((spec) => spec.workspace === workspace && spec.id !== excludeId);
     }
 
@@ -123,8 +123,8 @@ export class TeamOrchestrator {
         return () => this.events.off(event, listener);
     }
 
-    private requireSpec(id: string): AgentSpec {
-        const spec = this.getSpec(id);
+    private async requireSpec(id: string): Promise<AgentSpec> {
+        const spec = await this.getSpec(id);
         if (spec === undefined) throw new Error(`Agent spec not found: ${id}`);
         return spec;
     }

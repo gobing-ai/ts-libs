@@ -38,9 +38,11 @@ export interface FileSystem {
     /** Delete a file or directory recursively. */
     deleteFile(path: string): void | Promise<void>;
 
+    /** Atomically rename a file or directory. */
+    rename(src: string, dest: string): void | Promise<void>;
+
     /** Recursively copy a file or directory. */
     copy(src: string, dest: string): void | Promise<void>;
-
     /** Get file or directory stats. Returns `null` if the path doesn't exist. */
     stat(path: string): FileStat | null | Promise<FileStat | null>;
 
