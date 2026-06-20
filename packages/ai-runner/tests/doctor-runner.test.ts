@@ -95,7 +95,7 @@ describe('DoctorRunner', () => {
         expect(result.tier).toBe(1);
     });
 
-    test('tier-2 agents are marked with tier 2', async () => {
+    test('antigravity alias resolves to tier-1 antigravity-cli', async () => {
         const executor = createVersionExecutor();
         const runner = new AiRunner({ processExecutor: executor });
         const doctor = new DoctorRunner({
@@ -104,9 +104,11 @@ describe('DoctorRunner', () => {
             env: {},
         });
         const result = await doctor.runOne('antigravity');
-
-        expect(result.agent).toBe('antigravity');
-        expect(result.tier).toBe(2);
+        // Alias resolves to canonical antigravity-cli (tier 1 since the 2.0 CLI split).
+        // The alias is not "deprecated" (no deprecated marker) — it resolves cleanly.
+        expect(result.agent).toBe('antigravity-cli');
+        expect(result.tier).toBe(1);
+        expect(result.deprecated).toBeUndefined();
     });
 
     test('reports claude unauthenticated when exit-0 output says loggedIn false', async () => {
