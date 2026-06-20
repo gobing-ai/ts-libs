@@ -47,10 +47,10 @@ export interface StructuredConfigLoadOptions {
      */
     resolve?: (specifier: string, from: string) => string;
     /**
-     * File system used to read the config and local schema files. Defaults to the
-     * deprecated `getFs()` global; supply a {@link FileSystem} from the runtime factory
-     * (`createNodeFileSystem()`) to route reads through the factory path or to inject a
-     * virtual file system in tests.
+     * File system used to read the config and local schema files. Defaults to
+     * `createNodeFileSystem()`; supply a {@link FileSystem} from the runtime factory
+     * to route reads through a different adapter or to inject a virtual file system
+     * in tests.
      */
     fileSystem?: Pick<FileSystem, 'readFile'>;
 }

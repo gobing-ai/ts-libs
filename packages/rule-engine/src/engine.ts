@@ -218,7 +218,7 @@ export class RuleEngine {
                             };
                             const providerFixes = await provider.createFixes({
                                 rule,
-                                context: { rule, workdir },
+                                context: { rule, workdir, fileSystem: this.fileSystem },
                                 findings: ruleFindings,
                                 fix: effectiveFix,
                             });

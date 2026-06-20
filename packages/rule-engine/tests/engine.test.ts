@@ -202,4 +202,74 @@ describe('RuleEngine', () => {
         await new RuleEngine({ host, fileSystem: fakeFs }).evaluate([rule('probe', 'fs-probe')], '/workdir');
         expect(readPaths).toEqual(['/tmp/test.txt']);
     });
+
+    test('injected fileSystem reaches fixer providers through RuleContext', async () => {
+        // Regression: the engine threaded `fileSystem` into the evaluator context but
+        // dropped it from the fixer context, so fixer providers silently fell back to
+        // the real `createNodeFileSystem()` regardless of injection. A fixer must read
+        // through the SAME injected fs the evaluator gets.
+        const fixerReadPaths: string[] = [];
+        const fakeFs = {
+            getProjectRoot: () => '/fake',
+            resolve: (...segs: string[]) => `/fake/${segs.join('/')}`,
+            exists: (_path: string) => true,
+            readFile: (path: string) => {
+                fixerReadPaths.push(path);
+                return 'content';
+            },
+            writeFile: (_path: string, _content: string) => {},
+            rename: (_src: string, _dest: string) => {},
+            appendFile: (_path: string, _content: string) => {},
+            ensureDir: (_path: string) => {},
+            readDir: (_path: string) => [],
+            deleteFile: (_path: string) => {},
+            createWriteStream: (_path: string) => ({
+                write: (_chunk: string) => {},
+                end: () => {},
+            }),
+            copy: (_src: string, _dest: string) => {},
+            stat: (_path: string) => null,
+        };
+
+        const host = new RuleEngineHost();
+        host.evaluators.register(
+            'fix-probe',
+            {
+                async evaluate(ruleDef) {
+                    return {
+                        findings: [
+                            {
+                                ruleId: ruleDef.id,
+                                severity: ruleDef.severity,
+                                message: 'needs fix',
+                                filePath: 'target.ts',
+                                line: 1,
+                                kind: 'violation' as const,
+                            },
+                        ],
+                        fixes: [],
+                    };
+                },
+            },
+            'extension',
+        );
+        host.fixers.register(
+            'fix-probe',
+            {
+                async createFixes({ context }) {
+                    // Read through the injected port — proves the fs reached the fixer.
+                    await context.fileSystem?.readFile('/tmp/fixer.txt');
+                    return [];
+                },
+            },
+            'extension',
+        );
+
+        const fixRule: ConstraintRule = {
+            ...rule('probe', 'fix-probe'),
+            fix: { mode: 'auto', replacement: 'x' },
+        };
+        await new RuleEngine({ host, fileSystem: fakeFs }).evaluateWithFixes([fixRule], '/workdir', 'auto');
+        expect(fixerReadPaths).toEqual(['/tmp/fixer.txt']);
+    });
 });

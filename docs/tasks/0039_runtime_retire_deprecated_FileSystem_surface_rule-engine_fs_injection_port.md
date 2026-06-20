@@ -157,7 +157,36 @@ Sequenced inside-out; run the touched package's suite after every leg.
 
 ### Review
 
-## Review
+
+---
+
+## Post-merge re-review 2026-06-20 (dev-review --focus all over packages/)
+
+A full re-sweep after 7aa26ac surfaced a **correctness defect the original Phase-7 verify missed** — now fixed.
+
+### 🔴 Defect (was major) — injected fileSystem bypassed fixer providers
+`engine.ts:166` threaded `fileSystem` into the **evaluator** context but `:221` built the **fixer** context as `{ rule, workdir }`, dropping it. `RegexFixerProvider`/`PathFixerProvider` read `context.fileSystem ?? createNodeFileSystem()`, so the fallback always won — an injected virtual fs silently never reached fixers. Contradicted R1's "threaded to evaluators AND fixers."
+
+- **Fix:** `engine.ts:221` → `{ rule, workdir, fileSystem: this.fileSystem }` (symmetric with the evaluator site).
+- **Regression test:** `engine.test.ts` `'injected fileSystem reaches fixer providers through RuleContext'` — proven to FAIL on the pre-fix code (reverted line, test caught it) and PASS after. R8-compliant.
+- **Lesson:** the original fake-fs test only exercised the evaluator path; the fixer leg was uncovered. The new test closes that gap.
+
+### Minor (fixed)
+- `schema-validation.ts:51` JSDoc cited deleted `getFs()` as the default → corrected to `createNodeFileSystem()`.
+
+### Deferred (logged, not in --fix scope — behavior/API-surface changes)
+| # | Finding | Severity | Note |
+|---|---------|----------|------|
+| 3 | `importer.ts:237 walkFiles` re-implements ts-runtime `walkDir` | minor | canonical walkDir has an `exclude` param; needs deliberate swap+test |
+| 4 | `DoctorRunnerOptions` lacks `fileSystem` field | minor | private fs works; tests use temp dirs; complete the seam opportunistically |
+| 5 | `config/loader.ts:210` no fs injection slot | advisory | startup-only, outside RuleContext pipeline; pre-existing |
+
+### Gate (post-fix, independent)
+biome+tsc 8/8 · **1515 tests pass / 0 fail** (+1 regression test) · spur-check 39 rules + both presets green · build 8/8.
+
+### Verdict
+**PASS (after fix).** The fs-injection contract is now honored end-to-end (evaluators + fixers), proven by a regression test. SECU clean: no secrets, no injection (Bun.spawn uses argv arrays), ReDoS unchanged/tracked (task 0003), no empty-catch/any. Three minor/advisory items deferred to backlog.
+
 
 ### Design note (carried forward — accurate)
 fs injection routed through `RuleContext.fileSystem` instead of evaluator ctor-threading — same intent (single injected fs from `RuleEngineOptions.fileSystem`, default `createNodeFileSystem()`), smaller surface (1 type extension vs 9+ ctor signature changes), more testable (fake fs via one-line context). Verified sound.
