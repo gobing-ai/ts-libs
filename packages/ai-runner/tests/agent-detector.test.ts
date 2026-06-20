@@ -112,3 +112,23 @@ describe('AgentDetector', () => {
         });
     });
 });
+
+describe('AgentDetector deprecation surfacing (R6)', () => {
+    test('gemini detection reports deprecated + replacedBy', async () => {
+        const executor = new FakeExecutor(() => ({ stdout: 'gemini 1.0.0' }));
+        const runner = new AiRunner({ processExecutor: executor });
+        const detector = new AgentDetector({ runner });
+        const result = await detector.detectOne('gemini');
+        expect(result.deprecated).toBe(true);
+        expect(result.replacedBy).toBe('antigravity-cli');
+    });
+
+    test('non-deprecated agents report no deprecation fields', async () => {
+        const executor = new FakeExecutor(() => ({ stdout: 'claude 1.0.0' }));
+        const runner = new AiRunner({ processExecutor: executor });
+        const detector = new AgentDetector({ runner });
+        const result = await detector.detectOne('claude');
+        expect(result.deprecated).toBeUndefined();
+        expect(result.replacedBy).toBeUndefined();
+    });
+});
