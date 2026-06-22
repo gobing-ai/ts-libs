@@ -96,19 +96,31 @@ function findExports(lines: string[], requested: ReadonlySet<ExportKind>): Expor
 /**
  * True when a JSDoc block precedes a declaration.
  *
- * Skips decorator lines (`@Component(...)`) so a documented but decorated class
- * is not falsely flagged, then checks whether the nearest preceding non-decorator
- * line closes (or is) a JSDoc comment.
+ * Walks backward from the line before the declaration, skipping blank lines,
+ * JSDoc body lines (`* …`), and decorator / JSDoc-tag lines (`@…`), then
+ * checks whether the nearest meaningful line closes (or is) a JSDoc comment.
  */
 function precededByJsdoc(lines: string[], declarationLine: number): boolean {
     let cursor = declarationLine - 2; // zero-based line above the declaration
     while (cursor >= 0) {
         const prev = lines[cursor]?.trim() ?? '';
-        if (prev.startsWith('@')) {
-            cursor -= 1; // decorator — keep walking up
+        // Blank line between JSDoc closing fence and declaration — keep walking.
+        if (prev === '') {
+            cursor -= 1;
             continue;
         }
-        return prev.endsWith('*/') || prev.startsWith('/**');
+        // JSDoc closing or single-line fence — found it.
+        if (prev.endsWith('*/') || prev.startsWith('/**')) {
+            return true;
+        }
+        // JSDoc body line (* …) or decorator / tag (@…).  Check after the
+        // fence so `*/` is never misidentified as a body line.
+        if (prev.startsWith('*') || prev.startsWith('@')) {
+            cursor -= 1;
+            continue;
+        }
+        // Non-JSDoc, non-decorator line — no JSDoc precedes this declaration.
+        return false;
     }
     return false;
 }

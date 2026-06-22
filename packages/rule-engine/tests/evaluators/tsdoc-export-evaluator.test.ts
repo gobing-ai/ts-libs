@@ -151,4 +151,15 @@ describe('TsdocExportEvaluator', () => {
         const result = await new TsdocExportEvaluator().evaluate(rule, { workdir: dir, rule });
         expect(result.findings).toHaveLength(0);
     });
+
+    test('accepts multi-line JSDoc with blank line before export', async () => {
+        const dir = await tempProject({
+            'src/blank.ts': ['/**', ' * Documented with blank line.', ' */', '', 'export function withGap() {}'].join(
+                '\n',
+            ),
+        });
+        const rule = makeRule({ include: ['**/*.ts'] });
+        const result = await new TsdocExportEvaluator().evaluate(rule, { workdir: dir, rule });
+        expect(result.findings).toHaveLength(0);
+    });
 });
