@@ -31,6 +31,8 @@ export interface AgentRunOptions {
     cwd?: string;
     /** Timeout in milliseconds. */
     timeout?: number;
+    /** AbortSignal forwarded to ProcessExecutor — aborts the agent subprocess when fired. */
+    signal?: AbortSignal;
 }
 
 /** Constructor options for AiRunner. */
@@ -142,6 +144,7 @@ export class AiRunner {
             forceBuffered,
             cwd: options.cwd ?? this.defaultCwd,
             timeout: options.timeout ?? this.defaultTimeout,
+            ...(options.signal !== undefined ? { signal: options.signal } : {}),
         });
         if (result.exitCode !== 0) {
             this.logger.error('invoke exited non-zero', {

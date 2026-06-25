@@ -26,6 +26,8 @@ export interface ProcessOptions {
     label?: string;
     rejectOnError?: boolean;
     forceBuffered?: boolean;
+    /** AbortSignal forwarded to execa as `cancelSignal` — aborts the child process when fired. */
+    signal?: AbortSignal;
 }
 
 /** Result of a completed child process, including exit code, captured output, and duration. */
@@ -130,6 +132,7 @@ export class ProcessExecutor {
             rejectOnError: options.rejectOnError ?? false,
             outputPolicy: this.config.output,
             forceBuffered: options.forceBuffered ?? false,
+            signal: options.signal,
         });
         const startedAt = Date.now();
         this.emitProcessEvent('process.started', {
@@ -442,6 +445,7 @@ function buildExecaOptions(opts: {
     rejectOnError: boolean;
     outputPolicy: OutputPolicy | undefined;
     forceBuffered: boolean;
+    signal?: AbortSignal;
 }): ExecaOptions {
     const canStream =
         !opts.forceBuffered &&
@@ -457,6 +461,7 @@ function buildExecaOptions(opts: {
         ...(opts.env !== undefined ? { env: opts.env } : {}),
         ...(opts.timeout !== undefined ? { timeout: opts.timeout } : {}),
         ...(opts.maxOutput !== undefined ? { maxBuffer: opts.maxOutput } : {}),
+        ...(opts.signal !== undefined ? { cancelSignal: opts.signal } : {}),
     };
 }
 
