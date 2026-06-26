@@ -8,6 +8,19 @@ versioned in **lockstep** — a single version number covers every package in th
 
 
 
+## [0.4.0] — 2026-06-25
+
+### Breaking Changes
+
+- **`ts-ai-runner` — Authentication decoupled from run-readiness:** the doctor no longer conflates liveness with authentication. `DoctorResult.usable` is now **liveness-only** (`installed && version !== null`), and `DoctorResult.authenticated` is a **tri-state** `AuthState` (`'authenticated' | 'unauthenticated' | 'unknown'`) instead of a boolean.
+  - **Why:** a stale or missing auth probe previously made perfectly-runnable agents (`omp`, `opencode`, `antigravity-cli`) report `usable: false`, which routed the pipeline to a flagged-unusable pinned agent and burned ~40 min in timed-out stages.
+  - **Migration:** update consumers that read `result.authenticated` as a boolean to the new `AuthState` union. The new `unknown` state is first-class — agents with no reliable auth probe report `unknown`, never a silent `false`. Code that gated execution on `usable` keeps working; code that branched on `authenticated === true/false` must handle the tri-state.
+
+### Added
+
+- **`ts-ai-runner` — `isAuthenticated(agent, ctx)` + `AuthState`:** auth detection is relocated to a new `agents/auth-shims.ts` module (re-exported from the package barrel). It is **off the execution critical path** — operator information only, never feeds run-readiness, and never throws. A genuinely unauthenticated agent fails at runtime with its own error. Inject a fake filesystem via `AuthContext.fileSystem` for tests.
+
+
 ## [0.3.21] — 2026-06-20
 
 ### Breaking Changes
