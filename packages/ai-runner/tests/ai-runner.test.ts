@@ -255,7 +255,7 @@ describe('DoctorRunner', () => {
             env: { GOOGLE_API_KEY: 'x' },
         });
         const result = await doctor.runOne('pi');
-        expect(result).toMatchObject({ agent: 'pi', installed: true, authenticated: true, usable: true });
+        expect(result).toMatchObject({ agent: 'pi', installed: true, authenticated: 'authenticated', usable: true });
     });
 
     test('does not treat a blank provider key as pi authentication', async () => {
@@ -273,8 +273,9 @@ describe('DoctorRunner', () => {
             env: { GOOGLE_API_KEY: '   ' },
         });
         const result = await doctor.runOne('pi');
-        expect(result.authenticated).toBe(false);
-        expect(result.usable).toBe(false);
+        expect(result.authenticated).toBe('unauthenticated');
+        // Liveness-only usable: a logged-out pi is still runnable.
+        expect(result.usable).toBe(true);
     });
 
     test('runs all doctor checks and handles unsupported auth commands', async () => {
@@ -290,7 +291,7 @@ describe('DoctorRunner', () => {
         expect(results).toHaveLength(DISPLAY_ORDER.length);
         expect(results.find((result) => result.agent === 'antigravity-cli')).toMatchObject({
             tier: 1,
-            authenticated: false,
+            authenticated: 'unknown',
         });
     });
 });

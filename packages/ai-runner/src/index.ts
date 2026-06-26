@@ -1,5 +1,6 @@
 export * from './agent-detector';
 export * from './agent-spec';
+export * from './agents/auth-shims';
 export * from './agents/shims';
 export * from './ai-runner';
 export * from './doctor-runner';

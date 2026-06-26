@@ -122,7 +122,54 @@ describe('DoctorRunner', () => {
 
         const result = await doctor.runOne('claude');
 
-        expect(result.authenticated).toBe(false);
+        expect(result.authenticated).toBe('unauthenticated');
+        // Liveness-only usable: a logged-out agent is still runnable (fails at
+        // runtime with its own error). Auth no longer gates runnability.
+        expect(result.usable).toBe(true);
+    });
+
+    test('usable is liveness-only — auth no longer gates runnability', async () => {
+        // claude installed + version, but auth probe reports logged-out.
+        const executor = new FakeExecutor((options) =>
+            options.args?.includes('--version') === true
+                ? { stdout: 'claude 1.0.0' }
+                : { stdout: '{"loggedIn": false}' },
+        );
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({ runner, agentDetector: new AgentDetector({ runner }), env: {} });
+
+        const result = await doctor.runOne('claude');
+
+        expect(result.installed).toBe(true);
+        expect(result.version).not.toBeNull();
+        expect(result.authenticated).toBe('unauthenticated');
+        expect(result.usable).toBe(true);
+    });
+
+    test('agent with no auth verb reports authenticated unknown but is still usable', async () => {
+        // antigravity-cli's shim returns getAuthCommand() => null — no probe,
+        // so auth state is genuinely unknown, not unauthenticated.
+        const executor = new FakeExecutor((options) =>
+            options.args?.includes('--version') === true ? { stdout: 'agy 1.0.0' } : { stdout: 'unused' },
+        );
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({ runner, agentDetector: new AgentDetector({ runner }), env: {} });
+
+        const result = await doctor.runOne('antigravity-cli');
+
+        expect(result.authenticated).toBe('unknown');
+        expect(result.usable).toBe(true);
+    });
+
+    test('an uninstalled agent is not usable regardless of auth', async () => {
+        const executor = new FakeExecutor(() => ({ stdout: '', exitCode: 127 }));
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({ runner, agentDetector: new AgentDetector({ runner }), env: {} });
+
+        const result = await doctor.runOne('claude');
+
+        expect(result.installed).toBe(false);
+        expect(result.version).toBeNull();
         expect(result.usable).toBe(false);
     });
 
@@ -135,7 +182,7 @@ describe('DoctorRunner', () => {
 
         const result = await doctor.runOne('openclaw');
 
-        expect(result.authenticated).toBe(false);
+        expect(result.authenticated).toBe('unauthenticated');
     });
 
     test('reports claude authenticated only with a positive auth signal', async () => {
@@ -149,10 +196,10 @@ describe('DoctorRunner', () => {
 
         const result = await doctor.runOne('claude');
 
-        expect(result.authenticated).toBe(true);
+        expect(result.authenticated).toBe('authenticated');
     });
 
-    test('treats inconclusive exit-0 auth output as unauthenticated', async () => {
+    test('treats inconclusive exit-0 auth output as unknown (not unauthenticated)', async () => {
         const executor = new FakeExecutor((options) =>
             options.args?.includes('--version') === true
                 ? { stdout: 'claude 1.0.0' }
@@ -163,7 +210,7 @@ describe('DoctorRunner', () => {
 
         const result = await doctor.runOne('claude');
 
-        expect(result.authenticated).toBe(false);
+        expect(result.authenticated).toBe('unknown');
     });
 
     test('trusts codex CLI unauthenticated output over a stale auth.json file', async () => {
@@ -179,7 +226,7 @@ describe('DoctorRunner', () => {
 
         const result = await doctor.runOne('codex');
 
-        expect(result.authenticated).toBe(false);
+        expect(result.authenticated).toBe('unauthenticated');
     });
 
     test('falls back to extensionless codex auth file when CLI output is inconclusive', async () => {
@@ -195,7 +242,7 @@ describe('DoctorRunner', () => {
 
         const result = await doctor.runOne('codex');
 
-        expect(result.authenticated).toBe(true);
+        expect(result.authenticated).toBe('authenticated');
     });
 
     test('requires gemini settings to contain credential-like content', async () => {
@@ -220,8 +267,8 @@ describe('DoctorRunner', () => {
             env: { HOME: tokenHome },
         }).runOne('gemini');
 
-        expect(prefsOnly.authenticated).toBe(false);
-        expect(withToken.authenticated).toBe(true);
+        expect(prefsOnly.authenticated).toBe('unauthenticated');
+        expect(withToken.authenticated).toBe('authenticated');
     });
 
     test('runAll synthesizes missing display-order agents as unavailable', async () => {
