@@ -1,4 +1,4 @@
-import { loadStructuredConfig, parseYamlObject } from '@gobing-ai/ts-runtime';
+import { loadStructuredConfig, parseYamlObject, type StructuredConfigLoadOptions } from '@gobing-ai/ts-runtime';
 import { WorkflowValidationError } from './errors';
 import { RUNTIME_BUILTIN_KEYS } from './run-lifecycle';
 import { StateMachineWorkflowDefSchema, TransitionFlowWorkflowDefSchema } from './schema';
@@ -10,6 +10,20 @@ export interface WorkflowLoadOptions {
     validateSchema?: boolean;
     /** Optional fetch implementation for remote HTTP(S) schema refs. */
     fetch?: (input: string) => Promise<Response>;
+    /**
+     * Module resolver for bare package-specifier `$schema` refs (e.g.
+     * `@scope/pkg/schemas/x.json`). Defaults to `Bun.resolveSync`. Inject this when a
+     * bundled-config `$schema` must resolve without reaching `node_modules` — e.g. a
+     * `bun --compile` binary, or a validate call running from a cwd outside the package
+     * tree (where `Bun.resolveSync` cannot find the owning package).
+     */
+    resolve?: StructuredConfigLoadOptions['resolve'];
+    /**
+     * File system used to read the config and local/embedded schema files. Defaults to
+     * the Node file system. Pair with {@link WorkflowLoadOptions.resolve} to serve schema
+     * text from an in-memory map instead of disk.
+     */
+    fileSystem?: StructuredConfigLoadOptions['fileSystem'];
 }
 
 /** Load a workflow definition from YAML or JSON text. */

@@ -217,4 +217,57 @@ transitions:
         await expect(loadWorkflowDef(workflowPath)).rejects.toThrow('failed JSON schema validation');
         expect(await loadWorkflowDef(workflowPath, { validateSchema: false })).toMatchObject({ name: 'invalid' });
     });
+
+    test('loadWorkflowDef resolves a package-specifier $schema via injected resolve + fileSystem', async () => {
+        // A bundled workflow declares `$schema: "@scope/pkg/schemas/x.json"`. Validating it
+        // from a cwd outside the package tree (CI temp dir, or a --compile binary) must not
+        // depend on Bun.resolveSync finding the package in node_modules: that throws on a
+        // clean runner. Injecting `resolve` + `fileSystem` serves the schema from memory.
+        const dir = await mkdtemp(join(tmpdir(), 'workflow-pkg-schema-'));
+        const workflowPath = join(dir, 'workflow.yaml');
+        await writeFile(
+            workflowPath,
+            [
+                '$schema: "@scope/pkg/schemas/wf.schema.json"',
+                'name: pkg-schema-wf',
+                'initialState: start',
+                'states:',
+                '  - id: start',
+                'transitions: []',
+            ].join('\n'),
+        );
+
+        const SENTINEL = '\0embedded';
+        const schemaText = JSON.stringify({
+            type: 'object',
+            required: ['name'],
+            properties: { name: { enum: ['pkg-schema-wf'] } },
+        });
+        const opts = {
+            // ts-runtime resolves a package ref by resolving `<pkg>/package.json` then joining
+            // the subpath, so the resolver is called with the manifest specifier; returning a
+            // sentinel manifest path routes the subsequent read to the embedded map.
+            resolve: (specifier: string) =>
+                specifier === '@scope/pkg/package.json' ? `${SENTINEL}/package.json` : specifier,
+            fileSystem: {
+                readFile: async (path: string) => (path.startsWith(SENTINEL) ? schemaText : Bun.file(path).text()),
+            },
+        };
+
+        // Resolves + validates without touching node_modules.
+        expect(await loadWorkflowDef(workflowPath, opts)).toMatchObject({ name: 'pkg-schema-wf' });
+
+        // A schema that rejects the name proves the injected schema is actually applied,
+        // not silently skipped.
+        const rejecting = {
+            resolve: opts.resolve,
+            fileSystem: {
+                readFile: async (path: string) =>
+                    path.startsWith(SENTINEL)
+                        ? JSON.stringify({ type: 'object', properties: { name: { enum: ['other'] } } })
+                        : Bun.file(path).text(),
+            },
+        };
+        await expect(loadWorkflowDef(workflowPath, rejecting)).rejects.toThrow('failed JSON schema validation');
+    });
 });
