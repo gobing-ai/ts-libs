@@ -55,10 +55,13 @@ export class RipgrepEvaluator implements RuleEvaluator {
             label: 'rg',
         });
 
-        // ripgrep exits 0 with matches, 1 when none, 2 on error. Treat 2 (or any non-0/1
-        // with stderr) as a hard failure so a broken pattern or missing `rg` fails loud.
+        // ripgrep exits 0 with matches, 1 when none, 2 on error. A scoped rule whose
+        // positive globs match no files also exits 2 with "No files were searched";
+        // that means "this rule is not applicable in this repo", not a broken
+        // evaluator. Keep all other exit-2 cases loud.
         if (result.exitCode !== 0 && result.exitCode !== 1) {
             const detail = result.stderr.trim();
+            if (isNoFilesSearched(detail)) return { findings: [], fixes: [] };
             throw new Error(`rg failed (exit ${result.exitCode})${detail.length > 0 ? `: ${detail}` : ''}`);
         }
 
@@ -66,6 +69,10 @@ export class RipgrepEvaluator implements RuleEvaluator {
             ? { findings: requireFindings(rule, pattern, result.stdout), fixes: [] }
             : { findings: forbidFindings(rule, pattern, result.stdout), fixes: [] };
     }
+}
+
+function isNoFilesSearched(stderr: string): boolean {
+    return stderr.includes('No files were searched');
 }
 
 /** Build the ripgrep argument list for the given mode and scope. */

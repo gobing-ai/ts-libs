@@ -1,0 +1,31 @@
+# Local override: shadow the global `happy-dom-teardown-via-helper` rule.
+#
+# The global rule (from the spur catalog) targets a React 19 + happy-dom teardown
+# pattern in a web app's `apps/web/tests/**` paths. This monorepo has no
+# `apps/` directory, no happy-dom usage, and no React tests — the rule's `rg`
+# invocation finds zero matching files and spur reports it as "misconfigured"
+# (`rg: No files were searched`) instead of a clean pass.
+#
+# Disable locally: re-declare the same `id` with a regex evaluator whose pattern
+# matches nothing, so the global rule is shadowed and the gate stays green.
+include:
+  - "packages/**/src/**/*.ts"
+  - "packages/**/tests/**/*.ts"
+exclude:
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: happy-dom-teardown-via-helper
+    description: >
+      DISABLED LOCALLY — the global rule targets a React 19 + happy-dom
+      teardown pattern in apps/web/tests/** paths that do not exist in this
+      monorepo. Kept as a no-op so the rule id still resolves and the gate
+      does not misconfigure. If a web app is added under apps/web with
+      React + happy-dom tests, drop this override and re-enable the global.
+    severity: warning
+    evaluator:
+      type: regex
+      config:
+        # Impossible-to-match pattern: never appears in real code.
+        pattern: "^(?!.*$).{999999,}$"

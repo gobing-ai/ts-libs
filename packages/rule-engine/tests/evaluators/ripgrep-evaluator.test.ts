@@ -105,6 +105,28 @@ describe('RipgrepEvaluator', () => {
         ).rejects.toThrow('rg failed (exit 2): regex parse error');
     });
 
+    test('exit code 2 from no files searched is a non-applicable scoped rule, not an evaluator error', async () => {
+        const rule = makeRule(
+            { pattern: 'vendors/' },
+            {
+                include: ['plugins/sp/**/*.md'],
+            },
+        );
+        const result = await new RipgrepEvaluator(
+            makeFakeExecutor({
+                exitCode: 2,
+                stdout: '',
+                stderr: [
+                    "rg: No files were searched, which means ripgrep probably applied a filter you didn't expect.",
+                    'Running with --debug will show why files are being skipped.',
+                ].join('\n'),
+            }),
+        ).evaluate(rule, ctx(rule));
+
+        expect(result.findings).toEqual([]);
+        expect(result.fixes).toEqual([]);
+    });
+
     test('prunes node_modules and default-excluded trees via negated --glob, even without rule exclude', async () => {
         const rule = makeRule({ pattern: 'foo' });
         const { executor, args } = captureArgs();
