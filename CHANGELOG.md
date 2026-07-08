@@ -8,6 +8,17 @@ versioned in **lockstep** — a single version number covers every package in th
 
 
 
+## [0.4.4] — 2026-07-08
+
+### Changed
+
+- **`ts-rule-engine` — `tsdoc-export` accepts line comments:** The `tsdoc-export` evaluator now treats a preceding `//` line comment as valid documentation for an exported declaration, not just JSDoc `/** */` blocks. The rule description and finding message were updated to reflect the broader accepted-comment vocabulary. This loosens a previously over-strict check that flagged exports documented only with line comments.
+
+### Fixed
+
+- **Project rules — DDL rules align on rule-engine persistence seam:** `no-inline-ddl-outside-migrations` and `no-hand-written-ddl-for-drizzle-tables` now exclude `packages/rule-engine/src/persistence/schema.ts`, matching the existing `raw-sql-confined-to-persistence-seams` exclusion. The rule-engine's `schema.ts` is an engine-owned DDL seam (it exports `CREATE TABLE` strings for `rule_runs`/`rule_eval_runs`, mirroring `ts-dual-workflow-engine`'s `schema-sql.ts`), not a Drizzle table module — the two rules were falsely flagging it.
+
+
 ## [0.4.0] — 2026-06-25
 
 ### Breaking Changes
@@ -320,6 +331,8 @@ Initial public release.
 - **`@gobing-ai/ts-runtime`** — runtime abstractions (Bun / Node / Cloudflare Workers): config, context, filesystem, process executor.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
+
+[0.4.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.3...HEAD
 
 [0.3.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.19...HEAD
 [0.3.2]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.1...HEAD

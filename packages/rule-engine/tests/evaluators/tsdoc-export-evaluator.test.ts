@@ -162,4 +162,47 @@ describe('TsdocExportEvaluator', () => {
         const result = await new TsdocExportEvaluator().evaluate(rule, { workdir: dir, rule });
         expect(result.findings).toHaveLength(0);
     });
+
+    test('accepts single-line // comments as documentation', async () => {
+        const dir = await tempProject({
+            'src/line.ts': ['// A line-comment documented function.', 'export function withLineComment() {}'].join(
+                '\n',
+            ),
+        });
+        const rule = makeRule({ include: ['**/*.ts'] });
+        const result = await new TsdocExportEvaluator().evaluate(rule, { workdir: dir, rule });
+        expect(result.findings).toHaveLength(0);
+    });
+
+    test('accepts multi-line // comments as documentation', async () => {
+        const dir = await tempProject({
+            'src/multiline-line.ts': [
+                '// First line of documentation.',
+                '// Second line of documentation.',
+                'export function withMultiLineComment() {}',
+            ].join('\n'),
+        });
+        const rule = makeRule({ include: ['**/*.ts'] });
+        const result = await new TsdocExportEvaluator().evaluate(rule, { workdir: dir, rule });
+        expect(result.findings).toHaveLength(0);
+    });
+
+    test('accepts // comment with blank line before export', async () => {
+        const dir = await tempProject({
+            'src/line-gap.ts': ['// Documented with blank line.', '', 'export function withLineGap() {}'].join('\n'),
+        });
+        const rule = makeRule({ include: ['**/*.ts'] });
+        const result = await new TsdocExportEvaluator().evaluate(rule, { workdir: dir, rule });
+        expect(result.findings).toHaveLength(0);
+    });
+
+    test('does not accept non-comment lines as documentation', async () => {
+        const dir = await tempProject({
+            'src/notcomment.ts': ['const helper = 1;', 'export function afterConst() {}'].join('\n'),
+        });
+        const rule = makeRule({ include: ['**/*.ts'] });
+        const result = await new TsdocExportEvaluator().evaluate(rule, { workdir: dir, rule });
+        expect(result.findings).toHaveLength(1);
+        expect(result.findings[0]?.message).toContain('"afterConst"');
+    });
 });

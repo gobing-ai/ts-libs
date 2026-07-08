@@ -76,6 +76,7 @@ rules:
       - "packages/db/src/schema/ddl.ts"
       - "packages/db/src/schema/define-table.ts"
       - "**/schema-sql.ts"
+      - "packages/rule-engine/src/persistence/schema.ts"
       - "**/tests/**"
       - "**/*.test.ts"
 
@@ -93,6 +94,7 @@ rules:
       - "packages/db/src/schema/ddl.ts"
       - "packages/db/src/schema/define-table.ts"
       - "**/schema-sql.ts"
+      - "packages/rule-engine/src/persistence/schema.ts"
       - "**/tests/**"
       - "**/*.test.ts"
 

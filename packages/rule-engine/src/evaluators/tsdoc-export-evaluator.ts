@@ -62,9 +62,9 @@ export class TsdocExportEvaluator implements RuleEvaluator {
         for (const { file, content } of files) {
             const lines = content.split('\n');
             for (const site of findExports(lines, requested)) {
-                if (!precededByJsdoc(lines, site.line)) {
+                if (!precededByDoc(lines, site.line)) {
                     findings.push(
-                        createFinding(rule, `Exported ${site.kind} "${site.name}" is missing a JSDoc comment`, file, {
+                        createFinding(rule, `Exported ${site.kind} "${site.name}" is missing a doc comment`, file, {
                             line: site.line,
                             code: 'tsdoc:missing',
                         }),
@@ -94,17 +94,19 @@ function findExports(lines: string[], requested: ReadonlySet<ExportKind>): Expor
 }
 
 /**
- * True when a JSDoc block precedes a declaration.
+ * True when a documentation comment precedes a declaration.
  *
- * Walks backward from the line before the declaration, skipping blank lines,
- * JSDoc body lines (`* …`), and decorator / JSDoc-tag lines (`@…`), then
- * checks whether the nearest meaningful line closes (or is) a JSDoc comment.
+ * Accepts both JSDoc blocks (`/** … *\/`) and line comments (`// …`) as valid
+ * preceding documentation. Walks backward from the line before the declaration,
+ * skipping blank lines, JSDoc body lines (`* …`), decorator / JSDoc-tag lines
+ * (`@…`), and contiguous `//` comment lines, then checks whether the nearest
+ * meaningful line is a JSDoc fence, a `//` comment, or the start of a `//` block.
  */
-function precededByJsdoc(lines: string[], declarationLine: number): boolean {
+function precededByDoc(lines: string[], declarationLine: number): boolean {
     let cursor = declarationLine - 2; // zero-based line above the declaration
     while (cursor >= 0) {
         const prev = lines[cursor]?.trim() ?? '';
-        // Blank line between JSDoc closing fence and declaration — keep walking.
+        // Blank line between comment and declaration — keep walking.
         if (prev === '') {
             cursor -= 1;
             continue;
@@ -113,13 +115,17 @@ function precededByJsdoc(lines: string[], declarationLine: number): boolean {
         if (prev.endsWith('*/') || prev.startsWith('/**')) {
             return true;
         }
+        // Line comment (// …) — accepted as documentation.
+        if (prev.startsWith('//')) {
+            return true;
+        }
         // JSDoc body line (* …) or decorator / tag (@…).  Check after the
-        // fence so `*/` is never misidentified as a body line.
+        // fences so `*/` is never misidentified as a body line.
         if (prev.startsWith('*') || prev.startsWith('@')) {
             cursor -= 1;
             continue;
         }
-        // Non-JSDoc, non-decorator line — no JSDoc precedes this declaration.
+        // Non-comment, non-decorator line — no documentation precedes this declaration.
         return false;
     }
     return false;

@@ -1,7 +1,7 @@
-# TSDoc export rules — every public export must carry a JSDoc comment.
+# TSDoc export rules — every public export must carry a doc comment (JSDoc `/** */` or line `//`).
 rules:
   - id: every-export-has-tsdoc
-    description: "Every export (function, class, interface, type, const, enum) must have a /** ... */ JSDoc comment describing what it is and why."
+    description: "Every export (function, class, interface, type, const, enum) must have a preceding doc comment — either a JSDoc block (`/** ... */`) or a line comment (`// ...`) describing what it is and why."
     severity: error
     evaluator:
       type: tsdoc-export
