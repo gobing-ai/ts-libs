@@ -8,6 +8,22 @@ versioned in **lockstep** — a single version number covers every package in th
 
 
 
+## [0.4.6] — 2026-07-10
+
+### Added
+
+- **`ts-runtime` — `DbModuleNotInstalledError` for the createDbAdapter seam:** New typed error in `packages/runtime/src/db-errors.ts` (exported from the package barrel), thrown by `nodeBunFactory.createDbAdapter` when the dynamic `import('@gobing-ai/ts-db')` fails to resolve (missing module) or resolves to an incompatible version (no `createDbAdapter` export). The original resolution error is chained via `cause`. Replaces the prior raw `MODULE_NOT_FOUND` with an actionable message that names the optional peer and the fix (`bun add @gobing-ai/ts-db` / mark `@gobing-ai/ts-db` `external` when bundling).
+
+- **`scripts` — Pin `peerDependencies` publish-time `workspace:*` resolution:** New fixture case in `scripts/tests/workspace-deps.test.ts` asserts that a `peerDependencies` entry of `workspace:*` resolves to `^<version>` at publish time (mirroring `dependencies` / `devDependencies` / `optionalDependencies`). Pins the `DEP_FIELDS` contract — `scripts/lib/workspace-deps.ts:24` already included `peerDependencies`; the test prevents a silent drop during a future refactor.
+
+### Changed
+
+- **`ts-runtime` — `@gobing-ai/ts-db` is now an optional `peerDependency`:** `packages/runtime/package.json` declares `"@gobing-ai/ts-db": "workspace:*"` under `peerDependencies` with `peerDependenciesMeta.optional: true`. Consumers that call `nodeBunFactory.createDbAdapter` on Node/Bun must `bun add @gobing-ai/ts-db` themselves; the manifest no longer relies on the prior `devDependencies`-only signal that left the runtime contract undeclared (and produced a raw `MODULE_NOT_FOUND` for npm consumers). Cloudflare Workers consumers are unaffected (`hasSqlDatabase` is `false`; `D1NotConfiguredError` is still thrown). The literal specifier in `runtime-node-bun.ts` is unchanged — Bun `--compile` bundling keeps working. README §8 documents who-installs-it, bundler `external` guidance, and the typed-error failure mode.
+
+### Documentation
+
+- **ADR-012 addendum — optional peerDependency for cycle-forced sibling imports:** Dated addendum to ADR-012 sanctions the pattern: a literal dynamic `import()` of a sibling package that would create a manifest cycle as a regular `dependencies` entry is declared as an optional `peerDependencies` entry, with the `tsconfig` `paths` entry still tracking it for the source closure. Canonical instance: `ts-runtime` → `ts-db` via `nodeBunFactory.createDbAdapter`. Closes the ADR-012 drift surfaced by the 2026-07-10 `/sp:dev-review packages` pass (finding #4, advisory).
+
 ## [0.4.5] — 2026-07-10
 
 ### Added
@@ -351,7 +367,8 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[0.4.5]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.4...HEAD
+[0.4.6]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.5...HEAD
+[0.4.5]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.4...@gobing-ai/ts-libs-v0.4.5
 [0.4.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.3...@gobing-ai/ts-libs-v0.4.4
 
 [0.3.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.19...HEAD
