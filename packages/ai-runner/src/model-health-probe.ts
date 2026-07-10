@@ -10,6 +10,7 @@
  * issuing a minimal 1-token completion request and interpreting the HTTP
  * response (R3).
  */
+import { APIClient, type APIClientConfig, APIError, type RawHttpResponse } from '@gobing-ai/ts-infra';
 
 /** Health status for a single model endpoint. */
 export type ModelHealthStatus = 'available' | 'quota_exhausted' | 'rate_limited' | 'unavailable' | 'unknown';
@@ -87,6 +88,17 @@ const OMP_PROVIDERS: Record<string, OmpProviderConfig> = {
 
 const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
 
+/** Options for constructing an {@link OmpModelProbe}. */
+export interface OmpModelProbeOptions {
+    /**
+     * Optional {@link APIClientConfig} (without `baseUrl` — the probe owns the
+     * provider→baseUrl mapping). Pass `fetch` here to inject a custom fetch
+     * for testing; omit to use `globalThis.fetch` (resolved lazily per request
+     * by `APIClient`, so test-time `globalThis.fetch` mutations take effect).
+     */
+    apiClientConfig?: Omit<APIClientConfig, 'baseUrl'>;
+}
+
 /**
  * Probe for `omp`-configured providers (R3).
  *
@@ -96,13 +108,21 @@ const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
  * - 429 + quota body → `quota_exhausted`
  * - 429 + rate-limit body → `rate_limited`
  * - Other 4xx/5xx → `unavailable`
- * - AbortController timeout → `unknown`
+ * - HTTP timeout (via APIClient, reported as APIError status 0) → `unknown`
  *
- * Supports both `openai-completions` and `anthropic-messages` API formats.
- * The provider→apiType mapping is built into this probe since it is specifically
+ * Uses {@link APIClient} from `@gobing-ai/ts-infra` for all HTTP — the
+ * centralized HTTP seam per `external-api-boundaries` rule. Supports both
+ * `openai-completions` and `anthropic-messages` API formats. The
+ * provider→apiType mapping is built into this probe since it is specifically
  * the `OmpModelProbe` — pluggability (R9) is at the registry level.
  */
 export class OmpModelProbe implements ModelHealthProbe {
+    private readonly apiClientConfig?: Omit<APIClientConfig, 'baseUrl'>;
+
+    constructor(options?: OmpModelProbeOptions) {
+        this.apiClientConfig = options?.apiClientConfig;
+    }
+
     async probe(provider: string, model: string, config: ProbeConfig): Promise<ModelHealthResult> {
         const checkedAt = new Date().toISOString();
         const providerConfig = OMP_PROVIDERS[provider];
@@ -112,8 +132,6 @@ export class OmpModelProbe implements ModelHealthProbe {
         }
 
         const baseUrl = config.endpoint ?? providerConfig.baseUrl;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
 
         try {
             const response = await this.issueRequest(
@@ -121,17 +139,16 @@ export class OmpModelProbe implements ModelHealthProbe {
                 baseUrl,
                 model,
                 config.apiKey,
-                controller.signal,
+                config.timeoutMs,
             );
-            return await this.interpretResponse(response, checkedAt);
+            return this.interpretResponse(response, checkedAt);
         } catch (error) {
-            if (error instanceof Error && error.name === 'AbortError') {
+            // APIClient reports timeouts as APIError with status 0.
+            if (error instanceof APIError && error.status === 0) {
                 return { status: 'unknown', detail: 'probe timed out', checkedAt };
             }
             const message = error instanceof Error ? error.message : 'probe failed';
             return { status: 'unknown', detail: message, checkedAt };
-        } finally {
-            clearTimeout(timeoutId);
         }
     }
 
@@ -141,51 +158,58 @@ export class OmpModelProbe implements ModelHealthProbe {
         baseUrl: string,
         model: string,
         apiKey: string,
-        signal: AbortSignal,
-    ): Promise<Response> {
+        timeoutMs: number,
+    ): Promise<RawHttpResponse> {
+        const client = new APIClient({ ...this.apiClientConfig, baseUrl });
+
         if (apiType === 'anthropic-messages') {
-            const url = `${baseUrl}/messages`;
-            return await globalThis.fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': apiKey,
-                    'anthropic-version': '2023-06-01',
-                },
-                body: JSON.stringify({
+            return await client.rawRequest(
+                'POST',
+                '/messages',
+                JSON.stringify({
                     model,
                     messages: [{ role: 'user', content: 'ping' }],
                     max_tokens: 1,
                 }),
-                signal,
-            });
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': apiKey,
+                        'anthropic-version': '2023-06-01',
+                    },
+                    timeout: timeoutMs,
+                    operationName: 'model-health-probe anthropic-messages',
+                },
+            );
         }
 
-        // openai-completions
-        const url = `${baseUrl}/chat/completions`;
-        return await globalThis.fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
+        return await client.rawRequest(
+            'POST',
+            '/chat/completions',
+            JSON.stringify({
                 model,
                 messages: [{ role: 'user', content: 'ping' }],
                 max_tokens: 1,
             }),
-            signal,
-        });
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                timeout: timeoutMs,
+                operationName: 'model-health-probe openai-completions',
+            },
+        );
     }
 
     /** Interpret the HTTP response into a {@link ModelHealthResult}. */
-    private async interpretResponse(response: Response, checkedAt: string): Promise<ModelHealthResult> {
+    private interpretResponse(response: RawHttpResponse, checkedAt: string): ModelHealthResult {
         if (response.status === 200) {
             return { status: 'available', checkedAt };
         }
 
         if (response.status === 429) {
-            const body = await this.parseBody(response);
+            const body = this.parseBody(response.body);
             const errorType = body?.error?.type ?? body?.error?.code ?? '';
             const errorMessage = body?.error?.message ?? '';
 
@@ -204,11 +228,9 @@ export class OmpModelProbe implements ModelHealthProbe {
     }
 
     /** Best-effort JSON body parse; returns null on failure. */
-    private async parseBody(
-        response: Response,
-    ): Promise<{ error?: { type?: string; code?: string; message?: string } } | null> {
+    private parseBody(body: string): { error?: { type?: string; code?: string; message?: string } } | null {
         try {
-            return (await response.json()) as { error?: { type?: string; code?: string; message?: string } };
+            return JSON.parse(body) as { error?: { type?: string; code?: string; message?: string } };
         } catch {
             return null;
         }
