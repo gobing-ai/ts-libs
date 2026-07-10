@@ -2,8 +2,15 @@ import { getLogger, type Logger } from '@gobing-ai/ts-infra';
 import { createNodeFileSystem, type FileSystem, getProcessEnv } from '@gobing-ai/ts-runtime';
 import { AgentDetector, type DetectedAgent } from './agent-detector';
 import { type AuthState, isAuthenticated } from './agents/auth-shims';
-import { type AgentName, DISPLAY_ORDER, resolveAgentName, TIER2_AGENTS } from './agents/shims';
+import { DISPLAY_ORDER, resolveAgentName, TIER2_AGENTS } from './agents/shims';
 import { AiRunner } from './ai-runner';
+import {
+    DEFAULT_PROBE_TIMEOUT_MS,
+    extractProvider,
+    ModelHealthProbeRegistry,
+    type ModelHealthResult,
+    OmpModelProbe,
+} from './model-health-probe';
 
 /** Health-check result for one coding agent. */
 export interface DoctorResult {
@@ -33,9 +40,21 @@ export interface DoctorResult {
     /** True when the resolved canonical id is marked deprecated. */
     deprecated?: boolean;
     /** Canonical replacement when the resolved id is deprecated, if any. */
-    replacedBy?: AgentName;
+    replacedBy?: string;
+    /** Model health status when a probe was run; `null` when no model override applies. */
+    modelStatus?: ModelHealthResult | null;
     /** Probe error when unavailable. */
     error: string | null;
+}
+
+/** Executor configuration — mirrors Spur's AgentExecutorConfig for doctor probing. */
+export interface ExecutorConfig {
+    /** Executor name (e.g. `omp-zai`, `omp-zai-volc`). */
+    name: string;
+    /** Underlying agent binary (e.g. `omp`). */
+    agent: string;
+    /** Model string in `provider/model` form (e.g. `zai/glm-5.2`). */
+    model?: string;
 }
 
 /** Constructor options for DoctorRunner. */
@@ -52,6 +71,12 @@ export interface DoctorRunnerOptions {
     logger?: Logger;
     /** Filesystem for auth-file checks. Defaults to `createNodeFileSystem()`; inject to test without disk. */
     fileSystem?: FileSystem;
+    /** Executor configurations — when present, doctor probes each executor's model health. */
+    executors?: ExecutorConfig[];
+    /** Probe registry for model health checks. Defaults to a registry with {@link OmpModelProbe}. */
+    probeRegistry?: ModelHealthProbeRegistry;
+    /** Model health probe timeout in milliseconds (default 10s). */
+    probeTimeoutMs?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -64,6 +89,9 @@ export class DoctorRunner {
     private readonly env: Record<string, string | undefined>;
     private readonly fs: FileSystem;
     private readonly logger: Logger;
+    private readonly executors: ExecutorConfig[];
+    private readonly probeRegistry: ModelHealthProbeRegistry;
+    private readonly probeTimeoutMs: number;
 
     constructor(options: DoctorRunnerOptions = {}) {
         this.runner = options.runner ?? new AiRunner();
@@ -72,10 +100,26 @@ export class DoctorRunner {
         this.env = options.env ?? getProcessEnv();
         this.fs = options.fileSystem ?? createNodeFileSystem();
         this.logger = options.logger ?? getLogger('doctor');
+        this.executors = options.executors ?? [];
+        this.probeTimeoutMs = options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+        this.probeRegistry = options.probeRegistry ?? this.createDefaultRegistry();
+    }
+
+    /** Create the default probe registry with OmpModelProbe for all known omp providers. */
+    private createDefaultRegistry(): ModelHealthProbeRegistry {
+        const registry = new ModelHealthProbeRegistry();
+        const probe = new OmpModelProbe();
+        for (const provider of ['zai', 'volc', 'minimax', 'deepseek']) {
+            registry.register(provider, probe);
+        }
+        return registry;
     }
 
     /** Run a health check on all supported agents. */
     async runAll(): Promise<DoctorResult[]> {
+        if (this.executors.length > 0) {
+            return await this.runAllWithExecutors();
+        }
         const detected = await this.detector.detectAll();
         const byName = new Map(detected.map((agent) => [agent.name, agent]));
         return await Promise.all(
@@ -93,9 +137,76 @@ export class DoctorRunner {
         );
     }
 
+    /**
+     * Executor-aware runAll: iterate configured executors instead of
+     * DISPLAY_ORDER, giving each executor its own row with model health.
+     */
+    private async runAllWithExecutors(): Promise<DoctorResult[]> {
+        const detected = await this.detector.detectAll();
+        const byName = new Map(detected.map((agent) => [agent.name, agent]));
+        const results: DoctorResult[] = [];
+        for (const executor of this.executors) {
+            const agentDetected = byName.get(executor.agent) ?? {
+                name: executor.agent,
+                installed: false,
+                version: null,
+                channels: [],
+                error: `Unknown agent: ${executor.agent}`,
+            };
+            const result = await this.buildResult(agentDetected);
+            // Override the agent name with the executor name for display
+            result.agent = executor.name;
+            // R1: probe model health when a model override is present; null otherwise.
+            result.modelStatus = executor.model ? await this.probeModel(executor.model) : null;
+            results.push(result);
+        }
+        return results;
+    }
+
     /** Run a health check on one agent. */
     async runOne(agent: string): Promise<DoctorResult> {
+        // When executors are configured, match executor name first
+        if (this.executors.length > 0) {
+            const executor = this.executors.find((e) => e.name === agent);
+            if (executor) {
+                const detected = await this.detector.detectOne(executor.agent);
+                const result = await this.buildResult(detected);
+                result.agent = executor.name;
+                result.modelStatus = executor.model ? await this.probeModel(executor.model) : null;
+                return result;
+            }
+        }
         return this.buildResult(await this.detector.detectOne(agent));
+    }
+
+    /** Probe model health for a `provider/model` string. */
+    private async probeModel(model: string): Promise<ModelHealthResult> {
+        const provider = extractProvider(model);
+        const probe = this.probeRegistry.resolve(model);
+        if (!probe) {
+            return {
+                status: 'unknown',
+                detail: `no probe registered for provider '${provider}'`,
+                checkedAt: new Date().toISOString(),
+            };
+        }
+        const apiKey = this.resolveApiKey(provider);
+        if (!apiKey) {
+            return {
+                status: 'unknown',
+                detail: `API key not found for provider '${provider}'`,
+                checkedAt: new Date().toISOString(),
+            };
+        }
+        return await probe.probe(provider, model, {
+            apiKey,
+            timeoutMs: this.probeTimeoutMs,
+        });
+    }
+
+    /** Resolve API key from env using `{PROVIDER_UPPERCASE}_API_KEY` convention. */
+    private resolveApiKey(provider: string): string | undefined {
+        return this.env[`${provider.toUpperCase()}_API_KEY`];
     }
 
     private async buildResult(detected: DetectedAgent): Promise<DoctorResult> {
@@ -116,8 +227,8 @@ export class DoctorRunner {
             installed: detected.installed,
             version: detected.version,
             authenticated,
-            // Liveness only: auth never gates runnability. A logged-out agent
-            // is usable (it fails at runtime with its own error).
+            // Liveness only: auth never gates runnability. A logged-out
+            // agent is usable (it fails at runtime with its own error).
             usable: detected.installed && detected.version !== null,
             tier,
             channels: detected.channels,

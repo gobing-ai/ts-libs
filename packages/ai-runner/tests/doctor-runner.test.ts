@@ -294,3 +294,131 @@ describe('DoctorRunner', () => {
         });
     });
 });
+
+describe('DoctorRunner with executors', () => {
+    test('runAll iterates executors instead of DISPLAY_ORDER, giving each its own row', async () => {
+        const detector = {
+            detectAll: async () => [{ name: 'omp', installed: true, version: 'omp 1.0.0', channels: [], error: null }],
+            detectOne: async (name: string) => ({
+                name,
+                installed: true,
+                version: 'omp 1.0.0',
+                channels: [],
+                error: null,
+            }),
+        } as unknown as AgentDetector;
+        const runner = new AiRunner({ processExecutor: new FakeExecutor(() => ({ stdout: 'ok' })) });
+        const executors = [
+            { name: 'omp-zai', agent: 'omp', model: 'zai/glm-5.2' },
+            { name: 'omp-zai-volc', agent: 'omp', model: 'volc/glm-5.2' },
+        ];
+        const results = await new DoctorRunner({ runner, agentDetector: detector, env: {}, executors }).runAll();
+
+        expect(results).toHaveLength(2);
+        const [zai, volc] = results;
+        expect(zai?.agent).toBe('omp-zai');
+        expect(volc?.agent).toBe('omp-zai-volc');
+        expect(zai?.installed).toBe(true);
+    });
+
+    test('runOne matches executor name first when executors are configured', async () => {
+        const detector = {
+            detectAll: async () => [],
+            detectOne: async (name: string) => ({
+                name,
+                installed: true,
+                version: 'omp 1.0.0',
+                channels: [],
+                error: null,
+            }),
+        } as unknown as AgentDetector;
+        const runner = new AiRunner({ processExecutor: new FakeExecutor(() => ({ stdout: 'ok' })) });
+        const executors = [{ name: 'omp-zai', agent: 'omp', model: 'zai/glm-5.2' }];
+        const result = await new DoctorRunner({ runner, agentDetector: detector, env: {}, executors }).runOne(
+            'omp-zai',
+        );
+
+        expect(result.agent).toBe('omp-zai');
+        expect(result.installed).toBe(true);
+    });
+
+    test('probeModel returns unknown when no API key is found in env', async () => {
+        const detector = {
+            detectAll: async () => [],
+            detectOne: async (name: string) => ({
+                name,
+                installed: true,
+                version: 'omp 1.0.0',
+                channels: [],
+                error: null,
+            }),
+        } as unknown as AgentDetector;
+        const runner = new AiRunner({ processExecutor: new FakeExecutor(() => ({ stdout: 'ok' })) });
+        const executors = [{ name: 'omp-zai', agent: 'omp', model: 'zai/glm-5.2' }];
+        const results = await new DoctorRunner({
+            runner,
+            agentDetector: detector,
+            env: {},
+            executors,
+        }).runAll();
+
+        const [row] = results;
+        expect(row?.modelStatus?.status).toBe('unknown');
+        expect(row?.modelStatus?.detail).toContain('API key not found');
+    });
+
+    test('runAll sets modelStatus to null for executors without a model override (R1)', async () => {
+        const detector = {
+            detectAll: async () => [{ name: 'omp', installed: true, version: 'omp 1.0.0', channels: [], error: null }],
+            detectOne: async (name: string) => ({
+                name,
+                installed: true,
+                version: 'omp 1.0.0',
+                channels: [],
+                error: null,
+            }),
+        } as unknown as AgentDetector;
+        const runner = new AiRunner({ processExecutor: new FakeExecutor(() => ({ stdout: 'ok' })) });
+        const executors = [
+            { name: 'omp', agent: 'omp' },
+            { name: 'omp-zai', agent: 'omp', model: 'zai/glm-5.2' },
+        ];
+        const results = await new DoctorRunner({
+            runner,
+            agentDetector: detector,
+            env: {},
+            executors,
+        }).runAll();
+
+        expect(results).toHaveLength(2);
+        const [noModel, withModel] = results;
+        expect(noModel?.modelStatus).toBeNull();
+        expect(withModel?.modelStatus).not.toBeNull();
+        expect(withModel?.modelStatus?.status).toBe('unknown');
+    });
+
+    test('probeModel returns unknown when no probe is registered for the provider (AC7)', async () => {
+        const detector = {
+            detectAll: async () => [],
+            detectOne: async (name: string) => ({
+                name,
+                installed: true,
+                version: 'omp 1.0.0',
+                channels: [],
+                error: null,
+            }),
+        } as unknown as AgentDetector;
+        const runner = new AiRunner({ processExecutor: new FakeExecutor(() => ({ stdout: 'ok' })) });
+        const executors = [{ name: 'omp-codex', agent: 'omp', model: 'codex/gpt-5' }];
+        const results = await new DoctorRunner({
+            runner,
+            agentDetector: detector,
+            env: { OPENAI_API_KEY: 'sk-test' },
+            executors,
+        }).runAll();
+
+        const [row] = results;
+        expect(row?.modelStatus?.status).toBe('unknown');
+        expect(row?.modelStatus?.detail).toContain('no probe registered');
+    });
+});

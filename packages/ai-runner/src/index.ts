@@ -7,6 +7,7 @@ export * from './doctor-runner';
 export * from './events';
 export * from './identity';
 export * from './messages';
+export * from './model-health-probe';
 export * from './slash-command';
 export * from './team-agent-process';
 export * from './team-orchestrator';
