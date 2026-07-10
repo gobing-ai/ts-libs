@@ -8,6 +8,25 @@ versioned in **lockstep** — a single version number covers every package in th
 
 
 
+## [0.4.5] — 2026-07-10
+
+### Added
+
+- **`ts-ai-runner` — Model health probe for omp providers:** New `OmpModelProbe` issues a minimal 1-token completion request against the provider's `/v1/messages` or `/chat/completions` endpoint, returning a `ModelHealthResult` with one of `available`, `quota_exhausted`, `rate_limited`, `unavailable`, or `unknown`. Supports both Anthropic-Messages (`x-api-key` + `anthropic-version`) and OpenAI-Completions (`Bearer`) auth schemes; provider → base-url + API-style mapping is built in for `zai`, `volc`, `minimax`, and `deepseek`. Registered with the doctor for each omp provider so health checks reach the model layer.
+
+### Changed
+
+- **`ts-ai-runner` — Health probe routes through `ts-infra` `APIClient`:** HTTP is no longer emitted from the probe directly — `OmpModelProbe.issueRequest` constructs an `APIClient` per request and uses `rawRequest` for the HTTP call. Timeout is owned by `APIClient` (via `RequestOptions.timeout`) and surfaces as `APIError(status=0)`, which the probe maps to `"probe timed out"`. This is the first non-infra consumer of `APIClient`; tests inject `apiClientConfig` (or rely on the lazy `globalThis.fetch` resolution) rather than mutating `globalThis.fetch` directly.
+- **`ts-runtime` — Remote schema fetching requires an explicit `fetch`:** `StructuredConfigLoadOptions.allowRemote` no longer implies a built-in fetch implementation. The `boundedFetch` default (which wrapped `globalThis.fetch` with an `AbortSignal.timeout`) and its `REMOTE_SCHEMA_FETCH_TIMEOUT_MS` constant have been removed. Callers that want remote `$schema` resolution must now pass `{ fetch: impl }` — typically an `APIClient.rawRequest`-backed function with their own timeouts, although the layering keeps `ts-runtime` independent of `ts-infra`. This closes the last non-`api-client.ts` `globalThis.fetch` seam in the codebase.
+
+### Security
+
+- **`ts-runtime` — `allowRemote` no longer auto-enables network I/O:** Removing the default fetch means config loading never reaches the network unless the caller opts in by supplying both `allowRemote: true` (or by supplying `fetch` directly) AND a fetch implementation. The previous behaviour effectively granted an unstated SSRF/DoS surface to any caller that toggled `allowRemote`. Explicit-injection is now the only path.
+
+### Maintenance
+
+- **`.spur/rules` — `no-globalthis-fetch` tightened to one exemption:** The rule now excludes only `packages/infra/src/api-client.ts`. The previous exemption for `packages/runtime/src/schema-validation.ts` has been removed alongside the `boundedFetch` cleanup. Any new `globalThis.fetch(` call site anywhere else under `packages/**/*.ts` will now fail `recommended-pre-check`.
+
 ## [0.4.4] — 2026-07-08
 
 ### Changed
@@ -332,7 +351,8 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[0.4.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.3...HEAD
+[0.4.5]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.4...HEAD
+[0.4.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.3...@gobing-ai/ts-libs-v0.4.4
 
 [0.3.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.19...HEAD
 [0.3.2]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.1...HEAD

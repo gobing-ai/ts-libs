@@ -26,11 +26,8 @@ rules:
       config:
         pattern: "globalThis\\.fetch\\("
     exclude:
-      # Sanctioned fetch seams: the infra API client, and the runtime config
-      # loader's opt-in, injectable bounded-fetch default (runtime cannot depend
-      # on infra without inverting the layering).
+      # The only sanctioned globalThis.fetch call site: the APIClient itself.
       - "packages/infra/src/api-client.ts"
-      - "packages/runtime/src/schema-validation.ts"
 
   - id: no-xml-http-request
     description: "Use @gobing-ai/ts-infra APIClient instead of XMLHttpRequest."
