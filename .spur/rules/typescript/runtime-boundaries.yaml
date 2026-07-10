@@ -210,3 +210,35 @@ rules:
             - "**/dist/**"
             - "packages/runtime/src/config.ts"
             - "packages/runtime/src/bun-sqlite.ts"
+
+
+  # ── Optional peer / build-order cycle ─────────────────────────────────
+
+  - id: no-static-ts-db-import-in-runtime
+    description: >-
+      ts-runtime builds BEFORE ts-db (ts-db depends on ts-runtime, so the build
+      order is runtime → db). A literal-specifier `import('@gobing-ai/ts-db')`
+      — whether in a `typeof import()` type annotation or a value-position
+      `await import()` — forces tsc to statically resolve the module at build
+      time. In a clean CI checkout no prebuilt ts-db dist/ exists yet, so this
+      raises TS2307. (Locally it passes by accident via a stale global
+      ~/node_modules fallback.) ts-db is an optional peerDependency of
+      ts-runtime (ADR-012 addendum); the sanctioned pattern is a variable
+      specifier: `const spec = '@gobing-ai/ts-db'; await import(spec)`, which
+      is opaque to tsc's static resolver. Background: task 0040 regression,
+      CI build failure on PR #103.
+    severity: error
+    evaluator:
+      type: regex
+      config:
+        # Matches `import(` followed by an optional `typeof` and a string-literal
+        # specifier `@gobing-ai/ts-db` (optionally with a subpath). The variable-
+        # specifier escape hatch (`import(someVariable)`) does not match because
+        # the argument is a bare identifier, not a quoted string.
+        pattern: "import\\s*\\(\\s*['\"]@gobing-ai/ts-db(?:/[^'\"]*)?['\"]"
+    include:
+      - "packages/runtime/src/**/*.ts"
+    exclude:
+      - "**/tests/**"
+      - "**/*.test.ts"
+      - "**/dist/**"
