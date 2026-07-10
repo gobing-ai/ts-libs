@@ -58,6 +58,27 @@ export function basenamePath(p: string, ext?: string): string {
     return base;
 }
 
+/** Convert a file:// URL into the portable path format used by this package. */
+export function fileUrlToPath(url: string): string {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'file:') {
+        throw new Error(`Expected file URL, got "${parsed.protocol}"`);
+    }
+
+    // Encoded separators would decode into extra path segments (e.g. "%2F..%2F"
+    // becoming "/../"), silently changing path semantics — reject like node:url does.
+    if (/%2f|%5c/i.test(parsed.pathname)) {
+        throw new Error('File URL path must not include encoded "/" or "\\" characters');
+    }
+
+    const pathname = decodeURIComponent(parsed.pathname);
+    const localPath = /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+    if (parsed.hostname.length > 0 && parsed.hostname !== 'localhost') {
+        return normalizeSeparators(`//${parsed.hostname}${localPath}`);
+    }
+    return normalizeSeparators(localPath);
+}
+
 /** Compute a platform-independent relative path from `from` to `to`. Both paths should be absolute. */
 export function relativePath(from: string, to: string): string {
     const fromParsed = pathParts(resolvePath(from));

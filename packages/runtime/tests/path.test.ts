@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
     basenamePath,
     dirnamePath,
+    fileUrlToPath,
     isAbsolutePath,
     joinPath,
     normalizeSeparators,
@@ -88,6 +89,36 @@ describe('basenamePath', () => {
 
     test('trailing slash', () => {
         expect(basenamePath('/a/b/')).toBe('b');
+    });
+});
+
+describe('fileUrlToPath', () => {
+    test('converts POSIX file URLs', () => {
+        expect(fileUrlToPath('file:///tmp/project/file%20name.ts')).toBe('/tmp/project/file name.ts');
+    });
+
+    test('converts localhost file URLs', () => {
+        expect(fileUrlToPath('file://localhost/tmp/project/file.ts')).toBe('/tmp/project/file.ts');
+    });
+
+    test('converts Windows drive file URLs', () => {
+        expect(fileUrlToPath('file:///C:/Users/Robin/file.ts')).toBe('C:/Users/Robin/file.ts');
+    });
+
+    test('preserves UNC file URL hosts', () => {
+        expect(fileUrlToPath('file://server/share/file.ts')).toBe('//server/share/file.ts');
+    });
+
+    test('rejects non-file URLs', () => {
+        expect(() => fileUrlToPath('https://example.com/file.ts')).toThrow('Expected file URL');
+    });
+
+    test('rejects encoded slashes so traversal cannot be smuggled past path validation', () => {
+        expect(() => fileUrlToPath('file:///tmp/a%2F..%2F..%2Fetc/passwd')).toThrow('must not include encoded');
+    });
+
+    test('rejects encoded backslashes so traversal cannot be smuggled past path validation', () => {
+        expect(() => fileUrlToPath('file:///tmp/a%5C..%5Csecret.ts')).toThrow('must not include encoded');
     });
 });
 
