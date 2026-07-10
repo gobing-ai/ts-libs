@@ -41,16 +41,18 @@ export const nodeBunFactory: RuntimeFactory = {
     },
 
     async createDbAdapter(config: DatabaseConfig): Promise<RuntimeDbAdapter> {
-        // Dynamic import (string-literal specifier) — ts-db depends on ts-runtime,
-        // so a static import would create a package-level circular dependency.
-        // The literal specifier lets Bun --compile bundle ts-db into the binary;
-        // a variable specifier would be opaque to the bundler and fail at runtime.
-        // Platform exception: ts-db is Bun/Node-only (not Cloudflare Workers).
-        // ts-db is an optional peerDependency (ADR-012 addendum) — if the consumer
-        // has not installed it, surface a typed error instead of MODULE_NOT_FOUND.
-        let mod: typeof import('@gobing-ai/ts-db');
+        // Dynamic import via a variable specifier — this prevents tsc from
+        // statically resolving @gobing-ai/ts-db at build time. ts-db builds
+        // AFTER ts-runtime (it depends on ts-runtime), so a literal specifier
+        // or `typeof import()` annotation triggers TS2307 in a clean CI
+        // checkout where no prebuilt dist/ exists yet. At runtime Bun resolves
+        // the module via the workspace symlink.
+        // ts-db is an optional peerDependency (ADR-012 addendum) — if the
+        // consumer has not installed it, surface a typed error.
+        const moduleSpecifier = '@gobing-ai/ts-db';
+        let mod: { createDbAdapter: (config: { driver: 'bun-sqlite'; url?: string }) => RuntimeDbAdapter };
         try {
-            mod = await import('@gobing-ai/ts-db');
+            mod = (await import(moduleSpecifier)) as typeof mod;
         } catch (cause) {
             throw new DbModuleNotInstalledError(undefined, { cause });
         }
