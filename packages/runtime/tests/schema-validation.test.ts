@@ -55,28 +55,28 @@ describe('loadStructuredConfig', () => {
         expect(reads).toEqual(['/virtual/config.yaml', '/virtual/./schema.json']);
     });
 
-    test('refuses remote schema refs by default and allows opt-in via allowRemote', async () => {
+    test('refuses remote schema refs without an explicit fetch implementation', async () => {
         const config = '$schema: https://schemas.example/config.json\nname: demo\n';
 
         await expect(parseStructuredConfig(config, 'remote.yaml')).rejects.toThrow('Refusing to fetch remote');
 
-        // allowRemote opts in; stub global fetch so no real network call happens.
-        const original = globalThis.fetch;
-        globalThis.fetch = (async () =>
+        // allowRemote alone is not enough — must supply fetch.
+        await expect(parseStructuredConfig(config, 'remote.yaml', { allowRemote: true })).rejects.toThrow(
+            'Refusing to fetch remote',
+        );
+
+        // Pass an explicit fetch — no globalThis.fetch mutation needed.
+        const mockFetch = async (): Promise<Response> =>
             new Response(
                 JSON.stringify({
                     type: 'object',
                     required: ['name'],
                     properties: { $schema: { type: 'string' }, name: { type: 'string' } },
                 }),
-            )) as unknown as typeof fetch;
-        try {
-            expect(await parseStructuredConfig(config, 'remote.yaml', { allowRemote: true })).toMatchObject({
-                name: 'demo',
-            });
-        } finally {
-            globalThis.fetch = original;
-        }
+            );
+        expect(await parseStructuredConfig(config, 'remote.yaml', { fetch: mockFetch })).toMatchObject({
+            name: 'demo',
+        });
     });
 
     test('resolves a bundled package-specifier schema ref through the module resolver', async () => {

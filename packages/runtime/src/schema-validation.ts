@@ -3,9 +3,6 @@ import type { FileSystem } from './file-system';
 import { createNodeFileSystem } from './file-system-node';
 import { dirnamePath, getProcessCwd, isAbsolutePath, joinPath } from './path';
 
-/** Default time budget for a single remote schema fetch. */
-const REMOTE_SCHEMA_FETCH_TIMEOUT_MS = 5_000;
-
 /** Upper bound on a remote schema body. A timeout alone lets a slow multi-GB drip exhaust memory. */
 const REMOTE_SCHEMA_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -36,7 +33,8 @@ export interface StructuredConfigLoadOptions {
     /**
      * Allow `http(s)://` `$schema` refs. Off by default: remote fetches are an SSRF/DoS surface when
      * configs are authored by third parties. Prefer bundled package-specifier refs (resolved from
-     * `node_modules`). Supplying `fetch` explicitly also opts into remote resolution.
+     * `node_modules`).  Must be combined with an explicit `fetch` — pass your own time-bounded
+     * or APIClient-backed fetch implementation.
      */
     allowRemote?: boolean;
     fetch?: (input: string) => Promise<Response>;
@@ -346,10 +344,10 @@ function splitPackageSpecifier(specifier: string): { pkg: string; subpath: strin
 
 async function readSchema(schemaLocation: string, options: StructuredConfigLoadOptions): Promise<string> {
     if (isRemoteRef(schemaLocation)) {
-        const fetchFn = options.fetch ?? (options.allowRemote ? boundedFetch : undefined);
+        const fetchFn = options.fetch;
         if (fetchFn === undefined) {
             throw new StructuredConfigSchemaError(
-                `Refusing to fetch remote JSON schema "${schemaLocation}": pass { allowRemote: true } or a fetch implementation to opt in`,
+                `Refusing to fetch remote JSON schema "${schemaLocation}": pass a fetch implementation to opt in`,
             );
         }
         const response = await fetchFn(schemaLocation);
@@ -410,11 +408,6 @@ async function readBoundedBody(response: Response, schemaLocation: string): Prom
 
 const defaultResolve: ((specifier: string, from: string) => string) | undefined =
     typeof Bun !== 'undefined' ? (specifier, from) => Bun.resolveSync(specifier, from) : undefined;
-
-/** Default remote fetch, time-bounded so a slow/hung schema host cannot stall config loading. */
-function boundedFetch(input: string): Promise<Response> {
-    return globalThis.fetch(input, { signal: AbortSignal.timeout(REMOTE_SCHEMA_FETCH_TIMEOUT_MS) });
-}
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
