@@ -1,6 +1,7 @@
 import { parse as parseYaml } from 'yaml';
 import type { Config } from './config';
 import { buildConfigFromObject, getProcessEnv } from './config';
+import { DbModuleNotInstalledError } from './db-errors';
 import type { FileSystem } from './file-system';
 import { createNodeFileSystem } from './file-system-node';
 import { ProcessExecutor, type ProcessExecutorConfig } from './process-executor';
@@ -40,16 +41,24 @@ export const nodeBunFactory: RuntimeFactory = {
     },
 
     async createDbAdapter(config: DatabaseConfig): Promise<RuntimeDbAdapter> {
-        // Dynamic import via a variable specifier keeps ts-db out of the
-        // static dependency graph (it depends on ts-runtime, so a static dep
-        // would cycle). The variable prevents tsc from type-resolving the
-        // module at build time (ts-db builds after ts-runtime); at runtime
-        // Bun resolves it via the workspace + tsconfig paths. Connection only
-        // — the caller owns schema/migrations.
-        const moduleSpecifier = '@gobing-ai/ts-db';
-        const mod = (await import(moduleSpecifier)) as {
-            createDbAdapter: (config: { driver: 'bun-sqlite'; url?: string }) => RuntimeDbAdapter;
-        };
+        // Dynamic import (string-literal specifier) — ts-db depends on ts-runtime,
+        // so a static import would create a package-level circular dependency.
+        // The literal specifier lets Bun --compile bundle ts-db into the binary;
+        // a variable specifier would be opaque to the bundler and fail at runtime.
+        // Platform exception: ts-db is Bun/Node-only (not Cloudflare Workers).
+        // ts-db is an optional peerDependency (ADR-012 addendum) — if the consumer
+        // has not installed it, surface a typed error instead of MODULE_NOT_FOUND.
+        let mod: typeof import('@gobing-ai/ts-db');
+        try {
+            mod = await import('@gobing-ai/ts-db');
+        } catch (cause) {
+            throw new DbModuleNotInstalledError(undefined, { cause });
+        }
+        if (typeof mod.createDbAdapter !== 'function') {
+            throw new DbModuleNotInstalledError(
+                '@gobing-ai/ts-db is installed but does not export createDbAdapter — the installed version may be incompatible or partial.',
+            );
+        }
         return mod.createDbAdapter({ driver: 'bun-sqlite', url: config.url });
     },
 };

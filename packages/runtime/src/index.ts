@@ -1,7 +1,7 @@
 export * from './config';
 export * from './context';
 export { createRuntimeContextFromFactory } from './context';
-export { D1NotConfiguredError } from './db-errors';
+export { D1NotConfiguredError, DbModuleNotInstalledError } from './db-errors';
 export type { FileStat, FileSystem } from './file-system';
 export { createCfFileSystem } from './file-system-cf';
 export { createNodeFileSystem, findProjectRoot } from './file-system-node';

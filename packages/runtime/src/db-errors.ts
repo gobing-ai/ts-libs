@@ -14,3 +14,23 @@ export class D1NotConfiguredError extends Error {
         this.name = 'D1NotConfiguredError';
     }
 }
+
+/**
+ * Thrown by {@link RuntimeFactory.createDbAdapter} on `node-bun` when the
+ * optional peer `@gobing-ai/ts-db` is not installed.
+ *
+ * `ts-db` is an **optional peerDependency** of `ts-runtime` (ADR-012 addendum):
+ * it cannot be a regular dependency because `ts-db` depends on `ts-runtime`
+ * (manifest cycle). Consumers who call `nodeBunFactory.createDbAdapter` must
+ * install `@gobing-ai/ts-db` themselves. This error surfaces a missing module
+ * as an actionable, typed failure instead of a raw `MODULE_NOT_FOUND`.
+ */
+export class DbModuleNotInstalledError extends Error {
+    constructor(
+        message = '@gobing-ai/ts-db is not installed. It is an optional peer of @gobing-ai/ts-runtime, required only for createDbAdapter on node-bun. Install it (`bun add @gobing-ai/ts-db`) or, when bundling, mark `@gobing-ai/ts-db` external.',
+        options?: ErrorOptions,
+    ) {
+        super(message, options);
+        this.name = 'DbModuleNotInstalledError';
+    }
+}

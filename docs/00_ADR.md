@@ -162,6 +162,23 @@ imports is removed); `tsconfig` `paths` = the **full transitive source closure**
 overlap but are not equal — ADR-004's "stay in sync" means only "never drop a direct dependency for a path
 alias."
 
+### ADR-012 Addendum — Optional peerDependency for Cycle-Forced Sibling Imports (2026-07-10)
+
+The rule "`dependencies` = direct imports" gains one carve-out: **a literal dynamic `import()` of a sibling
+package that would create a manifest cycle as a regular `dependencies` entry is declared as an optional
+`peerDependencies` entry (with `peerDependenciesMeta.<pkg>.optional: true`), and the `tsconfig` `paths`
+entry still tracks it for the source closure.** A regular `dependencies` entry would ship the cycle to npm
+and force-install the sibling (plus its peer set) on every consumer, including those who never call the
+code path; an optional peer is metadata-only, cycle-tolerant, and auto-installs for nobody.
+
+Canonical instance: `@gobing-ai/ts-runtime` → `@gobing-ai/ts-db` via the literal
+`await import('@gobing-ai/ts-db')` in `nodeBunFactory.createDbAdapter` (`packages/runtime/src/runtime-node-bun.ts`).
+`ts-db` depends on `ts-runtime`, so a regular dep cycles; the literal specifier (required so Bun `--compile`
+can bundle it) makes the import bundler-visible and thus "direct" under ADR-012's plain reading — this
+addendum sanctions the optional-peer form as the cycle-safe equivalent. The `devDependencies` entry is
+retained so in-repo tests/typecheck resolve the package; both fields carry `workspace:*` (publish-time
+resolution under ADR-003 covers `peerDependencies` — `scripts/lib/workspace-deps.ts` `DEP_FIELDS`).
+
 ---
 
 ## ADR-013: Workflow Run Lifecycle Is a Deep Module Built on `ts-infra` Observability

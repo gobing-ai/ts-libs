@@ -17,7 +17,7 @@ and Cloudflare Workers through a factory pattern that auto-detects the runtime.
 | Runtime factory | `RuntimeFactory` → `loadRuntimeFactory()` | `nodeBunFactory` | `cloudflareWorkersFactory` |
 | File system | `FileSystem` | `createNodeFileSystem()` (sync `node:fs`) | `createCfFileSystem()` (stub) |
 | Process execution | `ProcessExecutor` (class) | `run()` via execa, `runStreaming()` via `Bun.spawn` | throws |
-| SQL database | `createDbAdapter(config)` → `DbAdapter` | Bun SQLite via `@gobing-ai/ts-db` | throws `D1NotConfiguredError` (D1 round pending) |
+| SQL database | `createDbAdapter(config)` → `DbAdapter` | Bun SQLite via `@gobing-ai/ts-db` (optional peer) | throws `D1NotConfiguredError` (D1 round pending) |
 | Configuration | `Config` (Zod schema) | YAML + env vars | CONFIG_YAML blob + env vars |
 | Context | `RuntimeContext` | service locator | service locator |
 | Path utilities | `SEP`, `basenamePath`, `dirnamePath`, `joinPath`, `resolvePath`, `relativePath`, … | runtime-portable (zero `node:*`) | runtime-portable (zero `node:*`) |
@@ -392,11 +392,25 @@ On Cloudflare Workers, `capabilities.hasSqlDatabase` is `false` and `createDbAda
 `D1NotConfiguredError` — the method exists on the interface so consumer code is forward-compatible and
 needs no change when the D1 round ships.
 
-**Dependency note:** `@gobing-ai/ts-db` is not a static dependency of `ts-runtime` (it would create a
-cycle, since `ts-db` depends on `ts-runtime`). The factory interface uses a structural
-`RuntimeDbAdapter` type (defined locally) that a ts-db `DbAdapter` satisfies via structural subtyping;
-`nodeBunFactory.createDbAdapter` loads `ts-db` via a dynamic `import()` at runtime. Consumers that call
-`createDbAdapter` must have `@gobing-ai/ts-db` in their dependency graph.
+**Dependency note (optional peer):** `@gobing-ai/ts-db` is declared as an **optional
+`peerDependency`** of `ts-runtime` (ADR-012 addendum), not a regular dependency — a regular entry
+would create a manifest cycle (`ts-db` depends on `ts-runtime`) and force-install `ts-db` (plus its
+`drizzle-orm` peer) on every consumer, including Workers bundles and apps that never touch SQL.
+The factory interface uses a structural `RuntimeDbAdapter` type (defined locally) that a ts-db
+`DbAdapter` satisfies via structural subtyping; `nodeBunFactory.createDbAdapter` loads `ts-db` via a
+literal dynamic `import()` at runtime.
+
+**Who must install it:** only consumers that call `nodeBunFactory.createDbAdapter` on Node/Bun —
+install `@gobing-ai/ts-db` yourself (`bun add @gobing-ai/ts-db`). Workers consumers do not need it
+(`capabilities.hasSqlDatabase` is `false`; the method throws `D1NotConfiguredError`).
+
+**Bundling (`Bun --compile` / esbuild / Vite):** the literal specifier keeps `ts-db` bundler-visible,
+so `Bun --compile` can fold it into a standalone binary. If you bundle for a different runtime, mark
+`@gobing-ai/ts-db` `external` to preserve the dynamic import.
+
+**Failure mode:** if `@gobing-ai/ts-db` is absent or exports no `createDbAdapter` (incompatible
+version), `createDbAdapter` throws a typed `DbModuleNotInstalledError` (with the underlying resolution
+error chained as `cause`) instead of a raw `MODULE_NOT_FOUND`.
 
 ### 9. Graceful disposal
 

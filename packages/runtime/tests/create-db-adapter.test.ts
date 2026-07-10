@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { D1NotConfiguredError } from '../src/db-errors';
+import { D1NotConfiguredError, DbModuleNotInstalledError } from '../src/db-errors';
 import { cloudflareWorkersFactory } from '../src/runtime-cf';
 import { nodeBunFactory } from '../src/runtime-node-bun';
 import type { DatabaseConfig, RuntimeDbAdapter } from '../src/types';
@@ -76,6 +76,29 @@ describe('RuntimeFactory.createDbAdapter — DB seam', () => {
         test('accepts a custom message', () => {
             const error = new D1NotConfiguredError('custom reason');
             expect(error.message).toBe('custom reason');
+        });
+    });
+    // ── DbModuleNotInstalledError ───────────────────────────────────────
+
+    describe('DbModuleNotInstalledError', () => {
+        test('extends Error with the correct name', () => {
+            const error = new DbModuleNotInstalledError();
+            expect(error).toBeInstanceOf(Error);
+            expect(error.name).toBe('DbModuleNotInstalledError');
+            expect(error.message).toContain('@gobing-ai/ts-db');
+            expect(error.message).toContain('optional peer');
+        });
+
+        test('accepts a custom message', () => {
+            const error = new DbModuleNotInstalledError('custom reason');
+            expect(error.message).toBe('custom reason');
+        });
+
+        test('preserves a cause option for error chaining', () => {
+            const cause = new Error('MODULE_NOT_FOUND');
+            const error = new DbModuleNotInstalledError(undefined, { cause });
+            expect(error.message).toContain('@gobing-ai/ts-db'); // default message retained
+            expect((error as DbModuleNotInstalledError & { cause?: unknown }).cause).toBe(cause);
         });
     });
 });

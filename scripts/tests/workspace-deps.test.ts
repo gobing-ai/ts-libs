@@ -62,6 +62,22 @@ describe('substituteWorkspaceRanges', () => {
         expect(input.dependencies['@gobing-ai/ts-db']).toBe('workspace:*');
     });
 
+    test('resolves workspace ranges in peerDependencies (ADR-012 addendum)', () => {
+        const { manifest, changed } = substituteWorkspaceRanges(
+            {
+                peerDependencies: { '@gobing-ai/ts-db': 'workspace:*' },
+                peerDependenciesMeta: { '@gobing-ai/ts-db': { optional: true } },
+                devDependencies: { '@gobing-ai/ts-db': 'workspace:*' },
+            },
+            versions,
+        );
+        expect(changed).toBe(2);
+        expect(manifest.peerDependencies).toEqual({ '@gobing-ai/ts-db': '^0.2.0' });
+        expect(manifest.devDependencies).toEqual({ '@gobing-ai/ts-db': '^0.2.0' });
+        // peerDependenciesMeta is not a version-bearing field — must survive untouched.
+        expect(manifest.peerDependenciesMeta).toEqual({ '@gobing-ai/ts-db': { optional: true } });
+    });
+
     test('throws when a workspace dep has no known version', () => {
         expect(() =>
             substituteWorkspaceRanges({ dependencies: { '@gobing-ai/ts-unknown': 'workspace:*' } }, versions),
