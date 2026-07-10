@@ -152,7 +152,6 @@ rules:
           exclude:
             - "**/tests/**"
             - "**/dist/**"
-            - "packages/rule-engine/src/config/extensions.ts"
 
   # ── OS / platform ──────────────────────────────────────────────────────
 

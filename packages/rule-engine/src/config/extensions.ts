@@ -1,6 +1,5 @@
-import { fileURLToPath } from 'node:url';
 import type { Logger } from '@gobing-ai/ts-infra';
-import { basenamePath, dirnamePath, resolvePath, SEP } from '@gobing-ai/ts-runtime';
+import { basenamePath, dirnamePath, fileUrlToPath, normalizeSeparators, resolvePath } from '@gobing-ai/ts-runtime';
 import type {
     ExtensionRef as SharedExtensionRef,
     LoadExtensionsOptions as SharedLoadExtensionsOptions,
@@ -89,13 +88,15 @@ export async function loadExtensionsIntoHost(
 
     // Normalize file:// URLs to file paths so dirname/basename produce valid
     // path components that isAbsolute() accepts (e.g. import.meta.url in tests).
-    const toFilePath = (p: string): string => (p.startsWith('file://') ? fileURLToPath(p) : p);
+    const toFilePath = (p: string): string => (p.startsWith('file://') ? fileUrlToPath(p) : p);
 
     // Defense-in-depth: pre-validate `..` traversal in caller-supplied absPath
     // before the basename adaptation strips it.  The shared loader's
     // assertRelativeExtensionPath also runs on the derived (basename) path.
     for (const ref of refs) {
-        const segments = toFilePath(ref.absPath).split(SEP);
+        // Split on normalized separators: fileUrlToPath returns forward slashes on
+        // every platform, so a platform SEP split would miss segments on Windows.
+        const segments = normalizeSeparators(toFilePath(ref.absPath)).split('/');
         if (segments.includes('..')) {
             throw new Error(
                 `extension path "${ref.absPath}" declared by "${ref.presetName}" must not contain ".." traversal`,
