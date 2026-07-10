@@ -102,3 +102,4 @@ playwright-report/
 vendors/
 .wolf/
 /.spur/spur.*
+/.spur/run
