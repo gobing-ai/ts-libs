@@ -14,8 +14,10 @@ export interface D1Binding {
     exec(sql: string): Promise<void>;
     /**
      * Run multiple statements as a single atomic batch (D1's native `batch()`
-     * API). Optional — when absent, {@link D1Adapter.batch} falls back to
-     * sequential `run()` calls.
+     * API). Optional for single-statement test doubles only: when absent,
+     * {@link D1Adapter.batch} runs a lone statement directly (trivially atomic)
+     * and **throws** for multi-statement batches rather than silently degrading
+     * atomicity. Real D1 bindings always provide `batch()`.
      */
     batch?(statements: D1BoundStatement[]): Promise<unknown[]>;
 }
@@ -84,8 +86,16 @@ export class D1Adapter implements DbAdapter {
 
     async batch(operations: readonly DbBatchOp[]): Promise<void> {
         if (operations.length === 0) return;
-        // Prepare and bind each operation. D1's batch() accepts bound statements;
-        // when a binding has no native batch, fall back to sequential run().
+        // A single statement is atomic on its own, so a binding without native
+        // batch() may run it directly. Multiple statements without native batch()
+        // cannot be made atomic — fail loud rather than silently break the
+        // all-or-nothing contract (real D1 bindings always provide batch()).
+        if (this.binding.batch === undefined && operations.length > 1) {
+            throw new Error(
+                `D1 binding has no batch() — cannot execute ${operations.length} statements atomically; ` +
+                    'provide a binding with native batch() support',
+            );
+        }
         const boundStmts: D1BoundStatement[] = operations.map((op) => {
             const stmt = this.binding.prepare(op.sql);
             return op.params.length > 0 ? stmt.bind(...op.params) : stmt.bind();
@@ -93,9 +103,7 @@ export class D1Adapter implements DbAdapter {
         if (this.binding.batch !== undefined) {
             await this.binding.batch(boundStmts);
         } else {
-            for (const bs of boundStmts) {
-                await bs.run();
-            }
+            await boundStmts[0]?.run();
         }
     }
 

@@ -47,9 +47,10 @@ export interface DbAdapter {
      * Execute a batch of parameterized writes atomically — either all commit or
      * none do. Used by adapters that need to persist multiple related rows in a
      * single transaction (e.g. workflow transition + state snapshot + phase write).
-     * Each entry is a `{ sql, params }` tuple applied in order. If the adapter's
-     * backend does not support transactions, this falls back to sequential `run()`
-     * calls (callers must accept weaker atomicity on such backends).
+     * Each entry is a `{ sql, params }` tuple applied in order. Adapters must
+     * uphold all-or-nothing semantics for multi-statement batches or **throw**;
+     * silently degrading to non-atomic sequential writes is not allowed. A
+     * single-statement batch may execute directly (trivially atomic).
      */
     batch(operations: readonly DbBatchOp[]): Promise<void>;
     /** Close the underlying connection. */

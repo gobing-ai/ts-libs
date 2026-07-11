@@ -148,8 +148,21 @@ describe('D1Adapter', () => {
     test('batch falls back to sequential run() when native batch is absent', async () => {
         const b = mockBinding(); // hasBatch defaults to undefined
         const adapter = new D1Adapter(b as D1Binding);
-        // Should not throw — falls back to sequential run().
+        // Should not throw — a single statement is trivially atomic on its own.
         await adapter.batch([{ sql: 'INSERT INTO t (a) VALUES (?)', params: [1] }]);
+    });
+
+    test('batch throws for a multi-statement batch when native batch is absent', async () => {
+        const b = mockBinding(); // hasBatch defaults to undefined
+        const adapter = new D1Adapter(b as D1Binding);
+        // Two statements cannot be made atomic without native batch() — silently
+        // degrading to sequential run() would break the all-or-nothing contract.
+        await expect(
+            adapter.batch([
+                { sql: 'INSERT INTO t (a) VALUES (?)', params: [1] },
+                { sql: 'INSERT INTO t (a) VALUES (?)', params: [2] },
+            ]),
+        ).rejects.toThrow('cannot execute 2 statements atomically');
     });
 
     test('batch with empty params array uses stmt.bind() with zero args', async () => {
