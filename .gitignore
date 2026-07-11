@@ -103,3 +103,4 @@ vendors/
 .wolf/
 /.spur/spur.*
 /.spur/run
+/.spur/context
