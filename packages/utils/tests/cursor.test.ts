@@ -22,6 +22,14 @@ describe('createCursor', () => {
             offset: 50,
         });
     });
+
+    test('rejects invalid timestamps and offsets', () => {
+        expect(() => createCursor('item-1', Number.NaN)).toThrow('createdAt must be a finite timestamp');
+        expect(() => createCursor('item-1', Number.POSITIVE_INFINITY)).toThrow('createdAt must be a finite timestamp');
+        expect(() => createCursor('item-1', new Date('invalid'))).toThrow('createdAt must be a finite timestamp');
+        expect(() => createCursor('item-1', undefined, -1)).toThrow('offset must be a non-negative integer');
+        expect(() => createCursor('item-1', undefined, 1.5)).toThrow('offset must be a non-negative integer');
+    });
 });
 
 describe('parseCursor', () => {
@@ -46,8 +54,15 @@ describe('parseCursor', () => {
         expect(() => parseCursor({ id: 123 })).toThrow('Invalid cursor: missing or invalid id');
     });
 
-    test('ignores optional fields with the wrong type', () => {
-        expect(parseCursor({ id: 'abc', createdAt: 'bad', offset: 'bad' })).toEqual({ id: 'abc' });
+    test('rejects invalid optional numeric fields', () => {
+        expect(() => parseCursor({ id: 'abc', createdAt: 'bad' })).toThrow('createdAt must be a finite timestamp');
+        expect(() => parseCursor({ id: 'abc', createdAt: Number.NaN })).toThrow('createdAt must be a finite timestamp');
+        expect(() => parseCursor({ id: 'abc', createdAt: Number.POSITIVE_INFINITY })).toThrow(
+            'createdAt must be a finite timestamp',
+        );
+        expect(() => parseCursor({ id: 'abc', offset: 'bad' })).toThrow('offset must be a non-negative integer');
+        expect(() => parseCursor({ id: 'abc', offset: -1 })).toThrow('offset must be a non-negative integer');
+        expect(() => parseCursor({ id: 'abc', offset: 1.5 })).toThrow('offset must be a non-negative integer');
     });
 });
 

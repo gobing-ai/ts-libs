@@ -18,11 +18,15 @@ export function createCursor(id: string, createdAt?: Date | number, offset?: num
     const cursor: CursorData = { id };
     if (createdAt !== undefined) {
         const ms = toMs(createdAt);
-        if (ms !== null) {
-            cursor.createdAt = ms;
+        if (ms === null || !Number.isFinite(ms)) {
+            throw new Error('Invalid cursor: createdAt must be a finite timestamp');
         }
+        cursor.createdAt = ms;
     }
     if (offset !== undefined) {
+        if (!Number.isInteger(offset) || offset < 0) {
+            throw new Error('Invalid cursor: offset must be a non-negative integer');
+        }
         cursor.offset = offset;
     }
     return cursor;
@@ -41,10 +45,16 @@ export function parseCursor(data: string | Record<string, unknown>): CursorData 
     }
 
     const result: CursorData = { id: parsed.id };
-    if (typeof parsed.createdAt === 'number') {
+    if (parsed.createdAt !== undefined) {
+        if (typeof parsed.createdAt !== 'number' || !Number.isFinite(parsed.createdAt)) {
+            throw new Error('Invalid cursor: createdAt must be a finite timestamp');
+        }
         result.createdAt = parsed.createdAt;
     }
-    if (typeof parsed.offset === 'number') {
+    if (parsed.offset !== undefined) {
+        if (typeof parsed.offset !== 'number' || !Number.isInteger(parsed.offset) || parsed.offset < 0) {
+            throw new Error('Invalid cursor: offset must be a non-negative integer');
+        }
         result.offset = parsed.offset;
     }
     return result;
