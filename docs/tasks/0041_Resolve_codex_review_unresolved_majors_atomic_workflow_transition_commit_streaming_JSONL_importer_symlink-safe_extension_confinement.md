@@ -4,7 +4,7 @@ name: "Resolve codex review unresolved majors: atomic workflow transition commit
 description: "Resolve codex review unresolved majors: atomic workflow transition commit, streaming JSONL importer, symlink-safe extension confinement"
 status: Done
 created_at: 2026-07-11T05:18:44.661Z
-updated_at: 2026-07-11T06:21:16.101Z
+updated_at: "2026-07-11T16:27:33.715Z"
 folder: docs/tasks
 type: task
 feature-id: ""
@@ -179,6 +179,14 @@ Convert the codex review's three unresolved majors into implemented, ADR-backed 
 | `packages/rule-engine/src/config/extensions.ts` | rule-engine | `realPath` forwarding in `LoadExtensionsOptions` |
 | `docs/tasks/0042-0045` | — | A1-A4 follow-up tasks created |
 
+
+**Verify-fix addendum (2026-07-10, `/sp:dev-verify --fix all`):** the "wired on by default at node composition
+sites" claim in M3 was not implemented in `7d2f48a` (ADR-022 initially recorded `realPath` as off-by-default,
+forward-only). Repaired during verify: `ts-rule-engine`'s `loadExtensionsIntoHost` now defaults `realPath` to the
+node canonicalizer whenever the default (real dynamic-import) `moduleLoader` is in effect; explicit
+`realPath: undefined` opts out; custom `moduleLoader` ⇒ caller-owned confinement. `ts-dual-workflow-engine`
+requires an explicit `moduleLoader`, so confinement there is deliberately caller-owned (documented deviation,
+ADR-022 addendum). +3 real-symlink tests in `packages/rule-engine/tests/config/extensions.test.ts`.
 ### Plan
 
 1. **ADR entries** — draft the dated entries for M1/M2/M3 + A1-A4 verdicts in `docs/00_ADR.md`.
@@ -196,16 +204,78 @@ Self-review complete. All verification gates pass except pre-existing `no-static
 violation in `runtime-node-bun.ts` (from codex review minors, not this task).
 
 ### Testing
+**Verify re-audit — 2026-07-10** (`/sp:dev-verify 0041 --auto --focus all --fix all --force --next`, inline session)
 
-| Suite | Tests | Status |
-|-------|-------|--------|
-| runtime (extension-loader) | 14 pass | M3: escape rejection, within-baseDir allowed, backward-compat skip |
-| dual-workflow-engine | 322 pass | M1: commitHop, enter(persist=false), atomic batch usage |
-| llm-jsonl-importer | 33 pass | M2: streaming parity, multi-MB (~5MB) streaming |
-| db | 178 pass | M1: batch all-or-nothing, params binding |
-| rule-engine | 312 pass | M3: realPath forwarding (type-level) |
-| **Total** | **1584 pass, 0 fail** | — |
+**Verdict: PASS** (post-fix; pre-fix PARTIAL on one major finding, repaired this pass — see Fix Pass below)
 
+**Gate evidence (fresh this run):** `bun run spur-check` → Biome + per-package tsc clean, `recommended-pre-check` pass, **1593 tests pass / 0 fail** (1590 pre-fix + 3 new), `coverage-gate` + `every-export-has-tsdoc` pass · `bun run build` → all 8 packages exit 0.
+
+**Scope:** commit `7d2f48a` (29 files; ADR-020…023, ts-db, dual-workflow-engine, ts-runtime, llm-jsonl-importer, rule-engine wiring) + verify-fix delta (rule-engine `config/extensions.ts`, `tests/config/extensions.test.ts`, ADR-022 addendum).
+
+**Per-Requirement Traceability**
+
+| Req | Status | Evidence |
+|-----|--------|----------|
+| R0 ADR-first | MET | ADR-020/021/022/023 in `docs/00_ADR.md:283-330`, dated 2026-07-10 |
+| R1.1 atomic commit | MET | `persistence.ts` `commitTransition` → single `db.batch`; `bun-sqlite.ts` `transaction()`; test `persistence.test.ts:274` |
+| R1.2 all 3 commit sites | MET | `service.ts:263` · `state-machine.ts:171-174` · `transition-flow.ts` via `RunLifecycle.commitHop` (`run-lifecycle.ts:216`) |
+| R1.3 DbAdapter seam (sqlite+D1) | MET | `adapter.ts` `DbBatchOp`/`batch`; `d1.ts` native `batch()` (documented sequential fallback); drizzle stays internal |
+| R1.4 memory adapter parity | MET | `persistence.ts` memory `commitTransition`; tests `persistence.test.ts:538,564` |
+| R1.5 crash-window regression | MET | `persistence.test.ts:387` all-or-nothing rollback; `:340` proves batch (not sequential `run()`) at the commit site |
+| R1.6 events once per committed hop | MET | `commitHop` emits strictly after the awaited batch (`run-lifecycle.ts:216-236`, static); `run-lifecycle.test.ts:90,149` |
+| R2.1 O(line) memory | MET | `importer.ts` `readLines` async generator; chunked `createReadStream` in `file-system-node.ts` |
+| R2.2 optional streaming surface | MET (design CHANGED, documented) | `FileSystem.readFileStream?` yields lines (`AsyncIterable<string>`) instead of `ReadableStream<Uint8Array>` — recorded in ADR-021; fallback preserved |
+| R2.3 behavior parity | MET | parity test `importer.test.ts:264`; pre-existing importer tests pass unchanged |
+| R2.4 multi-MB streaming test | MET | `importer.test.ts:288` (~5 MB synthetic) |
+| R3.1 canonical escape rejection | MET | `extension-loader.ts` realPath confinement check; `extension-loader.test.ts:171` (rejects before `moduleLoader`) |
+| R3.2 injected capability, node default | MET (post-fix) | `LoadExtensionsOptions.realPath` + `FileSystem.realPath`; rule-engine now defaults node canonicalizer under the default loader (`config/extensions.ts`) |
+| R3.3 default-on, explicit opt-out | MET (post-fix) | pre-fix: forwarded-only, off everywhere (major finding). Fixed: default-on when default (real-import) `moduleLoader` in effect; `realPath: undefined` = documented opt-out; ADR-022 addendum |
+| R3.4 accurate docs | MET | `extension-path.ts` string-level-only docstring; loader + options docblocks; ADR-022 + addendum |
+| R3.5 symlink test matrix | MET | `extension-loader.test.ts:171,196,217` + 3 real-symlink tests in `rule-engine/tests/config/extensions.test.ts` (escape rejected, `realPath: undefined` opt-out, canonicalized tmpdir baseDir loads) |
+| R3.6 embedders unbroken | MET | additive optional `realPath` on rule-engine/workflow option types — non-breaking; forwarding at both composition seams |
+| R4.1-R4.4 advisory verdicts | MET | ADR-023 (accept-all as follow-ups); tasks 0042/0043/0044/0045 created |
+| R5.1 gates clean | MET | spur-check + build fresh this run (above); no skips, no new suppressions |
+| R5.2 READMEs | MET | db, dual-workflow-engine, llm-jsonl-importer, runtime READMEs updated in `7d2f48a` |
+| R5.3 workspace/paths discipline | MET | no new cross-package imports; `workspace:*` untouched |
+
+**Acceptance Criteria Verification**
+
+| AC | Status | Evidence Type | Evidence |
+|----|--------|---------------|----------|
+| (no `Acceptance Criteria` section in task — Requirements table above is the traceability target) | N/A | static-ref | task content has no AC section |
+
+**Checks**
+
+| Check | Status | Evidence |
+|-------|--------|----------|
+| design-conformance | pass | M1 DONE (positional-arg signature vs object — trivial); M2 CHANGED, documented in ADR-021; M3 default-wiring claim NOT DONE pre-fix → DONE post-fix (ADR-022 addendum) |
+| scope-creep | pass | all hunks map to R-items; `ON CONFLICT` insert + variable-specifier ts-db import trace to the same review handoff (codex minors folded into the commit) |
+| task-check --strict-core | pass | run post-write, see History |
+
+**SECUA findings** (focus: all)
+
+- ~~[major/security]~~ **FIXED** — symlink confinement off-by-default at the only real-import composition site (rule-engine); real import policy now gets real confinement by default (see Fix Pass).
+- [minor/correctness, advisory] `D1Adapter.batch` degrades to sequential `run()` when the binding lacks native `batch` — documented in the docblock; real D1 always provides `batch`. Acceptable for test doubles.
+- [minor/maintainability, advisory] `commitTransition` duplicates the INSERT SQL of `saveTransition`/`saveWorkflowState`/`savePhase` — extract shared row-builders if these tables evolve.
+- [minor/usability, advisory] default canonicalizer surfaces raw `ENOENT` (no `sourceName` context) when an extension file is missing — the subsequent import error would name it anyway.
+
+**Fix Pass** (`--fix all`, 1 major repaired, re-verified)
+
+1. `packages/rule-engine/src/config/extensions.ts` — `realPath` defaults to `createNodeFileSystem().realPath` when the caller relies on the default dynamic-import `moduleLoader` and did not set `realPath` (explicit `realPath: undefined` opts out; custom `moduleLoader` ⇒ caller-owned policy).
+2. `packages/rule-engine/tests/config/extensions.test.ts` — 3 real-filesystem tests (symlink escape rejected with default loader; explicit opt-out loads; regular module under symlinked tmpdir loads via canonical-base comparison).
+3. `docs/00_ADR.md` — ADR-022 addendum recording the default-on posture.
+
+Coverage: gate-measured via `bun test --coverage` inside spur-check (coverage-gate rule pass).
+
+**Advisory-findings cleanup — 2026-07-11** (operator: "fix all remainings"; all three verify advisories repaired)
+
+| Finding | Fix | Evidence |
+|---------|-----|----------|
+| [minor/correctness] `D1Adapter.batch` silently degraded to sequential `run()` without native `batch` | Fail loud: multi-statement batch without native `batch()` now throws; a lone statement still runs directly (trivially atomic). `D1Binding.batch` + `DbAdapter.batch` docblocks updated to forbid silent degradation | `packages/db/src/adapters/d1.ts`, `adapter.ts`; test `d1.test.ts` "batch throws for a multi-statement batch when native batch is absent" |
+| [minor/maintainability] `commitTransition` duplicated the INSERT SQL of `saveTransition`/`saveWorkflowState`/`savePhase` | Extracted private `transitionRow`/`stateRow`/`phaseRow` builders shared by both the single-write and atomic-batch paths — drift now impossible | `packages/dual-workflow-engine/src/persistence.ts`; behavior-identical (same SQL/params/timestamps), existing 322 workflow tests unchanged |
+| [minor/usability] canonicalizer surfaced raw `ENOENT` without ref context | Shared loader wraps `realPath` errors: `"<source>" extension "<path>" cannot be canonicalized: <reason>`; throws before `moduleLoader` | `packages/runtime/src/extension/extension-loader.ts`; test `extension-loader.test.ts` "wraps canonicalizer errors with the declaring ref context" |
+
+Post-cleanup gates (fresh): `bun run spur-check` and `bun run build` — see History for exit evidence. Out of scope, unchanged: the two non-blocking `task check` warnings (R-numbering style would rewrite verified Requirements; `feature_id` linking is opt-in per the feature-link helper contract).
 ### Artifacts
 
 | Type | Path | Agent | Date |

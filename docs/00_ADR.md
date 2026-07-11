@@ -313,6 +313,12 @@ symlink-traversal vector where a relative path passing the string check could re
 an arbitrary absolute location. The option defaults to `undefined` (off) for stubs without a real filesystem;
 composition sites in `ts-rule-engine` and `ts-dual-workflow-engine` forward it from their callers.
 
+**Addendum (2026-07-10, task 0041 verify):** real import policy gets real confinement by default —
+`ts-rule-engine`'s `loadExtensionsIntoHost` defaults `realPath` to the node canonicalizer whenever the
+default (real dynamic-import) `moduleLoader` is in effect; pass `realPath: undefined` explicitly to opt out
+(pnpm/Nix symlinked layouts). A custom `moduleLoader` owns its confinement policy — no default applies.
+`ts-dual-workflow-engine` requires an explicit `moduleLoader`, so confinement there stays caller-owned.
+
 ---
 
 ## ADR-023: Advisory Verdicts — Runtime Root Portability (A1), ProcessExecutor Interface (A2), Open Importer Source Registry (A3), InboxMessageDao Port (A4)
