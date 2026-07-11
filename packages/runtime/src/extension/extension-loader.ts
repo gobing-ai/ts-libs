@@ -107,8 +107,18 @@ export async function loadExtensionModules<TExtensionKind extends string>(
         // to close the symlink-escape vector — an authored path with no ".." can still
         // resolve outside baseDir via a symlink.
         if (options.realPath) {
-            const realAbs = options.realPath(absPath);
-            const realBase = options.realPath(ref.baseDir);
+            let realAbs: string;
+            let realBase: string;
+            try {
+                realAbs = options.realPath(absPath);
+                realBase = options.realPath(ref.baseDir);
+            } catch (error) {
+                // Canonicalizers surface raw filesystem errors (e.g. ENOENT for a
+                // missing module) — rewrap with the declaring ref so the failing
+                // extension is identifiable from the message alone.
+                const reason = error instanceof Error ? error.message : String(error);
+                throw new Error(`"${ref.sourceName}" extension "${ref.path}" cannot be canonicalized: ${reason}`);
+            }
             if (realAbs !== realBase && !realAbs.startsWith(`${realBase}/`) && !realAbs.startsWith(`${realBase}\\`)) {
                 throw new Error(
                     `"${ref.sourceName}" extension "${ref.path}" resolves outside baseDir via symlink (real: "${realAbs}", base: "${realBase}") — refusing to load`,

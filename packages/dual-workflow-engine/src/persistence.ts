@@ -68,51 +68,20 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
 
     /** Save one phase/state execution record. */
     async savePhase(runId: string, phase: string, status: WorkflowStatus): Promise<void> {
-        const now = Date.now();
-        await this.db.run(
-            `INSERT INTO phase_runs (id, run_id, phase, status, started_at, completed_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            `${runId}:phase:${phase}:${crypto.randomUUID()}`,
-            runId,
-            phase,
-            status,
-            new Date(now).toISOString(),
-            status === 'running' ? null : new Date(now).toISOString(),
-            now,
-            now,
-        );
+        const op = this.phaseRow(runId, phase, status, Date.now());
+        await this.db.run(op.sql, ...op.params);
     }
 
     /** Save one transition record. */
     async saveTransition(runId: string, from: string, to: string, trigger: string | null): Promise<void> {
-        const now = Date.now();
-        await this.db.run(
-            `INSERT INTO transition_runs (id, run_id, from_state, to_state, trigger, status, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            `${runId}:transition:${from}:${to}:${crypto.randomUUID()}`,
-            runId,
-            from,
-            to,
-            trigger,
-            'done',
-            now,
-            now,
-        );
+        const op = this.transitionRow(runId, from, to, trigger, Date.now());
+        await this.db.run(op.sql, ...op.params);
     }
 
     /** Save the latest workflow state snapshot. */
     async saveWorkflowState(runId: string, state: string, data: Record<string, unknown>): Promise<void> {
-        const now = Date.now();
-        await this.db.run(
-            `INSERT INTO workflow_states (id, run_id, state, data_json, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            `${runId}:state:${state}:${crypto.randomUUID()}`,
-            runId,
-            state,
-            JSON.stringify(data),
-            now,
-            now,
-        );
+        const op = this.stateRow(runId, state, data, Date.now());
+        await this.db.run(op.sql, ...op.params);
     }
 
     async commitTransition(
@@ -127,50 +96,58 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         await this.ensureSchema();
         const now = Date.now();
         const ops: DbBatchOp[] = [
-            {
-                sql: `INSERT INTO transition_runs (id, run_id, from_state, to_state, trigger, status, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                params: [
-                    `${runId}:transition:${from}:${to}:${crypto.randomUUID()}`,
-                    runId,
-                    from,
-                    to,
-                    trigger,
-                    'done',
-                    now,
-                    now,
-                ],
-            },
-            {
-                sql: `INSERT INTO workflow_states (id, run_id, state, data_json, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?)`,
-                params: [
-                    `${runId}:state:${state}:${crypto.randomUUID()}`,
-                    runId,
-                    state,
-                    JSON.stringify(data),
-                    now,
-                    now,
-                ],
-            },
+            this.transitionRow(runId, from, to, trigger, now),
+            this.stateRow(runId, state, data, now),
         ];
         if (phase) {
-            ops.push({
-                sql: `INSERT INTO phase_runs (id, run_id, phase, status, started_at, completed_at, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                params: [
-                    `${runId}:phase:${phase.phase}:${crypto.randomUUID()}`,
-                    runId,
-                    phase.phase,
-                    phase.status,
-                    new Date(now).toISOString(),
-                    phase.status === 'running' ? null : new Date(now).toISOString(),
-                    now,
-                    now,
-                ],
-            });
+            ops.push(this.phaseRow(runId, phase.phase, phase.status, now));
         }
         await this.db.batch(ops);
+    }
+
+    // Row builders shared by the individual save methods and commitTransition so
+    // the single-write and atomic-batch paths can never drift apart (ADR-020).
+
+    private transitionRow(runId: string, from: string, to: string, trigger: string | null, now: number): DbBatchOp {
+        return {
+            sql: `INSERT INTO transition_runs (id, run_id, from_state, to_state, trigger, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            params: [
+                `${runId}:transition:${from}:${to}:${crypto.randomUUID()}`,
+                runId,
+                from,
+                to,
+                trigger,
+                'done',
+                now,
+                now,
+            ],
+        };
+    }
+
+    private stateRow(runId: string, state: string, data: Record<string, unknown>, now: number): DbBatchOp {
+        return {
+            sql: `INSERT INTO workflow_states (id, run_id, state, data_json, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            params: [`${runId}:state:${state}:${crypto.randomUUID()}`, runId, state, JSON.stringify(data), now, now],
+        };
+    }
+
+    private phaseRow(runId: string, phase: string, status: WorkflowStatus, now: number): DbBatchOp {
+        return {
+            sql: `INSERT INTO phase_runs (id, run_id, phase, status, started_at, completed_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            params: [
+                `${runId}:phase:${phase}:${crypto.randomUUID()}`,
+                runId,
+                phase,
+                status,
+                new Date(now).toISOString(),
+                status === 'running' ? null : new Date(now).toISOString(),
+                now,
+                now,
+            ],
+        };
     }
 
     /** Insert a running action row. Returns the row id for later finalization. */

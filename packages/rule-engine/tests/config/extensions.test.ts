@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { collectExtensions, loadExtensionsIntoHost } from '../../src/config/extensions';
@@ -318,5 +318,54 @@ describe('loadRuleFile extensions', () => {
 
         expect(loaded.rules.map((rule) => rule.id)).toEqual(['solo']);
         expect(loaded.extensions).toEqual([]);
+    });
+});
+
+describe('loadExtensionsIntoHost — default realPath confinement (ADR-022 addendum)', () => {
+    // JSON extension fixture: the default module loader really import()s the
+    // fixture in these tests, and an imported .ts file would be instrumented by
+    // `bun test --coverage` and leak a tmpdir row into the coverage report. JSON
+    // imports exercise the identical loader path (canonicalize → import →
+    // validate name → register) without being instrumented.
+    const resolverModule = JSON.stringify({ name: 'real-fs-resolver' });
+
+    test('default module loader rejects a symlink escaping the declaring directory', async () => {
+        const outside = await tempDir();
+        const base = join(outside, 'preset');
+        await mkdir(base, { recursive: true });
+        const target = join(outside, 'evil.json');
+        await writeFile(target, resolverModule);
+        await symlink(target, join(base, 'linked.json'));
+
+        const refs = collectExtensions('p', base, { resolvers: ['./linked.json'] });
+        await expect(loadExtensionsIntoHost(new RuleEngineHost(), refs, { allowExtensions: true })).rejects.toThrow(
+            'resolves outside baseDir via symlink',
+        );
+    });
+
+    test('explicit realPath: undefined opts out of confinement (symlinked layouts)', async () => {
+        const outside = await tempDir();
+        const base = join(outside, 'preset');
+        await mkdir(base, { recursive: true });
+        const target = join(outside, 'shared-resolver.json');
+        await writeFile(target, resolverModule);
+        await symlink(target, join(base, 'linked.json'));
+
+        const host = new RuleEngineHost();
+        const refs = collectExtensions('p', base, { resolvers: ['./linked.json'] });
+        await loadExtensionsIntoHost(host, refs, { allowExtensions: true, realPath: undefined });
+        expect(host.resolvers.has('real-fs-resolver')).toBe(true);
+    });
+
+    test('default module loader still loads a regular module (canonicalized baseDir)', async () => {
+        // tmpdir itself sits behind a symlink on macOS (/var -> /private/var); the
+        // canonical-base comparison must not reject legitimate in-directory modules.
+        const base = await tempDir();
+        await writeFile(join(base, 'resolver.json'), resolverModule);
+
+        const host = new RuleEngineHost();
+        const refs = collectExtensions('p', base, { resolvers: ['./resolver.json'] });
+        await loadExtensionsIntoHost(host, refs, { allowExtensions: true });
+        expect(host.resolvers.has('real-fs-resolver')).toBe(true);
     });
 });

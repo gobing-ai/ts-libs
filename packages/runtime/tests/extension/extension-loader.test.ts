@@ -214,6 +214,29 @@ describe('loadExtensionModules', () => {
         expect(imported).toBe('/safe/root/linked.ts');
     });
 
+    test('ADR-022: wraps canonicalizer errors with the declaring ref context', async () => {
+        // realpath implementations surface raw filesystem errors (e.g. ENOENT for a
+        // missing module file); the loader must name the declaring source and path.
+        let loaderCalled = false;
+        await expect(
+            loadExtensionModules<Kind>(
+                [ref({ path: './missing.ts', baseDir: '/safe/root' })],
+                {
+                    allowExtensions: true,
+                    moduleLoader: async () => {
+                        loaderCalled = true;
+                        return { default: { name: 'x' } };
+                    },
+                    realPath: () => {
+                        throw new Error('ENOENT: no such file or directory');
+                    },
+                },
+                () => {},
+            ),
+        ).rejects.toThrow('extension "./missing.ts" cannot be canonicalized: ENOENT: no such file or directory');
+        expect(loaderCalled).toBe(false);
+    });
+
     test('ADR-022: skips confinement check when realPath is not provided (backward compatible)', async () => {
         // Without realPath, the loader cannot check symlinks — this is the backward-
         // compatible path for stubs without a real filesystem (e.g. CF Workers).

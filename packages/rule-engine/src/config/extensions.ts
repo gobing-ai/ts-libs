@@ -1,5 +1,12 @@
 import type { Logger } from '@gobing-ai/ts-infra';
-import { basenamePath, dirnamePath, fileUrlToPath, normalizeSeparators, resolvePath } from '@gobing-ai/ts-runtime';
+import {
+    basenamePath,
+    createNodeFileSystem,
+    dirnamePath,
+    fileUrlToPath,
+    normalizeSeparators,
+    resolvePath,
+} from '@gobing-ai/ts-runtime';
 import type {
     ExtensionRef as SharedExtensionRef,
     LoadExtensionsOptions as SharedLoadExtensionsOptions,
@@ -33,8 +40,12 @@ export interface LoadExtensionsOptions {
     moduleLoader?: (absPath: string) => Promise<Record<string, unknown>>;
     /**
      * Optional canonical-path resolver for symlink-safe confinement (ADR-022).
-     * Forwarded to the shared loader. Node-facing embedders should supply
-     * `createNodeFileSystem().realPath` to enable symlink-escape rejection.
+     * Forwarded to the shared loader. Defaults to the node filesystem's
+     * canonicalizer whenever the default (real dynamic-import) `moduleLoader` is
+     * in effect, so a symlink inside the declaring directory cannot escape it.
+     * Pass `realPath: undefined` explicitly to opt out (e.g. pnpm/Nix symlinked
+     * layouts), or supply a custom resolver. When a custom `moduleLoader` is
+     * given, confinement policy is caller-owned and no default applies.
      */
     realPath?: (absPath: string) => string;
 }
@@ -125,11 +136,18 @@ export async function loadExtensionsIntoHost(
     });
 
     const moduleLoader = options.moduleLoader ?? defaultModuleLoader;
+    // Real import policy gets real confinement by default (ADR-022 addendum): a
+    // caller relying on the default dynamic-import loader that has not set
+    // `realPath` — even explicitly to undefined — gets node canonicalization, so a
+    // symlink inside the declaring directory cannot escape it. A custom
+    // moduleLoader owns its confinement policy; no default applies there.
+    const realPath =
+        'realPath' in options ? options.realPath : options.moduleLoader === undefined ? defaultRealPath() : undefined;
     const sharedOptions: SharedLoadExtensionsOptions = {
         allowExtensions: options.allowExtensions,
         logger: options.logger,
         moduleLoader,
-        realPath: options.realPath,
+        realPath,
     };
 
     await loadExtensionModules<ExtensionKind>(sharedRefs, sharedOptions, async (sharedRef, extension) => {
@@ -151,4 +169,9 @@ export async function loadExtensionsIntoHost(
 
 async function defaultModuleLoader(absPath: string): Promise<Record<string, unknown>> {
     return (await import(absPath)) as Record<string, unknown>;
+}
+
+function defaultRealPath(): (absPath: string) => string {
+    const fs = createNodeFileSystem();
+    return (absPath) => (fs.realPath ? fs.realPath(absPath) : absPath);
 }
