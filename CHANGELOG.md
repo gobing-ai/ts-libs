@@ -8,6 +8,32 @@ versioned in **lockstep** — a single version number covers every package in th
 
 
 
+## [0.4.7] — 2026-07-11
+
+### Added
+
+- **`ts-db` — `DbAdapter.batch()` for atomic multi-statement writes:** New `batch(operations)` method on `DbAdapter` accepts a `readonly DbBatchOp[]` (`{ sql, params }`) and executes all operations in a single transactional unit. `BunSqliteAdapter` uses `db.transaction()` with rollback on failure; `D1Adapter` uses D1's native `binding.batch()` when available and falls back to sequential `run()` otherwise. All-or-nothing semantics guarantee that partial-state windows are impossible.
+
+- **`ts-dual-workflow-engine` — `commitTransition` and `commitHop` for crash-safe workflow persistence:** `WorkflowPersistenceAdapter.commitTransition()` atomically commits a transition record + state snapshot + optional phase write in one batch. `RunLifecycle.commitHop()` wraps all per-step persistence into the same atomic call, replacing the prior `recordTransition` + `saveWorkflowState` pair that left a partial-state window on crash. All three commit sites (`service.ts`, `state-machine.ts`, `transition-flow.ts`) now use `commitHop`. `RunLifecycle.enter(persist=false)` skips persistence after a `commitHop` to avoid duplicate writes.
+
+- **`ts-runtime` — Optional streaming and symlink-safe extension confinement:** Two new optional `FileSystem` methods: `readFileStream(path)` returns an `AsyncIterable<string>` for O(line) memory file processing, and `realPath(path)` resolves the canonical symlink-free path. `LoadExtensionsOptions.realPath` opts into the symlink-safe confinement check that follows symlinks after the string-level guard and rejects escapes. Node/Bun implementations use `createReadStream` and `realpathSync`; CF stubs omit both. Composition sites in `ts-rule-engine` and `ts-dual-workflow-engine` forward the option from caller options.
+
+- **`ts-llm-jsonl-importer` — Streaming JSONL reader:** The importer's line reader now uses `FileSystem.readFileStream` when available (falling back to `readFile` + split), enabling O(line) memory imports of multi-GB LLM history files. Behavior is identical to the previous `readFile` path — same `source_line` values and same `ImportResult`.
+
+### Changed
+
+- **`ts-dual-workflow-engine` — Atomic persistence by default for all workflows:** Workflow state machines no longer write transitions and state independently; every persisted transition now commits as one batch. The change is internal but eliminates a class of crash-recovery bugs that could leave the transition log ahead of (or behind) the state snapshot.
+
+### Security
+
+- **`ts-infra` — Strip credentials from URLs in API client traces:** The API client now sanitizes URLs before emitting OpenTelemetry span attributes — query string, hash, username, and password are stripped. `APIError` instances are mapped to `HTTP <status>` (or `Request timeout` for status 0); other errors get `error.name`. Prevents secrets from leaking into traces and log aggregators when an API URL embeds auth credentials.
+
+- **`ts-infra` — Validate queue consumer config at construction:** `DBQueueConsumer` now rejects negative, non-finite, or non-integer values for `pollInterval`, `batchSize`, `maxConcurrency`, `visibilityTimeout`, `baseDelay`, `maxDelay`, and `drainTimeoutMs` with clear `RangeError` messages. Replaces silent misconfiguration that could cause infinite loops, hung consumers, or zero-throughput queues.
+
+- **`ts-utils` — Validate cursor payloads:** `createCursor` and `parseCursor` now reject non-finite `createdAt` and negative / non-integer `offset` values with explicit `Error` messages. Previously, bad cursor data was silently dropped, which could cause pagination to loop or skip rows.
+
+- **`ts-runtime` — Symlink-safe extension confinement:** The plugin extension loader now optionally canonicalizes paths before allowing imports. When the caller provides `realPath`, a symlink inside `baseDir` that resolves outside it (e.g. `baseDir/plugins -> /outside`) is rejected with a descriptive error. Closes the symlink-escape vector that the prior string-level `..` guard could not detect.
+
 ## [0.4.6] — 2026-07-10
 
 ### Added
