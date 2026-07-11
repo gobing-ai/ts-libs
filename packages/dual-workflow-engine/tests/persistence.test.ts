@@ -256,6 +256,168 @@ describe('DbWorkflowPersistenceAdapter — with real in-memory DB', () => {
     });
 });
 
+describe('DbWorkflowPersistenceAdapter.commitTransition — atomic batch (ADR-020)', () => {
+    let db: DbAdapter;
+    let adapter: DbWorkflowPersistenceAdapter;
+
+    beforeEach(async () => {
+        db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        await applyWorkflowEngineSchema(db);
+        adapter = new DbWorkflowPersistenceAdapter(db);
+        await adapter.createRun(makeRecord({ id: 'r-commit' }));
+    });
+
+    afterEach(() => {
+        db.close();
+    });
+
+    test('writes transition + state + phase in a single atomic batch', async () => {
+        // WHY: A crash between writes left the transition_runs row without a
+        // matching workflow_states row, making resume pick the wrong state.
+        // commitTransition must persist all three in one DB transaction.
+        await adapter.commitTransition(
+            'r-commit',
+            'a',
+            'b',
+            'go',
+            'b',
+            { transitionsTaken: 1 },
+            {
+                phase: 'b',
+                status: 'running',
+            },
+        );
+
+        const txRows = await db.queryAll<{ from_state: string; to_state: string; trigger: string }>(
+            'SELECT from_state, to_state, trigger FROM transition_runs WHERE run_id = ?',
+            'r-commit',
+        );
+        expect(txRows).toHaveLength(1);
+        expect(txRows[0]).toEqual({ from_state: 'a', to_state: 'b', trigger: 'go' });
+
+        const stateRows = await db.queryAll<{ state: string; data_json: string }>(
+            'SELECT state, data_json FROM workflow_states WHERE run_id = ?',
+            'r-commit',
+        );
+        expect(stateRows).toHaveLength(1);
+        expect(stateRows[0]?.state).toBe('b');
+        expect(JSON.parse(stateRows[0]?.data_json as string)).toEqual({ transitionsTaken: 1 });
+
+        const phaseRows = await db.queryAll<{ phase: string; status: string }>(
+            'SELECT phase, status FROM phase_runs WHERE run_id = ?',
+            'r-commit',
+        );
+        expect(phaseRows).toHaveLength(1);
+        expect(phaseRows[0]).toEqual({ phase: 'b', status: 'running' });
+    });
+
+    test('writes transition + state without phase when phase omitted', async () => {
+        // WHY: the external-transition service path (WorkflowService.requestTransition)
+        // has no phase to record — it must still atomically persist transition + state.
+        await adapter.commitTransition('r-commit', 'start', 'done', 'fast-track', 'done', {});
+
+        const txRows = await db.queryAll<{ to_state: string }>(
+            'SELECT to_state FROM transition_runs WHERE run_id = ?',
+            'r-commit',
+        );
+        expect(txRows).toHaveLength(1);
+        expect(txRows[0]?.to_state).toBe('done');
+
+        const stateRows = await db.queryAll<{ state: string }>(
+            'SELECT state FROM workflow_states WHERE run_id = ?',
+            'r-commit',
+        );
+        expect(stateRows).toHaveLength(1);
+        expect(stateRows[0]?.state).toBe('done');
+
+        const phaseRows = await db.queryAll<{ phase: string }>(
+            'SELECT phase FROM phase_runs WHERE run_id = ?',
+            'r-commit',
+        );
+        expect(phaseRows).toHaveLength(0);
+    });
+
+    test('uses DbAdapter.batch() — not individual run() calls', async () => {
+        // WHY: the whole point of commitTransition is atomicity. If it falls back to
+        // separate run() calls, a mid-sequence crash leaves partial state. The batch
+        // seam on DbAdapter is the contract that makes the batch atomic.
+        const batchCalls: { sql: string; params: readonly unknown[] }[][] = [];
+        const realBatch = db.batch.bind(db);
+        const spiedDb = new Proxy(db, {
+            get(target, prop) {
+                if (prop === 'batch') {
+                    return async (ops: { sql: string; params: readonly unknown[] }[]) => {
+                        batchCalls.push(ops);
+                        return realBatch(ops);
+                    };
+                }
+                return Reflect.get(target, prop);
+            },
+        });
+        const spiedAdapter = new DbWorkflowPersistenceAdapter(spiedDb);
+
+        await spiedAdapter.commitTransition(
+            'r-commit',
+            'a',
+            'b',
+            'go',
+            'b',
+            { transitionsTaken: 1 },
+            {
+                phase: 'b',
+                status: 'running',
+            },
+        );
+
+        // batch() must have been called with exactly one array of 3 operations.
+        expect(batchCalls).toHaveLength(1);
+        const firstBatch = batchCalls[0];
+        expect(firstBatch).toBeDefined();
+        expect(firstBatch).toHaveLength(3);
+        // Each op must have a sql string and params array.
+        if (!firstBatch) throw new Error('expected batch');
+        for (const op of firstBatch) {
+            expect(typeof op.sql).toBe('string');
+            expect(Array.isArray(op.params)).toBe(true);
+        }
+    });
+});
+
+describe('DbAdapter.batch() — BunSqliteAdapter transaction seam', () => {
+    test('all-or-nothing: a failing statement rolls back the whole batch', async () => {
+        // WHY: if one statement in the batch fails, none should persist — that's
+        // the atomicity guarantee commitTransition relies on for crash safety.
+        const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        try {
+            await db.exec('CREATE TABLE t1 (id INTEGER PRIMARY KEY, val TEXT NOT NULL)');
+            await db.batch([
+                { sql: 'INSERT INTO t1 (id, val) VALUES (?, ?)', params: [1, 'a'] },
+                { sql: 'INSERT INTO t1 (id, val) VALUES (?, ?)', params: [2, null] }, // NOT NULL violation
+                { sql: 'INSERT INTO t1 (id, val) VALUES (?, ?)', params: [3, 'c'] },
+            ]);
+            // If we reach here, the batch didn't fail — that's a bug.
+            expect.unreachable('batch should have failed on NOT NULL violation');
+        } catch {
+            // Expected: the transaction rolled back.
+            const rows = await db.queryAll<{ id: number; val: string }>('SELECT id, val FROM t1 ORDER BY id');
+            expect(rows).toHaveLength(0); // none inserted — rollback worked
+        } finally {
+            db.close();
+        }
+    });
+
+    test('empty batch is a no-op', async () => {
+        const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        try {
+            await db.batch([]);
+            // No throw, no side effect — that's the contract.
+            expect(true).toBe(true);
+        } finally {
+            db.close();
+        }
+    });
+});
+
 describe('MemoryWorkflowPersistenceAdapter', () => {
     test('creates and loads a run record', async () => {
         const adapter = new MemoryWorkflowPersistenceAdapter();
@@ -372,5 +534,41 @@ describe('MemoryWorkflowPersistenceAdapter', () => {
 
         // No error thrown, no rows added
         expect(adapter.actionRuns).toHaveLength(0);
+    });
+    test('commitTransition pushes transition + state + phase synchronously (atomic by nature)', async () => {
+        // WHY: the memory adapter is the reference for the contract — commitTransition
+        // must push all three records in one synchronous step so a crash between pushes
+        // is impossible even in-memory. This mirrors the Db batch atomicity.
+        const adapter = new MemoryWorkflowPersistenceAdapter();
+        await adapter.commitTransition(
+            'r1',
+            'a',
+            'b',
+            'go',
+            'b',
+            { transitionsTaken: 1 },
+            {
+                phase: 'b',
+                status: 'running',
+            },
+        );
+
+        expect(adapter.transitions).toHaveLength(1);
+        expect(adapter.transitions[0]).toEqual({ runId: 'r1', from: 'a', to: 'b', trigger: 'go' });
+        expect(adapter.states).toHaveLength(1);
+        expect(adapter.states[0]).toEqual({ runId: 'r1', state: 'b', data: { transitionsTaken: 1 } });
+        expect(adapter.phases).toHaveLength(1);
+        expect(adapter.phases[0]).toEqual({ runId: 'r1', phase: 'b', status: 'running' });
+    });
+
+    test('commitTransition without phase pushes transition + state only', async () => {
+        const adapter = new MemoryWorkflowPersistenceAdapter();
+        await adapter.commitTransition('r1', 'start', 'done', 'fast-track', 'done', {});
+
+        expect(adapter.transitions).toHaveLength(1);
+        expect(adapter.transitions[0]).toEqual({ runId: 'r1', from: 'start', to: 'done', trigger: 'fast-track' });
+        expect(adapter.states).toHaveLength(1);
+        expect(adapter.states[0]).toEqual({ runId: 'r1', state: 'done', data: {} });
+        expect(adapter.phases).toHaveLength(0);
     });
 });

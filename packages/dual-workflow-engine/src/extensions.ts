@@ -51,6 +51,12 @@ export interface LoadWorkflowExtensionsOptions {
      * own; the embedder supplies the import policy.
      */
     readonly moduleLoader: (absPath: string) => Promise<Record<string, unknown>>;
+    /**
+     * Optional canonical-path resolver for symlink-safe confinement (ADR-022).
+     * Forwarded to the shared loader. Node-facing embedders should supply
+     * `createNodeFileSystem().realPath` to enable symlink-escape rejection.
+     */
+    readonly realPath?: (absPath: string) => string;
 }
 
 /**
@@ -102,6 +108,7 @@ export async function loadWorkflowExtensionsIntoHost(
         allowExtensions: options.allowExtensions,
         logger: options.logger,
         moduleLoader: options.moduleLoader,
+        realPath: options.realPath,
     };
 
     await loadExtensionModules<WorkflowExtensionKind>(sharedRefs, sharedOptions, async (sharedRef, extension) => {

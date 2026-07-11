@@ -257,11 +257,11 @@ export class WorkflowService {
             }
         }
 
-        // Commit: persist the transition + emit node.transition through the shared
-        // lifecycle seam, then the external-only state snapshot and requested event.
+        // Commit: atomically persist the transition + state snapshot in a single
+        // batch (ADR-020), then emit the external-only requested event. No phase
+        // record — external transitions don't drive phase tracking.
         const trigger = transition.trigger ?? null;
-        await lifecycle.recordTransition(currentState, toState, trigger);
-        await this.persistence.saveWorkflowState(runId, toState, {});
+        await lifecycle.commitHop(currentState, toState, trigger, 0);
         void options?.events?.emit('workflow.transition.requested', {
             runId,
             from: currentState,

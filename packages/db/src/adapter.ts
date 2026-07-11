@@ -43,8 +43,27 @@ export interface DbAdapter {
     queryFirst<T>(sql: string, ...params: unknown[]): Promise<T | undefined>;
     /** Parameterized read returning all rows. */
     queryAll<T>(sql: string, ...params: unknown[]): Promise<T[]>;
+    /**
+     * Execute a batch of parameterized writes atomically — either all commit or
+     * none do. Used by adapters that need to persist multiple related rows in a
+     * single transaction (e.g. workflow transition + state snapshot + phase write).
+     * Each entry is a `{ sql, params }` tuple applied in order. If the adapter's
+     * backend does not support transactions, this falls back to sequential `run()`
+     * calls (callers must accept weaker atomicity on such backends).
+     */
+    batch(operations: readonly DbBatchOp[]): Promise<void>;
     /** Close the underlying connection. */
     close(): void;
+}
+
+/**
+ * A single write operation inside a {@link DbAdapter.batch} call.
+ */
+export interface DbBatchOp {
+    /** SQL statement (INSERT/UPDATE/DELETE). */
+    sql: string;
+    /** Bind parameters for the statement. */
+    params: readonly unknown[];
 }
 
 /**

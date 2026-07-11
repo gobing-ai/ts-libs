@@ -1,5 +1,5 @@
 import { type DrizzleD1Database, drizzle } from 'drizzle-orm/d1';
-import type { DbAdapter, InternalDb } from '../adapter';
+import type { DbAdapter, DbBatchOp, InternalDb } from '../adapter';
 import * as schema from '../schema/runtime';
 
 /**
@@ -12,6 +12,12 @@ export interface D1Binding {
         run?(): Promise<{ results: unknown[]; success: boolean }>;
     };
     exec(sql: string): Promise<void>;
+    /**
+     * Run multiple statements as a single atomic batch (D1's native `batch()`
+     * API). Optional — when absent, {@link D1Adapter.batch} falls back to
+     * sequential `run()` calls.
+     */
+    batch?(statements: D1BoundStatement[]): Promise<unknown[]>;
 }
 
 interface D1BoundStatement {
@@ -74,6 +80,23 @@ export class D1Adapter implements DbAdapter {
         const bound = stmt.bind(...params);
         const result = await (bound as unknown as { all: <T>() => Promise<{ results: T[] }> }).all<T>();
         return result.results ?? [];
+    }
+
+    async batch(operations: readonly DbBatchOp[]): Promise<void> {
+        if (operations.length === 0) return;
+        // Prepare and bind each operation. D1's batch() accepts bound statements;
+        // when a binding has no native batch, fall back to sequential run().
+        const boundStmts: D1BoundStatement[] = operations.map((op) => {
+            const stmt = this.binding.prepare(op.sql);
+            return op.params.length > 0 ? stmt.bind(...op.params) : stmt.bind();
+        });
+        if (this.binding.batch !== undefined) {
+            await this.binding.batch(boundStmts);
+        } else {
+            for (const bs of boundStmts) {
+                await bs.run();
+            }
+        }
     }
 
     close(): void {

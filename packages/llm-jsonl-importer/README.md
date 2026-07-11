@@ -56,6 +56,16 @@ result.skippedDuplicates;
 
 All modes preserve parse and validation issues in the returned `ImportResult`; malformed rows are not inserted.
 
+## Streaming
+
+The importer uses `FileSystem.readFileStream` when available (ADR-021), reading one line at a time
+for **O(line) memory usage** — enabling multi-MB or multi-GB LLM history files without buffering
+the entire file. Behavior is identical to the previous `readFile` + split approach (same `source_line`
+values, same `ImportResult`).
+
+When `readFileStream` is unavailable (e.g. Cloudflare Workers), the importer falls back to
+`readFile` + split transparently.
+
 ## Import Specific Files
 
 ```ts

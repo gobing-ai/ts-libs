@@ -167,4 +167,64 @@ describe('loadExtensionModules', () => {
             ),
         ).rejects.toThrow('must be an absolute directory');
     });
+
+    test('ADR-022: rejects symlink that resolves outside baseDir when realPath is provided', async () => {
+        // Simulate a symlink: the authored path is "./ext/widget.ts" (no ".."),
+        // but its real path is outside baseDir — e.g. a symlink to /etc/evil.ts.
+        const realBaseDir = '/safe/root';
+        const realAbsPath = '/etc/evil.ts';
+
+        let loaderCalled = false;
+        await expect(
+            loadExtensionModules<Kind>(
+                [ref({ path: './ext/widget.ts', baseDir: '/safe/root' })],
+                {
+                    allowExtensions: true,
+                    moduleLoader: async () => {
+                        loaderCalled = true;
+                        return { default: { name: 'x' } };
+                    },
+                    realPath: (p: string) => (p === '/safe/root' ? realBaseDir : realAbsPath),
+                },
+                () => {},
+            ),
+        ).rejects.toThrow('resolves outside baseDir via symlink');
+        // Security invariant: moduleLoader must never be called for a rejected extension.
+        expect(loaderCalled).toBe(false);
+    });
+
+    test('ADR-022: allows symlink that resolves within baseDir when realPath is provided', async () => {
+        // Simulate a symlink within baseDir: ./linked.ts → ./ext/widget.ts,
+        // both resolve under /safe/root after canonicalization.
+        let imported: string | undefined;
+        await loadExtensionModules<Kind>(
+            [ref({ path: './linked.ts', baseDir: '/safe/root' })],
+            {
+                allowExtensions: true,
+                moduleLoader: async (absPath) => {
+                    imported = absPath;
+                    return { default: { name: 'w' } };
+                },
+                realPath: (p: string) => p.replace('/safe/root/linked.ts', '/safe/root/ext/widget.ts'),
+            },
+            () => {},
+        );
+        // moduleLoader still receives the resolved absPath (pre-symlink-resolution);
+        // the confinement check passes because the real path is under /safe/root/ext/.
+        expect(imported).toBe('/safe/root/linked.ts');
+    });
+
+    test('ADR-022: skips confinement check when realPath is not provided (backward compatible)', async () => {
+        // Without realPath, the loader cannot check symlinks — this is the backward-
+        // compatible path for stubs without a real filesystem (e.g. CF Workers).
+        let registered = false;
+        await loadExtensionModules<Kind>(
+            [ref()],
+            { allowExtensions: true, moduleLoader: async () => ({ default: { name: 'x' } }) },
+            () => {
+                registered = true;
+            },
+        );
+        expect(registered).toBe(true);
+    });
 });

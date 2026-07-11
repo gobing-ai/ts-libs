@@ -67,6 +67,10 @@ export class StateMachineDriver {
         const iterationBound = workflow.iterationBound ?? 50;
         const defaultOnError = workflow.defaultOnError;
         let isResume = resumeFromState !== undefined;
+        // When `commitHop` has already persisted the new state's snapshot +
+        // phase atomically (every iteration after the first), `enter` must skip
+        // the persist half to avoid duplicate INSERT rows (ADR-020).
+        let persistedViaHop = false;
 
         if (current === undefined) {
             const label = resumeFromState ?? workflow.initialState;
@@ -77,9 +81,11 @@ export class StateMachineDriver {
             if (isResume) {
                 // Resume: skip enter actions on the first iteration (already ran before pause).
                 isResume = false;
+                persistedViaHop = true; // state already persisted before the pause
             } else {
-                // 1. Persist current state snapshot before work starts.
-                await lifecycle.enter(current.id, transitionsTaken);
+                // 1. Persist current state snapshot before work starts (skipped when
+                //    commitHop already persisted it atomically on the previous hop).
+                await lifecycle.enter(current.id, transitionsTaken, !persistedViaHop);
 
                 // 2. Execute this state's on-enter actions in declaration order.
                 const enter = options.dryRun
@@ -159,15 +165,21 @@ export class StateMachineDriver {
             if (exit.result?.setVars) vars = mergeSetVars(vars, exit.result.setVars);
             if (exit.outcome === 'fail') return await lifecycle.fail(current.id, transitionsTaken, exit.result?.error);
 
-            // 7. Persist transition and move to the target state.
+            // 7. Atomically commit the transition + new state snapshot + phase in a
+            //    single batch (ADR-020). The next iteration's `enter` becomes
+            //    observe-only; a crash between writes is now impossible.
             transitionsTaken += 1;
-            await lifecycle.recordTransition(current.id, nextTransition.to, nextTransition.trigger ?? null);
+            await lifecycle.commitHop(current.id, nextTransition.to, nextTransition.trigger ?? null, transitionsTaken, {
+                phase: nextTransition.to,
+                status: 'running',
+            });
             if (transitionsTaken > iterationBound) {
                 return await lifecycle.fail(current.id, transitionsTaken, 'iteration-bound-exceeded');
             }
             const nextState = states.get(nextTransition.to);
             if (nextState === undefined) throw new FSMError(`Transition target "${nextTransition.to}" is not declared`);
             current = nextState;
+            persistedViaHop = true;
         }
     }
 }

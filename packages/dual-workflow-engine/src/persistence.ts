@@ -1,4 +1,4 @@
-import type { DbAdapter } from '@gobing-ai/ts-db';
+import type { DbAdapter, DbBatchOp } from '@gobing-ai/ts-db';
 import { RunCollisionError } from './errors';
 import { WORKFLOW_ENGINE_SCHEMA_SQL } from './schema-sql';
 import type {
@@ -113,6 +113,64 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
             now,
             now,
         );
+    }
+
+    async commitTransition(
+        runId: string,
+        from: string,
+        to: string,
+        trigger: string | null,
+        state: string,
+        data: Record<string, unknown>,
+        phase?: { phase: string; status: WorkflowStatus },
+    ): Promise<void> {
+        await this.ensureSchema();
+        const now = Date.now();
+        const ops: DbBatchOp[] = [
+            {
+                sql: `INSERT INTO transition_runs (id, run_id, from_state, to_state, trigger, status, created_at, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                params: [
+                    `${runId}:transition:${from}:${to}:${crypto.randomUUID()}`,
+                    runId,
+                    from,
+                    to,
+                    trigger,
+                    'done',
+                    now,
+                    now,
+                ],
+            },
+            {
+                sql: `INSERT INTO workflow_states (id, run_id, state, data_json, created_at, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?)`,
+                params: [
+                    `${runId}:state:${state}:${crypto.randomUUID()}`,
+                    runId,
+                    state,
+                    JSON.stringify(data),
+                    now,
+                    now,
+                ],
+            },
+        ];
+        if (phase) {
+            ops.push({
+                sql: `INSERT INTO phase_runs (id, run_id, phase, status, started_at, completed_at, created_at, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                params: [
+                    `${runId}:phase:${phase.phase}:${crypto.randomUUID()}`,
+                    runId,
+                    phase.phase,
+                    phase.status,
+                    new Date(now).toISOString(),
+                    phase.status === 'running' ? null : new Date(now).toISOString(),
+                    now,
+                    now,
+                ],
+            });
+        }
+        await this.db.batch(ops);
     }
 
     /** Insert a running action row. Returns the row id for later finalization. */
@@ -316,6 +374,23 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
     /** Save the latest workflow state snapshot. */
     async saveWorkflowState(runId: string, state: string, data: Record<string, unknown>): Promise<void> {
         this.states.push({ runId, state, data });
+    }
+
+    async commitTransition(
+        runId: string,
+        from: string,
+        to: string,
+        trigger: string | null,
+        state: string,
+        data: Record<string, unknown>,
+        phase?: { phase: string; status: WorkflowStatus },
+    ): Promise<void> {
+        // Memory adapter: synchronous pushes are atomic by nature.
+        this.transitions.push({ runId, from, to, trigger });
+        this.states.push({ runId, state, data });
+        if (phase) {
+            this.phases.push({ runId, phase: phase.phase, status: phase.status });
+        }
     }
 
     /** Load a single run by id. */

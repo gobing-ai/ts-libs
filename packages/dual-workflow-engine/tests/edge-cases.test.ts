@@ -273,6 +273,7 @@ transitions: []
                     },
                 ] as T[];
             },
+            async batch() {},
             // ts-db 0.2.0: adapters expose the internal typed db via `db` (was getDb()).
             // This persistence adapter only uses the string-SQL methods, so `db` is an
             // unused stub here; the whole literal is cast to DbAdapter below.

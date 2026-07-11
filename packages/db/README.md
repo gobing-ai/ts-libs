@@ -14,7 +14,7 @@ Application code imports only `@gobing-ai/ts-db` — never `drizzle-orm`. drizzl
 
 | Component | Purpose |
 |-----------|---------|
-| `createDbAdapter` / `DbAdapter` | Construction + lifecycle + string-SQL escape; exposes an internal typed db to the DAO layer only |
+| `createDbAdapter` / `DbAdapter` | Construction + lifecycle + string-SQL escape + atomic batch; exposes an internal typed db to the DAO layer only |
 | `BunSqliteAdapter` | Bun SQLite implementation with statement caching and WAL pragmas (`@gobing-ai/ts-db/bun-sqlite`) |
 | `D1Adapter` | Cloudflare D1 implementation (no `@cloudflare/workers-types` dependency) |
 | `BaseDao` | Raw tier — `query`/`one`/`tx`, drizzle-free signatures |
@@ -52,6 +52,7 @@ classDiagram
         +run(sql, ...params) void
         +queryFirst(sql, ...params) T?
         +queryAll(sql, ...params) T[]
+        +batch(operations) void
         +close() void
     }
 
@@ -177,6 +178,13 @@ const user = await adapter.queryFirst<{ name: string }>('SELECT name FROM users 
 const all = await adapter.queryAll<{ name: string }>('SELECT name FROM users');
 ```
 
+```ts
+// Atomic multi-statement batch — all succeed or all roll back (ADR-020)
+await adapter.batch([
+    { sql: 'INSERT INTO users VALUES (?, ?)', params: ['u2', 'Bob'] },
+    { sql: 'UPDATE counters SET count = count + 1 WHERE name = ?', params: ['users'] },
+]);
+```
 ### EntityDao — CRUD with soft delete
 
 Define a Drizzle table, extend `EntityDao`, get full CRUD for free:

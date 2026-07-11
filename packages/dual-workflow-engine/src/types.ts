@@ -259,6 +259,21 @@ export interface WorkflowPersistenceAdapter {
     savePhase(runId: string, phase: string, status: WorkflowStatus): Promise<void>;
     saveTransition(runId: string, from: string, to: string, trigger: string | null): Promise<void>;
     saveWorkflowState(runId: string, state: string, data: Record<string, unknown>): Promise<void>;
+    /**
+     * Atomically persist a transition together with its resulting state snapshot
+     * and optional phase record in a single DB batch — either all commit or none.
+     * Prevents partial-state windows when the process fails between saveTransition()
+     * and saveWorkflowState().
+     */
+    commitTransition(
+        runId: string,
+        from: string,
+        to: string,
+        trigger: string | null,
+        state: string,
+        data: Record<string, unknown>,
+        phase?: { phase: string; status: WorkflowStatus },
+    ): Promise<void>;
     /** Two-phase action persistence: insert a running row at action start. Returns the action row id. */
     saveActionStart(runId: string, node: string, kind: string): Promise<string>;
     /** Finalize an action row with duration, ok, result. */

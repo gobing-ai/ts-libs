@@ -39,6 +39,12 @@ function recordingPersistence(): { adapter: WorkflowPersistenceAdapter; calls: s
             calls.push(`saveWorkflowState:${state}`);
             return inner.saveWorkflowState(runId, state, data);
         },
+        commitTransition: async (runId, from, to, trigger, state, data, phase) => {
+            calls.push(
+                `commitTransition:${from}->${to}:${trigger ?? 'null'}:${state}${phase ? `:${phase.phase}:${phase.status}` : ''}`,
+            );
+            return inner.commitTransition(runId, from, to, trigger, state, data, phase);
+        },
         saveActionStart: async (runId, node, kind) => {
             calls.push(`saveActionStart:${node}:${kind}`);
             return inner.saveActionStart(runId, node, kind);
@@ -81,9 +87,12 @@ function recordingLogger(): { logger: Logger; lines: string[] } {
 }
 
 describe('RunLifecycle.run', () => {
-    test('persists create→enter→transition→done in order for a successful run', async () => {
+    test('persists create→enter→commitHop→done in order for a successful run', async () => {
         // WHY: both drivers depend on this exact sequence; the ordering is the
         // lifecycle's contract, previously duplicated and unenforced across drivers.
+        // commitHop replaces the old recordTransition+enter pair with a single
+        // atomic batch (ADR-020), so enter(state, tt, false) is observe-only after
+        // the hop already persisted the state snapshot + phase.
         const { adapter, calls } = recordingPersistence();
         const result = await RunLifecycle.run(
             'wf',
@@ -92,8 +101,8 @@ describe('RunLifecycle.run', () => {
             { runId: 'r1' },
             async (lifecycle) => {
                 await lifecycle.enter('a', 0);
-                await lifecycle.recordTransition('a', 'b', 'go');
-                await lifecycle.enter('b', 1);
+                await lifecycle.commitHop('a', 'b', 'go', 1, { phase: 'b', status: 'running' });
+                await lifecycle.enter('b', 1, false);
                 return lifecycle.done('b', 1);
             },
         );
@@ -102,9 +111,7 @@ describe('RunLifecycle.run', () => {
             'createRun:r1:running',
             'saveWorkflowState:a',
             'savePhase:a:running',
-            'saveTransition:a->b:go',
-            'saveWorkflowState:b',
-            'savePhase:b:running',
+            'commitTransition:a->b:go:b:b:running',
             'savePhase:b:done',
             'finalizeRun:done',
         ]);
@@ -137,6 +144,35 @@ describe('RunLifecycle.run', () => {
         expect(result.reason).toBe('no-passing-edge');
         // A successful result must never carry a reason; a failed one always does.
         expect('reason' in result).toBe(true);
+    });
+
+    test('enter(persist=false) emits observability but skips saveWorkflowState + savePhase', async () => {
+        // WHY: after commitHop atomically persisted the state snapshot + phase, the
+        // next enter() must NOT re-persist — that would create duplicate INSERT rows.
+        // It must still emit the span event + EventBus so observability stays correct.
+        const { adapter, calls } = recordingPersistence();
+        const events = new EventBus<WorkflowEngineEvents>();
+        const seen: string[] = [];
+        events.on('workflow.node.enter', (d) => seen.push(`enter:${d.node}:${d.transitionsTaken}`));
+
+        await RunLifecycle.run(
+            'wf',
+            'state-machine',
+            { persistence: adapter, events },
+            { runId: 'r-persist' },
+            async (lifecycle) => {
+                await lifecycle.enter('a', 0); // persist=true (default)
+                await lifecycle.enter('b', 1, false); // persist=false
+                return lifecycle.done('b', 1);
+            },
+        );
+
+        // First enter persists state 'a' + phase 'a:running'.
+        // Second enter (persist=false) must NOT add saveWorkflowState:b or savePhase:b:running.
+        expect(calls).toContain('saveWorkflowState:a');
+        expect(calls).not.toContain('saveWorkflowState:b');
+        // Both enters emit observability.
+        expect(seen).toEqual(['enter:a:0', 'enter:b:1']);
     });
 
     test('done() result omits the reason field entirely', async () => {

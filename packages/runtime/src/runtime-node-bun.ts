@@ -41,14 +41,15 @@ export const nodeBunFactory: RuntimeFactory = {
     },
 
     async createDbAdapter(config: DatabaseConfig): Promise<RuntimeDbAdapter> {
-        // Dynamic import (string-literal specifier) — ts-db depends on ts-runtime,
-        // so a static import would create a package-level circular dependency.
-        // The literal specifier lets Bun --compile bundle ts-db into the binary;
-        // a variable specifier would be opaque to the bundler and fail at runtime.
-        // Platform exception: ts-db is Bun/Node-only (not Cloudflare Workers).
-        let mod: { createDbAdapter: typeof import('@gobing-ai/ts-db').createDbAdapter };
+        // Dynamic import via variable specifier — ts-db depends on ts-runtime,
+        // so a static (or literal-specifier dynamic) import forces tsc to resolve
+        // the module at build time, raising TS2307 when no prebuilt db dist/
+        // exists (CI/clean checkout). A variable specifier is opaque to tsc.
+        // ts-db is an optional peerDependency (ADR-012 addendum, task 0040).
+        const tsDbSpec = '@gobing-ai/ts-db';
+        let mod: { createDbAdapter: (config: DatabaseConfig) => Promise<RuntimeDbAdapter> };
         try {
-            mod = await import('@gobing-ai/ts-db');
+            mod = await import(tsDbSpec);
         } catch (cause) {
             throw new DbModuleNotInstalledError(undefined, { cause });
         }

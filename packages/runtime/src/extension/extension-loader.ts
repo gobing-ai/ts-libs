@@ -39,6 +39,18 @@ export interface LoadExtensionsOptions {
      * means the shared core has no ambient code-loading capability of its own.
      */
     readonly moduleLoader: (absPath: string) => Promise<Record<string, unknown>>;
+    /**
+     * Optional canonical-path resolver for symlink-safe confinement (ADR-022).
+     *
+     * When provided, the loader resolves the **real** path of the extension module
+     * (following symlinks) and re-checks that it remains within `baseDir`'s real
+     * root. This closes the symlink-escape vector: an authored path like
+     * `extensions/legit.ts` can pass the string-level `..` guard but still point
+     * outside `baseDir` via a symlink. Callers that serve extension modules from a
+     * real filesystem (e.g. `createNodeFileSystem().realPath`) should supply this.
+     * Stub filesystems without symlinks (e.g. CF Workers) may omit it.
+     */
+    readonly realPath?: (absPath: string) => string;
 }
 
 /** A validated extension module export: an object carrying at least a string `name`. */
@@ -91,6 +103,18 @@ export async function loadExtensionModules<TExtensionKind extends string>(
         // imports a caller-supplied absolute path it did not resolve itself.
         assertRelativeExtensionPath(ref.path, { sourceName: ref.sourceName });
         const absPath = resolve(ref.baseDir, ref.path);
+        // ADR-022: when realPath is available, canonicalize and re-check confinement
+        // to close the symlink-escape vector — an authored path with no ".." can still
+        // resolve outside baseDir via a symlink.
+        if (options.realPath) {
+            const realAbs = options.realPath(absPath);
+            const realBase = options.realPath(ref.baseDir);
+            if (realAbs !== realBase && !realAbs.startsWith(`${realBase}/`) && !realAbs.startsWith(`${realBase}\\`)) {
+                throw new Error(
+                    `"${ref.sourceName}" extension "${ref.path}" resolves outside baseDir via symlink (real: "${realAbs}", base: "${realBase}") — refusing to load`,
+                );
+            }
+        }
         const moduleExports = await options.moduleLoader(absPath);
         const candidate = moduleExports.default ?? moduleExports.extension;
         if (

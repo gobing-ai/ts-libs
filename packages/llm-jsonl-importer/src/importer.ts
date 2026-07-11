@@ -56,12 +56,11 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
 
     for (const file of files) {
         const checkpoint = mode === 'incremental' ? await readCheckpoint(options.db, source, file) : 0;
-        const lines = (await fileSystem.readFile(file)).split(/\r?\n/);
-
-        for (let index = 0; index < lines.length; index += 1) {
-            const lineNumber = index + 1;
-            const line = lines[index]?.trim();
-            if (line === undefined || line.length === 0 || lineNumber <= checkpoint) continue;
+        let lineNumber = 0;
+        for await (const rawLine of readLines(fileSystem, file)) {
+            lineNumber += 1;
+            const line = rawLine.trim();
+            if (line.length === 0 || lineNumber <= checkpoint) continue;
             processedLines += 1;
 
             const raw = parseJsonLine(line, file, lineNumber, parseErrors);
@@ -298,7 +297,8 @@ async function insertRecord(
     const table = targetTableFor(targetTable);
     await db.run(
         `INSERT INTO ${table} (record_hash, source_file, source_line, split_index, payload_json, imported_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(record_hash) DO NOTHING`,
         recordHash,
         sourceFile,
         sourceLine,
@@ -340,4 +340,23 @@ function targetTableFor(table: string): string {
 
 function timestamp(now: ImportOptions['now']): string {
     return (now?.() ?? new Date()).toISOString();
+}
+
+/**
+ * Yield lines from a file, streaming when the FileSystem supports it.
+ *
+ * WHY: large JSONL history files (100MB+) must not be loaded into memory all at
+ * once. When `fileSystem.readFileStream` is available, lines are streamed from
+ * disk in chunks. Otherwise, falls back to `readFile` + `split` — same behavior
+ * as before, preserving parity for stubs like CF Workers.
+ */
+async function* readLines(fileSystem: FileSystem, file: string): AsyncGenerator<string> {
+    if (fileSystem.readFileStream) {
+        yield* fileSystem.readFileStream(file);
+        return;
+    }
+    const content = await fileSystem.readFile(file);
+    for (const line of content.split(/\r?\n/)) {
+        yield line;
+    }
 }

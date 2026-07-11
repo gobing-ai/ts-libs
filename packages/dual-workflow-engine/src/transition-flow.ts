@@ -67,6 +67,10 @@ export class TransitionFlowDriver {
         const iterationBound = workflow.iterationBound ?? 50;
         const defaultOnError = workflow.defaultOnError;
         let isResume = resumeFromNode !== undefined;
+        // When `commitHop` has already persisted the new node's snapshot +
+        // phase atomically (every iteration after the first), `enter` must skip
+        // the persist half to avoid duplicate INSERT rows (ADR-020).
+        let persistedViaHop = false;
 
         if (current === undefined) {
             const label = resumeFromNode ?? workflow.initialNode;
@@ -77,9 +81,11 @@ export class TransitionFlowDriver {
             if (isResume) {
                 // Resume: skip enter + node action on the first iteration (already ran before pause).
                 isResume = false;
+                persistedViaHop = true; // node already persisted before the pause
             } else {
-                // 1. Persist current node snapshot before action execution.
-                await lifecycle.enter(current.id, transitionsTaken);
+                // 1. Persist current node snapshot before action execution (skipped when
+                //    commitHop already persisted it atomically on the previous hop).
+                await lifecycle.enter(current.id, transitionsTaken, !persistedViaHop);
 
                 // 2. Execute the node action when one is configured (skipped in dry-run).
                 if (options.dryRun) {
@@ -138,9 +144,14 @@ export class TransitionFlowDriver {
                 return await lifecycle.fail(current.id, transitionsTaken, 'no-passing-edge');
             }
 
-            // 5. Persist the edge transition.
+            // 5. Atomically commit the edge transition + new node snapshot + phase in
+            //    a single batch (ADR-020). The next iteration's `enter` becomes
+            //    observe-only; a crash between writes is now impossible.
             transitionsTaken += 1;
-            await lifecycle.recordTransition(current.id, edge.to, edge.condition?.kind ?? null);
+            await lifecycle.commitHop(current.id, edge.to, edge.condition?.kind ?? null, transitionsTaken, {
+                phase: edge.to,
+                status: 'running',
+            });
 
             // 6. Enforce the iteration bound after taking the transition.
             if (transitionsTaken > iterationBound) {
@@ -151,6 +162,7 @@ export class TransitionFlowDriver {
             const nextNode = nodes.get(edge.to);
             if (nextNode === undefined) throw new FSMError(`Edge target "${edge.to}" is not declared`);
             current = nextNode;
+            persistedViaHop = true;
         }
     }
 }

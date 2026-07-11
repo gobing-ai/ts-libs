@@ -31,6 +31,12 @@ export interface LoadExtensionsOptions {
     logger?: Pick<Logger, 'warn'>;
     /** Optional module loader seam for tests or embedders with custom import policy. */
     moduleLoader?: (absPath: string) => Promise<Record<string, unknown>>;
+    /**
+     * Optional canonical-path resolver for symlink-safe confinement (ADR-022).
+     * Forwarded to the shared loader. Node-facing embedders should supply
+     * `createNodeFileSystem().realPath` to enable symlink-escape rejection.
+     */
+    realPath?: (absPath: string) => string;
 }
 
 /** Host registries that can receive extension capabilities (all four kinds). */
@@ -123,6 +129,7 @@ export async function loadExtensionsIntoHost(
         allowExtensions: options.allowExtensions,
         logger: options.logger,
         moduleLoader,
+        realPath: options.realPath,
     };
 
     await loadExtensionModules<ExtensionKind>(sharedRefs, sharedOptions, async (sharedRef, extension) => {

@@ -1,7 +1,7 @@
 import { isAbsolutePath, resolvePath } from '@gobing-ai/ts-runtime';
 import { Database } from '@gobing-ai/ts-runtime/bun-sqlite';
 import { type BunSQLiteDatabase, drizzle } from 'drizzle-orm/bun-sqlite';
-import type { DbAdapter, InternalDb } from '../adapter';
+import type { DbAdapter, DbBatchOp, InternalDb } from '../adapter';
 import * as schema from '../schema/runtime';
 
 type SqliteStatementLike = {
@@ -101,6 +101,16 @@ export class BunSqliteAdapter implements DbAdapter {
     async queryAll<T>(sql: string, ...params: unknown[]): Promise<T[]> {
         const stmt = this.getStatement(sql);
         return ((stmt as unknown as { all: (...p: unknown[]) => T[] }).all(...params) as T[]) ?? [];
+    }
+
+    async batch(operations: readonly DbBatchOp[]): Promise<void> {
+        if (operations.length === 0) return;
+        this.sqlite.transaction(() => {
+            for (const op of operations) {
+                const stmt = this.getStatement(op.sql);
+                stmt.run(...op.params);
+            }
+        })();
     }
 
     close(): void {

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
-import type { FileSystem } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, type FileSystem } from '@gobing-ai/ts-runtime';
 import { runJsonlImport } from '../src';
 
 let db: DbAdapter;
@@ -83,6 +83,51 @@ describe('runJsonlImport', () => {
         expect(second.skippedDuplicates).toBe(1);
         const rows = await db.queryAll<{ count: number }>('SELECT COUNT(*) AS count FROM history_etl_gemini');
         expect(rows[0]?.count).toBe(1);
+    });
+
+    test('recovers when ledger persistence fails after the ETL row is written', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'recover', timestamp: '2026-05-30T00:00:00.000Z', content: 'recover' }),
+        ]);
+        let failLedgerInsert = true;
+        const faultingDb: DbAdapter = {
+            db: db.db,
+            exec: (sql) => db.exec(sql),
+            run: (sql, ...params) => {
+                if (failLedgerInsert && sql.includes('INSERT INTO history_import_ledger')) {
+                    failLedgerInsert = false;
+                    throw new Error('injected ledger failure');
+                }
+                return db.run(sql, ...params);
+            },
+            queryFirst: <T>(sql: string, ...params: unknown[]) => db.queryFirst<T>(sql, ...params),
+            queryAll: <T>(sql: string, ...params: unknown[]) => db.queryAll<T>(sql, ...params),
+            close: () => db.close(),
+            batch: async (ops) => {
+                for (const op of ops) await db.run(op.sql, ...op.params);
+            },
+        };
+
+        await expect(
+            runJsonlImport('codex', { db: faultingDb, files: [file], mode: 'incremental', now: fixedNow }),
+        ).rejects.toThrow('injected ledger failure');
+
+        const result = await runJsonlImport('codex', {
+            db: faultingDb,
+            files: [file],
+            mode: 'incremental',
+            now: fixedNow,
+        });
+        expect(result.importedRecords).toBe(1);
+        expect(await db.queryAll('SELECT record_hash FROM history_etl_codex')).toHaveLength(1);
+        expect(await db.queryAll('SELECT record_hash FROM history_import_ledger')).toHaveLength(1);
+        expect(
+            await db.queryFirst<{ last_imported_line: number }>(
+                'SELECT last_imported_line FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
+                'codex',
+                file,
+            ),
+        ).toEqual({ last_imported_line: 1 });
     });
 
     test('full mode resets and rewrites file checkpoints even when rows are duplicates', async () => {
@@ -214,6 +259,72 @@ describe('runJsonlImport', () => {
         expect(result.importedRecords).toBe(1);
         const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_pi');
         expect(JSON.parse(rows[0]?.payload_json ?? '{}')).toMatchObject({ content: 'single' });
+    });
+
+    test('streaming readFileStream produces identical results to readFile fallback (ADR-021)', async () => {
+        const lines = [
+            JSON.stringify({ id: 's-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'first' }),
+            JSON.stringify({ id: 's-2', timestamp: '2026-05-30T00:01:00.000Z', content: 'second' }),
+            JSON.stringify({ id: 's-3', timestamp: '2026-05-30T00:02:00.000Z', content: 'third' }),
+        ];
+        const file = await fixtureFile(lines);
+        const fs = createNodeFileSystem();
+        const result = await runJsonlImport('codex', {
+            db,
+            files: [file],
+            mode: 'full',
+            now: fixedNow,
+            fileSystem: fs,
+        });
+
+        expect(result.importedRecords).toBe(3);
+        expect(result.parseErrors).toHaveLength(0);
+        const rows = await db.queryAll<{ source_line: number }>(
+            'SELECT source_line FROM history_etl_codex ORDER BY source_line',
+        );
+        expect(rows.map((r) => r.source_line)).toEqual([1, 2, 3]);
+    });
+
+    test('streaming a multi-MB file processes all records without loading entire file into memory (ADR-021)', async () => {
+        // Generate ~5MB of JSONL: 25000 records × ~200 bytes each
+        const recordCount = 25_000;
+        const directory = await mkdtemp(join(tmpdir(), 'llm-jsonl-importer-streaming-'));
+        const file = join(directory, 'large-history.jsonl');
+        const chunkSize = 1000;
+        const handle = await import('node:fs').then((m) => m.createWriteStream(file));
+        for (let i = 0; i < recordCount; i += chunkSize) {
+            const end = Math.min(i + chunkSize, recordCount);
+            const chunk: string[] = [];
+            for (let j = i; j < end; j += 1) {
+                chunk.push(
+                    JSON.stringify({
+                        id: `large-${j}`,
+                        timestamp: '2026-05-30T00:00:00.000Z',
+                        content: `x`.repeat(150),
+                    }),
+                );
+            }
+            handle.write(`${chunk.join('\n')}\n`);
+        }
+        await new Promise<void>((resolve, reject) => {
+            handle.end(() => resolve());
+            handle.on('error', reject);
+        });
+
+        const fs = createNodeFileSystem();
+        const result = await runJsonlImport('codex', {
+            db,
+            files: [file],
+            mode: 'full',
+            now: fixedNow,
+            fileSystem: fs,
+        });
+
+        expect(result.importedRecords).toBe(recordCount);
+        expect(result.parseErrors).toHaveLength(0);
+
+        const countRow = await db.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_etl_codex');
+        expect(countRow?.count).toBe(recordCount);
     });
 });
 

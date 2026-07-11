@@ -1,7 +1,7 @@
 # 00 ADR — ts-libs
 
 **Status:** Authoritative
-**Last Updated:** 2026-06-08
+**Last Updated:** 2026-07-10
 **Owner:** Robin Min
 
 Single source of truth for the architecture & release decisions that define this monorepo. When another
@@ -279,3 +279,49 @@ Utility functions (`walkDir`, `readJsonFile`, `atomicWriteFile`, etc.) now accep
 `FileSystem` and default to `createNodeFileSystem()`. `RuleEngineOptions.fileSystem?: FileSystem` (and
 `RuleContext.fileSystem`) provides a testable DI seam for the rule engine. **Breaking change:**
 deprecated runtime exports removed; consumers must migrate to `createNodeFileSystem()`.
+
+## ADR-020: Atomic Workflow Transition Persistence
+
+**Status:** Accepted · **Date:** 2026-07-10 · **Targets:** `@gobing-ai/ts-db`, `@gobing-ai/ts-dual-workflow-engine`
+
+Added `DbAdapter.batch()` (BunSqlite via `db.transaction`, D1 via `batch()`) and
+`WorkflowPersistenceAdapter.commitTransition()` so the transition record, state snapshot, and phase write
+commit in a single atomic DB batch — eliminating partial-state windows when the process fails between
+`saveTransition()` and `saveWorkflowState()`. `RunLifecycle.commitHop` wraps all three writes; the three
+commit sites (`service.ts`, `state-machine.ts`, `transition-flow.ts`) use it for every persisted transition.
+
+---
+
+## ADR-021: Streaming JSONL Importer
+
+**Status:** Accepted · **Date:** 2026-07-10 · **Targets:** `@gobing-ai/ts-runtime`, `@gobing-ai/ts-llm-jsonl-importer`
+
+Added `FileSystem.readFileStream()` to the canonical interface (`createReadStream` from `node:fs` on Node/Bun,
+`undefined` on Cloudflare). `ts-llm-jsonl-importer` switches to a streaming async-generator line reader that
+yields one line at a time, falling back to `readFile().split()` when `readFileStream` is unavailable — avoiding
+full-file buffering for multi-GB LLM history files while preserving checkpoint semantics.
+
+---
+
+## ADR-022: Symlink-Safe Extension Confinement
+
+**Status:** Accepted · **Date:** 2026-07-10 · **Targets:** `@gobing-ai/ts-runtime` · **Amends:** ADR-010
+
+Added `realPath` option to `LoadExtensionsOptions` so the extension loader canonicalizes both the resolved
+`baseDir + path` and `baseDir` after the string-level `assertRelativeExtensionPath` guard, closing a
+symlink-traversal vector where a relative path passing the string check could resolve through a symlink to
+an arbitrary absolute location. The option defaults to `undefined` (off) for stubs without a real filesystem;
+composition sites in `ts-rule-engine` and `ts-dual-workflow-engine` forward it from their callers.
+
+---
+
+## ADR-023: Advisory Verdicts — Runtime Root Portability (A1), ProcessExecutor Interface (A2), Open Importer Source Registry (A3), InboxMessageDao Port (A4)
+
+**Status:** Accepted (follow-up) · **Date:** 2026-07-10 · **Targets:** `@gobing-ai/ts-runtime`, `@gobing-ai/ts-ai-runner`, `@gobing-ai/ts-llm-jsonl-importer`, `@gobing-ai/ts-db`
+
+All four advisory candidates from the 2026-07-10 codex review are **accepted as follow-up tasks** (no
+implementation in task 0041): (A1) injectable `RuntimePaths` seam for cwd/home portability; (A2) publish
+`ProcessExecutor` interface as the canonical type with concrete classes as default wiring behind a factory;
+(A3) `runJsonlImport(source | SourceDefinition, …)` overload to open the importer source registry; (A4)
+ai-runner-owned `MessageStore` interface that `InboxMessageDao` satisfies structurally, loosening ts-db
+coupling consistent with the ts-db-as-optional-peer direction (task 0040).

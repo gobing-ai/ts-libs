@@ -13,11 +13,13 @@
 import {
     appendFileSync,
     cpSync,
+    createReadStream,
     createWriteStream,
     existsSync,
     mkdirSync,
     readdirSync,
     readFileSync,
+    realpathSync,
     renameSync,
     rmSync,
     statSync,
@@ -43,6 +45,24 @@ export function createNodeFileSystem(root?: string): FileSystem {
         exists: (path: string) => existsSync(path),
 
         readFile: (path: string) => readFileSync(path, 'utf-8'),
+
+        readFileStream: async function* (path: string): AsyncIterable<string> {
+            // WHY: large JSONL history files (100MB+) must not be loaded into memory
+            // all at once. createReadStream + manual line splitting lets the importer
+            // process records incrementally with constant memory.
+            const stream = createReadStream(path, { encoding: 'utf-8' });
+            let buffer = '';
+            for await (const chunk of stream) {
+                buffer += chunk;
+                const lines = buffer.split(/\r?\n/);
+                // Keep the last (possibly partial) line in the buffer.
+                buffer = lines.pop() ?? '';
+                for (const line of lines) {
+                    yield line;
+                }
+            }
+            if (buffer.length > 0) yield buffer;
+        },
 
         writeFile: (path: string, content: string) => {
             ensureParentDir(path);
@@ -90,6 +110,8 @@ export function createNodeFileSystem(root?: string): FileSystem {
                 return null;
             }
         },
+
+        realPath: (path: string) => realpathSync(path),
     };
 }
 

@@ -39,7 +39,7 @@ The package exposes:
 | Export | Purpose |
 |--------|---------|
 | `MemoryWorkflowPersistenceAdapter` | In-memory persistence for tests and short-lived runs |
-| `DbWorkflowPersistenceAdapter` | DB-backed persistence over `@gobing-ai/ts-db` |
+| `DbWorkflowPersistenceAdapter` | DB-backed persistence over `@gobing-ai/ts-db` with atomic `commitTransition` (ADR-020) |
 | `applyWorkflowEngineSchema()` | Installs the package-owned DB schema (idempotent; safe to call before every write) |
 | `WORKFLOW_ENGINE_SCHEMA_SQL` | Raw SQL DDL for the 5 workflow engine tables |
 
@@ -222,7 +222,7 @@ sequenceDiagram
         RL->>SM: invoke loop(lifecycle)
 
         loop Each state
-            SM->>RL: enter(stateId, transitionsTaken)
+            SM->>RL: enter(stateId, transitionsTaken, persist=true)
             RL->>P: saveWorkflowState(stateId, data)
             RL->>P: savePhase(stateId, 'running')
 
@@ -267,8 +267,8 @@ sequenceDiagram
                 H-->>SM: ActionResult
             end
 
-            SM->>RL: recordTransition(from, to, trigger)
-            RL->>P: saveTransition(runId, from, to, trigger)
+            SM->>RL: commitHop(from, to, trigger, transitionsTaken, phase?)
+            Note right of RL: atomic batch: transition + state + phase (ADR-020)
             SM->>SM: transitionsTaken += 1
 
             alt iteration bound exceeded
@@ -309,7 +309,7 @@ sequenceDiagram
         RL->>TF: invoke loop(lifecycle)
 
         loop Each node
-            TF->>RL: enter(nodeId, transitionsTaken)
+            TF->>RL: enter(nodeId, transitionsTaken, persist=true)
             RL->>P: saveWorkflowState(nodeId, data)
             RL->>P: savePhase(nodeId, 'running')
 
@@ -353,8 +353,8 @@ sequenceDiagram
                 Note over TF: proceed immediately
             end
 
-            TF->>RL: recordTransition(from, to, trigger)
-            RL->>P: saveTransition(runId, from, to, trigger)
+            TF->>RL: commitHop(from, to, trigger, transitionsTaken, phase?)
+            Note right of RL: atomic batch: transition + state + phase (ADR-020)
             TF->>TF: transitionsTaken += 1
 
             alt iteration bound exceeded
@@ -848,7 +848,7 @@ When no `events` option is provided, the engine incurs zero observability overhe
 `RunLifecycle` is the shared bookkeeping layer both drivers delegate to. It manages:
 
 - **Run identity** — generates a `runId` (or honors caller-provided), timestamps, and run record
-- **Persistence sequencing** — `createRun` → `savePhase`/`saveWorkflowState` per step → `finalizeRun` at the end
+- **Persistence sequencing** — `createRun` → per-step atomic `commitHop` (transition + state + phase in one batch) → `finalizeRun` at the end (ADR-020)
 - **Observability** — wraps the full run in an OTel span, emits span events, logs each lifecycle event through `@gobing-ai/ts-infra` logger, and optionally emits `WorkflowEngineEvents` via an injected `EventBus`
 - **Error resilience** — `warnActionFailed()` logs non-fatal warnings for `onError: 'continue'` actions
 
@@ -867,6 +867,20 @@ const result = await RunLifecycle.run(
     return await lifecycle.done('step-1', 1);
   },
 );
+```
+
+For multi-step runs, use `commitHop` instead of separate `recordTransition` + `saveWorkflowState` calls:
+
+```ts
+// commitHop atomically commits transition, state, and optional phase (ADR-020)
+await lifecycle.commitHop(fromState, toState, trigger, transitionsTaken);
+```
+
+On the next iteration, call `enter()` with `persist: false` to skip persistence (the state was already
+persisted atomically by commitHop):
+
+```ts
+await lifecycle.enter(targetState, transitionsTaken, false);
 ```
 
 ## Error Handling

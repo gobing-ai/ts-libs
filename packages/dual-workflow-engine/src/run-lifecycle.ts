@@ -183,10 +183,17 @@ export class RunLifecycle {
         );
     }
 
-    /** Persist the current state/node snapshot and mark its phase running. */
-    async enter(stateOrNodeId: string, transitionsTaken: number): Promise<void> {
-        await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, { transitionsTaken });
-        await this.persistence.savePhase(this.runId, stateOrNodeId, 'running');
+    /**
+     * Persist the current state/node snapshot and mark its phase running.
+     * When `persist` is false (set by driver loops after `commitHop` already
+     * persisted the state atomically), only emit the enter observability —
+     * skip `saveWorkflowState` + `savePhase` to avoid duplicate INSERT rows.
+     */
+    async enter(stateOrNodeId: string, transitionsTaken: number, persist = true): Promise<void> {
+        if (persist) {
+            await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, { transitionsTaken });
+            await this.persistence.savePhase(this.runId, stateOrNodeId, 'running');
+        }
         addSpanEvent('workflow.node.enter', {
             runId: this.runId,
             node: stateOrNodeId,
@@ -196,6 +203,37 @@ export class RunLifecycle {
             runId: this.runId,
             node: stateOrNodeId,
             transitionsTaken,
+        });
+    }
+
+    /**
+     * Atomically commit a transition together with the resulting state snapshot
+     * and optional phase record, then emit the transition observability event.
+     * Replaces the old `recordTransition` + `enter` pair at every driver hop
+     * site so a crash between writes is impossible (ADR-020). Emits
+     * `workflow.node.transition` only after the batch commits — a rolled-back
+     * batch emits nothing (R1.6).
+     */
+    async commitHop(
+        from: string,
+        to: string,
+        trigger: string | null,
+        transitionsTaken: number,
+        phase?: { phase: string; status: WorkflowStatus },
+    ): Promise<void> {
+        await this.persistence.commitTransition(this.runId, from, to, trigger, to, { transitionsTaken }, phase);
+        addSpanEvent('workflow.node.transition', {
+            runId: this.runId,
+            from,
+            to,
+            ...(trigger === null ? {} : { trigger }),
+        });
+        void this.events?.emit('workflow.node.transition', {
+            runId: this.runId,
+            from,
+            to,
+            trigger,
+            externalKey: this.externalKey,
         });
     }
 

@@ -63,6 +63,8 @@ classDiagram
         +stat(path) FileStat~|~null~|~Promise~FileStat|~
         +resolve(...segments) string
         +getProjectRoot() string
+        +readFileStream(path) AsyncIterable<string>▀optional (ADR-021)
+        +realPath(path) string▀optional (ADR-022)
     }
 
     class createNodeFileSystem {
@@ -72,6 +74,8 @@ classDiagram
         +ensureDir(path) void
         +stat(path) FileStat | null
         +getProjectRoot() string
+        +readFileStream(path) AsyncIterable<string>
+        +realPath(path) string
     }
 
     class createCfFileSystem {
@@ -346,6 +350,24 @@ assertRelativeExtensionPath('/etc/evil.ts');   // throws: must be relative
 assertRelativeExtensionPath('../escape.ts');   // throws: must not contain ".."
 ```
 
+The string-level guard does not resolve symlinks — a symlink inside `baseDir` that points outside passes
+the check. For symlink-safe confinement (ADR-022), supply a `realPath` canonicalizer to `LoadExtensionsOptions`:
+
+```ts
+import { loadExtensionModules } from '@gobing-ai/ts-runtime/extension';
+import { createNodeFileSystem } from '@gobing-ai/ts-runtime';
+
+const fs = createNodeFileSystem('/abs/path');
+await loadExtensionModules(refs, {
+    allowExtensions: true,
+    moduleLoader: (p) => import(p),
+    realPath: fs.realPath,  // enables symlink confinement check
+}, register);
+```
+
+When `realPath` is provided, the loader canonicalizes both the resolved path and `baseDir`, rejecting
+symlinks that escape the declaring directory. When absent (e.g. CF Workers), the check is skipped.
+
 ### 7. File system abstraction
 
 Use `createNodeFileSystem()` for a real `node:fs`-backed filesystem (Node/Bun) or
@@ -365,6 +387,26 @@ const cffs = createCfFileSystem();
 cffs.getProjectRoot();   // '/bundle'
 cffs.readFile('/x');     // throws: "use D1, KV, or R2"
 ```
+
+Optional streaming and symlink-safe operations:
+
+```ts
+// Stream large files line-by-line (ADR-021) — Node/Bun only.
+// The JSONL importer uses this to avoid buffering multi-GB files.
+if (fs.readFileStream) {
+  for await (const line of fs.readFileStream('data/huge.jsonl')) {
+    // process one line at a time
+  }
+}
+
+// Canonical path resolution for symlink-safe extension confinement (ADR-022).
+// The extension loader uses this to verify that a symlink hasn't escaped baseDir.
+if (fs.realPath) {
+  const real = fs.realPath('/base/extensions/linked.ts');
+}
+```
+
+Both are optional — CF Workers stubs omit them. The JSONL importer falls back to `readFile` + split when `readFileStream` is absent; the extension loader skips the symlink check when `realPath` is absent.
 
 The old `getFs()` / `setFileSystem` global swap and `SyncFileSystem` are marked `@deprecated` —
 use `createNodeFileSystem()` or `ctx.require('fileSystem')` instead.
