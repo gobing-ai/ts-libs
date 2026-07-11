@@ -51,6 +51,36 @@ describe('DBJobQueue', () => {
 });
 
 describe('DBQueueConsumer', () => {
+    test('rejects invalid numeric configuration before polling', () => {
+        const invalidConfigs = [
+            { name: 'batchSize', config: { batchSize: 0 } },
+            { name: 'batchSize', config: { batchSize: 1.5 } },
+            { name: 'maxConcurrency', config: { maxConcurrency: Number.NaN } },
+            { name: 'maxConcurrency', config: { maxConcurrency: Number.POSITIVE_INFINITY } },
+            { name: 'visibilityTimeout', config: { visibilityTimeout: 0 } },
+            { name: 'pollInterval', config: { pollInterval: -1 } },
+            { name: 'baseDelay', config: { baseDelay: Number.NaN } },
+            { name: 'maxDelay', config: { maxDelay: Number.POSITIVE_INFINITY } },
+            { name: 'drainTimeoutMs', config: { drainTimeoutMs: -1 } },
+        ] as const;
+
+        for (const { name, config } of invalidConfigs) {
+            expect(() => new DBQueueConsumer(dao, config)).toThrow(`Queue consumer ${name}`);
+        }
+    });
+
+    test('accepts zero-valued delay configuration', () => {
+        expect(
+            () =>
+                new DBQueueConsumer(dao, {
+                    pollInterval: 0,
+                    baseDelay: 0,
+                    maxDelay: 0,
+                    drainTimeoutMs: 0,
+                }),
+        ).not.toThrow();
+    });
+
     test('processOnce dispatches a ready job and marks it completed', async () => {
         const queue = new DBJobQueue<{ value: number }>(dao);
         const id = await queue.enqueue('work', { value: 7 });

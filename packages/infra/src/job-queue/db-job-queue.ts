@@ -66,13 +66,13 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         private readonly dao: QueueJobDao,
         config: QueueConsumerConfig = {},
     ) {
-        this.pollInterval = config.pollInterval ?? 1_000;
-        this.batchSize = config.batchSize ?? 10;
-        this.maxConcurrency = config.maxConcurrency ?? this.batchSize;
-        this.visibilityTimeout = config.visibilityTimeout ?? 30_000;
-        this.baseDelay = config.baseDelay ?? 1_000;
-        this.maxDelay = config.maxDelay ?? 60_000;
-        this.drainTimeoutMs = config.drainTimeoutMs ?? 30_000;
+        this.pollInterval = nonNegativeFiniteConfig('pollInterval', config.pollInterval ?? 1_000);
+        this.batchSize = positiveIntegerConfig('batchSize', config.batchSize ?? 10);
+        this.maxConcurrency = positiveIntegerConfig('maxConcurrency', config.maxConcurrency ?? this.batchSize);
+        this.visibilityTimeout = positiveFiniteConfig('visibilityTimeout', config.visibilityTimeout ?? 30_000);
+        this.baseDelay = nonNegativeFiniteConfig('baseDelay', config.baseDelay ?? 1_000);
+        this.maxDelay = nonNegativeFiniteConfig('maxDelay', config.maxDelay ?? 60_000);
+        this.drainTimeoutMs = nonNegativeFiniteConfig('drainTimeoutMs', config.drainTimeoutMs ?? 30_000);
         this.events = config.events;
     }
 
@@ -242,4 +242,25 @@ function toJob<T>(record: QueueJobRecord): Job<T> {
 
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function positiveIntegerConfig(name: string, value: number): number {
+    if (!Number.isInteger(value) || value <= 0) {
+        throw new RangeError(`Queue consumer ${name} must be a positive integer; received ${value}`);
+    }
+    return value;
+}
+
+function positiveFiniteConfig(name: string, value: number): number {
+    if (!Number.isFinite(value) || value <= 0) {
+        throw new RangeError(`Queue consumer ${name} must be a positive finite number; received ${value}`);
+    }
+    return value;
+}
+
+function nonNegativeFiniteConfig(name: string, value: number): number {
+    if (!Number.isFinite(value) || value < 0) {
+        throw new RangeError(`Queue consumer ${name} must be a non-negative finite number; received ${value}`);
+    }
+    return value;
 }

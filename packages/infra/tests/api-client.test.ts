@@ -150,6 +150,35 @@ describe('APIClient', () => {
         expect(emitted.length).toBe(1);
     });
 
+    test('sanitizes credentials and response bodies from error events', async () => {
+        mockFetch.mockResolvedValue({
+            status: 500,
+            ok: false,
+            headers: new Headers({ 'content-type': 'text/plain' }),
+            text: async () => 'upstream secret: sk-sensitive-value',
+        });
+
+        const emitted: Array<{ url: string; method: string; error: string; status?: number }> = [];
+        const events = new EventBus<ApiClientEvents>();
+        events.on('api.request.error', (detail) => emitted.push(detail));
+        const client = createClient({
+            baseUrl: 'https://user:password@api.example.com',
+            events,
+        });
+
+        await expect(client.get('/private?token=query-secret#fragment')).rejects.toThrow(
+            'upstream secret: sk-sensitive-value',
+        );
+        expect(emitted).toEqual([
+            {
+                url: 'https://api.example.com/private',
+                method: 'GET',
+                error: 'HTTP 500',
+                status: 500,
+            },
+        ]);
+    });
+
     test('APIError contains status and body', async () => {
         mockFetch.mockResolvedValue({
             status: 500,

@@ -68,6 +68,24 @@ export class APIError extends Error {
     }
 }
 
+function sanitizeUrlForObservability(url: string): string {
+    try {
+        const parsed = new URL(url);
+        parsed.username = '';
+        parsed.password = '';
+        parsed.search = '';
+        parsed.hash = '';
+        return parsed.toString();
+    } catch {
+        return url.split(/[?#]/, 1)[0] ?? '';
+    }
+}
+
+function errorForObservability(error: unknown): string {
+    if (error instanceof APIError) return error.status > 0 ? `HTTP ${error.status}` : 'Request timeout';
+    return error instanceof Error ? error.name : 'Unknown error';
+}
+
 // ── Body reading ────────────────────────────────────────────────────
 
 /**
@@ -168,85 +186,93 @@ export class APIClient {
         redirect: RawRequestOptions['redirect'] | undefined,
         consume: (response: Response, span: Span) => Promise<T>,
     ): Promise<T> {
-        const operationName = opts?.operationName ?? `HTTP ${method} ${url}`;
+        const observableUrl = sanitizeUrlForObservability(url);
+        const operationName = opts?.operationName ?? `HTTP ${method} ${observableUrl}`;
+        let callerError: unknown;
 
-        return traceAsync(
-            operationName,
-            async (span: Span) => {
-                span.setAttribute(ATTR_HTTP_REQUEST_METHOD, method);
-                span.setAttribute(ATTR_URL_FULL, url);
+        try {
+            return await traceAsync(
+                operationName,
+                async (span: Span) => {
+                    span.setAttribute(ATTR_HTTP_REQUEST_METHOD, method);
+                    span.setAttribute(ATTR_URL_FULL, observableUrl);
 
-                const controller = new AbortController();
-                const timeoutMs = opts?.timeout ?? this.timeout;
-                let timer: ReturnType<typeof setTimeout> | undefined;
+                    const controller = new AbortController();
+                    const timeoutMs = opts?.timeout ?? this.timeout;
+                    let timer: ReturnType<typeof setTimeout> | undefined;
 
-                if (timeoutMs > 0) {
-                    timer = setTimeout(() => controller.abort(), timeoutMs);
-                }
+                    if (timeoutMs > 0) {
+                        timer = setTimeout(() => controller.abort(), timeoutMs);
+                    }
 
-                const combinedSignal = opts?.signal
-                    ? AbortSignal.any([opts.signal, controller.signal])
-                    : controller.signal;
+                    const combinedSignal = opts?.signal
+                        ? AbortSignal.any([opts.signal, controller.signal])
+                        : controller.signal;
 
-                try {
-                    const start = performance.now();
+                    try {
+                        const start = performance.now();
 
-                    const response = await this.fetchFn(url, {
-                        method,
-                        headers,
-                        body,
-                        signal: combinedSignal,
-                        ...(redirect ? { redirect } : {}),
-                    });
-
-                    span.setAttribute(ATTR_HTTP_RESPONSE_STATUS_CODE, response.status);
-
-                    getHttpClientRequestTotal().add(1, {
-                        'http.request.method': method,
-                        'http.response.status_code': response.status,
-                    });
-                    getHttpClientRequestDuration().record(performance.now() - start, {
-                        'http.request.method': method,
-                        'http.response.status_code': response.status,
-                    });
-
-                    return await consume(response, span);
-                } catch (error) {
-                    // Timeout (our own AbortController fired) — but never relabel a
-                    // caller-initiated abort via opts.signal as a timeout.
-                    if (error instanceof DOMException && error.name === 'AbortError' && !opts?.signal?.aborted) {
-                        getHttpClientRequestErrors().add(1, {
-                            'http.request.method': method,
-                            'error.type': 'Timeout',
+                        const response = await this.fetchFn(url, {
+                            method,
+                            headers,
+                            body,
+                            signal: combinedSignal,
+                            ...(redirect ? { redirect } : {}),
                         });
-                        const timeoutError = new APIError(
-                            0,
-                            `Request timed out after ${timeoutMs}ms: ${method} ${url}`,
+
+                        span.setAttribute(ATTR_HTTP_RESPONSE_STATUS_CODE, response.status);
+
+                        getHttpClientRequestTotal().add(1, {
+                            'http.request.method': method,
+                            'http.response.status_code': response.status,
+                        });
+                        getHttpClientRequestDuration().record(performance.now() - start, {
+                            'http.request.method': method,
+                            'http.response.status_code': response.status,
+                        });
+
+                        return await consume(response, span);
+                    } catch (error) {
+                        // Timeout (our own AbortController fired) — but never relabel a
+                        // caller-initiated abort via opts.signal as a timeout.
+                        if (error instanceof DOMException && error.name === 'AbortError' && !opts?.signal?.aborted) {
+                            getHttpClientRequestErrors().add(1, {
+                                'http.request.method': method,
+                                'error.type': 'Timeout',
+                            });
+                            const timeoutError = new APIError(
+                                0,
+                                `Request timed out after ${timeoutMs}ms: ${method} ${url}`,
+                            );
+                            this.emitRequestError(method, observableUrl, errorForObservability(timeoutError));
+                            callerError = timeoutError;
+                            throw new Error(errorForObservability(timeoutError));
+                        }
+
+                        if (!(error instanceof APIError)) {
+                            getHttpClientRequestErrors().add(1, {
+                                'http.request.method': method,
+                                'error.type': error instanceof Error ? error.name : 'Unknown',
+                            });
+                        }
+                        this.emitRequestError(
+                            method,
+                            observableUrl,
+                            errorForObservability(error),
+                            error instanceof APIError && error.status > 0 ? error.status : undefined,
                         );
-                        this.emitRequestError(method, url, timeoutError.message);
-                        throw timeoutError;
-                    }
 
-                    if (!(error instanceof APIError)) {
-                        getHttpClientRequestErrors().add(1, {
-                            'http.request.method': method,
-                            'error.type': error instanceof Error ? error.name : 'Unknown',
-                        });
+                        callerError = error;
+                        throw new Error(errorForObservability(error));
+                    } finally {
+                        if (timer) clearTimeout(timer);
                     }
-                    this.emitRequestError(
-                        method,
-                        url,
-                        error instanceof Error ? error.message : String(error),
-                        error instanceof APIError && error.status > 0 ? error.status : undefined,
-                    );
-
-                    throw error;
-                } finally {
-                    if (timer) clearTimeout(timer);
-                }
-            },
-            { kind: SpanKind.CLIENT },
-        );
+                },
+                { kind: SpanKind.CLIENT },
+            );
+        } catch (error) {
+            throw callerError ?? error;
+        }
     }
 
     private async request<T>(method: string, path: string, body?: unknown, opts?: RequestOptions): Promise<T> {
