@@ -10,7 +10,8 @@ export type AgentName =
     | 'antigravity-cli'
     | 'openclaw'
     | 'hermes'
-    | 'omp';
+    | 'omp'
+    | 'grok';
 
 /** Output mode for prompt invocations. */
 export type OutputMode = 'text' | 'json';
@@ -232,6 +233,30 @@ const ompShim: AgentShim = {
     getAuthCommand: () => ({ command: 'omp', args: ['--list-models'] }),
 };
 
+/**
+ * Grok Build CLI (`grok`) — xAI coding agent. Headless one-shot via `-p`/`--single`;
+ * continue with `-c`; model via `-m`. Output formats are `plain`/`json`/`streaming-json`
+ * (map ai-runner `text` → `plain`). No auth-status verb — `getAuthCommand` is null;
+ * credential probing lives in auth-shims (env / `~/.grok/auth.json`).
+ */
+const grokShim: AgentShim = {
+    name: 'grok',
+    command: 'grok',
+    tier: 1,
+    getHelpCommand: () => ({ command: 'grok', args: ['--help'] }),
+    getVersionCommand: () => ({ command: 'grok', args: ['--version'] }),
+    getPromptCommand: (options) => {
+        const args = ['-p', options.input ?? ''];
+        if (options.continue === true) args.push('-c');
+        if (options.model !== undefined) args.push('-m', options.model);
+        // Grok has no `text` format; map ai-runner OutputMode `text` → `plain`.
+        const format = (options.mode ?? 'text') === 'json' ? 'json' : 'plain';
+        args.push('--output-format', format);
+        return { command: 'grok', args };
+    },
+    getAuthCommand: () => null,
+};
+
 /** All bundled agent shims keyed by canonical agent name. */
 export const AGENT_SHIMS: Readonly<Record<AgentName, AgentShim>> = {
     claude: claudeShim,
@@ -243,6 +268,7 @@ export const AGENT_SHIMS: Readonly<Record<AgentName, AgentShim>> = {
     openclaw: openclawShim,
     hermes: hermesShim,
     omp: ompShim,
+    grok: grokShim,
 };
 
 /** Tier-1 auto-selection priority. Deprecated ids are excluded. */
@@ -254,6 +280,7 @@ export const TIER1_PRIORITY: readonly AgentName[] = [
     'claude',
     'hermes',
     'opencode',
+    'grok',
 ];
 
 /** Display order for doctor and list commands. */
@@ -267,6 +294,7 @@ export const DISPLAY_ORDER: readonly AgentName[] = [
     'antigravity-cli',
     'openclaw',
     'hermes',
+    'grok',
 ];
 
 /** Set of gateway/TUI-constrained agents. */

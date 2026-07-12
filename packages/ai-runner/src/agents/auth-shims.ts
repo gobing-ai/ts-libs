@@ -83,6 +83,8 @@ function isNonEmpty(value: string | undefined): boolean {
  * - **gemini** — credential-like content in `~/.gemini/settings.json`.
  * - **codex** — `codex login status` CLI output, falling back to an
  *   `~/.codex/auth{.json,}` credential file.
+ * - **grok** — non-empty `XAI_API_KEY` env, else non-empty `~/.grok/auth.json`;
+ *   no CLI auth-status verb (shim `getAuthCommand` is null).
  * - **pi / omp** — a non-empty `GOOGLE_API_KEY` or `ANTHROPIC_API_KEY` in env
  *   (an empty export is not a usable credential), else the CLI auth probe.
  * - **others** — the shim's auth command; matched against {@link AUTH_PATTERNS}.
@@ -96,6 +98,7 @@ export async function isAuthenticated(agent: AgentName, ctx: AuthContext): Promi
 
     if (agent === 'gemini') return geminiSettingsContainCredentials(fs, home);
     if (agent === 'codex') return checkCodexAuth(ctx.runner, fs, home, timeout);
+    if (agent === 'grok') return checkGrokAuth(fs, home, env);
 
     // pi and omp read provider keys from the environment; require a non-empty
     // value rather than mere presence (an empty export is not a usable credential).
@@ -113,6 +116,23 @@ async function checkCodexAuth(runner: AiRunner, fs: FileSystem, home: string, ti
         (await hasNonEmptyFile(fs, joinPath(home, '.codex', 'auth.json'))) ||
         (await hasNonEmptyFile(fs, joinPath(home, '.codex', 'auth')));
     return hasFile ? 'authenticated' : 'unknown';
+}
+
+/**
+ * Grok has no auth-status CLI verb. Credential sources (never false-negative
+ * to `unauthenticated` when missing):
+ * 1. non-empty `XAI_API_KEY`
+ * 2. non-empty `~/.grok/auth.json`
+ * Else `unknown`.
+ */
+async function checkGrokAuth(
+    fs: FileSystem,
+    home: string,
+    env: Record<string, string | undefined>,
+): Promise<AuthState> {
+    if (isNonEmpty(env.XAI_API_KEY)) return 'authenticated';
+    if (await hasNonEmptyFile(fs, joinPath(home, '.grok', 'auth.json'))) return 'authenticated';
+    return 'unknown';
 }
 
 async function geminiSettingsContainCredentials(fs: FileSystem, home: string): Promise<AuthState> {

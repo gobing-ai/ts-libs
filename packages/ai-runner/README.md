@@ -32,7 +32,7 @@ bun add @gobing-ai/ts-ai-runner
 | `AGENT_SHIMS` / `TIER1_PRIORITY` / `TIER2_AGENTS` / `DISPLAY_ORDER` | Agent registry constants |
 | `isAgentName()` | Type guard for supported agent identifiers |
 
-Supported agent identifiers: `claude`, `codex`, `gemini` (deprecated), `pi`, `omp`, `opencode`, `antigravity-cli`, `openclaw`, `hermes`. The `antigravity` id is a deprecated alias of `antigravity-cli`. See [Deprecation & Aliases](#deprecation--aliases).
+Supported agent identifiers: `claude`, `codex`, `gemini` (deprecated), `pi`, `omp`, `opencode`, `antigravity-cli`, `openclaw`, `hermes`, `grok`. The `antigravity` id is a deprecated alias of `antigravity-cli`. See [Deprecation & Aliases](#deprecation--aliases).
 
 ## Architecture
 
@@ -433,6 +433,9 @@ Agent-specific behavior:
 | `opencode` | `opencode` | 1 | `opencode providers` | `run`, `-c`, `-m`, `--format json` |
 | `antigravity-cli` | `agy` | 1 | env-only | `-p`, `--continue`, `--model` |
 | `openclaw` | `openclaw` | 2 | `openclaw health` | `agent --local -m` |
+| `hermes` | `hermes` | 1 | `hermes doctor` | `chat -q`, `--continue`, `-m` |
+| `grok` | `grok` | 1 | env/file (`XAI_API_KEY` or `~/.grok/auth.json`) | `-p`, `-c` (resume), `-m`, `--output-format plain\|json` (maps ai-runner `text` → `plain`) |
+
 This is the right layer for UI previews, audit logging, and custom launchers.
 
 ## Deprecation & Aliases
@@ -458,6 +461,7 @@ resolveAgentName('cursor');          // → undefined
 | `gemini` | deprecated | `gemini` (self) → replaced by `antigravity-cli` | Gemini CLI sunset 2026-06-18. Shim stays functional. |
 | `omp` | canonical | `omp` | First-class; NOT a pi alias. |
 | `hermes` | canonical | `hermes` | First-class; OpenClaw-compatible but distinct binary. |
+| `grok` | canonical | `grok` | Grok Build CLI; headless via `-p`; auth is env/file only (no status verb). |
 
 `getAgentShim()` and `isAgentName()` are alias-aware: passing `'antigravity'` resolves to the `antigravity-cli` shim. `DoctorResult` and `DetectedAgent` surface `deprecated` + `replacedBy` when the resolved canonical id is marked deprecated.
 
