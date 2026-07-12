@@ -8,11 +8,23 @@ versioned in **lockstep** — a single version number covers every package in th
 
 
 
+## [0.4.8] — 2026-07-12
+
+### Added
+
+- **`ts-ai-runner` — Grok (`grok`) registered as a tier-1 coding agent:** New canonical `AgentName` `"grok"` (binary `grok`, tier 1) joins `AGENT_SHIMS`, `DISPLAY_ORDER`, and `TIER1_PRIORITY` next to `hermes` and `omp`. The `AgentShim` builds headless argv as `grok -p <input>` (or `-c` for continue, `-m <model>`), maps ai-runner `OutputMode` `text → plain` and `json → json` via `--output-format`, and exposes `getAuthCommand = null` because Grok has no CLI auth-status verb. `AgentDetector` parses the real `grok --version` shape (`grok 0.2.93 (<sha>) [stable]`); `DoctorRunner` emits a `grok` row. README §"Supported agent identifiers" and the agent-behavior table are updated.
+- **`ts-ai-runner` — Grok auth probe via `XAI_API_KEY` or `~/.grok/auth.json`:** New `checkGrokAuth` branch in `agents/auth-shims.ts` resolves the tri-state `AuthState` without false-negatives to `'unauthenticated'` when only credentials are present but no CLI verb exists: a non-empty `XAI_API_KEY` env or a non-empty `~/.grok/auth.json` returns `'authenticated'`; absence returns `'unknown'`. Keeps `DoctorResult.usable` driven by liveness (per the 0.4.0 contract) and never feeds run-readiness.
+- **Docs — Feature `A` and tasks `0046`–`0048` for Grok support:** Feature file `docs/features/A_add-grok-coding-agent-to-ts-ai-runner.md` (status `active`, P1) with nine gherkin acceptance criteria covering registry membership, argv mapping, help/version, detector parse, auth tri-state, doctor row, README listing, output-mode mapping, and the null-auth-command invariant. Linked tasks `0046` (shim + registry membership, `done`), `0047` (auth probe + detector/doctor coverage), and `0048` (Grok documented as a supported coding agent).
+
+### Changed
+
+- **`ts-ai-runner` — `DISPLAY_ORDER` and `TIER1_PRIORITY` extended for Grok:** `AgentShim` registry now covers ten agents; `grok` is appended to both priority lists after `hermes` and `omp` to keep auto-select deterministic for the existing preferred agents. No behaviour change for other agents.
+
 ## [0.4.7] — 2026-07-11
 
 ### Added
 
-- **`ts-db` — `DbAdapter.batch()` for atomic multi-statement writes:** New `batch(operations)` method on `DbAdapter` accepts a `readonly DbBatchOp[]` (`{ sql, params }`) and executes all operations in a single transactional unit. `BunSqliteAdapter` uses `db.transaction()` with rollback on failure; `D1Adapter` uses D1's native `binding.batch()` when available and falls back to sequential `run()` otherwise. All-or-nothing semantics guarantee that partial-state windows are impossible.
+- **`ts-db` — `DbAdapter.batch()` for atomic multi-statement writes:**
 
 - **`ts-dual-workflow-engine` — `commitTransition` and `commitHop` for crash-safe workflow persistence:** `WorkflowPersistenceAdapter.commitTransition()` atomically commits a transition record + state snapshot + optional phase write in one batch. `RunLifecycle.commitHop()` wraps all per-step persistence into the same atomic call, replacing the prior `recordTransition` + `saveWorkflowState` pair that left a partial-state window on crash. All three commit sites (`service.ts`, `state-machine.ts`, `transition-flow.ts`) now use `commitHop`. `RunLifecycle.enter(persist=false)` skips persistence after a `commitHop` to avoid duplicate writes.
 

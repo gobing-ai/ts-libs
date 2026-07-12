@@ -4,7 +4,7 @@ name: "Add grok AgentShim and registry membership"
 status: done
 template: feature-impl
 created_at: 2026-07-12T07:32:35.011Z
-updated_at: "2026-07-12T07:38:55.371Z"
+updated_at: "2026-07-12T16:17:04.190Z"
 feature_id: A
 priority: P1
 tags: ["ai-runner", "grok", "shim"]
@@ -85,57 +85,68 @@ Change map — HOW/WHERE for the grok AgentShim registration.
 
 **Deferred (not this task):** env/file auth + detector/doctor → **0047**; README → **0048**.
 ### Testing
-**Verdict: PASS** — re-certified 2026-07-12 via `/sp:dev-run 0046 --auto --next` (implement idempotent — already shipped).
+**Verdict: PASS** — `/sp:dev-verify 0046 --focus all --fix all --auto --force` (2026-07-12).
 
-**Coverage:** `bun test packages/ai-runner` — **131 pass / 0 fail**; shims suite **18 pass / 0 fail**.
+**Coverage:** `bun test packages/ai-runner` — **131 pass / 0 fail**. `biome check` on shims + tests clean. `tsc --noEmit` clean.
 
 **Per-requirement traceability**
 
 | Req | Status | Evidence |
 |-----|--------|----------|
-| R1 | MET | `isAgentName('grok')` / `resolveAgentName('grok')` — `shims.ts:14`; `shims.test.ts:25`, `:93` |
-| R2 | MET | `getPromptCommand` `-p`/`-c`/`-m`/`--output-format` — `shims.ts:248-255`; `shims.test.ts:177-189` |
-| R3 | MET | `grok --help` / `grok --version` — `shims.ts:246-247`; `:197-198` |
-| R8 | MET | mode `text` → `plain`, never bare `text` — `shims.ts:251-253`; `:190-194` |
-| R9 | MET | `getAuthCommand() → null` — `shims.ts:256`; `:195-196` |
+| R1 | MET | `isAgentName('grok')` / `resolveAgentName('grok')` → `true`/`'grok'`; `shims.ts:14`, `AGENT_SHIMS.grok`; tests `shims.test.ts:25`, `:93`; runtime smoke this pass |
+| R2 | MET | `getPromptCommand` → `-p`, optional `-c`, `-m`, `--output-format plain\|json`; `shims.ts:248-255`; `shims.test.ts:177-189`; runtime smoke confirms argv |
+| R3 | MET | `getHelpCommand` → `grok --help`, `getVersionCommand` → `grok --version`; `shims.ts:246-247`; tests + runtime smoke |
+| R8 | MET | mode `text` → `--output-format plain`, args never contain bare format `text`; `shims.ts:252-254`; `shims.test.ts:190-194` |
+| R9 | MET | `getAuthCommand() → null`; `shims.ts:257`; test `:195-196`. Doctor liveness-only usable for null-auth agents is existing design (antigravity path); binary install detection is version exit-0 (0047/doctor suite). |
 
-**Acceptance criteria** — all five scenarios MET (same unit evidence as R1–R3, R8–R9).
+**Acceptance Criteria Verification**
+
+| AC | Status | Evidence Type | Evidence |
+|----|--------|---------------|----------|
+| Scenario: R1 — grok is a known canonical agent id | MET | test | `shims.test.ts` isAgentName/resolve + runtime smoke |
+| Scenario: R2 — prompt command maps PromptOptions to grok headless argv | MET | test | `shims.test.ts` argv equality + runtime smoke |
+| Scenario: R3 — help and version commands target the grok binary | MET | test | `shims.test.ts` + runtime smoke |
+| Scenario: R8 — text mode never passes --output-format text | MET | test | `not.toContain('text')` + plain |
+| Scenario: R9 — getAuthCommand is null so doctor does not require a CLI auth verb | MET | test | `toBeNull()`; doctor null-auth usable is shared path |
 
 **Gate evidence (fresh this turn)**
 
 - `bun test packages/ai-runner` → **131 pass / 0 fail**
 - `bunx tsc --noEmit -p packages/ai-runner/tsconfig.json` → **exit 0**
+- `biome check src/agents/shims.ts tests/agents/shims.test.ts` → clean
+- `spur task check 0046` → **pass: true** (L2 done-status section advisories only)
+- `--fix all`: no UNMET/PARTIAL/major findings → no repair pass needed
 ### Review
+**Verdict:** PASS — `/sp:dev-verify 0046 --focus all --fix all --auto --force` (2026-07-12).
 
-**Verdict:** PASS — re-run via `/sp:dev-run 0046 --auto --next` (2026-07-12). Implementation already complete; this pass backfills Review (required at `done`) and re-certifies evidence.
+**Scope:** `packages/ai-runner/src/agents/shims.ts` + `tests/agents/shims.test.ts` (R1–R3, R8–R9). Auth probe / doctor rows / README owned by 0047/0048.
 
-**Scope:** `packages/ai-runner/src/agents/shims.ts` + `tests/agents/shims.test.ts` only (R1–R3, R8–R9). Auth/doctor/README owned by 0047/0048.
+**Gate:** 131 package tests pass; biome + tsc clean on touched files; runtime smoke of registry + argv confirmed this pass.
 
-**Gate (fresh this turn):** `bun test packages/ai-runner` → **131 pass / 0 fail**; shims.test.ts **18 pass / 0 fail**. `tsc --noEmit` clean for package.
+| Priority | Dim | file:line | Description | Remediation |
+|----------|-----|-----------|-------------|-------------|
+| P1 | — | — | No blockers | — |
+| P2 | — | — | No warnings | — |
+| P3 | Usability | `shims.ts:257` | `getAuthCommand` null — doctor auth state is `unknown` without env/file probe | By design for 0046; env/file probe shipped in **0047** |
+| P4 | Architecture | `PromptOptions` | Advanced grok flags (sandbox, worktree, best-of-n) not mapped | Out of feature scope until PromptOptions expands |
 
+**SECUA (focus=all)**
 
 | Dim | Result | Notes |
 |-----|--------|-------|
-| Security | OK | No credentials; `getAuthCommand` null (auth deferred to 0047 env/file). |
-| Efficiency | OK | Pure command builders; O(1) registry lookup. |
-| Correctness | OK | Argv matches `grok --help` / headless docs; `text`→`plain` mapping covered by unit test. |
-| Usability | OK | Tier-1; appended to `TIER1_PRIORITY`/`DISPLAY_ORDER` without reordering preferred agents. |
-| Architecture | OK | Follows existing `AgentShim` pattern (hermes/omp); no new boundaries. |
+| Security | OK | Pure argv builders; no secrets in shim |
+| Efficiency | OK | O(1) registry; no I/O in command build |
+| Correctness | OK | Argv matches grok headless CLI; text→plain covered by unit test |
+| Usability | OK | Tier-1; priority/display append without reordering preferred agents |
+| Architecture | OK | Matches hermes/omp AgentShim pattern; no new package boundaries |
 
+**Requirements traceability**
 
-No P1–P3 findings in task scope.
-
-| # | Sev | Dim | Location | Note |
-|---|-----|-----|----------|------|
-| 1 | P4 | Usability | `shims.ts` grokShim | Advanced flags (sandbox, worktree, best-of-n) not mapped — out of scope until `PromptOptions` grows. |
-
-
-- [x] **R1** `isAgentName`/`resolveAgentName('grok')` → MET — `shims.ts:14`, tests
-- [x] **R2** prompt argv `-p`/`-c`/`-m`/`--output-format` → MET — `shims.ts:248-255`
-- [x] **R3** help/version → MET — `shims.ts:246-247`
-- [x] **R8** mode `text` never emits format `text` → MET — maps to `plain`
-- [x] **R9** `getAuthCommand() → null` → MET — `shims.ts:256`
-
+- [x] R1 MET — registry membership
+- [x] R2 MET — prompt argv
+- [x] R3 MET — help/version
+- [x] R8 MET — text→plain
+- [x] R9 MET — auth command null
 ### History
 - 2026-07-12T07:34:49.586Z todo → wip (system)
 - 2026-07-12T07:34:59.098Z wip → testing (system)

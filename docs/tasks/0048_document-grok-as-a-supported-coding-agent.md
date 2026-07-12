@@ -4,7 +4,7 @@ name: "Document grok as a supported coding agent"
 status: done
 template: feature-impl
 created_at: 2026-07-12T07:32:35.014Z
-updated_at: "2026-07-12T16:13:34.081Z"
+updated_at: "2026-07-12T16:18:38.418Z"
 feature_id: A
 priority: P2
 tags: ["ai-runner", "grok", "docs"]
@@ -54,44 +54,55 @@ Change map — document grok in package README (R7).
 | `packages/ai-runner/README.md:462` | Deprecation map notes: `grok` is first-class canonical. |
 
 ### Testing
-**Verdict: PASS** — re-certified 2026-07-12 via `/sp:dev-run 0048 --auto --next` (implement idempotent — already shipped).
+**Verdict: PASS** — `/sp:dev-verify 0048 --focus all --fix all --auto --force` (2026-07-12).
 
-**Coverage:** N/A (docs-only). Evidence: static-ref + command.
+**Coverage:** N/A (docs-only). Evidence: static-ref + command checks.
 
 **Per-requirement traceability**
 
 | Req | Status | Evidence |
 |-----|--------|----------|
-| R7 | MET | `packages/ai-runner/README.md:35` lists `grok`; table `:437`; deprecation notes `:464` |
+| R7 | MET | `packages/ai-runner/README.md:35` supported identifiers include `` `grok` ``; agent surface table `:437`; deprecation map `:464` |
 
-**Acceptance criteria**
+**Acceptance Criteria Verification**
 
-| Scenario | Status | Evidence |
-|----------|--------|----------|
-| R7 — package README lists grok as supported | MET | `rg '`grok`|Supported agent' packages/ai-runner/README.md` |
+| AC | Status | Evidence Type | Evidence |
+|----|--------|---------------|----------|
+| Scenario: R7 — package README lists grok as supported | MET | static-ref + command | `rg` hits + registry/doc consistency check: every `AGENT_SHIMS` id appears in identifiers list and agent table (`missingFromIdLine: []`, `missingFromTable: []`) |
 
 **Gate evidence (fresh this turn)**
 
-- README identifiers + agent table + deprecation map all mention `grok`
+- `rg` confirms grok in identifiers, table, deprecation notes
+- Consistency script: full registry ↔ README parity
+- `spur task check 0048` → pass: true (L2 done-status advisories only)
+- `--fix all`: no UNMET/PARTIAL/major → no repair
 ### Review
+**Verdict:** PASS — `/sp:dev-verify 0048 --focus all --fix all --auto --force` (2026-07-12).
 
-**Verdict:** PASS — re-run via `/sp:dev-run 0048 --auto --next` (2026-07-12). Docs already shipped; Review backfilled for done-status gate; R7 re-certified.
+**Scope:** `packages/ai-runner/README.md` only (R7). Implementation code owned by 0046/0047.
 
-**Scope:** `packages/ai-runner/README.md` only (docs). Shim/auth implementation owned by 0046/0047.
-
-**Gate (fresh this turn):** `rg` confirms `grok` in supported identifiers (`README.md:35`), agent table (`:437`), deprecation notes (`:464`).
+**Gate:** static-ref + consistency check; all canonical agents present in identifiers list and surface table.
 
 | Priority | Dim | file:line | Description | Remediation |
 |----------|-----|-----------|-------------|-------------|
 | P1 | — | — | No blockers | — |
 | P2 | — | — | No warnings | — |
-| P3 | Usability | `README.md:436` | Restored missing `hermes` table row while adding `grok` | Intentional list/table parity fix |
-| P4 | Usability | `README.md` "Adding a New Agent" | Tutorial still uses fictional `amp` example | Pre-existing; out of scope for R7 |
+| P3 | Usability | `README.md:436` | Restored pre-existing missing `hermes` table row while documenting `grok` | Intentional parity fix |
+| P4 | Usability | README "Adding a New Agent" | Tutorial still uses fictional `amp` example | Pre-existing; out of R7 scope |
+
+**SECUA (focus=all)**
+
+| Dim | Result | Notes |
+|-----|--------|-------|
+| Security | OK | Docs only; documents env/file auth without embedding secrets |
+| Efficiency | N/A | Documentation task |
+| Correctness | OK | Identifier list + table + deprecation notes match shipped registry |
+| Usability | OK | Consumer-facing flags and auth sources documented |
+| Architecture | OK | No code boundary change |
 
 **Requirements traceability**
 
-- [x] **R7** README lists `grok` among supported agents → MET — identifiers + surface table + deprecation map
-
+- [x] R7 MET — README lists grok among supported agents
 ### History
 - 2026-07-12T07:37:34.406Z todo → wip (system)
 - 2026-07-12T07:37:34.744Z wip → testing (system)

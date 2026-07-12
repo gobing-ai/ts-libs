@@ -4,7 +4,7 @@ name: "Grok auth probe and detector/doctor coverage"
 status: done
 template: feature-impl
 created_at: 2026-07-12T07:32:35.014Z
-updated_at: "2026-07-12T07:41:23.167Z"
+updated_at: "2026-07-12T16:18:01.244Z"
 feature_id: A
 priority: P1
 tags: ["ai-runner", "grok", "auth", "doctor"]
@@ -71,43 +71,61 @@ Change map — HOW/WHERE for grok auth probe + detector/doctor coverage.
 | `packages/ai-runner/tests/doctor-runner.test.ts:72` | R6: `DISPLAY_ORDER` / `runAll` include `grok` exactly once. |
 
 ### Testing
-**Verdict: PASS** — re-certified 2026-07-12 via `/sp:dev-run 0047 --auto --next` (implement idempotent — already shipped).
+**Verdict: PASS** — `/sp:dev-verify 0047 --focus all --fix all --auto --force` (2026-07-12).
 
-**Coverage:** auth/detector/doctor suites **43 pass / 0 fail**; full package suite re-run this turn.
+**Coverage:** targeted auth/detector/doctor **43 pass / 0 fail**; full `bun test packages/ai-runner` → **131 pass / 0 fail**. biome + tsc clean.
 
 **Per-requirement traceability**
 
 | Req | Status | Evidence |
 |-----|--------|----------|
-| R4 | MET | `agent-detector.test.ts` — `detectOne('grok')` with `grok 0.2.93 (deadbeef) [stable]` |
-| R5 | MET | `auth-shims.ts` `checkGrokAuth`; four unit cases (key, blank key, auth.json, neither) |
-| R6 | MET | `doctor-runner.test.ts` — DISPLAY_ORDER/runAll grok length 1 |
+| R4 | MET | `AgentDetector.detectOne('grok')` with stdout `grok 0.2.93 (deadbeef) [stable]` → installed + version contains `0.2.93`; `agent-detector.test.ts:97`; runtime smoke this pass |
+| R5 | MET | `checkGrokAuth` (`auth-shims.ts:128`): non-empty `XAI_API_KEY` or `~/.grok/auth.json` → `authenticated`; neither → `unknown`; blank key does not authenticate; `auth-shims.test.ts:167+`; runtime smoke key/file/none |
+| R6 | MET | `DISPLAY_ORDER` filter length 1; `DoctorRunner.runAll` one row `agent === 'grok'`; `doctor-runner.test.ts:72-73`; runtime smoke doctorOnce=1, usable=true with authenticated=unknown |
 
-**Acceptance criteria** — R4, R5, R6 scenarios MET via unit tests above.
+**Acceptance Criteria Verification**
+
+| AC | Status | Evidence Type | Evidence |
+|----|--------|---------------|----------|
+| Scenario: R4 — AgentDetector parses grok version output | MET | test | agent-detector.test.ts + runtime smoke |
+| Scenario: R5 — auth resolves from XAI_API_KEY or ~/.grok/auth.json without false negatives | MET | test | four unit cases + runtime smoke |
+| Scenario: R6 — doctor and display order include grok | MET | test | doctor-runner.test.ts + runtime smoke |
 
 **Gate evidence (fresh this turn)**
 
-- Targeted tests **43 pass / 0 fail**
-- `bun test packages/ai-runner` full package suite (this pass)
+- Targeted **43 pass / 0 fail**; full package **131 pass / 0 fail**
+- `tsc --noEmit` clean; biome check clean on touched files
+- Runtime smoke: detect installed, authKey/authFile authenticated, authNone unknown, doctor usable with unknown auth
+- `--fix all`: no UNMET/PARTIAL/major → no repair
 ### Review
-**Verdict:** PASS — re-run via `/sp:dev-run 0047 --auto --next` (2026-07-12). Implementation already complete; Review backfilled for done-status gate; R4–R6 re-certified.
+**Verdict:** PASS — `/sp:dev-verify 0047 --focus all --fix all --auto --force` (2026-07-12).
 
-**Scope:** `packages/ai-runner/src/agents/auth-shims.ts` + detector/auth/doctor tests. Shim registration owned by 0046; README by 0048.
+**Scope:** `auth-shims.ts` `checkGrokAuth` + detector/auth/doctor tests. Shim registration 0046; README 0048.
 
-**Gate (fresh this turn):** targeted auth/detector/doctor **43 pass / 0 fail**; full `bun test packages/ai-runner` → **131 pass / 0 fail**.
+**Gate:** 43 targeted + 131 package tests pass; biome/tsc clean; runtime smoke confirms R4–R6.
 
 | Priority | Dim | file:line | Description | Remediation |
 |----------|-----|-----------|-------------|-------------|
 | P1 | — | — | No blockers | — |
 | P2 | — | — | No warnings | — |
-| P3 | Usability | `auth-shims.ts:128` | Grok has no CLI auth-status verb; env/file only | Intentional; missing credentials stay `unknown` |
-| P4 | Correctness | out of scope | No live xAI smoke in CI | Deferred by feature A; optional follow-up |
+| P3 | Usability | `auth-shims.ts:128` | No CLI auth-status verb; env/file only | Intentional; missing → `unknown` not `unauthenticated` |
+| P4 | Correctness | out of scope | No live xAI network smoke in CI | Feature A out-of-scope; optional follow-up |
+
+**SECUA (focus=all)**
+
+| Dim | Result | Notes |
+|-----|--------|-------|
+| Security | OK | Read-only env/file probe; no secret values logged |
+| Efficiency | OK | Env check then optional single file stat |
+| Correctness | OK | Tri-state auth; version parse of real grok shape; doctor row present |
+| Usability | OK | Doctor usable remains true when auth unknown (liveness-only) |
+| Architecture | OK | Mirrors codex/gemini env/file patterns; no new package deps |
 
 **Requirements traceability**
 
-- [x] **R4** AgentDetector parses `grok 0.2.93 (...)` → MET — `agent-detector.test.ts:97`
-- [x] **R5** `XAI_API_KEY` / `~/.grok/auth.json` → authenticated; neither → unknown → MET — `checkGrokAuth` + `auth-shims.test.ts:167+`
-- [x] **R6** Doctor/DISPLAY_ORDER include grok once → MET — `doctor-runner.test.ts:72-73`
+- [x] R4 MET — detector version parse
+- [x] R5 MET — env/file auth tri-state
+- [x] R6 MET — doctor + DISPLAY_ORDER once
 ### History
 - 2026-07-12T07:36:54.560Z todo → wip (system)
 - 2026-07-12T07:36:54.841Z wip → testing (system)
