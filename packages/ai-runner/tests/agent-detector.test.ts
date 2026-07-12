@@ -94,6 +94,22 @@ describe('AgentDetector', () => {
         expect(result).toMatchObject({ installed: true, version: 'pi 1.2' });
     });
 
+    test('detectOne parses grok version output with build metadata', async () => {
+        // Real grok --version shape: "grok 0.2.93 (f00f96316d4b) [stable]"
+        const executor = new FakeExecutor(() => ({ stdout: 'grok 0.2.93 (deadbeef) [stable]' }));
+        const detector = new AgentDetector({
+            runner: new AiRunner({ processExecutor: executor }),
+        });
+        const result = await detector.detectOne('grok');
+
+        expect(result).toMatchObject({
+            name: 'grok',
+            installed: true,
+        });
+        expect(result.version).toContain('0.2.93');
+        expect(result.error).toBeNull();
+    });
+
     test('detectOne reports distinct signal and null-exit errors', async () => {
         const signalDetector = new AgentDetector({
             runner: new AiRunner({ processExecutor: new FakeExecutor(() => ({ exitCode: null, signal: 'SIGTERM' })) }),

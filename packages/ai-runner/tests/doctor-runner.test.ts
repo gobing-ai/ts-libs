@@ -68,6 +68,9 @@ describe('DoctorRunner', () => {
 
         const names = results.map((r) => r.agent);
         expect(names).toEqual([...DISPLAY_ORDER]);
+        // R6: grok is in display order exactly once and appears as its own doctor row.
+        expect(names.filter((n) => n === 'grok')).toHaveLength(1);
+        expect(DISPLAY_ORDER.filter((n) => n === 'grok')).toHaveLength(1);
 
         for (const entry of results) {
             expect(entry).toHaveProperty('agent');

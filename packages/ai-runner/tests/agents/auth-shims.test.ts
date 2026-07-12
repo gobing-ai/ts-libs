@@ -163,4 +163,32 @@ describe('isAuthenticated (tri-state)', () => {
         const state = await isAuthenticated('claude', ctx(runner));
         expect(state).toBe<AuthState>('unknown');
     });
+
+    test('grok with non-empty XAI_API_KEY is authenticated', async () => {
+        const runner = makeRunner(() => ({ stdout: 'unused' }));
+        const state = await isAuthenticated(
+            'grok',
+            ctx(runner, { env: { XAI_API_KEY: 'xai-test-key', HOME: '/home' } }),
+        );
+        expect(state).toBe<AuthState>('authenticated');
+    });
+
+    test('grok with blank XAI_API_KEY does not count as authenticated', async () => {
+        const runner = makeRunner(() => ({ stdout: 'unused' }));
+        const state = await isAuthenticated('grok', ctx(runner, { env: { XAI_API_KEY: '   ', HOME: '/home' } }));
+        expect(state).toBe<AuthState>('unknown');
+    });
+
+    test('grok with non-empty ~/.grok/auth.json is authenticated', async () => {
+        const runner = makeRunner(() => ({ stdout: 'unused' }));
+        const fs = new FakeFileSystem().set('/home/.grok/auth.json', '{"access_token":"live"}');
+        const state = await isAuthenticated('grok', ctx(runner, { fs, env: { HOME: '/home' } }));
+        expect(state).toBe<AuthState>('authenticated');
+    });
+
+    test('grok with neither env key nor auth file is unknown (not unauthenticated)', async () => {
+        const runner = makeRunner(() => ({ stdout: 'unused' }));
+        const state = await isAuthenticated('grok', ctx(runner, { env: { HOME: '/home' } }));
+        expect(state).toBe<AuthState>('unknown');
+    });
 });

@@ -22,6 +22,7 @@ describe('Agent shims', () => {
         expect(isAgentName('openclaw')).toBe(true);
         expect(isAgentName('hermes')).toBe(true);
         expect(isAgentName('omp')).toBe(true);
+        expect(isAgentName('grok')).toBe(true);
         // Alias
         expect(isAgentName('antigravity')).toBe(true);
 
@@ -64,11 +65,14 @@ describe('Agent shims', () => {
     });
 
     test('DISPLAY_ORDER includes all bundled canonical agents with no duplicates', () => {
-        expect(DISPLAY_ORDER.length).toBeGreaterThanOrEqual(9);
+        expect(DISPLAY_ORDER.length).toBeGreaterThanOrEqual(10);
         expect(new Set(DISPLAY_ORDER).size).toBe(DISPLAY_ORDER.length);
+        expect(DISPLAY_ORDER).toContain('grok');
         for (const name of DISPLAY_ORDER) {
             expect(isAgentName(name)).toBe(true);
         }
+        // Every canonical id appears in DISPLAY_ORDER exactly once.
+        expect(new Set(DISPLAY_ORDER).size).toBe(Object.keys(AGENT_SHIMS).length);
     });
 
     test('TIER1_PRIORITY contains only tier-1 agents in priority order', () => {
@@ -86,6 +90,7 @@ describe('resolveAgentName', () => {
         expect(resolveAgentName('hermes')).toBe('hermes');
         expect(resolveAgentName('antigravity-cli')).toBe('antigravity-cli');
         expect(resolveAgentName('openclaw')).toBe('openclaw');
+        expect(resolveAgentName('grok')).toBe('grok');
     });
 
     test('alias resolves to canonical', () => {
@@ -167,6 +172,31 @@ describe('new agent shims', () => {
         expect(shim.getHelpCommand()).toEqual({ command: 'agy', args: ['--help'] });
         expect(shim.getVersionCommand()).toEqual({ command: 'agy', args: ['--version'] });
     });
+
+    test('grok shim builds -p/-c/-m/--output-format argv (tier 1)', () => {
+        const shim = getAgentShim('grok');
+        expect(shim.command).toBe('grok');
+        expect(shim.tier).toBe(1);
+        // one-shot defaults mode text → --output-format plain
+        expect(shim.getPromptCommand({ input: 'ship it' })).toEqual({
+            command: 'grok',
+            args: ['-p', 'ship it', '--output-format', 'plain'],
+        });
+        // continue + model + json
+        expect(shim.getPromptCommand({ input: 'x', continue: true, model: 'grok-build', mode: 'json' })).toEqual({
+            command: 'grok',
+            args: ['-p', 'x', '-c', '-m', 'grok-build', '--output-format', 'json'],
+        });
+        // R8: mode text must never emit the bare format value "text"
+        const textMode = shim.getPromptCommand({ input: 'y', mode: 'text' });
+        expect(textMode.args).toContain('--output-format');
+        expect(textMode.args).toContain('plain');
+        expect(textMode.args).not.toContain('text');
+        // R9: no auth-status CLI verb
+        expect(shim.getAuthCommand()).toBeNull();
+        expect(shim.getHelpCommand()).toEqual({ command: 'grok', args: ['--help'] });
+        expect(shim.getVersionCommand()).toEqual({ command: 'grok', args: ['--version'] });
+    });
 });
 
 describe('deprecation metadata', () => {
@@ -183,7 +213,7 @@ describe('deprecation metadata', () => {
     });
 
     test('non-deprecated agents have no deprecation metadata', () => {
-        for (const name of ['claude', 'codex', 'pi', 'omp', 'hermes', 'opencode', 'openclaw'] as AgentName[]) {
+        for (const name of ['claude', 'codex', 'pi', 'omp', 'hermes', 'opencode', 'openclaw', 'grok'] as AgentName[]) {
             expect(getAgentShim(name).deprecated).toBeUndefined();
         }
     });
