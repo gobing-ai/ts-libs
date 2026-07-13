@@ -1,0 +1,4 @@
+- [ ] R1. Add a `lifecycle-bus-propagation` rule under `.spur/rules/` that detects consumer-facing `events?: EventBus<XEvents>` APIs without a corresponding lifecycle-bus propagation path.
+- [ ] R2. Cover compliant and non-compliant fixtures so the rule proves both detection and false-positive behavior.
+- [ ] R3. Register the rule in the appropriate recommended preset only after it passes the existing repository sources.
+- [ ] R4. Keep the rule structural and package-agnostic; do not hard-code the current package list.
