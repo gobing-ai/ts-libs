@@ -1,3 +1,4 @@
+import type { BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
 import { NodeProcessExecutor, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import { type CapabilityOrigin, CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 import { WorkflowValidationError } from './errors';
@@ -14,6 +15,8 @@ import type {
 export class WorkflowEngineHost {
     private readonly actions = new CapabilityRegistry<ActionRunner>('workflow action');
     private readonly guards = new CapabilityRegistry<GuardRunner>('workflow guard');
+
+    constructor(readonly lifecycleBus?: EventBus<BusLifecycleEvents>) {}
 
     /** Register or replace an action runner. */
     registerAction(action: ActionRunner, origin: CapabilityOrigin = 'extension'): this {
@@ -84,9 +87,9 @@ export class WorkflowEngineHost {
 
 /** Create a workflow host with built-in note, shell, always, and action-ok capabilities. */
 export function createDefaultWorkflowEngineHost(
-    options: { processExecutor?: ProcessExecutor } = {},
+    options: { processExecutor?: ProcessExecutor; lifecycleBus?: EventBus<BusLifecycleEvents> } = {},
 ): WorkflowEngineHost {
-    const host = new WorkflowEngineHost();
+    const host = new WorkflowEngineHost(options.lifecycleBus);
     host.registerAction(new NoteActionRunner(), 'builtin');
     host.registerAction(new ShellActionRunner(options.processExecutor ?? new NodeProcessExecutor()), 'builtin');
     host.registerAction(new EventEmitActionRunner(), 'builtin');

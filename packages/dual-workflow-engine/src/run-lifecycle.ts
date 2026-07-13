@@ -1,4 +1,11 @@
-import { addSpanEvent, type EventBus, getLogger, type Logger, traceAsync } from '@gobing-ai/ts-infra';
+import {
+    addSpanEvent,
+    type BusLifecycleEvents,
+    EventBus,
+    getLogger,
+    type Logger,
+    traceAsync,
+} from '@gobing-ai/ts-infra';
 import { getProcessEnv } from '@gobing-ai/ts-runtime';
 import type { WorkflowEngineEvents } from './events';
 import type {
@@ -61,6 +68,8 @@ export interface RunLifecycleDeps {
     readonly logger?: Logger;
     /** Optional event bus for structured in-process run observability. */
     readonly events?: EventBus<WorkflowEngineEvents>;
+    /** Parent bus used when RunLifecycle must construct its own workflow event bus. */
+    readonly lifecycleBus?: EventBus<BusLifecycleEvents>;
 }
 
 /**
@@ -86,7 +95,9 @@ export class RunLifecycle {
         this.runId = runId;
         this.externalKey = externalKey;
         this.persistence = deps.persistence;
-        this.events = deps.events;
+        this.events =
+            deps.events ??
+            (deps.lifecycleBus ? new EventBus<WorkflowEngineEvents>({ lifecycleBus: deps.lifecycleBus }) : undefined);
         this.logger = (deps.logger ?? getLogger('workflow')).child({ runId, workflow: workflowName, mode });
     }
 

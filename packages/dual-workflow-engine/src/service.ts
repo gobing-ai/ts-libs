@@ -1,5 +1,7 @@
+import { type BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
 import { loadWorkflowDef } from './config';
 import { FSMError, WorkflowResumeError } from './errors';
+import type { WorkflowEngineEvents } from './events';
 import type { WorkflowEngineHost } from './host';
 import { RunLifecycle } from './run-lifecycle';
 import { StateMachineDriver } from './state-machine';
@@ -20,11 +22,32 @@ import { resolveTemplates } from './variables';
 export class WorkflowService {
     /** Per-run serialization: ensures concurrent requestTransition calls serialize. */
     private readonly runLocks = new Map<string, Promise<void>>();
+    private readonly lifecycleBus: EventBus<BusLifecycleEvents> | undefined;
 
     constructor(
         private readonly host: WorkflowEngineHost,
         private readonly persistence: WorkflowPersistenceAdapter,
-    ) {}
+        /**
+         * Optional lifecycle bus to bridge `workflow.*` events into the
+         * application System Events stream (R3). When a run's `events` is
+         * omitted the service constructs an internal
+         * `EventBus<WorkflowEngineEvents>` parented to this bus so workflow
+         * events appear in the JSONL log.
+         */
+        lifecycleBus?: EventBus<BusLifecycleEvents>,
+    ) {
+        this.lifecycleBus = lifecycleBus ?? host.lifecycleBus;
+    }
+
+    /** Resolve a run's event bus: caller-supplied wins; otherwise parent to the service lifecycle bus. */
+    private resolveEvents(
+        events: EventBus<WorkflowEngineEvents> | undefined,
+    ): EventBus<WorkflowEngineEvents> | undefined {
+        return (
+            events ??
+            (this.lifecycleBus ? new EventBus<WorkflowEngineEvents>({ lifecycleBus: this.lifecycleBus }) : undefined)
+        );
+    }
 
     /** Load a workflow file and validate it. */
     async load(path: string): Promise<WorkflowDef> {
@@ -33,13 +56,17 @@ export class WorkflowService {
 
     /** Run an already-loaded workflow definition. */
     async run(workflow: WorkflowDef, options: WorkflowRunOptions = {}): Promise<WorkflowRunResult> {
+        const events = this.resolveEvents(options.events);
         if (workflow.kind === 'transition-flow') {
-            return await new TransitionFlowDriver({ host: this.host, persistence: this.persistence }).run(
-                workflow,
-                options,
-            );
+            return await new TransitionFlowDriver({ host: this.host, persistence: this.persistence }).run(workflow, {
+                ...options,
+                events,
+            });
         }
-        return await new StateMachineDriver({ host: this.host, persistence: this.persistence }).run(workflow, options);
+        return await new StateMachineDriver({ host: this.host, persistence: this.persistence }).run(workflow, {
+            ...options,
+            events,
+        });
     }
 
     /** Load and run a workflow file. */
@@ -114,7 +141,7 @@ export class WorkflowService {
         const run = await this.persistence.loadRun(runId);
         const extKey = run?.external_key ?? undefined;
         const result = await this.persistence.reseedRun(runId, newState);
-        void options?.events?.emit('workflow.run.reseeded', {
+        void this.resolveEvents(options?.events)?.emit('workflow.run.reseeded', {
             runId,
             fromState: result.fromState ?? '',
             toState: result.toState,
@@ -140,19 +167,20 @@ export class WorkflowService {
         // Re-open the run as running.
         const extKey = run.external_key ?? undefined;
         await this.persistence.finalizeRun(runId, 'running', '');
-        void options?.events?.emit('workflow.run.resumed', { runId, node: currentState, externalKey: extKey });
+        const events = this.resolveEvents(options?.events);
+        void events?.emit('workflow.run.resumed', { runId, node: currentState, externalKey: extKey });
 
         // Resume through the appropriate driver, starting from the paused state (skip on-enter).
         if (workflow.kind === 'transition-flow') {
             return await new TransitionFlowDriver({
                 host: this.host,
                 persistence: this.persistence,
-            }).resume(workflow, runId, currentState, extKey, options);
+            }).resume(workflow, runId, currentState, extKey, { ...options, events });
         }
         return await new StateMachineDriver({
             host: this.host,
             persistence: this.persistence,
-        }).resume(workflow as StateMachineWorkflowDef, runId, currentState, extKey, options);
+        }).resume(workflow as StateMachineWorkflowDef, runId, currentState, extKey, { ...options, events });
     }
 
     /** List runs currently paused. Optional filters and ordering. */
@@ -211,6 +239,7 @@ export class WorkflowService {
                 detail: `No state recorded for run "${runId}"`,
             };
         }
+        const events = this.resolveEvents(options?.events);
 
         // An external transition is a single guarded hop on an existing run, not a
         // run itself — borrow a span-free lifecycle so the transition persist+emit
@@ -218,14 +247,14 @@ export class WorkflowService {
         const lifecycle = RunLifecycle.forExternalTransition(
             workflow.name,
             runId,
-            { persistence: this.persistence, events: options?.events },
+            { persistence: this.persistence, events },
             extKey,
         );
 
         // Find the matching transition from current state to requested state.
         const transition = workflow.transitions.find((t) => t.from === currentState && t.to === toState);
         if (transition === undefined) {
-            return this.denyTransition(options, runId, currentState, toState, extKey, {
+            return this.denyTransition(events, runId, currentState, toState, extKey, {
                 reason: 'no-such-transition',
                 detail: `No transition from "${currentState}" to "${toState}"`,
             });
@@ -248,7 +277,7 @@ export class WorkflowService {
             });
             lifecycle.guardEvaluated(currentState, toState, transition.guard.kind, guardResult.passed);
             if (!guardResult.passed) {
-                return this.denyTransition(options, runId, currentState, toState, extKey, {
+                return this.denyTransition(events, runId, currentState, toState, extKey, {
                     reason: 'guard-failed',
                     detail: `Guard "${transition.guard.kind}" denied transition from "${currentState}" to "${toState}"`,
                     guardKind: transition.guard.kind,
@@ -262,7 +291,7 @@ export class WorkflowService {
         // record — external transitions don't drive phase tracking.
         const trigger = transition.trigger ?? null;
         await lifecycle.commitHop(currentState, toState, trigger, 0);
-        void options?.events?.emit('workflow.transition.requested', {
+        void events?.emit('workflow.transition.requested', {
             runId,
             from: currentState,
             to: toState,
@@ -278,14 +307,14 @@ export class WorkflowService {
      * so the event payload and the returned reason can never drift apart.
      */
     private denyTransition(
-        options: WorkflowRunOptions | undefined,
+        events: EventBus<WorkflowEngineEvents> | undefined,
         runId: string,
         from: string,
         to: string,
         externalKey: string | undefined,
         denial: Omit<TransitionDenied, 'allowed'>,
     ): TransitionDenied {
-        void options?.events?.emit('workflow.transition.denied', {
+        void events?.emit('workflow.transition.denied', {
             runId,
             from,
             to,
