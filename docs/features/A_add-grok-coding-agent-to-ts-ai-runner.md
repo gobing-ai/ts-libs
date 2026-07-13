@@ -94,6 +94,7 @@ Feature: Add Grok coding agent to ts-ai-runner
 | 0046 | Add grok AgentShim and registry membership | done |
 | 0047 | Grok auth probe and detector/doctor coverage | done |
 | 0048 | Document grok as a supported coding agent | done |
+| 0052 | Record feature.* / task.* event-map ownership deferral (consumer app owns) | cancelled |
 <!-- END AUTO-GENERATED -->
 
 ## Notes
