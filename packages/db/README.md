@@ -286,6 +286,44 @@ const history = await inbox.inbox('coder', 20);
 const queued = await inbox.countPending('coder');
 ```
 
+
+#### Structural event sink
+
+`InboxMessageDao` accepts an optional `InboxMessageEventSink` via the second constructor
+argument. The DAO depends only on the structural port (`InboxMessageEventSink` is a plain
+interface); it does **not** import `@gobing-ai/ts-infra` or `EventBus`. This follows the
+`ProcessEventSink` pattern from ADR-013.
+
+```ts
+import { type BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
+import { InboxMessageDao, type InboxMessageEvents } from '@gobing-ai/ts-db/inbox';
+
+// Pass an EventBus directly as the structural sink — no adapter class needed.
+const lifecycleBus = new EventBus<BusLifecycleEvents>();
+const events = new EventBus<InboxMessageEvents>({ lifecycleBus });
+const inbox = new InboxMessageDao(adapter, { events });
+events.on('message.enqueued', (detail) => {
+    console.log(`message ${detail.id} from ${detail.fromId ?? 'operator'} to ${detail.toId}`);
+});
+```
+
+**Events emitted** (after the corresponding database mutation succeeds):
+
+|Event|Trigger|Key payload fields|
+|---|---|---|
+|`message.enqueued`|`enqueue` succeeds|`id`, `fromId`, `toId`, `inReplyTo?`|
+|`message.injected`|`drainPending` returns rows|`id`, `toId`, `inReplyTo?`, `injectAttempts`|
+|`message.delivered`|`markDelivered` succeeds|`id`, `toId`, `deliveredAt`|
+|`message.failed`|`markFailed` succeeds|`id`, `toId`, `error`|
+
+Omitting the sink preserves the existing contract — no no-op object is allocated and no
+event infrastructure is required.
+
+Event delivery is best-effort and never changes the result of an already-committed mutation:
+the DAO does not await observers and contains synchronous throws or rejected thenables. Lifecycle
+observers can persist event payloads, so message bodies are deliberately excluded. The required
+`message.failed.error` field may be persisted; callers must pass a pre-redacted error string.
+
 The `inbox_messages` table is additive and included in embedded migrations. It stores `from_id`,
 `to_id`, `body`, `status`, optional reply linkage, delivery timestamp, injection attempts, and the
 last injection error. The indexed access path is `(to_id, status)` for efficient pending drains.

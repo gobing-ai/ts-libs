@@ -14,7 +14,17 @@ export {
     type PKValue,
     type SoftDeletableTable,
 } from './entity-dao';
-export { type InboxMessage, InboxMessageDao } from './inbox-message-dao';
+export {
+    type DeliveredMessageDetail,
+    type EnqueuedMessageDetail,
+    type FailedMessageDetail,
+    type InboxMessage,
+    InboxMessageDao,
+    type InboxMessageDaoOptions,
+    type InboxMessageEventSink,
+    type InboxMessageEvents,
+    type InjectedMessageDetail,
+} from './inbox-message-dao';
 export { applyMigrations, type MigrationLogger, type MigrationOptions } from './migrate';
 export {
     type ColRef,
