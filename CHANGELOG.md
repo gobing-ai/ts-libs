@@ -6,7 +6,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [0.4.9] — 2026-07-13
 
+### Added
+
+- **`ts-infra` — platform lifecycle-bus propagation wired through the application layer:** `EventBus` accepts an optional `lifecycleBus` and forwards pre-emit / post-emit / error breadcrumbs for every `bus.emit.*` event. The file observer, `ApplicationNode`, and `APIClient` now propagate the bus end-to-end so downstream consumers (telemetry, rule-engine, ai-runner) observe a single canonical event stream instead of package-local notifications.
+
+- **`ts-db` — durable `message.*` events emitted through a structural sink on `InboxMessageDao`:** `InboxMessageDao` now accepts an optional `events` sink (`EventBus<InboxMessageEvents>`) and emits `message.enqueued`, `message.delivered`, and `message.failed` breadcrumbs through it. The sink is structural (typed by interface, not by class), so any compatible `EventBus` works without an adapter. Lifecycle-bus integration test exercises the real adapter.
+
+- **`ts-rule-engine` — `RuleEngineOptions` accepts a `lifecycleBus`:** Rule evaluation, fixer runs, and evaluator dispatch (`ripgrep`, `sg`, `exit-code`) publish breadcrumbs on the shared bus, enabling cross-package rule-event correlation.
+
+- **`ts-dual-workflow-engine` — `WorkflowService` propagates `lifecycleBus`:** `WorkflowService`, `Host`, and the run-lifecycle layer thread the bus through transition-request and edge-case paths, so workflow state changes become observable system events.
+
+- **`ts-ai-runner` — `TeamOrchestrator` and `TeamAgentProcess` accept a `lifecycleBus`:** Agent and process events (spawn, exit, reply) now publish to the shared bus. `messages.formatMessage` and the orchestrator's flush-inbox loop are bus-aware.
+
+### Changed
+
+- **`ts-runtime` — `ProcessExecutor` published as the canonical interface behind the factory:** `ProcessExecutor` is now a first-class exported type (not just a concrete class). The factory returns the interface, so consumers depend on the seam rather than the Bun/Node adapter. Deprecation guard `no-deprecated-process-executor-construct` enforced via spur rule.
+
+- **`ts-ai-runner` — owned `MessageStore` port; decoupled from `ts-db` in production:** `TeamOrchestrator` now imports `MessageStore` + `DrainedMessage` from the local `./message-store` module instead of `InboxMessageDao`. `InboxMessageDao` satisfies the port structurally — no adapter class — and `@gobing-ai/ts-db` moves to `devDependencies`. In-memory test doubles `implements MessageStore` directly; the unsafe `as never` casts are gone. A compile-time `InboxMessageDao → MessageStore` assignability assertion guards the boundary.
+
+### Fixed
+
+- **`ts-dual-workflow-engine` — transition-request and edge-case paths no longer drop the lifecycle bus** during host delegation.
+
+### Security
+
+- No security fixes in this release.
+
+### Breaking Changes
+
+- None. All changes are additive (new optional `lifecycleBus` / `events` parameters) or refactor-only (`MessageStore` port preserves behavior). Consumers who construct `InboxMessageDao`, `RuleEngineOptions`, `WorkflowService`, or `TeamOrchestrator` without the new options continue to compile and run unchanged.
+
+---
 
 ## [0.4.8] — 2026-07-12
 
@@ -91,7 +123,6 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - **Project rules — DDL rules align on rule-engine persistence seam:** `no-inline-ddl-outside-migrations` and `no-hand-written-ddl-for-drizzle-tables` now exclude `packages/rule-engine/src/persistence/schema.ts`, matching the existing `raw-sql-confined-to-persistence-seams` exclusion. The rule-engine's `schema.ts` is an engine-owned DDL seam (it exports `CREATE TABLE` strings for `rule_runs`/`rule_eval_runs`, mirroring `ts-dual-workflow-engine`'s `schema-sql.ts`), not a Drizzle table module — the two rules were falsely flagging it.
 
-
 ## [0.4.0] — 2026-06-25
 
 ### Breaking Changes
@@ -103,7 +134,6 @@ versioned in **lockstep** — a single version number covers every package in th
 ### Added
 
 - **`ts-ai-runner` — `isAuthenticated(agent, ctx)` + `AuthState`:** auth detection is relocated to a new `agents/auth-shims.ts` module (re-exported from the package barrel). It is **off the execution critical path** — operator information only, never feeds run-readiness, and never throws. A genuinely unauthenticated agent fails at runtime with its own error. Inject a fake filesystem via `AuthContext.fileSystem` for tests.
-
 
 ## [0.3.21] — 2026-06-20
 
@@ -148,7 +178,6 @@ versioned in **lockstep** — a single version number covers every package in th
 ### Changed
 
 - **`ts-dual-workflow-engine` — EventBus logging dedup:** `RunLifecycle.enter()` and `recordTransition()` no longer emit redundant `logger.debug('entered'…)` / `logger.debug('transition'…)` lines — these are now covered by the EventBus auto-logging in `ts-infra`. Semantic lifecycle logs (`workflow run started/done/failed`, `action failed (continuing)`) are kept.
-
 
 ### Added
 
@@ -410,7 +439,6 @@ Initial public release.
 [0.4.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.3...@gobing-ai/ts-libs-v0.4.4
 
 [0.3.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.19...HEAD
-[0.3.2]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.1...HEAD
 [0.3.1]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.0...@gobing-ai/ts-libs-v0.3.1
 [0.3.0]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.9...@gobing-ai/ts-libs-v0.3.0
 [0.2.9]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.8...@gobing-ai/ts-libs-v0.2.9
@@ -418,7 +446,6 @@ Initial public release.
 [0.2.7]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.6...@gobing-ai/ts-libs-v0.2.7
 [0.2.6]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.5...@gobing-ai/ts-libs-v0.2.6
 [0.2.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.3...@gobing-ai/ts-libs-v0.2.4
-[0.2.3]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.5...@gobing-ai/ts-libs-v0.2.3
 [0.1.5]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.4...@gobing-ai/ts-libs-v0.1.5
 [0.1.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.3...@gobing-ai/ts-libs-v0.1.4
 [0.1.3]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.1.2...@gobing-ai/ts-libs-v0.1.3
