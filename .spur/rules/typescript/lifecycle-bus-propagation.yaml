@@ -1,0 +1,143 @@
+# Lifecycle-bus propagation boundary — every consumer-facing
+# `events?: EventBus<XEvents>` option API must parent its internal EventBus to a
+# `lifecycleBus` so domain events surface in the application System Events
+# stream (JSONL log + telemetry). Codifies the R8 deferral from task 0050:
+# reliable cross-node AST/data-flow matching is non-trivial, so this rule uses
+# an actual parented EventBus construction in the package as a structural proxy.
+#
+# Compliant shapes in this repo (both must pass):
+#   1. field-on-options — `events?: EventBus<X>` + `lifecycleBus?` on the same
+#      options type, with `new EventBus<X>({ lifecycleBus })` parenting
+#      (ai-runner, team-orchestrator, rule-engine, api-client).
+#   2. constructor-on-service — `events?: EventBus<X>` on a per-run options
+#      type, with the `lifecycleBus` param + parenting on a sibling service
+#      class in the same package (dual-workflow-engine: WorkflowRunOptions in
+#      types.ts, parenting in service.ts/host.ts).
+#
+# Fires on an `events?: EventBus<...>` declaration whose file AND package both
+# lack `new EventBus<...>({ lifecycleBus: ... })`. Package-agnostic: derives the
+# package src dir from the file path (up to the last `/src/`), never hard-codes
+# package names.
+include:
+  - "packages/**/src/**/*.ts"
+exclude:
+  - "**/tests/**"
+  - "**/*.test.ts"
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: lifecycle-bus-propagation
+    description: >-
+      Consumer-facing `events?: EventBus<XEvents>` option APIs must propagate
+      lifecycle telemetry into a `lifecycleBus`: declare a `lifecycleBus`
+      option on the same API, or construct the internal EventBus parented to a
+      lifecycleBus (`new EventBus<X>({ lifecycleBus })`), in the same file or
+      elsewhere in the package. An `events?: EventBus<...>` declaration with no
+      parented EventBus construction in its file or package means domain events vanish
+      from the System Events stream — the JSONL log and telemetry go blind for
+      that bus. Structural + package-agnostic (derives the package from the
+      file path; never hard-codes package names). Cross-node proxy: an actual
+      package-level `new EventBus<...>({ lifecycleBus: ... })` construction counts
+      as the propagation path, matching both compliant shapes in this repo
+      (field-on-options vs constructor-on-service). (Task 0053, R8 deferral from 0050.)
+    severity: error
+    evaluator:
+      type: exit-code
+      config:
+        command: sh
+        args:
+          - -c
+          - |
+            scope="${1:-packages}"
+            tmp=$(mktemp)
+            trap 'rm -f "$tmp"' EXIT
+            # has_parented_bus: return 0 only when $1 (file or dir) contains an
+            # actual EventBus construction whose options object supplies
+            # lifecycleBus. A declaration or unused variable alone cannot
+            # silence the rule.
+            has_parented_bus() {
+              files_tmp=$(mktemp)
+              code_tmp=$(mktemp)
+              if [ -f "$1" ]; then
+                printf '%s\n' "$1" > "$files_tmp"
+              else
+                rg --files "$1" -g '*.ts' -g '!**/tests/**' \
+                  -g '!**/dist/**' -g '!**/node_modules/**' \
+                  > "$files_tmp" 2>/dev/null || true
+              fi
+              # Strip line/block comments before matching. This prevents a
+              # commented-out suggested fix from satisfying the rule while
+              # preserving multiline construction formatting.
+              while IFS= read -r source; do
+                awk '
+                  BEGIN { in_block = 0 }
+                  {
+                    line = $0
+                    out = ""
+                    while (length(line) > 0) {
+                      if (in_block) {
+                        end = index(line, "*/")
+                        if (end == 0) { line = ""; continue }
+                        line = substr(line, end + 2)
+                        in_block = 0
+                        continue
+                      }
+                      block = index(line, "/*")
+                      slash = index(line, "//")
+                      if (slash > 0 && (block == 0 || slash < block)) {
+                        out = out substr(line, 1, slash - 1)
+                        line = ""
+                        continue
+                      }
+                      if (block > 0) {
+                        out = out substr(line, 1, block - 1)
+                        line = substr(line, block + 2)
+                        in_block = 1
+                        continue
+                      }
+                      out = out line
+                      line = ""
+                    }
+                    print out
+                  }
+                ' "$source" >> "$code_tmp"
+              done < "$files_tmp"
+              rg -U -q '(?s)new[[:space:]]+EventBus<[^>]+>[[:space:]]*\(\{[^}]{0,240}lifecycleBus([[:space:]]*:|[[:space:]]*[,}])' "$code_tmp"
+              result=$?
+              rm -f "$files_tmp" "$code_tmp"
+              return "$result"
+            }
+            # Every consumer-facing events?: EventBus<X> declaration site.
+            rg -nH '\bevents\?:\s+EventBus<' "$scope" \
+              -g '*.ts' -g '!**/tests/**' \
+              -g '!**/dist/**' -g '!**/node_modules/**' \
+              2>/dev/null > "$tmp" || true
+            violations=0
+            while IFS=: read -r file line rest; do
+              [ -n "$file" ] || continue
+              # Skip matches inside line, inline, or block comments.
+              prefix=${rest%%events\?:*}
+              case "$prefix" in
+                *'//'*) continue ;;
+              esac
+              trimmed=$(printf '%s' "$rest" | sed 's/^[[:space:]]*//')
+              case "$trimmed" in
+                '/*'*) continue ;;
+                '*'*) continue ;;
+              esac
+              # Shape 1 / file-local: declaring file constructs a parented bus.
+              if has_parented_bus "$file"; then continue; fi
+              # Shape 2 / cross-file: a sibling in the same package src dir.
+              pkg_src=$(printf '%s' "$file" | sed -E 's|(.*/src)/.*|\1|')
+              if [ -n "$pkg_src" ] && [ -d "$pkg_src" ] && \
+                 has_parented_bus "$pkg_src"; then
+                continue
+              fi
+              msg='lifecycle-bus-propagation: no parented EventBus path; add lifecycleBus and construct new EventBus({ lifecycleBus })'
+              printf '%s: %s:%s\n' "$msg" "$file" "$line"
+              violations=$((violations + 1))
+            done < "$tmp"
+            [ "$violations" -eq 0 ] || exit 1
+          - lifecycle-bus-propagation
+          - packages
