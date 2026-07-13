@@ -25,7 +25,7 @@ bun add @gobing-ai/ts-ai-runner
 | `buildIdentityPreamble()` / `getGitContext()` | Builds team-mode identity, communication context, and git metadata for prompts |
 | `loadAgentSpecs()` / `saveAgentSpec()` / `deleteAgentSpec()` | Persist agent definitions as YAML-compatible config |
 | `validateAgentId()` | Enforces agent ID format rules |
-| `MessageService` | Thin service wrapper around `@gobing-ai/ts-db/inbox` |
+| `formatMessage()` | Renders `InboxMessage` into the line injected into an agent's stdin pipe |
 | `TeamAgentProcess` | Manages a long-running agent subprocess with pipe-mode stdin/stdout |
 | `TeamOrchestrator` | Loads specs, starts/stops agents, routes durable/live messages, and emits lifecycle events |
 | `AgentEvents` / `AiRunnerProcessEvents` | Typed event maps for agent and process-level observability |
@@ -62,11 +62,11 @@ graph TB
         TeamOrchestrator["TeamOrchestrator<br/>loadSpecs / startAgent / stopAgent<br/>sendMessage / getAgentStatus / stopAll"]
         AgentSpec["AgentSpec<br/>(YAML config)<br/>load / save / delete"]
         TeamAgentProcess["TeamAgentProcess<br/>(pipe-mode subprocess)<br/>start / stop / send / subscribe"]
-        MessageService["MessageService<br/>(InboxMessageDao wrapper)<br/>enqueue / drain / deliver / fail"]
+        InboxMessageDao["<i>InboxMessageDao<br/>(@gobing-ai/ts-db/inbox)</i><br/>enqueue / drainPending / markDelivered / markFailed"]
 
         TeamOrchestrator -->|"loads"| AgentSpec
         TeamOrchestrator -->|"creates + manages"| TeamAgentProcess
-        TeamOrchestrator -->|"routes through"| MessageService
+        TeamOrchestrator -->|"writes/reads via"| InboxMessageDao
         TeamOrchestrator -->|"resolves command via"| AgentShim
         TeamOrchestrator -.->|"emits events"| EventBus
         TeamOrchestrator -.->|"builds preamble"| Identity
@@ -116,7 +116,6 @@ sequenceDiagram
     participant Shim as AgentShim
     participant Identity as buildIdentityPreamble
     participant Proc as TeamAgentProcess
-    participant Msg as MessageService
     participant DB as InboxMessageDao
     participant Agent as Coding Agent (CLI)
     participant EventBus
@@ -135,15 +134,13 @@ sequenceDiagram
     Orch->>Proc: start()
     Proc->>Agent: spawn pipe-mode subprocess
     Agent-->>Proc: stdout/stderr streams
-    Orch->>Msg: drain("coder")
-    Msg->>DB: drain(toId)
-    DB-->>Msg: pending messages
-    Msg-->>Orch: messages[]
+    Orch->>DB: drainPending("coder")
+    DB-->>Orch: pending messages
     alt pending messages exist
         loop for each message
             Orch->>Proc: send(formattedMessage)
             Proc->>Agent: write to stdin
-            Orch->>Msg: deliver(msg.id)
+            Orch->>DB: markDelivered(msg.id)
         end
     end
     Orch->>EventBus: emit("agent.started")
@@ -151,18 +148,15 @@ sequenceDiagram
 
     Note over Host,EventBus: Sending a message (durable + live)
     Host->>Orch: sendMessage(null, "coder", "Implement task 0005")
-    Orch->>Msg: enqueue(null, "coder", body)
-    Msg->>DB: enqueue(from, to, body)
-    DB-->>Msg: messageId
-    Msg-->>Orch: messageId
+    Orch->>DB: enqueue(null, "coder", body)
+    DB-->>Orch: messageId
     alt agent is running
-        Orch->>Msg: drain("coder")
-        Msg->>DB: drain(toId)
-        DB-->>Msg: pending messages
+        Orch->>DB: drainPending("coder")
+        DB-->>Orch: pending messages
         loop for each message
             Orch->>Proc: send(formattedMessage)
             Proc->>Agent: write to stdin
-            Orch->>Msg: deliver(msg.id)
+            Orch->>DB: markDelivered(msg.id)
         end
     end
     Orch->>EventBus: emit("agent.message.sent")
@@ -182,12 +176,11 @@ Key design decisions:
 - **Shims are pure**: `AgentShim` produces `{ command, args }` without touching the filesystem or launching processes. All side effects live in `AiRunner` and `TeamAgentProcess`.
 - **ProcessExecutor is injectable**: tests inject a stub executor; production uses `NodeProcessExecutor` (or the Bun pipe-process seam for team mode).
 - **Events are opt-in**: `AiRunnerOptions.events` and `TeamOrchestratorOptions.events` accept an `EventBus<AgentEvents>` for structured observability. Without it, the runner is silent.
-- **Team mode is composable**: `AgentSpec`, `TeamAgentProcess`, `MessageService`, and `TeamOrchestrator` are small building blocks. Downstream apps compose them into their own orchestration layer.
+- **Team mode is composable**: `AgentSpec`, `TeamAgentProcess`, and `TeamOrchestrator` are small building blocks. `InboxMessageDao` from `@gobing-ai/ts-db/inbox` handles persistence directly — no adapter class. Downstream apps compose them into their own orchestration layer.
 
 The package depends on `@gobing-ai/ts-runtime` for process execution, `@gobing-ai/ts-db` for team-mode inbox types, and `@gobing-ai/ts-infra` for structured logging and EventBus. The target agent CLIs are not bundled; install them separately in the host environment.
 
 ## Detect Installed Agents
-
 ```ts
 import { AgentDetector } from '@gobing-ai/ts-ai-runner';
 
@@ -498,24 +491,31 @@ const specs = loadAgentSpecs('./agents');
 
 ### Durable messages
 
-`MessageService` wraps `InboxMessageDao` from `@gobing-ai/ts-db/inbox`. It owns no subprocess behavior; it only persists, drains, marks delivery/failure, and formats messages.
+`InboxMessageDao` from `@gobing-ai/ts-db/inbox` persists directed inter-agent messages.
+`TeamOrchestrator` consumes the DAO directly — there is no `MessageService` adapter class.
+Consumers compose `InboxMessageDao` + `EventBus<InboxMessageEvents>` directly:
 
 ```ts
-import { InboxMessageDao } from '@gobing-ai/ts-db/inbox';
-import { MessageService } from '@gobing-ai/ts-ai-runner';
+import { type BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
+import { InboxMessageDao, type InboxMessageEvents } from '@gobing-ai/ts-db/inbox';
+import { formatMessage } from '@gobing-ai/ts-ai-runner';
 
-const messages = new MessageService(new InboxMessageDao(adapter));
+const lifecycleBus = new EventBus<BusLifecycleEvents>();
+const events = new EventBus<InboxMessageEvents>({ lifecycleBus });
+const inbox = new InboxMessageDao(adapter, { events });
 
-const id = await messages.enqueue(null, 'coder', 'Review the runtime process seam');
-const pending = await messages.drain('coder');
+const id = await inbox.enqueue(null, 'coder', 'Review the runtime process seam');
+const pending = await inbox.drainPending('coder');
 
 for (const msg of pending) {
-    console.log(MessageService.formatMessage(msg));
-    await messages.deliver(msg.id);
+    console.log(formatMessage(msg));
+    await inbox.markDelivered(msg.id);
 }
 ```
 
-`MessageService` also exposes `fail(msgId, error)`, `inbox(toId, limit?, offset?)`, and `countPending(toId)`.
+Message lifecycle events are metadata-only and do not include the durable message body. A
+`message.failed` event does include the caller-provided error string; pre-redact it when the
+lifecycle bus is attached to persistent System Events observers.
 
 ### Persistent agent processes
 
@@ -554,16 +554,19 @@ unsubscribe();
 `TeamOrchestrator` connects specs, shims, processes, and messages. On start it loads an agent spec, builds the agent command through the matching shim, starts the process, drains pending inbox messages, and injects them live. `sendMessage()` always persists first, then injects immediately when the target agent is running.
 
 ```ts
-import { InboxMessageDao } from '@gobing-ai/ts-db/inbox';
-import { MessageService, TeamOrchestrator } from '@gobing-ai/ts-ai-runner';
+import { type BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
+import { InboxMessageDao, type InboxMessageEvents } from '@gobing-ai/ts-db/inbox';
+import { TeamOrchestrator } from '@gobing-ai/ts-ai-runner';
 
-const messages = new MessageService(new InboxMessageDao(adapter));
-const team = new TeamOrchestrator('./agents', messages);
+const lifecycleBus = new EventBus<BusLifecycleEvents>();
+const events = new EventBus<InboxMessageEvents>({ lifecycleBus });
+const inbox = new InboxMessageDao(adapter, { events });
+const team = new TeamOrchestrator('./agents', inbox, { lifecycleBus });
 
 await team.startAgent('coder');
 await team.sendMessage(null, 'coder', 'Please implement task 0005');
 
-console.log(team.getAgentStatus('coder')); // running
+console.log(await team.getAgentStatus('coder')); // running
 
 await team.stopAll();
 ```

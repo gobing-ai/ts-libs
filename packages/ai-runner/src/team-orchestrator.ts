@@ -1,5 +1,5 @@
 import type { InboxMessageDao } from '@gobing-ai/ts-db/inbox';
-import { EventBus } from '@gobing-ai/ts-infra';
+import { type BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
 import type { AgentSpec } from './agent-spec';
 import { loadAgentSpecs } from './agent-spec';
 import { type AgentName, resolveAgentName } from './agents/shims';
@@ -14,6 +14,12 @@ type AgentProcessFactory = (options: ConstructorParameters<typeof TeamAgentProce
 export interface TeamOrchestratorOptions {
     processFactory?: AgentProcessFactory;
     events?: EventBus<AgentEvents>;
+    /**
+     * Optional lifecycle bus to bridge `agent.*` events into the application
+     * System Events stream (R4). When `events` is omitted the orchestrator
+     * constructs an internal `EventBus<AgentEvents>` parented to this bus.
+     */
+    lifecycleBus?: EventBus<BusLifecycleEvents>;
 }
 
 /**
@@ -32,7 +38,11 @@ export class TeamOrchestrator {
         options: TeamOrchestratorOptions = {},
     ) {
         this.processFactory = options.processFactory ?? ((processOptions) => new TeamAgentProcess(processOptions));
-        this.events = options.events ?? new EventBus<AgentEvents>();
+        this.events =
+            options.events ??
+            (options.lifecycleBus
+                ? new EventBus<AgentEvents>({ lifecycleBus: options.lifecycleBus })
+                : new EventBus<AgentEvents>());
     }
 
     async loadSpecs(): Promise<AgentSpec[]> {

@@ -1,4 +1,4 @@
-import { type EventBus, getLogger, type Logger, traceAsync } from '@gobing-ai/ts-infra';
+import { type BusLifecycleEvents, EventBus, getLogger, type Logger, traceAsync } from '@gobing-ai/ts-infra';
 import {
     getProcessCwd,
     NodeProcessExecutor,
@@ -49,6 +49,12 @@ export interface AiRunnerOptions {
     processEvents?: EventBus<AiRunnerProcessEvents>;
     /** Event bus receiving agent-level invocation observability. */
     events?: EventBus<AgentEvents>;
+    /**
+     * Optional lifecycle bus to bridge `agent.*` and `process.*` events into
+     * the application System Events stream (R4). When `events` / `processEvents`
+     * are omitted the runner constructs internal buses parented to this bus.
+     */
+    lifecycleBus?: EventBus<BusLifecycleEvents>;
     /** Tracer adapter for the default executor. Defaults to `ts-infra` traceAsync. */
     tracer?: TracerPort;
 }
@@ -60,16 +66,26 @@ export class AiRunner {
     private readonly defaultTimeout: number | undefined;
     private readonly logger: Logger;
     private readonly events: EventBus<AgentEvents> | undefined;
+    /** Internal process-level observability bus, parented to `lifecycleBus` when auto-constructed. Exposed for introspection/testing. */
+    readonly processEvents: EventBus<AiRunnerProcessEvents> | undefined;
 
     constructor(options: AiRunnerOptions = {}) {
+        const processEvents =
+            options.processEvents ??
+            (options.lifecycleBus
+                ? new EventBus<AiRunnerProcessEvents>({ lifecycleBus: options.lifecycleBus })
+                : undefined);
+        const events =
+            options.events ??
+            (options.lifecycleBus ? new EventBus<AgentEvents>({ lifecycleBus: options.lifecycleBus }) : undefined);
         this.processExecutor =
             options.processExecutor ??
             new NodeProcessExecutor({
-                ...(options.processEvents !== undefined
+                ...(processEvents !== undefined
                     ? {
                           events: {
                               emit: (event, detail) => {
-                                  void options.processEvents?.emit(event, detail);
+                                  void processEvents?.emit(event, detail);
                               },
                           },
                       }
@@ -81,7 +97,8 @@ export class AiRunner {
         this.defaultCwd = options.defaultCwd;
         this.defaultTimeout = options.defaultTimeout;
         this.logger = options.logger ?? getLogger('ai-runner');
-        this.events = options.events;
+        this.events = events;
+        this.processEvents = processEvents;
     }
 
     /** Run an agent help command. */
