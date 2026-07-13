@@ -1,10 +1,10 @@
-import type { InboxMessageDao } from '@gobing-ai/ts-db/inbox';
 import { type BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
 import type { AgentSpec } from './agent-spec';
 import { loadAgentSpecs } from './agent-spec';
 import { type AgentName, resolveAgentName } from './agents/shims';
 import { buildAgentCommand } from './ai-runner';
 import type { AgentEvents } from './events';
+import type { MessageStore } from './message-store';
 import { formatMessage } from './messages';
 import { TeamAgentProcess } from './team-agent-process';
 
@@ -34,7 +34,7 @@ export class TeamOrchestrator {
 
     constructor(
         private readonly configDir: string,
-        private readonly inbox: InboxMessageDao,
+        private readonly inbox: MessageStore,
         options: TeamOrchestratorOptions = {},
     ) {
         this.processFactory = options.processFactory ?? ((processOptions) => new TeamAgentProcess(processOptions));

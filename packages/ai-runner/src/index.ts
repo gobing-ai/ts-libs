@@ -6,6 +6,7 @@ export * from './ai-runner';
 export * from './doctor-runner';
 export * from './events';
 export * from './identity';
+export * from './message-store';
 export * from './messages';
 export * from './model-health-probe';
 export * from './slash-command';

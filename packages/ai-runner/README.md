@@ -13,7 +13,7 @@ bun add @gobing-ai/ts-ai-runner
 `ts-ai-runner` normalizes the command-line surface of common coding agents so application code can work with stable TypeScript APIs instead of hard-coded executable arguments.
 
 | Export | Purpose |
-|--------|---------|
+| -------- | --------- |
 | `AiRunner` | Runs help, version, auth, prompt, and slash commands through a pluggable process executor; can also build a prompt command without executing it. Emits typed events via optional `EventBus<AgentEvents>`. |
 | `AgentDetector` | Probes supported agent CLIs and parses version output |
 | `DoctorRunner` | Combines installation and authentication checks into a usability report |
@@ -25,7 +25,8 @@ bun add @gobing-ai/ts-ai-runner
 | `buildIdentityPreamble()` / `getGitContext()` | Builds team-mode identity, communication context, and git metadata for prompts |
 | `loadAgentSpecs()` / `saveAgentSpec()` / `deleteAgentSpec()` | Persist agent definitions as YAML-compatible config |
 | `validateAgentId()` | Enforces agent ID format rules |
-| `formatMessage()` | Renders `InboxMessage` into the line injected into an agent's stdin pipe |
+| `formatMessage()` | Renders a `DrainedMessage` into the line injected into an agent's stdin pipe |
+| `MessageStore` / `DrainedMessage` | ai-runner-owned orchestration persistence port and minimal message view consumed by `TeamOrchestrator` |
 | `TeamAgentProcess` | Manages a long-running agent subprocess with pipe-mode stdin/stdout |
 | `TeamOrchestrator` | Loads specs, starts/stops agents, routes durable/live messages, and emits lifecycle events |
 | `AgentEvents` / `AiRunnerProcessEvents` | Typed event maps for agent and process-level observability |
@@ -62,11 +63,13 @@ graph TB
         TeamOrchestrator["TeamOrchestrator<br/>loadSpecs / startAgent / stopAgent<br/>sendMessage / getAgentStatus / stopAll"]
         AgentSpec["AgentSpec<br/>(YAML config)<br/>load / save / delete"]
         TeamAgentProcess["TeamAgentProcess<br/>(pipe-mode subprocess)<br/>start / stop / send / subscribe"]
-        InboxMessageDao["<i>InboxMessageDao<br/>(@gobing-ai/ts-db/inbox)</i><br/>enqueue / drainPending / markDelivered / markFailed"]
+        MessageStore["<b>MessageStore</b><br/>(ai-runner-owned port)<br/>enqueue / drainPending / markDelivered / markFailed"]
+        InboxMessageDao["<i>InboxMessageDao<br/>(@gobing-ai/ts-db/inbox)</i><br/>structural provider"]
 
         TeamOrchestrator -->|"loads"| AgentSpec
         TeamOrchestrator -->|"creates + manages"| TeamAgentProcess
-        TeamOrchestrator -->|"writes/reads via"| InboxMessageDao
+        TeamOrchestrator -->|"writes/reads via"| MessageStore
+        InboxMessageDao -.->|"satisfies"| MessageStore
         TeamOrchestrator -->|"resolves command via"| AgentShim
         TeamOrchestrator -.->|"emits events"| EventBus
         TeamOrchestrator -.->|"builds preamble"| Identity
@@ -75,6 +78,7 @@ graph TB
 ```
 
 ### One-shot prompt flow
+
 ```mermaid
 sequenceDiagram
     participant Caller
@@ -176,11 +180,12 @@ Key design decisions:
 - **Shims are pure**: `AgentShim` produces `{ command, args }` without touching the filesystem or launching processes. All side effects live in `AiRunner` and `TeamAgentProcess`.
 - **ProcessExecutor is injectable**: tests inject a stub executor; production uses `NodeProcessExecutor` (or the Bun pipe-process seam for team mode).
 - **Events are opt-in**: `AiRunnerOptions.events` and `TeamOrchestratorOptions.events` accept an `EventBus<AgentEvents>` for structured observability. Without it, the runner is silent.
-- **Team mode is composable**: `AgentSpec`, `TeamAgentProcess`, and `TeamOrchestrator` are small building blocks. `InboxMessageDao` from `@gobing-ai/ts-db/inbox` handles persistence directly — no adapter class. Downstream apps compose them into their own orchestration layer.
+- **Team mode is composable**: `AgentSpec`, `TeamAgentProcess`, and `TeamOrchestrator` are small building blocks. `TeamOrchestrator` depends on the ai-runner-owned `MessageStore` port; `InboxMessageDao` from `@gobing-ai/ts-db/inbox` is one structural provider — no adapter class — and in-memory test doubles implement the port directly. Downstream apps compose them into their own orchestration layer.
 
-The package depends on `@gobing-ai/ts-runtime` for process execution, `@gobing-ai/ts-db` for team-mode inbox types, and `@gobing-ai/ts-infra` for structured logging and EventBus. The target agent CLIs are not bundled; install them separately in the host environment.
+The package depends on `@gobing-ai/ts-runtime` for process execution and `@gobing-ai/ts-infra` for structured logging and EventBus. `@gobing-ai/ts-db` is a development dependency only: production source under `packages/ai-runner/src` has no direct `@gobing-ai/ts-db` imports for message access, and only the DB-backed integration test resolves the concrete `InboxMessageDao`. The target agent CLIs are not bundled; install them separately in the host environment.
 
 ## Detect Installed Agents
+
 ```ts
 import { AgentDetector } from '@gobing-ai/ts-ai-runner';
 
@@ -305,7 +310,7 @@ const runner = new AiRunner({ events: bus });
 Available events:
 
 | Event | When |
-|-------|------|
+| ------- | ------ |
 | `agent.invoke.start` | Immediately before an agent CLI invocation starts |
 | `agent.invoke.exit` | After an agent CLI invocation exits |
 | `agent.started` | When a long-running team agent process starts |
@@ -417,7 +422,7 @@ interface AgentShim {
 Agent-specific behavior:
 
 | Agent | CLI | Tier | Auth check | Prompt flags |
-|-------|-----|------|------------|--------------|
+| ------- | ----- | ------ | ------------ | -------------- |
 | `claude` | `claude` | 1 | `claude auth status` | `-p`, `--continue`, `--model`, `--output-format` |
 | `codex` | `codex` | 1 | `codex login status` | `exec <prompt>`, `exec resume --last`, `-m`, `--json` |
 | `gemini` *(deprecated)* | `gemini` | 1 | env-only | `-p`, `-r latest` (resume), `-m`, `-o` |
@@ -449,7 +454,7 @@ resolveAgentName('cursor');          // → undefined
 **Current deprecation map:**
 
 | Id | Status | Canonical | Notes |
-|----|--------|-----------|-------|
+| ---- | -------- | ----------- | ------- |
 | `antigravity` | alias of `antigravity-cli` | `antigravity-cli` | Old tier-2 id; both use binary `agy`. Resolving warns. |
 | `gemini` | deprecated | `gemini` (self) → replaced by `antigravity-cli` | Gemini CLI sunset 2026-06-18. Shim stays functional. |
 | `omp` | canonical | `omp` | First-class; NOT a pi alias. |
@@ -457,7 +462,6 @@ resolveAgentName('cursor');          // → undefined
 | `grok` | canonical | `grok` | Grok Build CLI; headless via `-p`; auth is env/file only (no status verb). |
 
 `getAgentShim()` and `isAgentName()` are alias-aware: passing `'antigravity'` resolves to the `antigravity-cli` shim. `DoctorResult` and `DetectedAgent` surface `deprecated` + `replacedBy` when the resolved canonical id is marked deprecated.
-
 
 ## Team Mode Primitives
 
@@ -491,18 +495,25 @@ const specs = loadAgentSpecs('./agents');
 
 ### Durable messages
 
-`InboxMessageDao` from `@gobing-ai/ts-db/inbox` persists directed inter-agent messages.
-`TeamOrchestrator` consumes the DAO directly — there is no `MessageService` adapter class.
-Consumers compose `InboxMessageDao` + `EventBus<InboxMessageEvents>` directly:
+`TeamOrchestrator` depends on the ai-runner-owned `MessageStore` port — a minimal interface with
+`enqueue`, `drainPending`, `markDelivered`, and `markFailed` — plus the `DrainedMessage` view
+containing only the fields the orchestrator consumes (`id`, `fromId`, `body`). The port is the
+orchestration boundary; production source under `packages/ai-runner/src` has no direct
+`@gobing-ai/ts-db` import for message access.
+
+`InboxMessageDao` from `@gobing-ai/ts-db/inbox` is one structural provider: it satisfies
+`MessageStore` without an adapter class, so no `ts-db` runtime changes are required. In-memory
+test doubles implement the port directly. Consumers compose `InboxMessageDao` +
+`EventBus<InboxMessageEvents>` and pass the DAO to `TeamOrchestrator`:
 
 ```ts
 import { type BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
 import { InboxMessageDao, type InboxMessageEvents } from '@gobing-ai/ts-db/inbox';
-import { formatMessage } from '@gobing-ai/ts-ai-runner';
+import { formatMessage, type MessageStore } from '@gobing-ai/ts-ai-runner';
 
 const lifecycleBus = new EventBus<BusLifecycleEvents>();
 const events = new EventBus<InboxMessageEvents>({ lifecycleBus });
-const inbox = new InboxMessageDao(adapter, { events });
+const inbox: MessageStore = new InboxMessageDao(adapter, { events });
 
 const id = await inbox.enqueue(null, 'coder', 'Review the runtime process seam');
 const pending = await inbox.drainPending('coder');
@@ -551,16 +562,16 @@ unsubscribe();
 
 ### Team orchestrator
 
-`TeamOrchestrator` connects specs, shims, processes, and messages. On start it loads an agent spec, builds the agent command through the matching shim, starts the process, drains pending inbox messages, and injects them live. `sendMessage()` always persists first, then injects immediately when the target agent is running.
+`TeamOrchestrator` connects specs, shims, processes, and the `MessageStore` port. On start it loads an agent spec, builds the agent command through the matching shim, starts the process, drains pending inbox messages, and injects them live. `sendMessage()` always persists first, then injects immediately when the target agent is running.
 
 ```ts
 import { type BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
 import { InboxMessageDao, type InboxMessageEvents } from '@gobing-ai/ts-db/inbox';
-import { TeamOrchestrator } from '@gobing-ai/ts-ai-runner';
+import { TeamOrchestrator, type MessageStore } from '@gobing-ai/ts-ai-runner';
 
 const lifecycleBus = new EventBus<BusLifecycleEvents>();
 const events = new EventBus<InboxMessageEvents>({ lifecycleBus });
-const inbox = new InboxMessageDao(adapter, { events });
+const inbox: MessageStore = new InboxMessageDao(adapter, { events });
 const team = new TeamOrchestrator('./agents', inbox, { lifecycleBus });
 
 await team.startAgent('coder');
@@ -571,7 +582,7 @@ console.log(await team.getAgentStatus('coder')); // running
 await team.stopAll();
 ```
 
-The orchestrator also provides `restartAgent(id)`, `getRunningAgents()`, `getPeerSpecs(workspace, excludeId?)`, and `on(event, listener)` for event subscription.
+Any object implementing `MessageStore` can be supplied to `TeamOrchestrator`; `InboxMessageDao` is one structural provider, and in-memory test doubles implement the port directly without an adapter class. The orchestrator also provides `restartAgent(id)`, `getRunningAgents()`, `getPeerSpecs(workspace, excludeId?)`, and `on(event, listener)` for event subscription.
 
 ## Adding a New Coding Agent
 
@@ -638,7 +649,7 @@ If the agent supports an auth-status command, `getAuthCommand()` already returns
 ### Summary checklist
 
 | Step | File | What to change |
-|------|------|----------------|
+| ------ | ------ | ---------------- |
 | Shim | `src/agents/shims.ts` | Add `AgentShim` impl, update `AgentName`, `AGENT_SHIMS`, `DISPLAY_ORDER` |
 | Tier | `src/agents/shims.ts` | Add to `TIER1_PRIORITY` or `TIER2_AGENTS` |
 | Slash | `src/slash-command.ts` | Add case if dialect differs from default |
@@ -653,5 +664,5 @@ After these changes, the new agent is automatically available to `AiRunner`, `Ag
 - It does not install agent CLIs or manage credentials.
 - It does not parse agent responses beyond process result capture.
 - It keeps subprocess launching behind `ProcessExecutor` / `PipeProcess`, so tests can stay deterministic.
-- Team-mode persistence is delegated to `@gobing-ai/ts-db/inbox`; host apps own migrations and adapter lifecycle.
+- Team-mode persistence is consumed through the ai-runner-owned `MessageStore` port; `InboxMessageDao` from `@gobing-ai/ts-db/inbox` is one structural provider. Host apps own migrations and adapter lifecycle, and `@gobing-ai/ts-db` is a development dependency of this package (only the DB-backed integration test resolves the concrete DAO).
 - Platform APIs (`node:fs`, `node:path`, `Bun.spawn`, etc.) are confined to `@gobing-ai/ts-runtime` per ADR-011. This package accesses them through the runtime's `FileSystem`, `ProcessExecutor`, and path utilities.

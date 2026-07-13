@@ -1,19 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import type { InboxMessage } from '@gobing-ai/ts-db/inbox';
+import type { DrainedMessage } from '../src';
 import { formatMessage } from '../src';
 
-const baseMessage: InboxMessage = {
+const baseMessage: DrainedMessage = {
     id: 'msg-1',
     fromId: 'planner',
-    toId: 'coder',
     body: 'hello',
-    status: 'queued',
-    inReplyTo: null,
-    createdAt: 0,
-    updatedAt: 0,
-    deliveredAt: null,
-    injectAttempts: 0,
-    injectError: null,
 };
 
 describe('formatMessage', () => {

@@ -7,27 +7,25 @@ import {
     type AgentEvents,
     type AgentProcessOptions,
     type AgentSpec,
+    type DrainedMessage,
+    type MessageStore,
     saveAgentSpec,
     TeamAgentProcess,
     TeamOrchestrator,
 } from '../src';
 
-class MemoryDao {
+class MemoryDao implements MessageStore {
     private readonly messages: Array<{
         id: string;
         fromId: string | null;
         toId: string;
         body: string;
         status: string;
-        inReplyTo: string | null;
-        createdAt: number;
-        updatedAt: number;
         deliveredAt: number | null;
-        injectAttempts: number;
         injectError: string | null;
     }> = [];
 
-    async enqueue(fromId: string | null, toId: string, body: string, inReplyTo?: string): Promise<string> {
+    async enqueue(fromId: string | null, toId: string, body: string, _inReplyTo?: string): Promise<string> {
         const id = `msg-${this.messages.length + 1}`;
         this.messages.push({
             id,
@@ -35,23 +33,18 @@ class MemoryDao {
             toId,
             body,
             status: 'queued',
-            inReplyTo: inReplyTo ?? null,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
             deliveredAt: null,
-            injectAttempts: 0,
             injectError: null,
         });
         return id;
     }
 
-    async drainPending(toId: string) {
+    async drainPending(toId: string): Promise<DrainedMessage[]> {
         const drained = this.messages.filter((message) => message.toId === toId && message.status === 'queued');
         for (const message of drained) {
             message.status = 'injected';
-            message.injectAttempts += 1;
         }
-        return drained;
+        return drained.map(({ id, fromId, body }) => ({ id, fromId, body }));
     }
 
     async markDelivered(msgId: string): Promise<void> {
@@ -122,7 +115,7 @@ describe('TeamOrchestrator', () => {
         events.on('agent.message.sent', (event) => busEvents.push(`message:${event.agentId}:${event.ok}`));
 
         const created: FakeTeamAgentProcess[] = [];
-        const orchestrator = new TeamOrchestrator(dir, dao as never, {
+        const orchestrator = new TeamOrchestrator(dir, dao, {
             events,
             processFactory: (options) => {
                 const teamProcess = new FakeTeamAgentProcess(options);
@@ -170,7 +163,7 @@ describe('TeamOrchestrator', () => {
         const dir = mkdtempSync(join(tmpdir(), 'team-orchestrator-no-events-'));
         await writeSpec(dir, { id: 'coder', type: 'codex', workspace: process.cwd(), purpose: 'Implement' });
         const created: FakeTeamAgentProcess[] = [];
-        const orchestrator = new TeamOrchestrator(dir, new MemoryDao() as never, {
+        const orchestrator = new TeamOrchestrator(dir, new MemoryDao(), {
             processFactory: (options) => {
                 const teamProcess = new FakeTeamAgentProcess(options);
                 created.push(teamProcess);
