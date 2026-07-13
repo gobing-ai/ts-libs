@@ -99,15 +99,44 @@ export interface PipeProcess {
     kill(signal?: ProcessSignal): void;
 }
 
-// ── ProcessExecutor ───────────────────────────────────────────────────────
+// ── ProcessExecutor (canonical interface) ────────────────────────────────
 
 /**
- * Runtime-agnostic process executor wrapping `execa`.
+ * Runtime-agnostic process executor contract.
  *
  * Every invocation supports timeout enforcement, output capture, and
- * configurable output policy (buffered vs streamed).
+ * configurable output policy (buffered vs streamed). Concrete implementations
+ * are obtained through `RuntimeFactory.createProcessExecutor`; the Node/Bun
+ * implementation is {@link NodeProcessExecutor}. Test doubles implement this
+ * interface structurally — no concrete subclassing required.
  */
-export class ProcessExecutor {
+export interface ProcessExecutor {
+    /**
+     * Run a command, buffered by default. Returns a structured {@link ProcessResult}.
+     * Does NOT throw on non-zero exit codes unless `rejectOnError` is set.
+     */
+    run(options: ProcessOptions): Promise<ProcessResult>;
+
+    /**
+     * Spawn a long-running interactive process with streaming I/O.
+     *
+     * Returns a {@link PipeProcess} handle with streaming stdout/stderr and
+     * stdin write support.
+     */
+    runStreaming(options: PipeProcessOptions): PipeProcess;
+}
+
+// ── NodeProcessExecutor (concrete Node/Bun implementation) ───────────────
+
+/**
+ * Concrete Node/Bun implementation of {@link ProcessExecutor}, wrapping `execa`
+ * for buffered execution and `Bun.spawn` for streaming pipe execution.
+ *
+ * Obtain a default instance through `RuntimeFactory.createProcessExecutor`
+ * (e.g. `nodeBunFactory.createProcessExecutor()`); construct directly only in
+ * runtime-factory wiring or concrete implementation tests.
+ */
+export class NodeProcessExecutor implements ProcessExecutor {
     private readonly config: ProcessExecutorConfig;
 
     constructor(config: ProcessExecutorConfig = {}) {
@@ -374,13 +403,18 @@ class BunPipeProcess implements PipeProcess {
     }
 }
 
-// ── Deprecated backward-compatible subclasses ─────────────────────────────
+// ── Deprecated constructible ProcessExecutor value alias ──────────────────
 
 /**
- * @deprecated Use {@link ProcessExecutor} directly.
- * This subclass is kept for backward compatibility.
+ * @deprecated Construct {@link NodeProcessExecutor} directly or obtain a default
+ * through `RuntimeFactory.createProcessExecutor` (e.g. `nodeBunFactory.createProcessExecutor()`).
+ * This value alias preserves source compatibility for `new ProcessExecutor(...)` callers
+ * during the interface extraction release; it will be removed in a future release.
+ * `import type { ProcessExecutor }` resolves to the canonical interface, not this alias.
  */
-export class NodeProcessExecutor extends ProcessExecutor {}
+export const ProcessExecutor = NodeProcessExecutor;
+
+// ── Deprecated backward-compatible helpers ────────────────────────────────
 
 /**
  * @deprecated Use `Bun.spawnSync` or `child_process.spawnSync` directly.

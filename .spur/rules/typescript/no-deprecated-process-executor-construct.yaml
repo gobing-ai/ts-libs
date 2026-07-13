@@ -1,0 +1,42 @@
+# No deprecated `new ProcessExecutor(...)` construction in source.
+#
+# The `ProcessExecutor` const (process-executor.ts) is a deprecated value
+# alias for `NodeProcessExecutor`, kept only for source compatibility during
+# the interface extraction release (task 0043 / ADR-023 follow-up A2). New
+# code MUST construct `NodeProcessExecutor` directly or obtain a default
+# through the runtime-factory seam (`nodeBunFactory.createProcessExecutor()`).
+#
+# Enrolled in recommended-pre-check via `extends: typescript`. Runs every
+# `bun run spur-check` with `--fail-on warning`, so any new deprecated call
+# site fails the gate. Remove this rule when the compat alias is removed.
+#
+# Excludes:
+#   - tests/ — runtime/tests/index.test.ts constructs `new ProcessExecutor()`
+#     deliberately to prove the alias still works.
+#   - process-executor.ts — the alias definition file; its JSDoc mentions the
+#     call form in prose and the file is reviewed separately.
+include:
+  - "packages/**/*.ts"
+exclude:
+  - "**/dist/**"
+  - "**/node_modules/**"
+  - "**/tests/**"
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - "**/*.d.ts"
+  - "packages/runtime/src/process-executor.ts"
+rules:
+  - id: no-deprecated-process-executor-construct
+    description: >
+      Do not construct `new ProcessExecutor(...)`. The `ProcessExecutor` const
+      is a deprecated value alias for `NodeProcessExecutor`. Construct
+      `NodeProcessExecutor` directly or use the factory seam
+      `nodeBunFactory.createProcessExecutor()`.
+    severity: warning
+    evaluator:
+      type: regex
+      config:
+        # Match the construct call only. The alias-definition file and tests
+        # are excluded above, so the only remaining matches are new deprecated
+        # call sites.
+        pattern: "new\\s+ProcessExecutor\\s*\\("

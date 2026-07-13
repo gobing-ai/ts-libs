@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ProcessExecutor, type ProcessOptions, type ProcessResult } from '@gobing-ai/ts-runtime';
+import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import {
     CapabilityRegistry,
     type ConstraintRule,
@@ -17,14 +17,12 @@ import { AgentDetectionEvaluator } from '../src/evaluators/agent-detection-evalu
 import { matchesAny, relativeParent, relativeToWorkdir } from '../src/evaluators/file-utils';
 import { RuleEngineHost } from '../src/host/rule-engine-host';
 
-class FakeExecutor extends ProcessExecutor {
+class FakeExecutor implements ProcessExecutor {
     readonly calls: ProcessOptions[] = [];
 
-    constructor(private readonly responder: (options: ProcessOptions) => Partial<ProcessResult> = () => ({})) {
-        super();
-    }
+    constructor(private readonly responder: (options: ProcessOptions) => Partial<ProcessResult> = () => ({})) {}
 
-    override async run(options: ProcessOptions): Promise<ProcessResult> {
+    async run(options: ProcessOptions): Promise<ProcessResult> {
         this.calls.push(options);
         const response = this.responder(options);
         return {
@@ -36,6 +34,10 @@ class FakeExecutor extends ProcessExecutor {
             durationMs: 1,
             ...response,
         };
+    }
+
+    runStreaming(): never {
+        throw new Error('FakeExecutor.runStreaming not implemented');
     }
 }
 

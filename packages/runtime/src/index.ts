@@ -30,7 +30,7 @@ export type {
     ProcessSignal,
     TracerPort,
 } from './process-executor';
-export { ProcessExecutor } from './process-executor';
+export { NodeProcessExecutor, ProcessExecutor } from './process-executor';
 export { cloudflareWorkersFactory } from './runtime-cf';
 export type { RuntimeFactory } from './runtime-factory';
 export { _resetNodeFileSystem, nodeBunFactory } from './runtime-node-bun';
@@ -39,7 +39,7 @@ export * from './types';
 
 // ── Deprecated re-exports (backward compatibility) ──────────────────────
 
-export { BunPipeProcessSpawner, BunSyncProcessExecutor, NodeProcessExecutor } from './process-executor';
+export { BunPipeProcessSpawner, BunSyncProcessExecutor } from './process-executor';
 
 /**
  * @deprecated Use {@link ProcessExecutor} directly for async execution.

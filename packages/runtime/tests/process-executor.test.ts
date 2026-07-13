@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import {
     BunPipeProcessSpawner,
     BunSyncProcessExecutor,
+    NodeProcessExecutor,
     type ProcessEventDetail,
     type ProcessEventSink,
-    ProcessExecutor,
     type TracerPort,
 } from '../src/process-executor';
 
@@ -33,9 +33,9 @@ function recordTracer(): { spans: string[]; tracer: TracerPort } {
     };
 }
 
-describe('ProcessExecutor', () => {
+describe('NodeProcessExecutor', () => {
     test('runs a command and captures stdout', async () => {
-        const result = await new ProcessExecutor().run({ command: 'echo', args: ['hello'] });
+        const result = await new NodeProcessExecutor().run({ command: 'echo', args: ['hello'] });
 
         expect(result.exitCode).toBe(0);
         expect(result.stdout).toContain('hello');
@@ -44,7 +44,7 @@ describe('ProcessExecutor', () => {
     });
 
     test('captures stderr and custom environment', async () => {
-        const result = await new ProcessExecutor().run({
+        const result = await new NodeProcessExecutor().run({
             command: 'sh',
             args: ['-c', 'echo value && echo err >&2'],
         });
@@ -55,16 +55,16 @@ describe('ProcessExecutor', () => {
     });
 
     test('returns non-zero exit results unless rejectOnError is true', async () => {
-        const result = await new ProcessExecutor().run({ command: 'sh', args: ['-c', 'exit 2'] });
+        const result = await new NodeProcessExecutor().run({ command: 'sh', args: ['-c', 'exit 2'] });
         expect(result.exitCode).toBe(2);
 
         await expect(
-            new ProcessExecutor().run({ command: 'sh', args: ['-c', 'exit 3'], rejectOnError: true }),
+            new NodeProcessExecutor().run({ command: 'sh', args: ['-c', 'exit 3'], rejectOnError: true }),
         ).rejects.toThrow();
     });
 
     test('accepts cwd option', async () => {
-        const result = await new ProcessExecutor().run({
+        const result = await new NodeProcessExecutor().run({
             command: 'pwd',
             cwd: '/',
         });
@@ -74,7 +74,7 @@ describe('ProcessExecutor', () => {
     });
 
     test('runStreaming spawns a pipe process and writes stdin', async () => {
-        const proc = new ProcessExecutor().runStreaming({
+        const proc = new NodeProcessExecutor().runStreaming({
             command: 'cat',
         });
 
@@ -88,7 +88,7 @@ describe('ProcessExecutor', () => {
     test('emits process events and opens a span for successful buffered runs', async () => {
         const { events, sink } = recordEvents();
         const { spans, tracer } = recordTracer();
-        const result = await new ProcessExecutor({ events: sink, tracer }).run({
+        const result = await new NodeProcessExecutor({ events: sink, tracer }).run({
             command: 'echo',
             args: ['observed'],
             label: 'test.echo',
@@ -116,7 +116,7 @@ describe('ProcessExecutor', () => {
 
     test('emits exit reason for non-zero buffered runs', async () => {
         const { events, sink } = recordEvents();
-        const result = await new ProcessExecutor({ events: sink }).run({
+        const result = await new NodeProcessExecutor({ events: sink }).run({
             command: 'sh',
             args: ['-c', 'exit 2'],
         });
@@ -127,7 +127,7 @@ describe('ProcessExecutor', () => {
 
     test('emits timeout reason for timed-out buffered runs', async () => {
         const { events, sink } = recordEvents();
-        const result = await new ProcessExecutor({ events: sink }).run({
+        const result = await new NodeProcessExecutor({ events: sink }).run({
             command: 'sh',
             args: ['-c', 'sleep 1'],
             timeout: 10,
@@ -139,7 +139,7 @@ describe('ProcessExecutor', () => {
 
     test('emits signal reason for signaled buffered runs', async () => {
         const { events, sink } = recordEvents();
-        const result = await new ProcessExecutor({ events: sink }).run({
+        const result = await new NodeProcessExecutor({ events: sink }).run({
             command: 'sh',
             args: ['-c', 'kill -TERM $$'],
         });
@@ -154,7 +154,7 @@ describe('ProcessExecutor', () => {
         const { events, sink } = recordEvents();
 
         await expect(
-            new ProcessExecutor({ events: sink }).run({
+            new NodeProcessExecutor({ events: sink }).run({
                 command: 'definitely-missing-command-for-process-executor-test',
                 rejectOnError: true,
             }),
@@ -170,7 +170,7 @@ describe('ProcessExecutor', () => {
     test('runStreaming emits process events and opens a spawn span', async () => {
         const { events, sink } = recordEvents();
         const { spans, tracer } = recordTracer();
-        const proc = new ProcessExecutor({ events: sink, tracer }).runStreaming({ command: 'cat' });
+        const proc = new NodeProcessExecutor({ events: sink, tracer }).runStreaming({ command: 'cat' });
 
         expect(proc.pid).toBeGreaterThan(0);
         expect(proc.stdout).toBeInstanceOf(ReadableStream);
@@ -192,7 +192,7 @@ describe('ProcessExecutor', () => {
             },
         };
 
-        const proc = new ProcessExecutor({ tracer }).runStreaming({ command: 'cat' });
+        const proc = new NodeProcessExecutor({ tracer }).runStreaming({ command: 'cat' });
         proc.endStdin();
 
         await expect(proc.exited).resolves.toBe(0);
@@ -200,7 +200,7 @@ describe('ProcessExecutor', () => {
 
     test('runStreaming records signal details when killed through the observed handle', async () => {
         const { events, sink } = recordEvents();
-        const proc = new ProcessExecutor({ events: sink }).runStreaming({ command: 'sleep', args: ['1'] });
+        const proc = new NodeProcessExecutor({ events: sink }).runStreaming({ command: 'sleep', args: ['1'] });
 
         proc.kill('SIGTERM');
 
@@ -210,7 +210,7 @@ describe('ProcessExecutor', () => {
 
     test('runStreaming emits a terminal exited event when spawn fails', () => {
         const { events, sink } = recordEvents();
-        const exec = new ProcessExecutor({ events: sink });
+        const exec = new NodeProcessExecutor({ events: sink });
 
         expect(() => exec.runStreaming({ command: 'definitely-not-a-real-binary-xyz' })).toThrow();
         expect(events.map((entry) => entry.event)).toEqual(['process.started', 'process.exited']);
@@ -219,7 +219,7 @@ describe('ProcessExecutor', () => {
     });
 
     test('observability ports are no-op when unset', async () => {
-        const exec = new ProcessExecutor();
+        const exec = new NodeProcessExecutor();
         await expect(exec.run({ command: 'echo', args: ['noop'] })).resolves.toMatchObject({ exitCode: 0 });
         const proc = exec.runStreaming({ command: 'cat' });
         proc.endStdin();

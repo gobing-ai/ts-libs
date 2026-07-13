@@ -1,7 +1,7 @@
 import { type BusLifecycleEvents, EventBus, getLogger, type Logger, traceAsync } from '@gobing-ai/ts-infra';
 import {
     getProcessCwd,
-    NodeProcessExecutor,
+    nodeBunFactory,
     type ProcessExecutor,
     type ProcessResult,
     type TracerPort,
@@ -80,7 +80,7 @@ export class AiRunner {
             (options.lifecycleBus ? new EventBus<AgentEvents>({ lifecycleBus: options.lifecycleBus }) : undefined);
         this.processExecutor =
             options.processExecutor ??
-            new NodeProcessExecutor({
+            nodeBunFactory.createProcessExecutor({
                 ...(processEvents !== undefined
                     ? {
                           events: {

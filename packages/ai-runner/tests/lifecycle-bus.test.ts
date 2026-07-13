@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import type { BusLifecycleEvents } from '@gobing-ai/ts-infra';
 import { EventBus, setLoggerMuted } from '@gobing-ai/ts-infra';
-import { ProcessExecutor, type ProcessOptions, type ProcessResult } from '@gobing-ai/ts-runtime';
+import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import { AiRunner } from '../src';
 import type { AgentEvents, AiRunnerProcessEvents } from '../src/events';
 
 setLoggerMuted(true);
 
-class FakeExecutor extends ProcessExecutor {
+class FakeExecutor implements ProcessExecutor {
     readonly calls: ProcessOptions[] = [];
 
-    override async run(options: ProcessOptions): Promise<ProcessResult> {
+    async run(options: ProcessOptions): Promise<ProcessResult> {
         this.calls.push(options);
         return {
             command: options.command,
@@ -20,6 +20,10 @@ class FakeExecutor extends ProcessExecutor {
             stderr: '',
             durationMs: 1,
         };
+    }
+
+    runStreaming(): never {
+        throw new Error('FakeExecutor.runStreaming not implemented');
     }
 }
 

@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { EventBus, type Logger } from '@gobing-ai/ts-infra';
 import {
+    NodeProcessExecutor,
     type PipeProcess,
     type PipeProcessOptions,
     type ProcessEventDetail,
-    ProcessExecutor,
+    type ProcessExecutor,
     type ProcessSignal,
 } from '@gobing-ai/ts-runtime';
 import { type AgentSpec, type AiRunnerProcessEvents, TeamAgentProcess } from '../src';
@@ -105,7 +106,7 @@ describe('TeamAgentProcess', () => {
         const observed: Array<{ event: string; detail: ProcessEventDetail }> = [];
         events.on('process.started', (detail) => observed.push({ event: 'process.started', detail }));
         events.on('process.exited', (detail) => observed.push({ event: 'process.exited', detail }));
-        const processExecutor = new ProcessExecutor({
+        const processExecutor = new NodeProcessExecutor({
             events: {
                 emit: (event, detail) => {
                     void events.emit(event, detail);
@@ -200,18 +201,20 @@ function makeRecordingLogger(sink: Array<{ msg: string; data?: Record<string, un
     return logger;
 }
 
-class FakeExecutor extends ProcessExecutor {
+class FakeExecutor implements ProcessExecutor {
     runStreamingCount = 0;
     readonly calls: PipeProcessOptions[] = [];
 
-    constructor(private readonly process = new FakePipeProcess()) {
-        super();
-    }
+    constructor(private readonly process = new FakePipeProcess()) {}
 
-    override runStreaming(options: PipeProcessOptions): PipeProcess {
+    runStreaming(options: PipeProcessOptions): PipeProcess {
         this.runStreamingCount += 1;
         this.calls.push(options);
         return this.process;
+    }
+
+    async run(): Promise<never> {
+        throw new Error('FakeExecutor.run not implemented');
     }
 }
 

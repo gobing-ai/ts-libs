@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { getLogger, type Logger } from '@gobing-ai/ts-infra';
-import { type PipeProcess, ProcessExecutor } from '@gobing-ai/ts-runtime';
+import { nodeBunFactory, type PipeProcess, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { AgentSpec } from './agent-spec';
 
 /** Options for spawning a team agent subprocess. */
@@ -36,7 +36,7 @@ export class TeamAgentProcess {
         this.command = options.command;
         this.env = options.env;
         this.cwd = options.cwd ?? options.spec.workspace;
-        this.processExecutor = options.processExecutor ?? new ProcessExecutor();
+        this.processExecutor = options.processExecutor ?? nodeBunFactory.createProcessExecutor();
         this.logger = options.logger ?? getLogger('team-agent');
     }
 

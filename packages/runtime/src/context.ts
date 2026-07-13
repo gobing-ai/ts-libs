@@ -4,7 +4,7 @@ import type { FileSystem } from './file-system';
 import { createNodeFileSystem } from './file-system-node';
 import { loadRuntimeFactory } from './platform';
 import type { ProcessExecutor as ProcessExecutorService } from './process-executor';
-import { ProcessExecutor } from './process-executor';
+import { nodeBunFactory } from './runtime-node-bun';
 import type { RuntimeCapabilities, RuntimeName } from './types';
 /** Execution scope of a runtime context — determines service lifecycle and availability. */
 export type RuntimeScope = 'process' | 'server-request' | 'scheduled-event' | 'test';
@@ -50,7 +50,7 @@ export class RuntimeContext<TServices extends RuntimeServiceMap = RuntimeService
             (options.services?.fileSystem ?? createNodeFileSystem()) as TServices['fileSystem'],
         );
         if (this.capabilities.hasProcessExecution && options.services?.processExecutor === undefined) {
-            this.register('processExecutor', new ProcessExecutor() as TServices['processExecutor']);
+            this.register('processExecutor', nodeBunFactory.createProcessExecutor() as TServices['processExecutor']);
         }
 
         for (const [key, value] of Object.entries(options.services ?? {})) {

@@ -6,6 +6,7 @@ import {
     createNodeFileSystem,
     createRuntimeContext,
     type FileSystem,
+    NodeProcessExecutor,
     ProcessExecutor,
 } from '../src/index';
 
@@ -15,7 +16,7 @@ describe('@gobing-ai/ts-runtime barrel', () => {
         const cfFs: FileSystem = createCfFileSystem();
         expect(typeof nodeFs.resolve('package.json')).toBe('string');
         expect(typeof cfFs.getProjectRoot()).toBe('string');
-        expect(new ProcessExecutor()).toBeInstanceOf(ProcessExecutor);
+        expect(new ProcessExecutor()).toBeInstanceOf(NodeProcessExecutor);
         expect(createRuntimeContext().require('config').app.port).toBe(3000);
         expect(buildConfigFromObject({ app: { env: 'test' } }).app.env).toBe('test');
     });

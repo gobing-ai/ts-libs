@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
 import { EventBus } from '@gobing-ai/ts-infra';
-import { ProcessExecutor, type ProcessOptions, type ProcessResult } from '@gobing-ai/ts-runtime';
+import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import type { WorkflowEngineEvents } from '../src/events';
 import { createDefaultWorkflowEngineHost, WorkflowEngineHost } from '../src/host';
 import { DbWorkflowPersistenceAdapter, MemoryWorkflowPersistenceAdapter } from '../src/persistence';
@@ -48,8 +48,8 @@ class FlagGuardRunner implements GuardRunner {
     }
 }
 
-class FakeShellExecutor extends ProcessExecutor {
-    override async run(options: ProcessOptions): Promise<ProcessResult> {
+class FakeShellExecutor implements ProcessExecutor {
+    async run(options: ProcessOptions): Promise<ProcessResult> {
         const line = options.command === '/bin/sh' ? (options.args?.[1] ?? '') : options.command;
         return {
             command: options.command,
@@ -59,6 +59,10 @@ class FakeShellExecutor extends ProcessExecutor {
             stderr: `stderr:${line}`,
             durationMs: 1,
         };
+    }
+
+    runStreaming(): never {
+        throw new Error('FakeShellExecutor.runStreaming not implemented');
     }
 }
 

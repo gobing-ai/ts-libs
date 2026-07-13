@@ -12,8 +12,18 @@ interface FakeRunResult {
 
 function makeFakeExecutor(response: FakeRunResult): ProcessExecutor {
     return {
-        run: async () => response,
-    } as unknown as ProcessExecutor;
+        run: async () => ({
+            command: '',
+            args: [],
+            exitCode: response.exitCode,
+            stdout: response.stdout,
+            stderr: response.stderr,
+            durationMs: 0,
+        }),
+        runStreaming(): never {
+            throw new Error('runStreaming not implemented');
+        },
+    };
 }
 
 function makeRule(config: Record<string, unknown>, extras: Partial<ConstraintRule> = {}): ConstraintRule {
@@ -125,12 +135,22 @@ describe('SgEvaluator', () => {
     /** Capture the args handed to the sg subprocess so we can assert on glob forwarding. */
     function captureArgs(): { executor: ProcessExecutor; args: () => string[] } {
         let captured: string[] = [];
-        const executor = {
+        const executor: ProcessExecutor = {
             run: async (opts: ProcessOptions) => {
                 captured = opts.args ?? [];
-                return { exitCode: 0, stdout: '', stderr: '', command: opts.command, args: opts.args ?? [] };
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                    command: opts.command,
+                    args: opts.args ?? [],
+                    durationMs: 0,
+                };
             },
-        } as unknown as ProcessExecutor;
+            runStreaming(): never {
+                throw new Error('runStreaming not implemented');
+            },
+        };
         return { executor, args: () => captured };
     }
 

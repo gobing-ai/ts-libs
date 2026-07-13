@@ -8,15 +8,13 @@ and Cloudflare Workers through a factory pattern that auto-detects the runtime.
 
 ## Overview
 
-
-
 **Key abstractions:**
 
 | Concept | Interface | Bun/Node impl | Cloudflare impl |
-|---------|-----------|---------------|-----------------|
+| --------- | ----------- | --------------- | ----------------- |
 | Runtime factory | `RuntimeFactory` → `loadRuntimeFactory()` | `nodeBunFactory` | `cloudflareWorkersFactory` |
 | File system | `FileSystem` | `createNodeFileSystem()` (sync `node:fs`) | `createCfFileSystem()` (stub) |
-| Process execution | `ProcessExecutor` (class) | `run()` via execa, `runStreaming()` via `Bun.spawn` | throws |
+| Process execution | `ProcessExecutor` (interface) | `NodeProcessExecutor` — `run()` via execa, `runStreaming()` via `Bun.spawn` | throws |
 | SQL database | `createDbAdapter(config)` → `DbAdapter` | Bun SQLite via `@gobing-ai/ts-db` (optional peer) | throws `D1NotConfiguredError` (D1 round pending) |
 | Configuration | `Config` (Zod schema) | YAML + env vars | CONFIG_YAML blob + env vars |
 | Context | `RuntimeContext` | service locator | service locator |
@@ -88,6 +86,12 @@ classDiagram
     }
 
     class ProcessExecutor {
+        <<interface>>
+        +run(options) Promise~ProcessResult~
+        +runStreaming(options) PipeProcess
+    }
+
+    class NodeProcessExecutor {
         +run(options) Promise~ProcessResult~
         +runStreaming(options) PipeProcess
     }
@@ -133,8 +137,9 @@ classDiagram
     FileSystem <|.. createNodeFileSystem : implements
     FileSystem <|.. createCfFileSystem : implements
     ProcessExecutor --> PipeProcess : creates
+    ProcessExecutor <|.. NodeProcessExecutor : implements
     nodeBunFactory --> createNodeFileSystem : creates
-    nodeBunFactory --> ProcessExecutor : creates
+    nodeBunFactory --> NodeProcessExecutor : creates
     cloudflareWorkersFactory --> createCfFileSystem : creates
     RuntimeContext --> FileSystem : "fileSystem"
     RuntimeContext --> Config : "config"
@@ -232,7 +237,7 @@ There are three ways a config file can name its schema. **Prefer the bundled pac
 the most secure and performant default:
 
 | Style | Example | Resolution | Notes |
-|-------|---------|------------|-------|
+| ------- | --------- | ------------ | ------- |
 | **Package specifier** (recommended) | `$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"` | Resolved through `node_modules` via the module resolver, then read from disk | No network, no path guessing; survives hoisting/pnpm/monorepo layouts. Schemas ship in each package's `schemas/` (declared in `files`). **Quote the value** — YAML treats a leading `@` as reserved. |
 | Relative path | `$schema: ./schemas/rule-file.schema.json` | Resolved against the config file's directory | Fine for repo-local schemas; brittle if the config moves. |
 | Remote URL | `$schema: https://json-schema.org/.../rule-file.schema.json` | Fetched over HTTP(S) — **off by default** | SSRF/DoS surface for third-party configs. Opt in with `{ allowRemote: true }` (5s timeout) or supply your own `fetch`. |
@@ -250,7 +255,6 @@ await loadStructuredConfig('rules.yaml', { fetch: myFetch });           // or in
 > **Security:** remote schema fetching is disabled by default. Resolving a bundled schema from
 > `node_modules` keeps validation entirely local — no outbound request, no dependency on a schema host's
 > availability, and no chance for a malicious config to point validation at an internal URL.
-
 
 ### 5. Path utilities
 
@@ -284,6 +288,7 @@ The `./extension` subpath exposes a generic, domain-agnostic extension/capabilit
 with origin metadata, a trust-gated extension loader, and a path guard — without knowing anything
 about evaluators, resolvers, actions, or guards. Each engine owns its domain-specific kinds,
 schemas, error types, and override semantics.
+
 #### Capability registry
 
 ```ts
@@ -462,6 +467,7 @@ process.on('SIGTERM', async () => {
     await ctx.dispose();
     process.exit(0);
 });
+
 ```
 
 ## Usage
@@ -513,6 +519,7 @@ const config = buildConfigFromObject({
     database: { url: ':memory:' },
 });
 ```
+
 // From YAML file
 const config = buildConfigFromYaml(yamlText);
 
@@ -521,16 +528,17 @@ const config = buildConfigFromObject({
     app: { name: 'api', env: 'production', port: 3000 },
     database: { url: ':memory:' },
 });
+
 ```
 
 ### Process execution
 
-`ProcessExecutor` is a single class wrapping `execa` (buffered) and `Bun.spawn` (streaming):
+`ProcessExecutor` is the canonical interface for process execution. `NodeProcessExecutor` is the concrete implementation wrapping `execa` (buffered) and `Bun.spawn` (streaming):
 
 ```ts
-import { ProcessExecutor } from '@gobing-ai/ts-runtime';
+import { NodeProcessExecutor } from '@gobing-ai/ts-runtime';
 
-const exec = new ProcessExecutor({ defaultTimeout: 30_000 });
+const exec = new NodeProcessExecutor({ defaultTimeout: 30_000 });
 
 // Buffered — captures stdout/stderr, no throw on non-zero
 const result = await exec.run({
@@ -557,8 +565,9 @@ maxOutput, and forceBuffered.
 Cloudflare Workers do not expose process execution; check
 `factory.capabilities.hasProcessExecution` first.
 
-Old classes (`NodeProcessExecutor`, `BunSyncProcessExecutor`, `BunPipeProcessSpawner`)
-are kept as deprecated backward-compatible wrappers.
+The `ProcessExecutor` const (value alias for `NodeProcessExecutor`), `BunSyncProcessExecutor`,
+and `BunPipeProcessSpawner` are kept as deprecated backward-compatible wrappers. Prefer
+`NodeProcessExecutor` or `nodeBunFactory.createProcessExecutor()` in new code.
 
 ### SpanContext (for telemetry)
 

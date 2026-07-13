@@ -4,8 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DbAdapter } from '@gobing-ai/ts-db';
 import { setLoggerMuted } from '@gobing-ai/ts-infra';
-import type { ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
-import { ProcessExecutor } from '@gobing-ai/ts-runtime';
+import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import {
     createDefaultWorkflowEngineHost,
     DbWorkflowPersistenceAdapter,
@@ -167,8 +166,8 @@ edges:
         ).resolves.toBe(true);
 
         const shell = new ShellActionRunner(
-            new (class extends ProcessExecutor {
-                override async run(options: ProcessOptions): Promise<ProcessResult> {
+            new (class implements ProcessExecutor {
+                async run(options: ProcessOptions): Promise<ProcessResult> {
                     // A bare `command` is wrapped as `/bin/sh -c <line>`; explicit args run the
                     // program directly. Fail when the effective command line mentions 'fail'.
                     const line = options.command === '/bin/sh' ? (options.args?.[1] ?? '') : options.command;
@@ -180,6 +179,10 @@ edges:
                         stderr: 'err',
                         durationMs: 1,
                     };
+                }
+
+                runStreaming(): never {
+                    throw new Error('runStreaming not implemented');
                 }
             })(),
         );

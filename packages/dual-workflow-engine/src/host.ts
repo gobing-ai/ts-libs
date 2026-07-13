@@ -1,5 +1,5 @@
 import type { BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
-import { NodeProcessExecutor, type ProcessExecutor } from '@gobing-ai/ts-runtime';
+import { nodeBunFactory, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import { type CapabilityOrigin, CapabilityRegistry } from '@gobing-ai/ts-runtime/extension';
 import { WorkflowValidationError } from './errors';
 import type {
@@ -91,9 +91,15 @@ export function createDefaultWorkflowEngineHost(
 ): WorkflowEngineHost {
     const host = new WorkflowEngineHost(options.lifecycleBus);
     host.registerAction(new NoteActionRunner(), 'builtin');
-    host.registerAction(new ShellActionRunner(options.processExecutor ?? new NodeProcessExecutor()), 'builtin');
+    host.registerAction(
+        new ShellActionRunner(options.processExecutor ?? nodeBunFactory.createProcessExecutor()),
+        'builtin',
+    );
     host.registerAction(new EventEmitActionRunner(), 'builtin');
-    host.registerGuard(new ShellGuardRunner(options.processExecutor ?? new NodeProcessExecutor()), 'builtin');
+    host.registerGuard(
+        new ShellGuardRunner(options.processExecutor ?? nodeBunFactory.createProcessExecutor()),
+        'builtin',
+    );
     host.registerGuard({ kind: 'always', evaluate: async () => true }, 'builtin');
     host.registerGuard({ kind: 'never', evaluate: async () => false }, 'builtin');
     host.registerGuard(

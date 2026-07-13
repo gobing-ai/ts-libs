@@ -401,8 +401,13 @@ describe('host.fixers registry (builtin fixer registration)', () => {
     });
 
     test('test-location fixer is registered when processExecutor is provided', () => {
-        const exec = { spawn: async () => ({ stdout: '', stderr: '', exitCode: 0 }) };
-        const engine = new RuleEngine({ processExecutor: exec as unknown as ProcessExecutor });
+        const exec: ProcessExecutor = {
+            run: async () => ({ command: '', args: [], exitCode: 0, stdout: '', stderr: '', durationMs: 0 }),
+            runStreaming(): never {
+                throw new Error('runStreaming not implemented');
+            },
+        };
+        const engine = new RuleEngine({ processExecutor: exec });
         expect(engine.host.fixers.has('test-location')).toBe(true);
         expect(engine.host.fixers.getEntry('test-location')?.origin).toBe('builtin');
     });

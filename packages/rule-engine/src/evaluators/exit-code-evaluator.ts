@@ -1,4 +1,4 @@
-import { NodeProcessExecutor, type ProcessExecutor } from '@gobing-ai/ts-runtime';
+import { nodeBunFactory, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -10,7 +10,7 @@ import { configArray, configNumber, configString } from './file-utils';
 
 /** Evaluates a rule by running a subprocess and checking its exit code. */
 export class ExitCodeEvaluator implements RuleEvaluator {
-    constructor(private readonly executor: ProcessExecutor = new NodeProcessExecutor()) {}
+    constructor(private readonly executor: ProcessExecutor = nodeBunFactory.createProcessExecutor()) {}
 
     /** Run configured command and emit a finding unless the exit code matches `successCode`. */
     async evaluate(rule: ConstraintRule, context: RuleContext): Promise<RuleEvaluationResult> {

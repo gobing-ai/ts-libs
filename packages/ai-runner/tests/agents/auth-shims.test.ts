@@ -1,15 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { type FileSystem, ProcessExecutor, type ProcessOptions, type ProcessResult } from '@gobing-ai/ts-runtime';
+import type { FileSystem, ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import { type AuthState, isAuthenticated } from '../../src/agents/auth-shims';
 import { AiRunner } from '../../src/ai-runner';
 
 /** Fake executor — returns a configured response per invocation. */
-class FakeExecutor extends ProcessExecutor {
-    constructor(private readonly responder: (options: ProcessOptions) => Partial<ProcessResult> = () => ({})) {
-        super();
-    }
+class FakeExecutor implements ProcessExecutor {
+    constructor(private readonly responder: (options: ProcessOptions) => Partial<ProcessResult> = () => ({})) {}
 
-    override async run(options: ProcessOptions): Promise<ProcessResult> {
+    async run(options: ProcessOptions): Promise<ProcessResult> {
         return {
             command: options.command,
             args: options.args ?? [],
@@ -19,6 +17,10 @@ class FakeExecutor extends ProcessExecutor {
             durationMs: 1,
             ...this.responder(options),
         };
+    }
+
+    runStreaming(): never {
+        throw new Error('FakeExecutor.runStreaming not implemented');
     }
 }
 

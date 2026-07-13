@@ -1,16 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { ProcessExecutor, type ProcessOptions, type ProcessResult } from '@gobing-ai/ts-runtime';
+import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import { AgentDetector, type DetectedAgent } from '../src/agent-detector';
 import { AiRunner } from '../src/ai-runner';
 
-class FakeExecutor extends ProcessExecutor {
+class FakeExecutor implements ProcessExecutor {
     readonly calls: ProcessOptions[] = [];
 
-    constructor(private readonly responder: (options: ProcessOptions) => Partial<ProcessResult> = () => ({})) {
-        super();
-    }
+    constructor(private readonly responder: (options: ProcessOptions) => Partial<ProcessResult> = () => ({})) {}
 
-    override async run(options: ProcessOptions): Promise<ProcessResult> {
+    async run(options: ProcessOptions): Promise<ProcessResult> {
         this.calls.push(options);
         const response = this.responder(options);
         return {
@@ -22,6 +20,10 @@ class FakeExecutor extends ProcessExecutor {
             durationMs: 1,
             ...response,
         };
+    }
+
+    runStreaming(): never {
+        throw new Error('FakeExecutor.runStreaming not implemented');
     }
 }
 

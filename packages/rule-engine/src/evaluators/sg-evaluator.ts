@@ -1,4 +1,4 @@
-import { NodeProcessExecutor, type ProcessExecutor } from '@gobing-ai/ts-runtime';
+import { nodeBunFactory, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import {
     type ConstraintRule,
     createFinding,
@@ -29,7 +29,7 @@ import { DEFAULT_EXCLUDES, matchesGlob } from './file-utils';
 export class SgEvaluator implements RuleEvaluator {
     private readonly executor: ProcessExecutor;
 
-    constructor(executor: ProcessExecutor = new NodeProcessExecutor()) {
+    constructor(executor: ProcessExecutor = nodeBunFactory.createProcessExecutor()) {
         this.executor = executor;
     }
 

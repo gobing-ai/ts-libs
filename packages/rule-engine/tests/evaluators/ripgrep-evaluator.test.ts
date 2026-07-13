@@ -10,7 +10,19 @@ interface FakeRunResult {
 }
 
 function makeFakeExecutor(response: FakeRunResult): ProcessExecutor {
-    return { run: async () => response } as unknown as ProcessExecutor;
+    return {
+        run: async () => ({
+            command: '',
+            args: [],
+            exitCode: response.exitCode,
+            stdout: response.stdout,
+            stderr: response.stderr,
+            durationMs: 0,
+        }),
+        runStreaming(): never {
+            throw new Error('runStreaming not implemented');
+        },
+    };
 }
 
 /** Executor that records the args it was handed, for asserting CLI construction. */
@@ -19,12 +31,15 @@ function captureArgs(response: FakeRunResult = { exitCode: 1, stdout: '', stderr
     args: () => string[];
 } {
     let captured: string[] = [];
-    const executor = {
+    const executor: ProcessExecutor = {
         run: async (opts: ProcessOptions) => {
             captured = opts.args ?? [];
-            return { ...response, command: opts.command, args: opts.args ?? [] };
+            return { ...response, command: opts.command, args: opts.args ?? [], durationMs: 0 };
         },
-    } as unknown as ProcessExecutor;
+        runStreaming(): never {
+            throw new Error('runStreaming not implemented');
+        },
+    };
     return { executor, args: () => captured };
 }
 

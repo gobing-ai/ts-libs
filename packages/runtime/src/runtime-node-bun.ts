@@ -4,7 +4,7 @@ import { buildConfigFromObject, getProcessEnv } from './config';
 import { DbModuleNotInstalledError } from './db-errors';
 import type { FileSystem } from './file-system';
 import { createNodeFileSystem } from './file-system-node';
-import { ProcessExecutor, type ProcessExecutorConfig } from './process-executor';
+import { NodeProcessExecutor, type ProcessExecutorConfig } from './process-executor';
 import type { RuntimeFactory } from './runtime-factory';
 import type { DatabaseConfig, LoadConfigOptions, RuntimeDbAdapter } from './types';
 
@@ -34,7 +34,7 @@ export const nodeBunFactory: RuntimeFactory = {
 
     createFileSystem: () => getNodeFileSystem(),
 
-    createProcessExecutor: (config?: ProcessExecutorConfig) => new ProcessExecutor(config),
+    createProcessExecutor: (config?: ProcessExecutorConfig) => new NodeProcessExecutor(config),
 
     async loadConfig(options?: LoadConfigOptions): Promise<Config> {
         return loadNodeConfig(options);

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { EventBus, type Logger } from '@gobing-ai/ts-infra';
-import { ProcessExecutor, type ProcessOptions, type ProcessResult } from '@gobing-ai/ts-runtime';
+import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import {
     AgentDetector,
     type AgentEvents,
@@ -29,14 +29,12 @@ function makeRecordingLogger(sink: Array<{ level: string; msg: string }>): Logge
     return logger;
 }
 
-class FakeExecutor extends ProcessExecutor {
+class FakeExecutor implements ProcessExecutor {
     readonly calls: ProcessOptions[] = [];
 
-    constructor(private readonly responder: (options: ProcessOptions) => Partial<ProcessResult>) {
-        super();
-    }
+    constructor(private readonly responder: (options: ProcessOptions) => Partial<ProcessResult>) {}
 
-    override async run(options: ProcessOptions): Promise<ProcessResult> {
+    async run(options: ProcessOptions): Promise<ProcessResult> {
         this.calls.push(options);
         const response = this.responder(options);
         return {
@@ -48,6 +46,10 @@ class FakeExecutor extends ProcessExecutor {
             durationMs: 1,
             ...response,
         };
+    }
+
+    runStreaming(): never {
+        throw new Error('FakeExecutor.runStreaming not implemented');
     }
 }
 
