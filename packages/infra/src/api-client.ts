@@ -7,7 +7,7 @@ import {
     ATTR_HTTP_RESPONSE_STATUS_CODE,
     ATTR_URL_FULL,
 } from '@opentelemetry/semantic-conventions';
-import type { EventBus } from './event-bus/event-bus';
+import { type BusLifecycleEvents, EventBus } from './event-bus/index';
 import type { ApiClientEvents } from './events';
 import {
     getHttpClientRequestDuration,
@@ -30,6 +30,13 @@ export interface APIClientConfig {
      * returns non-2xx statuses normally, so it emits only on network/timeout.
      */
     events?: EventBus<ApiClientEvents>;
+    /**
+     * Optional lifecycle bus to bridge `api.*` events into the application
+     * System Events stream (R5). When `events` is omitted the client
+     * constructs an internal `EventBus<ApiClientEvents>` parented to this
+     * bus so `api.request.error` appears in the JSONL log.
+     */
+    lifecycleBus?: EventBus<BusLifecycleEvents>;
 }
 /** Per-request overrides: headers, timeout, operation name, and abort signal. */
 export interface RequestOptions {
@@ -137,9 +144,7 @@ async function readBodyCapped(
 /**
  * Typed HTTP client builder wrapping fetch with automatic JSON serialization,
  * timeout support, and OpenTelemetry tracing on every request.
- *
  * @example
- * ```ts
  * const client = new APIClient({ baseUrl: 'https://api.example.com' });
  * const data = await client.get<User>('/users/1');
  * ```
@@ -156,7 +161,9 @@ export class APIClient {
         this.defaultHeaders = config.defaultHeaders ?? {};
         this.timeout = config.timeout ?? 30_000;
         this.fetchFn = config.fetch ?? globalThis.fetch;
-        this.events = config.events;
+        this.events =
+            config.events ??
+            (config.lifecycleBus ? new EventBus<ApiClientEvents>({ lifecycleBus: config.lifecycleBus }) : undefined);
     }
 
     private buildUrl(path: string): string {

@@ -9,6 +9,7 @@
  */
 
 import type { EventBus } from '../event-bus/event-bus';
+import type { FileObserverWriter } from '../event-bus/file-observer';
 import type { BusLifecycleEvents, EventMap } from '../event-bus/types';
 import type { InfraEvents } from '../events';
 import type { Logger, LogLevel } from '../logger';
@@ -43,6 +44,20 @@ export interface EventsOptions<TEvents extends EventMap = InfraEvents> {
     lifecycle?: boolean;
     /** Attach default observers (log + telemetry). Default `true`. */
     defaultObservers?: boolean;
+    /**
+     * Attach a file observer that appends JSONL rows for every lifecycle
+     * event to `filePath`. Default `true` when a writer is available
+     * (Node subpath injects `createNodeFileSystem()`; portable callers must
+     * supply one via `services.fileObserverWriter`). No-op when `lifecycle`
+     * is disabled or no writer is present.
+     */
+    fileObserver?: boolean;
+    /**
+     * JSONL output path. Defaults to `logs/system-events.jsonl` when a writer
+     * is supplied; the Node subpath resolves this against the project root.
+     * Portable callers may override it with an absolute path.
+     */
+    filePath?: string;
     /** Pre-built event bus (skips creation when provided). */
     bus?: EventBus<TEvents>;
 }
@@ -81,7 +96,15 @@ export interface ApplicationBootstrapConfig {
     readonly logging: Readonly<
         Required<Pick<LoggingOptions, 'enabled' | 'level' | 'console' | 'json'>> & { fileSink?: (line: string) => void }
     >;
-    readonly events: { enabled: boolean; lifecycle: boolean; defaultObservers: boolean };
+    readonly events: {
+        enabled: boolean;
+        lifecycle: boolean;
+        defaultObservers: boolean;
+        /** Whether the JSONL file observer was attached (false when no writer is available). */
+        fileObserver: boolean;
+        /** Resolved JSONL absolute path, or undefined when fileObserver is false. */
+        filePath?: string;
+    };
     readonly telemetry: { enabled: boolean; serviceName: string; environment: string; dbStatementDebug: boolean };
     readonly scheduler: { enabled: boolean; autoStart: boolean };
 }
@@ -93,6 +116,13 @@ export interface ApplicationServices<TEvents extends EventMap = InfraEvents> {
     logger?: Logger;
     events?: EventBus<TEvents>;
     lifecycleBus?: EventBus<BusLifecycleEvents>;
+    /**
+     * Writer for `attachFileObserver`. Portable subpath never opens files
+     * (ADR-011); the Node subpath injects `createNodeFileSystem()`. When
+     * absent, the file observer is skipped even if `events.fileObserver`
+     * is `true`.
+     */
+    fileObserverWriter?: FileObserverWriter;
     db?: DbAdapterLike;
     scheduler?: SchedulerAdapter;
     /** Pre-built plugin host (when injecting instead of constructing). */

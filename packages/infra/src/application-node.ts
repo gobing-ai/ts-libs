@@ -19,7 +19,7 @@ import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
-import { interpolateTree, parseYamlObject } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, interpolateTree, parseYamlObject } from '@gobing-ai/ts-runtime';
 
 import { runApplication } from './application/index';
 import { dbPlugin } from './application/plugins/builtins';
@@ -252,11 +252,13 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
     const yamlLog = yamlBootstrap.logging as Partial<LoggingOptions> | undefined;
     const yamlTel = yamlBootstrap.telemetry as Partial<NodeTelemetryBootstrapOptions> | undefined;
     const yamlSched = yamlBootstrap.scheduler as Partial<SchedulerOptions> | undefined;
+    const yamlEvents = yamlBootstrap.events as Partial<EventsOptions<TEvents>> | undefined;
     const databaseOpts = (yamlBootstrap.database ?? {}) as Record<string, unknown>;
 
     const loggingOpts: Partial<LoggingOptions> = { ...yamlLog, ...options.config?.logging };
     const telemetryOpts: Partial<NodeTelemetryBootstrapOptions> = { ...yamlTel, ...options.config?.telemetry };
     const schedulerOpts: Partial<SchedulerOptions> = { ...yamlSched, ...options.config?.scheduler };
+    const eventsOpts: EventsOptions<TEvents> = { ...yamlEvents, ...options.config?.events };
 
     const logFilePath = (yamlBootstrap.logging as Record<string, unknown> | undefined)?.filePath as string | undefined;
     const loggingConfig: Partial<LoggingOptions> =
@@ -319,14 +321,41 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
         }
     }
 
+    // ── Inject Node file observer (ADR-011 writer for the JSONL bus log) ──
+    // The portable `runApplication` never opens files; the Node subpath
+    // supplies the writer and resolves the default path against the project
+    // root. Caller-provided `services.fileObserverWriter` and
+    // `config.events.filePath` overrides win; `fileObserver: false` disables.
+    const injectedFileSystem = createNodeFileSystem();
+    const fileObserverWriter = options.services?.fileObserverWriter ?? {
+        ensureDir: (dir: string) => {
+            mkdirSync(dir, { recursive: true });
+        },
+        appendFile: (path: string, content: string) => {
+            appendFileSync(path, content);
+        },
+    };
+    const eventsFilePath = eventsOpts.filePath ?? injectedFileSystem.resolve('logs', 'system-events.jsonl');
+    const eventsConfig: EventsOptions<TEvents> = {
+        ...eventsOpts,
+        filePath: eventsFilePath,
+        ...(eventsOpts.fileObserver === false ? {} : { fileObserver: true }),
+    };
+
     // ── Delegate to portable runApplication ─────────────────────────────
     // Node-specific cleanup is handled by plugins in the service ring —
     // node-telemetry onStop, owned-db onStop. No manual try/catch or stop
     // override needed.
     return await runApplication<TAppConfig, TEvents>({
-        config: { ...options.config, logging: loggingConfig, telemetry: telemetryOpts, scheduler: schedulerConfig },
+        config: {
+            ...options.config,
+            logging: loggingConfig,
+            telemetry: telemetryOpts,
+            scheduler: schedulerConfig,
+            events: eventsConfig,
+        },
         appConfig: loadedAppConfig,
-        services: { ...options.services, ...(dbAdapter ? { db: dbAdapter } : {}) },
+        services: { ...options.services, fileObserverWriter, ...(dbAdapter ? { db: dbAdapter } : {}) },
         start: options.start,
         stop: options.stop,
         plugins: plugins.length ? plugins : undefined,

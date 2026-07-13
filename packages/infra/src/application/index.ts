@@ -12,6 +12,7 @@
 
 import { attachDefaultObservers, createLifecycleBus } from '../event-bus/default-observers';
 import { EventBus } from '../event-bus/event-bus';
+import { attachFileObserver } from '../event-bus/file-observer';
 import type { BusLifecycleEvents, EventMap } from '../event-bus/types';
 import type { InfraEvents } from '../events';
 import { getLogger, type Logger } from '../logger';
@@ -64,6 +65,12 @@ async function performShutdown<TAppConfig, TEvents extends EventMap>(
  * Orchestrates logger, telemetry, events, optional DB, and optional scheduler.
  * Accepts injected dependencies; never opens files, reads config from disk,
  * or wires runtime-specific exporters.
+ *
+ * The returned `lifecycleBus` is the parent of the application `events` bus and
+ * can be passed to RuleEngine, WorkflowService, AiRunner, TeamOrchestrator, and
+ * APIClient so their domain events share one System Events stream. A supplied
+ * file-observer writer records that stream as JSONL; the Node subpath supplies
+ * the writer and default `logs/system-events.jsonl` path.
  *
  * Startup is plugin-driven. Built-in service plugins are registered in dependency
  * order, then `loadAll()` + `startAll()` run them forward:
@@ -119,10 +126,13 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
         enabled: schedOpts?.enabled ?? false,
         autoStart: schedOpts?.autoStart ?? true,
     };
-
     const eventsEnabled = options.config?.events?.enabled ?? true;
     const eventsLifecycle = options.config?.events?.lifecycle ?? true;
     const eventsDefaultObservers = options.config?.events?.defaultObservers ?? true;
+    const eventsFileObserver = options.config?.events?.fileObserver ?? true;
+    const fileObserverWriter = options.services?.fileObserverWriter;
+    const eventsFilePath =
+        options.config?.events?.filePath ?? (fileObserverWriter !== undefined ? 'logs/system-events.jsonl' : undefined);
 
     const state: RuntimeState<TAppConfig, TEvents> = {
         app: undefined,
@@ -141,6 +151,19 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
 
         if (lifecycleBus && eventsDefaultObservers) {
             attachDefaultObservers(lifecycleBus);
+        }
+
+        // Attach the JSONL file observer when a writer is available. The
+        // portable subpath never opens files (ADR-011): the Node subpath
+        // injects `createNodeFileSystem()` (or a test stub) and resolves the
+        // default path against the project root. Without a writer or path
+        // the observer is a no-op even if `events.fileObserver` is `true`.
+        let fileObserverAttached = false;
+        let fileObserverPath: string | undefined;
+        if (lifecycleBus && eventsFileObserver && eventsFilePath !== undefined && fileObserverWriter !== undefined) {
+            attachFileObserver(lifecycleBus, eventsFilePath, fileObserverWriter);
+            fileObserverAttached = true;
+            fileObserverPath = eventsFilePath;
         }
 
         const events =
@@ -173,7 +196,13 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
         // ── Build runtime handle (before startAll so plugins can capture it) ─
         const resolvedConfig: ApplicationBootstrapConfig = {
             logging: loggingConfig,
-            events: { enabled: eventsEnabled, lifecycle: eventsLifecycle, defaultObservers: eventsDefaultObservers },
+            events: {
+                enabled: eventsEnabled,
+                lifecycle: eventsLifecycle,
+                defaultObservers: eventsDefaultObservers,
+                fileObserver: fileObserverAttached,
+                ...(fileObserverPath !== undefined ? { filePath: fileObserverPath } : {}),
+            },
             telemetry: telemetryConfig,
             scheduler: schedulerConfig,
         };

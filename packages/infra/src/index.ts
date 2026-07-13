@@ -15,6 +15,7 @@ export {
     attachFileObserver,
     attachLogObserver,
     attachTelemetryObserver,
+    type BusLifecycleEvents,
     createLifecycleBus,
     EventBus,
     type EventMap,

@@ -704,6 +704,53 @@ const app = await runNodeApplication({
 });
 ```
 
+### System Events — lifecycle bus propagation contract
+
+`runApplication` creates a single `lifecycleBus` (`EventBus<BusLifecycleEvents>`)
+and parents the application event bus to it. Downstream consumers join the same
+stream when callers pass `app.lifecycleBus` into their constructors. Domain emits
+fan out as `bus.*` lifecycle events on the parent and — when a file observer is
+attached — land in the JSONL System Events log alongside the domain event itself.
+
+**Six System Events prefixes and where they originate:**
+
+| Prefix | Source | Constructed when `events` is omitted |
+|--------|--------|---------------------------------------|
+| `bus.*` | `EventBus` lifecycle self-observability (the `lifecycleBus` itself) | always — `runApplication` creates it |
+| `api.*` | `APIClient` (`api.request.error`) | `new EventBus<ApiClientEvents>({ lifecycleBus })` (R5) |
+| `rule.*` | `RuleEngine` (rule-run structured observability) | `new EventBus<RuleEngineEvents>({ lifecycleBus })` (R2) |
+| `workflow.*` | `WorkflowService` (workflow-run observability) | `new EventBus<WorkflowEngineEvents>({ lifecycleBus })` via `resolveEvents` (R3) |
+| `agent.*` | `AiRunner` / `TeamOrchestrator` (agent invocation observability) | `new EventBus<AgentEvents>({ lifecycleBus })` (R4) |
+| `process.*` | `AiRunner` default-executor process events | `new EventBus<AiRunnerProcessEvents>({ lifecycleBus })` (R4) |
+
+**Caller-supplied `events` always wins.** Every consumer accepts an explicit
+`events?: EventBus<TEvents>` (or equivalent) and an optional `lifecycleBus?`.
+When `events` is provided the consumer uses it as-is; when `events` is omitted
+and `lifecycleBus` is provided, the consumer constructs an internal bus
+parented to the lifecycle bus. This keeps standalone use zero-config and lets
+the bootstrap opt every consumer into the System Events stream by passing a
+single `lifecycleBus`.
+
+**Portable vs Node subpath split (ADR-011).** `runApplication` (portable)
+never opens files: it calls `attachFileObserver(lifecycleBus, filePath, writer)`
+only when `services.fileObserverWriter` is provided; its portable default path is
+`logs/system-events.jsonl`. The Node subpath `runNodeApplication` constructs a
+Node writer and uses `createNodeFileSystem()` to resolve the path to
+`<projectRoot>/logs/system-events.jsonl`. Set `config.events.fileObserver: false`
+to disable; supply a custom `filePath` (or a test-stub writer via
+`services.fileObserverWriter`) to override.
+
+**Wiring a consumer manually.** When you construct a consumer outside the
+bootstrap (or want to share the bootstrap's bus), pass the exposed
+`app.lifecycleBus`:
+
+```ts
+import { RuleEngine } from '@gobing-ai/ts-rule-engine';
+
+const engine = new RuleEngine({ lifecycleBus: app.lifecycleBus });
+// engine now emits `rule.*` events into the same JSONL log as the bootstrap.
+```
+
 If you prefer manual wiring (e.g. you already have an init sequence), the individual
 subsystems still work standalone — `EventBus`, `APIClient`, `getLogger`, etc. are
 all importable directly from the main barrel and do not require the bootstrap.

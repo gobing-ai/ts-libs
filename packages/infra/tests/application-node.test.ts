@@ -68,6 +68,43 @@ app:
         }
     });
 
+    test('honors YAML events.fileObserver false', async () => {
+        const dir = tmpDir();
+        const recorded: string[] = [];
+        const configPath = writeYaml(
+            dir,
+            'app.yaml',
+            `
+bootstrap:
+  events:
+    fileObserver: false
+  telemetry:
+    enabled: false
+`,
+        );
+        try {
+            const app = await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                services: {
+                    fileObserverWriter: {
+                        ensureDir() {},
+                        appendFile(_path, content) {
+                            recorded.push(content);
+                        },
+                    },
+                },
+                start() {},
+            });
+
+            await app.events.emit('api.request.error', { url: '/x', method: 'GET', error: 'boom' });
+            expect(app.config.events.fileObserver).toBe(false);
+            expect(recorded).toEqual([]);
+            await app.stop();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
     test('validates app config with safeParse validator', async () => {
         const dir = tmpDir();
         const configPath = writeYaml(
