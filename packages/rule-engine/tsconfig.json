@@ -5,6 +5,7 @@
             "@gobing-ai/ts-ai-runner": ["../ai-runner/src/index"],
             "@gobing-ai/ts-db": ["../db/src/index"],
             "@gobing-ai/ts-infra": ["../infra/src/index"],
+            "@gobing-ai/ts-infra/application": ["../infra/src/application/index"],
             "@gobing-ai/ts-runtime": ["../runtime/src/index"],
             "@gobing-ai/ts-runtime/extension": ["../runtime/src/extension"],
             "@gobing-ai/ts-runtime/bun-sqlite": ["../runtime/src/bun-sqlite"],

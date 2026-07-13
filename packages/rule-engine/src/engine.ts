@@ -1,5 +1,5 @@
-import type { EventBus, Logger } from '@gobing-ai/ts-infra';
-import { addSpanEvent, getLogger, traceAsync } from '@gobing-ai/ts-infra';
+import type { BusLifecycleEvents, Logger } from '@gobing-ai/ts-infra';
+import { addSpanEvent, EventBus, getLogger, traceAsync } from '@gobing-ai/ts-infra';
 import { createNodeFileSystem, type FileSystem, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { RuleEngineEvents } from './events';
 import {
@@ -29,6 +29,13 @@ export interface RuleEngineOptions {
     host?: RuleEngineHost;
     /** Optional event bus for structured run observability (R-A4). */
     events?: EventBus<RuleEngineEvents>;
+    /**
+     * Optional lifecycle bus to bridge rule events into the application
+     * System Events stream (R2). When `events` is omitted the engine
+     * constructs an internal `EventBus<RuleEngineEvents>` parented to this
+     * bus so `rule.*` prefixes appear in the JSONL log.
+     */
+    lifecycleBus?: EventBus<BusLifecycleEvents>;
     /** Optional logger; defaults to the shared `rule-engine` category logger. */
     logger?: Logger;
     /** Optional persistence adapter for durable run/eval history. */
@@ -55,7 +62,9 @@ export class RuleEngine {
         this.host = options.host ?? new RuleEngineHost();
         registerBuiltins(this.host, options.processExecutor);
         registerBuiltinFixers(this.host, options.processExecutor);
-        this.events = options.events;
+        this.events =
+            options.events ??
+            (options.lifecycleBus ? new EventBus<RuleEngineEvents>({ lifecycleBus: options.lifecycleBus }) : undefined);
         this.logger = options.logger ?? getLogger('rule-engine');
         this.persistence = options.persistence;
         this.runId = options.runId ?? crypto.randomUUID();
