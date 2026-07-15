@@ -80,4 +80,19 @@ the bootstrap never closes them. `stop()` is idempotent.
 
 ## runtime
 
+`@gobing-ai/ts-runtime` owns platform detection, `FileSystem`, `ProcessExecutor`, config loading,
+path utilities, and optional process inventory.
+
+### Process execution + registry (spur#0264)
+
+- **`ProcessExecutor`** — canonical spawn contract (`run` / `runStreaming`). Concrete Node/Bun impl:
+  `NodeProcessExecutor` (execa + `Bun.spawn`). Obtained via `RuntimeFactory.createProcessExecutor`.
+- **`ProcessRegistry`** (optional, additive) — in-process list/subscribe of **all** executor
+  invocations with minimum metadata (`ProcessExecution`: id, command/args, timestamps, source,
+  optional team/agent, exit info). Default impl: `InMemoryProcessRegistry` /
+  `createInMemoryProcessRegistry()`.
+- Inject the same registry into every executor that should appear in one watch list
+  (`ProcessExecutorConfig.registry`). No registry ⇒ prior behavior unchanged.
+- Not durable across restarts; retention capped (default 1000). Cloudflare has no process execution.
+
 ## utils

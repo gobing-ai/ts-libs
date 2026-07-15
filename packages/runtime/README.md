@@ -15,6 +15,7 @@ and Cloudflare Workers through a factory pattern that auto-detects the runtime.
 | Runtime factory | `RuntimeFactory` → `loadRuntimeFactory()` | `nodeBunFactory` | `cloudflareWorkersFactory` |
 | File system | `FileSystem` | `createNodeFileSystem()` (sync `node:fs`) | `createCfFileSystem()` (stub) |
 | Process execution | `ProcessExecutor` (interface) | `NodeProcessExecutor` — `run()` via execa, `runStreaming()` via `Bun.spawn` | throws |
+| Process registry | `ProcessRegistry` (optional) | `InMemoryProcessRegistry` / `createInMemoryProcessRegistry()` — list + subscribe all spawns | n/a (no process exec) |
 | SQL database | `createDbAdapter(config)` → `DbAdapter` | Bun SQLite via `@gobing-ai/ts-db` (optional peer) | throws `D1NotConfiguredError` (D1 round pending) |
 | Configuration | `Config` (Zod schema) | YAML + env vars | CONFIG_YAML blob + env vars |
 | Context | `RuntimeContext` | service locator | service locator |
@@ -96,6 +97,23 @@ classDiagram
         +runStreaming(options) PipeProcess
     }
 
+    class ProcessRegistry {
+        <<interface>>
+        +listExecutions(filter?) ProcessExecution[]
+        +getExecution(id) ProcessExecution?
+        +subscribe(listener) unsub
+        +begin(input) string
+        +update(id, patch) void
+        +complete(id, update?) void
+        +clear() void
+    }
+
+    class InMemoryProcessRegistry {
+        +listExecutions(filter?) ProcessExecution[]
+        +begin(input) string
+        +complete(id, update?) void
+    }
+
     class PipeProcess {
         <<interface>>
         +pid number?
@@ -138,6 +156,8 @@ classDiagram
     FileSystem <|.. createCfFileSystem : implements
     ProcessExecutor --> PipeProcess : creates
     ProcessExecutor <|.. NodeProcessExecutor : implements
+    ProcessRegistry <|.. InMemoryProcessRegistry : implements
+    NodeProcessExecutor ..> ProcessRegistry : optional registry
     nodeBunFactory --> createNodeFileSystem : creates
     nodeBunFactory --> NodeProcessExecutor : creates
     cloudflareWorkersFactory --> createCfFileSystem : creates
@@ -536,9 +556,11 @@ const config = buildConfigFromObject({
 `ProcessExecutor` is the canonical interface for process execution. `NodeProcessExecutor` is the concrete implementation wrapping `execa` (buffered) and `Bun.spawn` (streaming):
 
 ```ts
-import { NodeProcessExecutor } from '@gobing-ai/ts-runtime';
+import { NodeProcessExecutor, createInMemoryProcessRegistry } from '@gobing-ai/ts-runtime';
 
-const exec = new NodeProcessExecutor({ defaultTimeout: 30_000 });
+// Optional: shared registry so every run/runStreaming is listable (spur#0264 / M1).
+const registry = createInMemoryProcessRegistry();
+const exec = new NodeProcessExecutor({ defaultTimeout: 30_000, registry });
 
 // Buffered — captures stdout/stderr, no throw on non-zero
 const result = await exec.run({
@@ -546,21 +568,38 @@ const result = await exec.run({
     args: ['status', '--short'],
     cwd: '/path/to/repo',
     rejectOnError: true,
+    // Optional registry metadata (defaults: run → source 'one-shot')
+    label: 'git.status',
 });
 
 console.log(result.stdout);          // 'M src/index.ts\n'
 console.log(`Duration: ${result.durationMs}ms`);
 
 // Streaming — interactive subprocess with stdin control
-const proc = exec.runStreaming({ command: 'cat' });
+const proc = exec.runStreaming({
+    command: 'cat',
+    source: 'supervisor', // tag supervised agent loops
+    agentId: 'alpha-claude',
+});
 proc.writeStdin('hello\n');
 proc.endStdin();
 const exitCode = await proc.exited; // 0
+
+// Watch list snapshot + live subscription
+console.log(registry.listExecutions());
+const unsub = registry.subscribe((event) => {
+    if (event.type === 'started' || event.type === 'exited') {
+        console.log(event.type, event.execution.id, event.execution.command);
+    }
+});
+unsub();
 ```
 
 `rejectOnError: true` throws on non-zero exits. `OutputPolicy` controls
 buffered vs streamed output. `ProcessOptions` supports timeout, env, cwd,
-maxOutput, and forceBuffered.
+maxOutput, forceBuffered, and optional registry fields (`source`, `teamId`,
+`agentId`). Inject the same `ProcessRegistry` into every executor that should
+appear in one watch list; without a registry, behavior is unchanged.
 
 Cloudflare Workers do not expose process execution; check
 `factory.capabilities.hasProcessExecution` first.

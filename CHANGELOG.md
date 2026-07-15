@@ -6,6 +6,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [Unreleased]
+
+### Added
+
+- **`ts-runtime` — `ProcessRegistry` for full process watch lists (spur#0264 / Spur M1):** new
+  `ProcessRegistry` interface + `InMemoryProcessRegistry` / `createInMemoryProcessRegistry()` track
+  every `ProcessExecutor` invocation with minimum metadata (`id`, `label`, `command`, `args`, `pid?`,
+  `startedAt` / `exitedAt`, `exitCode`, `source`, optional `teamId` / `agentId`, `status`).
+  `NodeProcessExecutor` accepts optional `ProcessExecutorConfig.registry` and records `run` /
+  `runStreaming` (defaults: buffered runs → `source: 'one-shot'`, streaming → `source: 'other'`).
+  Options accept `source` / `teamId` / `agentId`. API: `listExecutions(filter?)`, `getExecution(id)`,
+  `subscribe`, `begin` / `update` / `complete` / `clear`. In-memory only (not durable across restarts);
+  ring-buffer retention (default max 1000). Without a registry, executor behavior is unchanged
+  (additive / non-breaking).
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None. All changes are additive optional APIs.
+
+---
+
 ## [0.4.9] — 2026-07-13
 
 ### Added

@@ -31,6 +31,18 @@ export type {
     TracerPort,
 } from './process-executor';
 export { NodeProcessExecutor, ProcessExecutor } from './process-executor';
+export type {
+    InMemoryProcessRegistryOptions,
+    ProcessExecution,
+    ProcessExecutionBegin,
+    ProcessExecutionComplete,
+    ProcessExecutionFilter,
+    ProcessExecutionSource,
+    ProcessExecutionStatus,
+    ProcessRegistry,
+    ProcessRegistryEvent,
+} from './process-registry';
+export { createInMemoryProcessRegistry, InMemoryProcessRegistry } from './process-registry';
 export { cloudflareWorkersFactory } from './runtime-cf';
 export type { RuntimeFactory } from './runtime-factory';
 export { _resetNodeFileSystem, nodeBunFactory } from './runtime-node-bun';

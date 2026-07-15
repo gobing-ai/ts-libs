@@ -1,5 +1,6 @@
 import { isatty } from 'node:tty';
 import { type Options as ExecaOptions, execa } from 'execa';
+import type { ProcessExecutionSource, ProcessRegistry } from './process-registry';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -13,6 +14,12 @@ export interface ProcessExecutorConfig {
     output?: OutputPolicy;
     events?: ProcessEventSink;
     tracer?: TracerPort;
+    /**
+     * Optional process registry (spur#0264). When set, every `run` / `runStreaming`
+     * invocation is recorded for list/subscribe consumers (e.g. Spur Processes tab).
+     * Share one registry across all executors that should appear in the same watch list.
+     */
+    registry?: ProcessRegistry;
 }
 
 /** Options for spawning a child process. */
@@ -28,6 +35,14 @@ export interface ProcessOptions {
     forceBuffered?: boolean;
     /** AbortSignal forwarded to execa as `cancelSignal` — aborts the child process when fired. */
     signal?: AbortSignal;
+    /**
+     * Registry metadata (spur#0264). Defaults: source `'one-shot'` for `run`.
+     * Pass `source: 'supervisor'` (and optional teamId/agentId) when the spawn is
+     * a supervised team agent loop.
+     */
+    source?: ProcessExecutionSource;
+    teamId?: string;
+    agentId?: string;
 }
 
 /** Result of a completed child process, including exit code, captured output, and duration. */
@@ -80,6 +95,13 @@ export interface PipeProcessOptions {
     cwd?: string;
     env?: Record<string, string>;
     label?: string;
+    /**
+     * Registry metadata (spur#0264). Defaults: source `'other'` for streaming.
+     * Supervised agent loops should pass `source: 'supervisor'` + agentId.
+     */
+    source?: ProcessExecutionSource;
+    teamId?: string;
+    agentId?: string;
 }
 
 /** Signal values accepted by subprocess kill. */
@@ -164,18 +186,27 @@ export class NodeProcessExecutor implements ProcessExecutor {
             signal: options.signal,
         });
         const startedAt = Date.now();
+        const startedIso = new Date(startedAt).toISOString();
+        const registryId = this.beginRegistry(options.command, args, {
+            label: options.label,
+            source: options.source ?? 'one-shot',
+            teamId: options.teamId,
+            agentId: options.agentId,
+            startedAt: startedIso,
+        });
         this.emitProcessEvent('process.started', {
             command: options.command,
             args,
             exitCode: null,
             durationMs: 0,
             reason: 'exit',
-            timestamp: new Date(startedAt).toISOString(),
+            timestamp: startedIso,
             ...(options.label !== undefined ? { label: options.label } : {}),
         });
 
         try {
             const result = await execa(options.command, args, execaOptions);
+            // execa@9 Result does not expose pid — buffered runs leave pid unset.
             const processResult = {
                 command: options.command,
                 args,
@@ -185,6 +216,7 @@ export class NodeProcessExecutor implements ProcessExecutor {
                 ...(result.signalDescription !== undefined ? { signal: result.signalDescription } : {}),
                 durationMs: result.durationMs,
             };
+            this.completeRegistry(registryId, processResult.exitCode);
             this.emitExitedFromResult(options, processResult, result);
             return processResult;
         } catch (error) {
@@ -211,6 +243,7 @@ export class NodeProcessExecutor implements ProcessExecutor {
                       : {}),
                 durationMs: failed.durationMs ?? Date.now() - startedAt,
             };
+            this.completeRegistry(registryId, processResult.exitCode);
             this.emitExitedFromResult(options, processResult, error, error);
             if (options.rejectOnError) throw error;
             return processResult;
@@ -226,15 +259,24 @@ export class NodeProcessExecutor implements ProcessExecutor {
     runStreaming(options: PipeProcessOptions): PipeProcess {
         const args = options.args ?? [];
         void this.config.tracer?.traceAsync('process.runStreaming', async () => undefined).catch(() => undefined);
+        const startedAt = Date.now();
+        const startedIso = new Date(startedAt).toISOString();
+        // Begin registry before spawn so failed spawns still appear (then complete as error).
+        const registryId = this.beginRegistry(options.command, args, {
+            label: options.label,
+            source: options.source ?? 'other',
+            teamId: options.teamId,
+            agentId: options.agentId,
+            startedAt: startedIso,
+        });
         try {
-            const startedAt = Date.now();
             this.emitProcessEvent('process.started', {
                 command: options.command,
                 args,
                 exitCode: null,
                 durationMs: 0,
                 reason: 'exit',
-                timestamp: new Date(startedAt).toISOString(),
+                timestamp: startedIso,
                 ...(options.label !== undefined ? { label: options.label } : {}),
             });
             const subprocess = Bun.spawn({
@@ -245,13 +287,20 @@ export class NodeProcessExecutor implements ProcessExecutor {
                 ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
                 ...(options.env !== undefined ? { env: options.env } : {}),
             });
-            return new ObservedPipeProcess(new BunPipeProcess(subprocess), this.config.events, {
+            const pipe = new BunPipeProcess(subprocess);
+            if (pipe.pid !== null) {
+                this.config.registry?.update(registryId, { pid: pipe.pid });
+            }
+            return new ObservedPipeProcess(pipe, this.config.events, {
                 command: options.command,
                 args,
                 startedAt,
+                registry: this.config.registry,
+                registryId,
                 ...(options.label !== undefined ? { label: options.label } : {}),
             });
         } catch (error) {
+            this.completeRegistry(registryId, null);
             this.emitProcessEvent('process.exited', {
                 command: options.command,
                 args,
@@ -269,6 +318,38 @@ export class NodeProcessExecutor implements ProcessExecutor {
     private async trace<T>(name: string, fn: () => Promise<T>): Promise<T> {
         if (this.config.tracer === undefined) return await fn();
         return await this.config.tracer.traceAsync(name, async () => await fn());
+    }
+
+    private beginRegistry(
+        command: string,
+        args: string[],
+        meta: {
+            label?: string;
+            source: ProcessExecutionSource;
+            teamId?: string;
+            agentId?: string;
+            startedAt: string;
+        },
+    ): string {
+        const registry = this.config.registry;
+        if (!registry) return '';
+        return registry.begin({
+            command,
+            args,
+            source: meta.source,
+            startedAt: meta.startedAt,
+            ...(meta.label !== undefined ? { label: meta.label } : {}),
+            ...(meta.teamId !== undefined ? { teamId: meta.teamId } : {}),
+            ...(meta.agentId !== undefined ? { agentId: meta.agentId } : {}),
+        });
+    }
+
+    private completeRegistry(id: string, exitCode: number | null, pid?: number): void {
+        if (!id || !this.config.registry) return;
+        this.config.registry.complete(id, {
+            exitCode,
+            ...(pid !== undefined ? { pid } : {}),
+        });
     }
 
     private emitExitedFromResult(
@@ -315,9 +396,17 @@ class ObservedPipeProcess implements PipeProcess {
             args: string[];
             startedAt: number;
             label?: string;
+            registry?: ProcessRegistry;
+            registryId: string;
         },
     ) {
         this.exited = inner.exited.then((exitCode) => {
+            if (context.registry && context.registryId) {
+                context.registry.complete(context.registryId, {
+                    exitCode,
+                    ...(inner.pid !== null ? { pid: inner.pid } : {}),
+                });
+            }
             events?.emit('process.exited', {
                 command: context.command,
                 args: context.args,
