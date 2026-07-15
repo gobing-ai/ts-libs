@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-dual-workflow-engine",
-    "version": "0.4.9",
+    "version": "0.4.10",
     "description": "@gobing-ai/ts-dual-workflow-engine — State-machine and transition-flow workflow runtime.",
     "keywords": [
         "typescript",
