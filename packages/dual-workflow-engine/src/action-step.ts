@@ -62,7 +62,7 @@ export async function runActionStep(
         env: deps.env,
         builtins: runtimeBuiltins(deps.workflowName, stateOrNodeId, runId, deps.transitionsTaken, deps.mode),
     });
-    const actionId = await persistence.saveActionStart(runId, stateOrNodeId, action.kind);
+    const actionId = await persistence.saveActionStart(runId, stateOrNodeId, action.kind, resolved);
     const actionStartMs = Date.now();
     lifecycle.actionStart(stateOrNodeId, action.kind);
     let result: ActionResult | undefined;

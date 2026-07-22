@@ -182,6 +182,33 @@ describe('DbWorkflowPersistenceAdapter — with real in-memory DB', () => {
         expect(rows[0]?.kind).toBe('http-call');
     });
 
+    // WHY: options are mirror-only on the SQL adapter too — never a new column, never in the row.
+    // Memory path is covered in action-step tests; this locks the Db path against accidental schema drift.
+    // Token strings avoid false positives on column names (e.g. "omp" ⊆ "completed_at").
+    test('saveActionStart ignores options (mirror, never persist) on the SQL adapter', async () => {
+        await adapter.createRun(makeRecord({ id: 'r5b' }));
+        const withId = await adapter.saveActionStart('r5b', 'step-1', 'http-call', {
+            secret: 'secret-token-xyz',
+            agent: 'agent-value-xyz',
+        });
+        const withoutId = await adapter.saveActionStart('r5b', 'step-2', 'http-call');
+
+        const columns = await db.queryAll<{ name: string }>('PRAGMA table_info(action_runs)');
+        expect(columns.map((c) => c.name)).not.toContain('options');
+
+        const rows = await db.queryAll<Record<string, unknown>>(
+            'SELECT * FROM action_runs WHERE id IN (?, ?) ORDER BY node',
+            withId,
+            withoutId,
+        );
+        expect(rows).toHaveLength(2);
+        const serialized = JSON.stringify(rows);
+        expect(serialized).not.toContain('secret-token-xyz');
+        expect(serialized).not.toContain('agent-value-xyz');
+        // Shape parity: same keys for both rows (ids/nodes differ by design).
+        expect(Object.keys(rows[0] ?? {}).sort()).toEqual(Object.keys(rows[1] ?? {}).sort());
+    });
+
     test('saveActionFinalize updates action with ok flag, duration, and result', async () => {
         await adapter.createRun(makeRecord({ id: 'r6' }));
         const actionId = await adapter.saveActionStart('r6', 'calc', 'compute');

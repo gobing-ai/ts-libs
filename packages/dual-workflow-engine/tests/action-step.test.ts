@@ -173,6 +173,88 @@ describe('runActionStep — template resolution', () => {
     });
 });
 
+describe('runActionStep — observability seam (saveActionStart options)', () => {
+    // WHY: the engine must forward the *resolved* step options (post-template-expansion) as
+    // the 4th arg of saveActionStart so a mirroring/observability wrapper sees what will
+    // actually run — not the raw templates. Persistence ignores the arg (mirror, never alter).
+    test('forwards the resolved options map as the 4th argument to saveActionStart', async () => {
+        const inner = new MemoryWorkflowPersistenceAdapter();
+        const captured: { options?: Record<string, unknown> } = {};
+        const spy: WorkflowPersistenceAdapter = Object.assign(
+            Object.create(inner) as MemoryWorkflowPersistenceAdapter,
+            {
+                saveActionStart: async (
+                    runId: string,
+                    node: string,
+                    kind: string,
+                    options?: Record<string, unknown>,
+                ) => {
+                    captured.options = options;
+                    return inner.saveActionStart(runId, node, kind, options);
+                },
+            },
+        );
+
+        await RunLifecycle.run('wf', 'state-machine', { persistence: inner }, { runId: 'r1' }, async (lifecycle) => {
+            await runActionStep(
+                { kind: 'probe', options: { msg: `\${vars.who} on \${workflow}` } },
+                { who: 'me' },
+                {
+                    host: hostReturning({ ok: true }),
+                    persistence: spy,
+                    lifecycle,
+                    workflowName: 'wf',
+                    stateOrNodeId: 'node',
+                    runId: 'r1',
+                    mode: 'state-machine',
+                    transitionsTaken: 0,
+                    env: {},
+                    options: {},
+                    defaultOnError: undefined,
+                },
+            );
+            return lifecycle.done('node', 0);
+        });
+
+        expect(captured.options).toEqual({ msg: 'me on wf' });
+    });
+
+    test('omitting options (3-arg caller) still compiles and behaves identically', async () => {
+        // WHY: the 4th param is optional; existing 3-arg implementors/callers must stay byte-identical.
+        const inner = new MemoryWorkflowPersistenceAdapter();
+        const id = await inner.saveActionStart('r1', 'node', 'probe');
+        expect(typeof id).toBe('string');
+        expect(inner.actionRuns).toHaveLength(1);
+        expect(inner.actionRuns[0]?.node).toBe('node');
+        expect(inner.actionRuns[0]?.kind).toBe('probe');
+        expect(inner.actionRuns[0]?.status).toBe('running');
+    });
+
+    test('persistence row is identical with and without the options argument (mirror, never alter)', async () => {
+        // WHY: options are observability-only — no new column, no altered row. The persisted
+        // action row must be byte-identical whether options are passed or omitted.
+        const withOpts = new MemoryWorkflowPersistenceAdapter();
+        const withoutOpts = new MemoryWorkflowPersistenceAdapter();
+        // Distinct tokens avoid false-positive substring hits on field names.
+        await withOpts.saveActionStart('r1', 'node', 'probe', {
+            secret: 'secret-token-xyz',
+            agent: 'agent-value-xyz',
+        });
+        await withoutOpts.saveActionStart('r1', 'node', 'probe');
+        // IDs are random UUIDs; compare everything else.
+        const rowA = withOpts.actionRuns[0];
+        const rowB = withoutOpts.actionRuns[0];
+        expect(rowA).toBeDefined();
+        expect(rowB).toBeDefined();
+        // Fail hard rather than early-return (silent pass) if either row is missing.
+        if (!rowA || !rowB) throw new Error('expected both action rows to exist');
+        expect({ ...rowA, id: '<redacted>' }).toEqual({ ...rowB, id: '<redacted>' });
+        // The options map is NOT persisted anywhere on the row.
+        expect(JSON.stringify(rowA)).not.toContain('secret-token-xyz');
+        expect(JSON.stringify(rowA)).not.toContain('agent-value-xyz');
+    });
+});
+
 describe('runActionSequence — multi-action control flow', () => {
     test('runs actions in order and returns the last result on completion', async () => {
         const persistence = new MemoryWorkflowPersistenceAdapter();

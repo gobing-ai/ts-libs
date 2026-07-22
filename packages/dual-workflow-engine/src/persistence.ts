@@ -150,8 +150,13 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         };
     }
 
-    /** Insert a running action row. Returns the row id for later finalization. */
-    async saveActionStart(runId: string, node: string, kind: string): Promise<string> {
+    /** Insert a running action row. Returns the row id for later finalization. The `options` arg is mirror-only (observability seam) and deliberately ignored by persistence. */
+    async saveActionStart(
+        runId: string,
+        node: string,
+        kind: string,
+        _options?: Record<string, unknown>,
+    ): Promise<string> {
         const id = crypto.randomUUID();
         const now = Date.now();
         await this.db.run(
@@ -305,8 +310,13 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
         resultJson: string | null;
     }> = [];
 
-    /** Insert a running action row. */
-    async saveActionStart(runId: string, node: string, kind: string): Promise<string> {
+    /** Insert a running action row. The `options` arg is mirror-only (observability seam) and deliberately ignored by the in-memory adapter. */
+    async saveActionStart(
+        runId: string,
+        node: string,
+        kind: string,
+        _options?: Record<string, unknown>,
+    ): Promise<string> {
         const id = crypto.randomUUID();
         this.actionRuns.push({
             id,

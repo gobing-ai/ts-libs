@@ -274,8 +274,12 @@ export interface WorkflowPersistenceAdapter {
         data: Record<string, unknown>,
         phase?: { phase: string; status: WorkflowStatus },
     ): Promise<void>;
-    /** Two-phase action persistence: insert a running row at action start. Returns the action row id. */
-    saveActionStart(runId: string, node: string, kind: string): Promise<string>;
+    /**
+     * Two-phase action persistence: insert a running row at action start. Returns the action row id.
+     * The `options` param forwards the resolved step options to an observability/mirroring wrapper;
+     * persistence implementations ignore it (mirror-only — no new column, no alter, no redaction).
+     */
+    saveActionStart(runId: string, node: string, kind: string, options?: Record<string, unknown>): Promise<string>;
     /** Finalize an action row with duration, ok, result. */
     saveActionFinalize(
         actionId: string,

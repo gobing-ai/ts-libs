@@ -10,6 +10,68 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Added
 
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
+---
+
+## [0.4.11] — 2026-07-21
+
+### Added
+
+- **`ts-dual-workflow-engine` — `saveActionStart` forwards resolved step options to the observability seam (spur#0310 / task 0054):**
+  `WorkflowPersistenceAdapter.saveActionStart(runId, node, kind, options?)` accepts an optional 4th
+  param `options?: Record<string, unknown>`. The sole call site (`runActionStep` in `action-step.ts`)
+  forwards the **resolved** options map (post-`resolveTemplates`), so a mirroring/observability
+  wrapper (e.g. Spur’s `ObservableWorkflowAdapter`) sees what will actually run — agent argv, prompt
+  summary, etc. — instead of raw templates. Additive and optional: existing 3-arg implementors and
+  callers compile unchanged. Both adapter implementations (SQLite + in-memory) accept and ignore
+  the 4th arg — **mirror, never persist**: the action-row INSERT is byte-identical with or without
+  `options` (no new column, no altered row, no schema change). The engine does **not** redact
+  (it cannot know which Spur option keys hold secrets); redaction stays with the consumer’s
+  observability layer. Covered by unit tests on the call site and both adapters (including a SQL
+  path that asserts secret-bearing tokens never land in `action_runs`). Spur-side adoption and
+  `workspaces.catalog` re-pin remain out of repo.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this release. Options may carry secrets in memory when a consumer wraps the
+  adapter; they are never written to the persistence layer (see Added above).
+
+### Breaking Changes
+
+- None. The new `options` parameter is optional; all existing 3-arg callers and implementors remain
+  valid.
+
+---
+
+## [0.4.10] — 2026-07-15
+
+### Added
+
 - **`ts-runtime` — `ProcessRegistry` for full process watch lists (spur#0264 / Spur M1):** new
   `ProcessRegistry` interface + `InMemoryProcessRegistry` / `createInMemoryProcessRegistry()` track
   every `ProcessExecutor` invocation with minimum metadata (`id`, `label`, `command`, `args`, `pid?`,
@@ -31,7 +93,7 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Security
 
-- No security fixes in this section.
+- No security fixes in this release.
 
 ### Breaking Changes
 
