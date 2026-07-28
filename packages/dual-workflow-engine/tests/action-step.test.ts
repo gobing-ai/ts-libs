@@ -177,6 +177,22 @@ describe('runActionStep — observability seam (saveActionStart options)', () =>
     // WHY: the engine must forward the *resolved* step options (post-template-expansion) as
     // the 4th arg of saveActionStart so a mirroring/observability wrapper sees what will
     // actually run — not the raw templates. Persistence ignores the arg (mirror, never alter).
+    test('passes the persisted action identity into the action runner context', async () => {
+        const seen: string[] = [];
+        const host = new WorkflowEngineHost().registerAction({
+            kind: 'probe',
+            async execute(_options, context) {
+                seen.push(context.runId, context.actionId ?? '', context.stateOrNodeId);
+                return { ok: true };
+            },
+        });
+
+        const { persistence } = await runStepInLifecycle({ kind: 'probe' }, host);
+
+        expect(seen).toEqual(['r1', persistence.actionRuns[0]?.id ?? '', 'node']);
+        expect(seen[1]).not.toBe('');
+    });
+
     test('forwards the resolved options map as the 4th argument to saveActionStart', async () => {
         const inner = new MemoryWorkflowPersistenceAdapter();
         const captured: { options?: Record<string, unknown> } = {};

@@ -54,6 +54,46 @@ describe('NodeProcessExecutor', () => {
         expect(result.stderr).toContain('err');
     });
 
+    test('observes incremental stdout and stderr while retaining the buffered result', async () => {
+        const output: Array<{ stream: string; chunk: string }> = [];
+        const pending = new NodeProcessExecutor().run({
+            command: 'sh',
+            args: ['-c', 'printf first; sleep 0.05; printf second; printf problem >&2'],
+            onOutput: ({ stream, chunk }) => output.push({ stream, chunk }),
+        });
+
+        await Bun.sleep(20);
+        expect(output.map((entry) => entry.chunk).join('')).toContain('first');
+
+        const result = await pending;
+        expect(result.stdout).toBe('firstsecond');
+        expect(result.stderr).toBe('problem');
+        expect(
+            output
+                .filter((entry) => entry.stream === 'stdout')
+                .map((entry) => entry.chunk)
+                .join(''),
+        ).toBe('firstsecond');
+        expect(
+            output
+                .filter((entry) => entry.stream === 'stderr')
+                .map((entry) => entry.chunk)
+                .join(''),
+        ).toBe('problem');
+    });
+
+    test('isolates output-observer failures from the child process', async () => {
+        const result = await new NodeProcessExecutor().run({
+            command: 'echo',
+            args: ['still-buffered'],
+            onOutput: () => {
+                throw new Error('slow sink failed');
+            },
+        });
+
+        expect(result).toMatchObject({ exitCode: 0, stdout: 'still-buffered' });
+    });
+
     test('returns non-zero exit results unless rejectOnError is true', async () => {
         const result = await new NodeProcessExecutor().run({ command: 'sh', args: ['-c', 'exit 2'] });
         expect(result.exitCode).toBe(2);

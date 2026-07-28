@@ -69,6 +69,7 @@ export async function runActionStep(
     try {
         result = await host.runAction(action.kind, resolved, {
             runId,
+            actionId,
             workdir: deps.options.workdir,
             stateOrNodeId,
             vars,

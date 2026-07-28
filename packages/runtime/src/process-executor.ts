@@ -36,6 +36,14 @@ export interface ProcessOptions {
     /** AbortSignal forwarded to execa as `cancelSignal` — aborts the child process when fired. */
     signal?: AbortSignal;
     /**
+     * Optional non-blocking observer for incremental stdout/stderr.
+     *
+     * The executor invokes this synchronously from the child stream and isolates
+     * observer failures. Consumers must enqueue and return; the buffered
+     * {@link ProcessResult} remains authoritative.
+     */
+    onOutput?: (output: ProcessOutputChunk) => void;
+    /**
      * Registry metadata (spur#0264). Defaults: source `'one-shot'` for `run`.
      * Pass `source: 'supervisor'` (and optional teamId/agentId) when the spawn is
      * a supervised team agent loop.
@@ -43,6 +51,13 @@ export interface ProcessOptions {
     source?: ProcessExecutionSource;
     teamId?: string;
     agentId?: string;
+}
+
+/** One incremental process-output observation. */
+export interface ProcessOutputChunk {
+    readonly stream: 'stdout' | 'stderr';
+    readonly chunk: string;
+    readonly timestamp: string;
 }
 
 /** Result of a completed child process, including exit code, captured output, and duration. */
@@ -205,7 +220,10 @@ export class NodeProcessExecutor implements ProcessExecutor {
         });
 
         try {
-            const result = await execa(options.command, args, execaOptions);
+            const subprocess = execa(options.command, args, execaOptions);
+            observeOutput(subprocess.stdout, 'stdout', options.onOutput);
+            observeOutput(subprocess.stderr, 'stderr', options.onOutput);
+            const result = await subprocess;
             // execa@9 Result does not expose pid — buffered runs leave pid unset.
             const processResult = {
                 command: options.command,
@@ -586,6 +604,25 @@ function buildExecaOptions(opts: {
         ...(opts.maxOutput !== undefined ? { maxBuffer: opts.maxOutput } : {}),
         ...(opts.signal !== undefined ? { cancelSignal: opts.signal } : {}),
     };
+}
+
+function observeOutput(
+    stream: NodeJS.ReadableStream | null | undefined,
+    name: ProcessOutputChunk['stream'],
+    observer: ProcessOptions['onOutput'],
+): void {
+    if (!stream || !observer) return;
+    stream.on('data', (chunk: string | Uint8Array) => {
+        try {
+            observer({
+                stream: name,
+                chunk: asString(chunk),
+                timestamp: new Date().toISOString(),
+            });
+        } catch {
+            // Observability is best-effort and must never interrupt child I/O.
+        }
+    });
 }
 
 function asString(value: string | string[] | unknown[] | Uint8Array | undefined): string {

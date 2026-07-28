@@ -776,6 +776,12 @@ The workflow engine uses a **three-layer observability model**:
 
 All three layers are **additive** — EventBus does not replace logging or tracing. A consumer who wants a progress bar subscribes to events; a consumer who wants traces attaches an OTel collector; both work independently.
 
+Action runners also receive the persisted action-row identity as
+`ActionRunContext.actionId`. It is optional for source compatibility with hosts
+that invoke a runner directly, but engine-driven execution always supplies it
+after `saveActionStart` succeeds. Consumers can use it to correlate runner-owned
+output or control events without widening the persisted action schema.
+
 ### Event Map
 
 `WorkflowEngineEvents` is a typed event map. All events are prefixed `workflow.`:

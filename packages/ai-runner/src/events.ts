@@ -1,9 +1,15 @@
 import type { ProcessEvents } from '@gobing-ai/ts-runtime';
+import type { AgentRunCorrelation } from './ai-runner';
 
 /** Typed event map for agent-runner observability. All events prefixed `agent.`. */
 export type AgentEvents = {
     /** Emitted immediately before an agent CLI invocation starts. */
-    'agent.invoke.start': (data: { agent: string; operation: string; label: string }) => void;
+    'agent.invoke.start': (data: {
+        agent: string;
+        operation: string;
+        label: string;
+        correlation?: AgentRunCorrelation;
+    }) => void;
     /** Emitted after an agent CLI invocation exits. */
     'agent.invoke.exit': (data: {
         agent: string;
@@ -12,6 +18,7 @@ export type AgentEvents = {
         exitCode: number | null;
         signal?: string;
         durationMs: number;
+        correlation?: AgentRunCorrelation;
     }) => void;
     /** Emitted when a long-running team agent process starts. */
     'agent.started': (data: { agentId: string; agentType: string; pid: number | null }) => void;

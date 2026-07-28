@@ -10,7 +10,15 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Added
 
-- None.
+- **`ts-runtime` — tee-capable buffered process observation (spur#0365):**
+  `ProcessOptions.onOutput` receives timestamped stdout/stderr chunks while `run()` continues to return
+  the complete buffered `ProcessResult`. Observer failures are isolated from child I/O.
+- **`ts-ai-runner` — correlated agent execution (spur#0365):** `AgentRunOptions` forwards the output
+  observer and an application-owned `{ runId, executionId, actionId? }` correlation object; the same
+  correlation is present on `agent.invoke.start` and `agent.invoke.exit`.
+- **`ts-dual-workflow-engine` — action identity in runner context (spur#0365):** the engine passes its
+  persisted action-row id as optional `ActionRunContext.actionId`, allowing downstream streaming and
+  control events to target the exact action without changing persistence.
 
 ### Changed
 
@@ -22,7 +30,8 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Security
 
-- No security fixes in this section.
+- Raw process output remains application-owned; consumers must redact before forwarding it to logs,
+  event buses, or durable traces.
 
 ### Breaking Changes
 

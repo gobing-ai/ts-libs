@@ -137,6 +137,37 @@ describe('AiRunner', () => {
         expect(calls.find((entry) => entry.level === 'error')?.msg).toBe('invoke exited non-zero');
     });
 
+    test('forwards output observation, cancellation, and correlation to the executor and events', async () => {
+        const executor = new FakeExecutor((options) => {
+            options.onOutput?.({ stream: 'stdout', chunk: 'partial', timestamp: '2026-07-28T00:00:00.000Z' });
+            return { stdout: 'partial-final' };
+        });
+        const events = new EventBus<AgentEvents>();
+        const observed: unknown[] = [];
+        events.on('agent.invoke.start', (detail) => observed.push(detail));
+        events.on('agent.invoke.exit', (detail) => observed.push(detail));
+        const output: string[] = [];
+        const controller = new AbortController();
+        const correlation = { runId: 'run-1', actionId: 'action-1', executionId: 'execution-1' };
+
+        const result = await new AiRunner({ processExecutor: executor, events }).runPromptCommand(
+            'codex',
+            { input: 'ship it' },
+            {
+                signal: controller.signal,
+                correlation,
+                onOutput: ({ chunk }) => output.push(chunk),
+            },
+        );
+
+        expect(result.stdout).toBe('partial-final');
+        expect(output).toEqual(['partial']);
+        expect(executor.calls[0]?.signal).toBe(controller.signal);
+        expect(observed).toHaveLength(2);
+        expect(observed[0]).toMatchObject({ correlation });
+        expect(observed[1]).toMatchObject({ correlation });
+    });
+
     test('exposes stable shim metadata', () => {
         expect(getAgentShim('pi').tier).toBe(1);
         expect(getAgentShim('openclaw').command).toBe('openclaw');

@@ -597,8 +597,11 @@ unsub();
 
 `rejectOnError: true` throws on non-zero exits. `OutputPolicy` controls
 buffered vs streamed output. `ProcessOptions` supports timeout, env, cwd,
-maxOutput, forceBuffered, and optional registry fields (`source`, `teamId`,
-`agentId`). Inject the same `ProcessRegistry` into every executor that should
+maxOutput, forceBuffered, an optional synchronous `onOutput({ stream, chunk,
+timestamp })` observer, and registry fields (`source`, `teamId`, `agentId`).
+`onOutput` observes live chunks while the returned `ProcessResult` retains the
+complete buffered stdout/stderr; observers must enqueue and return, and thrown
+observer errors are isolated from the child. Inject the same `ProcessRegistry` into every executor that should
 appear in one watch list; without a registry, behavior is unchanged.
 
 Cloudflare Workers do not expose process execution; check

@@ -114,6 +114,8 @@ export type WorkflowDef = StateMachineWorkflowDef | TransitionFlowWorkflowDef;
 /** Action execution context passed to action runners. */
 export interface ActionRunContext {
     readonly runId: string;
+    /** Engine-owned persisted action identity for correlation and safe control targeting. */
+    readonly actionId?: string;
     readonly workdir?: string;
     readonly stateOrNodeId: string;
     readonly vars: Vars;

@@ -3,6 +3,7 @@ import {
     getProcessCwd,
     nodeBunFactory,
     type ProcessExecutor,
+    type ProcessOutputChunk,
     type ProcessResult,
     type TracerPort,
 } from '@gobing-ai/ts-runtime';
@@ -33,6 +34,17 @@ export interface AgentRunOptions {
     timeout?: number;
     /** AbortSignal forwarded to ProcessExecutor — aborts the agent subprocess when fired. */
     signal?: AbortSignal;
+    /** Incremental output observer; the final buffered result is still returned. */
+    onOutput?: (output: ProcessOutputChunk) => void;
+    /** Optional application-owned correlation propagated unchanged to agent lifecycle events. */
+    correlation?: AgentRunCorrelation;
+}
+
+/** Application-owned execution identity carried without coupling the runner to a workflow model. */
+export interface AgentRunCorrelation {
+    readonly runId: string;
+    readonly executionId: string;
+    readonly actionId?: string;
 }
 
 /** Constructor options for AiRunner. */
@@ -152,7 +164,12 @@ export class AiRunner {
     ): Promise<AgentRunResult> {
         const label = `ai-runner.${agent}.${operation}`;
         this.logger.debug('invoke', { label, command: command.command, args: command.args.join(' ') });
-        void this.events?.emit('agent.invoke.start', { agent, operation, label });
+        void this.events?.emit('agent.invoke.start', {
+            agent,
+            operation,
+            label,
+            ...(options.correlation !== undefined ? { correlation: options.correlation } : {}),
+        });
         const result: ProcessResult = await this.processExecutor.run({
             command: command.command,
             args: command.args,
@@ -162,6 +179,7 @@ export class AiRunner {
             cwd: options.cwd ?? this.defaultCwd,
             timeout: options.timeout ?? this.defaultTimeout,
             ...(options.signal !== undefined ? { signal: options.signal } : {}),
+            ...(options.onOutput !== undefined ? { onOutput: options.onOutput } : {}),
         });
         if (result.exitCode !== 0) {
             this.logger.error('invoke exited non-zero', {
@@ -177,6 +195,7 @@ export class AiRunner {
             exitCode: result.exitCode,
             ...(result.signal !== undefined ? { signal: result.signal } : {}),
             durationMs: result.durationMs,
+            ...(options.correlation !== undefined ? { correlation: options.correlation } : {}),
         });
         return {
             exitCode: result.exitCode,
