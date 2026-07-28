@@ -33,7 +33,10 @@ export interface ProcessOptions {
     label?: string;
     rejectOnError?: boolean;
     forceBuffered?: boolean;
-    /** AbortSignal forwarded to execa as `cancelSignal` — aborts the child process when fired. */
+    /**
+     * AbortSignal forwarded to execa and, on Unix, to the child's isolated
+     * process group so descendants cannot outlive a cancelled one-shot run.
+     */
     signal?: AbortSignal;
     /**
      * Optional non-blocking observer for incremental stdout/stderr.
@@ -221,9 +224,10 @@ export class NodeProcessExecutor implements ProcessExecutor {
 
         try {
             const subprocess = execa(options.command, args, execaOptions);
+            const stopGroupCancellation = observeProcessGroupCancellation(subprocess, options.signal);
             observeOutput(subprocess.stdout, 'stdout', options.onOutput);
             observeOutput(subprocess.stderr, 'stderr', options.onOutput);
-            const result = await subprocess;
+            const result = await subprocess.finally(stopGroupCancellation);
             // execa@9 Result does not expose pid — buffered runs leave pid unset.
             const processResult = {
                 command: options.command,
@@ -602,8 +606,35 @@ function buildExecaOptions(opts: {
         ...(opts.env !== undefined ? { env: opts.env } : {}),
         ...(opts.timeout !== undefined ? { timeout: opts.timeout } : {}),
         ...(opts.maxOutput !== undefined ? { maxBuffer: opts.maxOutput } : {}),
-        ...(opts.signal !== undefined ? { cancelSignal: opts.signal } : {}),
+        ...(opts.signal !== undefined
+            ? {
+                  cancelSignal: opts.signal,
+                  // Node's negative-pid group signal requires the child to lead
+                  // a distinct process group. Windows has no equivalent.
+                  ...(process.platform !== 'win32' ? { detached: true } : {}),
+              }
+            : {}),
     };
+}
+
+function observeProcessGroupCancellation(
+    subprocess: { pid?: number; kill(signal?: NodeJS.Signals | number): boolean },
+    signal: AbortSignal | undefined,
+): () => void {
+    const pid = subprocess.pid;
+    if (signal === undefined || process.platform === 'win32' || pid === undefined) return () => {};
+    const abort = (): void => {
+        try {
+            process.kill(-pid, 'SIGTERM');
+        } catch {
+            // The leader may already have exited through execa's cancelSignal.
+            // Fall back to the direct child without changing cancellation semantics.
+            subprocess.kill('SIGTERM');
+        }
+    };
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+    return () => signal.removeEventListener('abort', abort);
 }
 
 function observeOutput(

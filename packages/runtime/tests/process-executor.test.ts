@@ -190,6 +190,22 @@ describe('NodeProcessExecutor', () => {
         expect(events.at(-1)?.detail.signal).toBeDefined();
     });
 
+    test('abort terminates the buffered child process group without waiting for descendants', async () => {
+        const controller = new AbortController();
+        const startedAt = Date.now();
+        setTimeout(() => controller.abort(), 20);
+
+        const result = await new NodeProcessExecutor().run({
+            command: 'sh',
+            args: ['-c', 'sleep 5'],
+            signal: controller.signal,
+        });
+
+        expect(result.exitCode).toBeNull();
+        expect(result.signal).toBeDefined();
+        expect(Date.now() - startedAt).toBeLessThan(1000);
+    });
+
     test('emits error reason before rejectOnError rethrows command errors', async () => {
         const { events, sink } = recordEvents();
 

@@ -601,7 +601,10 @@ maxOutput, forceBuffered, an optional synchronous `onOutput({ stream, chunk,
 timestamp })` observer, and registry fields (`source`, `teamId`, `agentId`).
 `onOutput` observes live chunks while the returned `ProcessResult` retains the
 complete buffered stdout/stderr; observers must enqueue and return, and thrown
-observer errors are isolated from the child. Inject the same `ProcessRegistry` into every executor that should
+observer errors are isolated from the child. When `signal` is supplied, one-shot
+commands run in an isolated process group on Unix so abort terminates descendants
+that could otherwise retain the output pipes; Windows falls back to direct-child
+cancellation. Inject the same `ProcessRegistry` into every executor that should
 appear in one watch list; without a registry, behavior is unchanged.
 
 Cloudflare Workers do not expose process execution; check

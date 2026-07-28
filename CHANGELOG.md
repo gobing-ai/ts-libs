@@ -30,6 +30,33 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ---
 
+## [0.4.14] — 2026-07-28
+
+### Added
+
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- **`ts-runtime` — descendant-safe one-shot cancellation (spur#0365):** buffered commands that receive an
+  abort signal now run in an isolated Unix process group and terminate the whole group, preventing shell
+  descendants from retaining stdout/stderr pipes after the observed process is cancelled. Windows keeps
+  the existing direct-child cancellation fallback.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
+---
+
 ## [0.4.13] — 2026-07-28
 
 ### Added
