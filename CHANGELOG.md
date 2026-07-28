@@ -10,6 +10,30 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Added
 
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
+---
+
+## [0.4.13] — 2026-07-28
+
+### Added
+
 - **`ts-runtime` — tee-capable buffered process observation (spur#0365):**
   `ProcessOptions.onOutput` receives timestamped stdout/stderr chunks while `run()` continues to return
   the complete buffered `ProcessResult`. Observer failures are isolated from child I/O.
