@@ -30,6 +30,25 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ---
 
+## [0.4.12] — 2026-07-27
+
+### Added
+
+- **`ts-dual-workflow-engine` — pause/resume variable persistence (spur#0366 R1/R2/R3/R11):**
+  `WorkflowPersistenceAdapter` gains `loadLatestStateSnapshot(runId): Promise<{ state: string; data:
+  Record<string, unknown> } | undefined>`, returning the most recent `workflow_states` row (DB adapter
+  orders by `created_at DESC, rowid DESC`) plus its parsed `data_json`. `RunLifecycle.enter`,
+  `commitHop`, and `pause` each accept an optional trailing `vars?: Vars` and, when supplied, embed it
+  as `effectiveVars` inside the persisted snapshot's `data`. `pause()` additionally writes a **fresh**
+  state snapshot before `savePhase` + `finalizeRun`, capturing `onEnter setVars` (e.g. `__hitlAnswer`)
+  that previously never reached disk. Both driver loops (state-machine, transition-flow) thread the
+  run-local `vars` through every lifecycle touchpoint. `WorkflowService.resumeRun` loads the latest
+  snapshot, extracts `effectiveVars`, and merges them with caller-supplied `options.vars` (caller
+  wins), so resumed runs keep their HITL answers and other runtime vars. Backward compatible: old
+  snapshots without `effectiveVars` yield `{}`; non-string entries are dropped defensively.
+
+---
+
 ## [0.4.11] — 2026-07-21
 
 ### Added
@@ -529,6 +548,8 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
+[0.4.12]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.11...@gobing-ai/ts-libs-v0.4.12
+[0.4.11]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.10...@gobing-ai/ts-libs-v0.4.11
 [0.4.6]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.5...HEAD
 [0.4.5]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.4...@gobing-ai/ts-libs-v0.4.5
 [0.4.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.3...@gobing-ai/ts-libs-v0.4.4
