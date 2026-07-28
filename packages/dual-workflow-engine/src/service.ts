@@ -10,13 +10,14 @@ import type {
     StateMachineWorkflowDef,
     TransitionDenied,
     TransitionRequestResult,
+    Vars,
     WorkflowDef,
     WorkflowPersistenceAdapter,
     WorkflowRunOptions,
     WorkflowRunRecord,
     WorkflowRunResult,
 } from './types';
-import { resolveTemplates } from './variables';
+import { mergeVars, resolveTemplates } from './variables';
 
 /** High-level workflow service for loading, running, and listing persisted workflow runs. */
 export class WorkflowService {
@@ -158,16 +159,23 @@ export class WorkflowService {
         if (run.status !== 'paused') {
             throw new WorkflowResumeError(`Run "${runId}" is not paused (status: ${run.status})`);
         }
-
         const currentState = await this.persistence.loadCurrentState(runId);
         if (currentState === undefined) {
             throw new WorkflowResumeError(`Run "${runId}" has no persisted state to resume from`);
         }
 
+        // Restore effectiveVars persisted in the last state snapshot so resume
+        // continues with the same runtime variables (e.g. `__hitlAnswer`). Caller
+        // overrides in `options.vars` win over the persisted snapshot (R3 of 0366).
+        const snapshot = await this.persistence.loadLatestStateSnapshot(runId);
+        const persistedVars = extractEffectiveVars(snapshot?.data);
+        const restoredVars = mergeVars(persistedVars, options?.vars);
+        const mergedOptions: WorkflowRunOptions = { ...options, vars: restoredVars };
+
         // Re-open the run as running.
         const extKey = run.external_key ?? undefined;
         await this.persistence.finalizeRun(runId, 'running', '');
-        const events = this.resolveEvents(options?.events);
+        const events = this.resolveEvents(mergedOptions.events);
         void events?.emit('workflow.run.resumed', { runId, node: currentState, externalKey: extKey });
 
         // Resume through the appropriate driver, starting from the paused state (skip on-enter).
@@ -175,12 +183,12 @@ export class WorkflowService {
             return await new TransitionFlowDriver({
                 host: this.host,
                 persistence: this.persistence,
-            }).resume(workflow, runId, currentState, extKey, { ...options, events });
+            }).resume(workflow, runId, currentState, extKey, mergedOptions);
         }
         return await new StateMachineDriver({
             host: this.host,
             persistence: this.persistence,
-        }).resume(workflow as StateMachineWorkflowDef, runId, currentState, extKey, { ...options, events });
+        }).resume(workflow as StateMachineWorkflowDef, runId, currentState, extKey, mergedOptions);
     }
 
     /** List runs currently paused. Optional filters and ordering. */
@@ -323,4 +331,21 @@ export class WorkflowService {
         });
         return { allowed: false, ...denial };
     }
+}
+
+/**
+ * Read `effectiveVars` from a state snapshot's data payload. Tolerates older
+ * snapshots that lack the field (returns `{}`) and silently drops non-string
+ * values, matching `mergeSetVars`'s defensive contract.
+ */
+function extractEffectiveVars(data: Record<string, unknown> | undefined): Vars {
+    if (data === undefined) return {};
+    const raw = data.effectiveVars;
+    if (raw === undefined || raw === null) return {};
+    if (typeof raw !== 'object') return {};
+    const filtered: Vars = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof value === 'string') filtered[key] = value;
+    }
+    return filtered;
 }

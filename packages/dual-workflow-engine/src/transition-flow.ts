@@ -85,7 +85,7 @@ export class TransitionFlowDriver {
             } else {
                 // 1. Persist current node snapshot before action execution (skipped when
                 //    commitHop already persisted it atomically on the previous hop).
-                await lifecycle.enter(current.id, transitionsTaken, !persistedViaHop);
+                await lifecycle.enter(current.id, transitionsTaken, !persistedViaHop, vars);
 
                 // 2. Execute the node action when one is configured (skipped in dry-run).
                 if (options.dryRun) {
@@ -118,7 +118,7 @@ export class TransitionFlowDriver {
 
                 // Pause: if the node declares pause, stop advancing and persist the paused position.
                 if (current.pause === true) {
-                    return await lifecycle.pause(current.id, transitionsTaken);
+                    return await lifecycle.pause(current.id, transitionsTaken, vars);
                 }
             }
 
@@ -148,10 +148,17 @@ export class TransitionFlowDriver {
             //    a single batch (ADR-020). The next iteration's `enter` becomes
             //    observe-only; a crash between writes is now impossible.
             transitionsTaken += 1;
-            await lifecycle.commitHop(current.id, edge.to, edge.condition?.kind ?? null, transitionsTaken, {
-                phase: edge.to,
-                status: 'running',
-            });
+            await lifecycle.commitHop(
+                current.id,
+                edge.to,
+                edge.condition?.kind ?? null,
+                transitionsTaken,
+                {
+                    phase: edge.to,
+                    status: 'running',
+                },
+                vars,
+            );
 
             // 6. Enforce the iteration bound after taking the transition.
             if (transitionsTaken > iterationBound) {

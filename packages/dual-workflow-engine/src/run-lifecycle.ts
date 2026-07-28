@@ -9,6 +9,7 @@ import {
 import { getProcessEnv } from '@gobing-ai/ts-runtime';
 import type { WorkflowEngineEvents } from './events';
 import type {
+    Vars,
     WorkflowPersistenceAdapter,
     WorkflowRunOptions,
     WorkflowRunRecord,
@@ -200,9 +201,11 @@ export class RunLifecycle {
      * persisted the state atomically), only emit the enter observability —
      * skip `saveWorkflowState` + `savePhase` to avoid duplicate INSERT rows.
      */
-    async enter(stateOrNodeId: string, transitionsTaken: number, persist = true): Promise<void> {
+    async enter(stateOrNodeId: string, transitionsTaken: number, persist = true, vars?: Vars): Promise<void> {
         if (persist) {
-            await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, { transitionsTaken });
+            const data: Record<string, unknown> = { transitionsTaken };
+            if (vars !== undefined) data.effectiveVars = vars;
+            await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, data);
             await this.persistence.savePhase(this.runId, stateOrNodeId, 'running');
         }
         addSpanEvent('workflow.node.enter', {
@@ -231,8 +234,11 @@ export class RunLifecycle {
         trigger: string | null,
         transitionsTaken: number,
         phase?: { phase: string; status: WorkflowStatus },
+        vars?: Vars,
     ): Promise<void> {
-        await this.persistence.commitTransition(this.runId, from, to, trigger, to, { transitionsTaken }, phase);
+        const data: Record<string, unknown> = { transitionsTaken };
+        if (vars !== undefined) data.effectiveVars = vars;
+        await this.persistence.commitTransition(this.runId, from, to, trigger, to, data, phase);
         addSpanEvent('workflow.node.transition', {
             runId: this.runId,
             from,
@@ -247,8 +253,6 @@ export class RunLifecycle {
             externalKey: this.externalKey,
         });
     }
-
-    /** Persist a transition and emit its observability event. */
     async recordTransition(from: string, to: string, trigger: string | null): Promise<void> {
         await this.persistence.saveTransition(this.runId, from, to, trigger);
         addSpanEvent('workflow.node.transition', {
@@ -296,8 +300,17 @@ export class RunLifecycle {
         return this.result('failed', finalState, transitionsTaken, reason);
     }
 
-    /** Finalize the run as paused and return its result. */
-    async pause(stateOrNodeId: string, transitionsTaken: number): Promise<WorkflowRunResult> {
+    /**
+     * Finalize the run as paused and return its result. Writes a fresh state
+     * snapshot carrying the post-action `effectiveVars` BEFORE the phase/finalize
+     * writes so resume can restore them — onEnter setVars (e.g. `__hitlAnswer`)
+     * would otherwise be lost because the prior snapshot predates this state's
+     * action execution (R3 of 0366).
+     */
+    async pause(stateOrNodeId: string, transitionsTaken: number, vars?: Vars): Promise<WorkflowRunResult> {
+        const data: Record<string, unknown> = { transitionsTaken };
+        if (vars !== undefined) data.effectiveVars = vars;
+        await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, data);
         await this.persistence.savePhase(this.runId, stateOrNodeId, 'paused');
         await this.persistence.finalizeRun(this.runId, 'paused', new Date().toISOString());
         this.logger.info('workflow run paused', { stateOrNodeId, transitionsTaken });

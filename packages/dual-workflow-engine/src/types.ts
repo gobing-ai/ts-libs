@@ -299,6 +299,15 @@ export interface WorkflowPersistenceAdapter {
     reseedRun(runId: string, newState: string): Promise<WorkflowReseedResult>;
     /** Load the current state name for a run (latest state snapshot). Returns undefined if no state recorded. */
     loadCurrentState(runId: string): Promise<string | undefined>;
+    /**
+     * Load the latest state snapshot for a run — the full data payload (including
+     * `effectiveVars` when present), not just the state name. Used by resume to
+     * restore the post-action variable state that was active when the run paused.
+     * Old snapshots written before R1 of 0366 have no `effectiveVars` field;
+     * callers must tolerate `data.effectiveVars === undefined` and fall back to {}.
+     * Returns undefined if no state recorded.
+     */
+    loadLatestStateSnapshot(runId: string): Promise<{ state: string; data: Record<string, unknown> } | undefined>;
     /** List runs with status 'paused'. Optional filters: workflow name, limit. Ordered most-recent-first. */
     listPausedRuns(options?: { workflowName?: string; limit?: number }): Promise<readonly WorkflowRunRecord[]>;
 }
