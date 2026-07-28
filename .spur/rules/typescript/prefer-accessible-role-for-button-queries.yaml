@@ -1,0 +1,28 @@
+# Local override of the global rule (~/.config/spur/rules/typescript/).
+#
+# WHY: the global rule targets apps/web/tests/** (React DOM Testing Library),
+# which does not exist in this library monorepo (packages/* only). When spur
+# invokes rg with include globs that match zero files in this tree, rg exits 2
+# ("No files were searched") under `bun run`, which spur reports as a
+# misconfigured evaluator and --fail-on warning turns it into a gate failure.
+# This override re-scopes the include globs to this repo's test files so rg
+# searches real files, finds no getByLabelText hits, and exits 0.
+include:
+  - "packages/**/*.test.ts"
+  - "packages/**/*.test.tsx"
+exclude:
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: prefer-accessible-role-for-button-queries
+    description: >
+      Do not query button accessible names with `getByLabelText` in web React
+      tests. `<button>` elements are non-labellable per WHATWG spec. This repo
+      has no DOM tests, so the rule is a no-op here; the override exists only
+      to keep rg from exiting 2 on zero-match include globs.
+    severity: warning
+    evaluator:
+      type: rg
+      config:
+        pattern: "getByLabelText\\(['\"]Sort "
