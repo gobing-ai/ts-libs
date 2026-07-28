@@ -281,6 +281,117 @@ describe('DbWorkflowPersistenceAdapter — with real in-memory DB', () => {
         const runs = await adapter.listRuns();
         expect(runs).toHaveLength(2);
     });
+    test('loadCurrentState returns the latest state name for a run', async () => {
+        await adapter.createRun(makeRecord({ id: 'r-state' }));
+        await adapter.saveWorkflowState('r-state', 'init', { step: 1 });
+        await adapter.saveWorkflowState('r-state', 'processing', { step: 2 });
+
+        const state = await adapter.loadCurrentState('r-state');
+        expect(state).toBe('processing');
+    });
+
+    test('loadCurrentState returns undefined when no states exist', async () => {
+        await adapter.createRun(makeRecord({ id: 'r-empty' }));
+
+        const state = await adapter.loadCurrentState('r-empty');
+        expect(state).toBeUndefined();
+    });
+
+    test('loadLatestStateSnapshot returns the latest state and parsed data', async () => {
+        await adapter.createRun(makeRecord({ id: 'r-snap' }));
+        await adapter.saveWorkflowState('r-snap', 'processing', { count: 3 });
+
+        const snap = await adapter.loadLatestStateSnapshot('r-snap');
+        expect(snap).toBeDefined();
+        expect(snap?.state).toBe('processing');
+        expect(snap?.data).toEqual({ count: 3 });
+    });
+
+    test('loadLatestStateSnapshot returns undefined when no states exist', async () => {
+        await adapter.createRun(makeRecord({ id: 'r-none' }));
+
+        const snap = await adapter.loadLatestStateSnapshot('r-none');
+        expect(snap).toBeUndefined();
+    });
+
+    // WHY: loadLatestStateSnapshot must degrade gracefully on malformed stored JSON
+    // rather than throwing — a partially-written or migrated row should not crash the
+    // state-loading path. The catch returns {} so callers see state + empty data.
+    test('loadLatestStateSnapshot returns empty data when data_json is malformed', async () => {
+        await adapter.createRun(makeRecord({ id: 'r-bad-json' }));
+        await db.run(
+            `INSERT INTO workflow_states (id, run_id, state, data_json, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            'bad-state-id',
+            'r-bad-json',
+            'broken',
+            '{not valid json',
+            Date.now(),
+            Date.now(),
+        );
+
+        const snap = await adapter.loadLatestStateSnapshot('r-bad-json');
+        expect(snap).toBeDefined();
+        expect(snap?.state).toBe('broken');
+        expect(snap?.data).toEqual({});
+    });
+
+    test('loadLatestStateSnapshot returns empty data for empty-string data_json', async () => {
+        await adapter.createRun(makeRecord({ id: 'r-empty-json' }));
+        await db.run(
+            `INSERT INTO workflow_states (id, run_id, state, data_json, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            'empty-state-id',
+            'r-empty-json',
+            'pending',
+            '',
+            Date.now(),
+            Date.now(),
+        );
+
+        const snap = await adapter.loadLatestStateSnapshot('r-empty-json');
+        expect(snap?.state).toBe('pending');
+        expect(snap?.data).toEqual({});
+    });
+
+    test('listPausedRuns returns only paused runs', async () => {
+        await adapter.createRun(makeRecord({ id: 'p1', status: 'paused' }));
+        await adapter.createRun(makeRecord({ id: 'p2', status: 'paused' }));
+        await adapter.createRun(makeRecord({ id: 'r1', status: 'running' }));
+        await adapter.createRun(makeRecord({ id: 'd1', status: 'done' }));
+
+        const paused = await adapter.listPausedRuns();
+        const ids = paused.map((r) => r.id);
+        expect(ids).toContain('p1');
+        expect(ids).toContain('p2');
+        expect(ids).not.toContain('r1');
+        expect(ids).not.toContain('d1');
+    });
+
+    test('listPausedRuns filters by workflowName', async () => {
+        await adapter.createRun(makeRecord({ id: 'pa', status: 'paused', workflow_name: 'wf-a' }));
+        await adapter.createRun(makeRecord({ id: 'pb', status: 'paused', workflow_name: 'wf-b' }));
+
+        const paused = await adapter.listPausedRuns({ workflowName: 'wf-a' });
+        expect(paused).toHaveLength(1);
+        expect(paused[0]?.id).toBe('pa');
+    });
+
+    test('listPausedRuns respects the limit option', async () => {
+        for (let i = 0; i < 5; i++) {
+            await adapter.createRun(makeRecord({ id: `lim-${i}`, status: 'paused' }));
+        }
+
+        const paused = await adapter.listPausedRuns({ limit: 2 });
+        expect(paused).toHaveLength(2);
+    });
+
+    test('listPausedRuns returns empty array when no paused runs exist', async () => {
+        await adapter.createRun(makeRecord({ id: 'only-running', status: 'running' }));
+
+        const paused = await adapter.listPausedRuns();
+        expect(paused).toHaveLength(0);
+    });
 });
 
 describe('DbWorkflowPersistenceAdapter.commitTransition — atomic batch (ADR-020)', () => {

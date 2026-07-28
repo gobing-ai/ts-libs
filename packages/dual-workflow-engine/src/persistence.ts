@@ -263,6 +263,26 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         );
         return row?.state;
     }
+    /** Load the latest state snapshot (full data payload) for a run. */
+    async loadLatestStateSnapshot(
+        runId: string,
+    ): Promise<{ state: string; data: Record<string, unknown> } | undefined> {
+        await this.ensureSchema();
+        const row = await this.db.queryFirst<{ state: string; data_json: string | null }>(
+            'SELECT state, data_json FROM workflow_states WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
+            runId,
+        );
+        if (row == null) return undefined;
+        let data: Record<string, unknown> = {};
+        if (row.data_json !== null && row.data_json.length > 0) {
+            try {
+                data = JSON.parse(row.data_json) as Record<string, unknown>;
+            } catch {
+                data = {};
+            }
+        }
+        return { state: row.state, data };
+    }
 
     /** List runs with status 'paused'. Ordered most-recent-first. */
     async listPausedRuns(options?: { workflowName?: string; limit?: number }): Promise<readonly WorkflowRunRecord[]> {
@@ -420,6 +440,14 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
     async loadCurrentState(runId: string): Promise<string | undefined> {
         const last = this.states.findLast((s) => s.runId === runId);
         return last?.state;
+    }
+    /** Load the latest state snapshot (full data payload) for a run. */
+    async loadLatestStateSnapshot(
+        runId: string,
+    ): Promise<{ state: string; data: Record<string, unknown> } | undefined> {
+        const last = this.states.findLast((s) => s.runId === runId);
+        if (last === undefined) return undefined;
+        return { state: last.state, data: last.data };
     }
 
     /** List runs with status 'paused'. Ordered most-recent-first. */
