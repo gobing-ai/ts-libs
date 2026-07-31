@@ -247,6 +247,8 @@ const queue = new DBJobQueue<{ to: string; subject: string }>(dao);
 await queue.enqueue(
     'send-email',
     { to: 'alice@example.com', subject: 'Welcome' },
+    // maxRetries is a total attempt budget, not retries after the first:
+    // 5 means up to 5 attempts, and `maxRetries: 1` runs the job once with no retry.
     { maxRetries: 5, delay: 1_000, ttlMs: 86_400_000 },
 );
 

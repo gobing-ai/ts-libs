@@ -229,7 +229,8 @@ import { QueueJobDao } from '@gobing-ai/ts-db';
 
 const queue = new QueueJobDao(adapter);
 
-// Enqueue
+// Enqueue — maxRetries is a total attempt budget, not retries after the first:
+// 5 means up to 5 attempts, and `maxRetries: 1` runs the job once with no retry.
 const jobId = await queue.enqueue('send-email', { to: 'user@test.com' }, { maxRetries: 5 });
 
 // Consumer: claim ready jobs atomically
