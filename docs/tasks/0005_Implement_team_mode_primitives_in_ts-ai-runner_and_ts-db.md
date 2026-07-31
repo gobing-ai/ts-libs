@@ -6,9 +6,9 @@ status: done
 type: task
 priority: P1
 tags: [team-mode,feature,ts-ai-runner,ts-db,identity,messaging]
-dependencies: [@gobing-ai/ts-db 0.2.4 (inbox_messages table),@gobing-ai/ts-ai-runner 0.2.5 (AiRunner base)]
+dependencies: ["@gobing-ai/ts-db 0.2.4 (inbox_messages table)","@gobing-ai/ts-ai-runner 0.2.5 (AiRunner base)"]
 created_at: 2026-06-02T17:55:06.281Z
-updated_at: 2026-06-02T18:35:52.558Z
+updated_at: "2026-07-31T17:22:23.046Z"
 ---
 
 ## 0005. Implement team mode primitives in ts-ai-runner and ts-db
@@ -406,16 +406,13 @@ Guardrails:
 - `docs/00_ADR.md` — ADR-005 (drizzle internal), ADR-006 (engine boundaries)
 
 ### Solution
-
-- Implemented additive inbox persistence in `packages/db`: `inbox_messages` schema, embedded migrations, `InboxMessageDao`, main-barrel exports, and the `@gobing-ai/ts-db/inbox` subpath.
-- Implemented team-mode primitives in `packages/ai-runner`: identity preamble composition, agent spec persistence, `MessageService`, `TeamAgentProcess`, and `TeamOrchestrator`.
-- Extended `PromptOptions` backward-compatibly. Identity preambles are prepended only when `purpose`, `systemPrompt`, `taskId`, or non-empty `peers` are supplied.
+- Implemented additive inbox persistence in `packages/db`: `inbox_messages` schema (`packages/db/src/schema/inbox-messages.ts:7`), embedded migrations, `InboxMessageDao` (`packages/db/src/inbox-message-dao.ts:89`), main-barrel exports, and the `@gobing-ai/ts-db/inbox` subpath (`packages/db/package.json:43`).
+- Implemented team-mode primitives in `packages/ai-runner`: identity preamble composition (`packages/ai-runner/src/identity.ts:19`), agent spec persistence (`packages/ai-runner/src/agent-spec.ts:39`), the `MessageStore` port (`packages/ai-runner/src/message-store.ts:26`) with `formatMessage` (`packages/ai-runner/src/messages.ts:4`) — the port shape that supersedes the originally-sketched `MessageService` wrapper per ADR-023 A4 — plus `TeamAgentProcess` (`packages/ai-runner/src/team-agent-process.ts:22`) and `TeamOrchestrator` (`packages/ai-runner/src/team-orchestrator.ts:29`).
+- Extended `PromptOptions` backward-compatibly (`packages/ai-runner/src/agents/shims.ts:28`). Identity preambles are prepended only when `purpose`, `systemPrompt`, `taskId`, or non-empty `peers` are supplied (`packages/ai-runner/src/ai-runner.ts:257`).
 - Kept runtime-sensitive operations behind `@gobing-ai/ts-runtime` seams to satisfy repository rules: sync filesystem, sync process execution, and persistent pipe process spawning.
 - Added source path/dependency updates for packages that typecheck aliased source surfaces affected by the new `ts-db` dependency.
 - Covered the new behavior with focused Bun tests across `ts-db`, `ts-ai-runner`, and `ts-runtime`.
-
 ### Review
-
 Verdict: PASS.
 
 - Requirements traceability: R1-R7 are implemented as additive public surfaces; R8 coverage is satisfied by focused tests and repository coverage gate; R9 is preserved through optional `PromptOptions` fields and passing full type/build gates.
@@ -440,8 +437,25 @@ SECU result:
 
 Traceability result: R1-R9 remain satisfied after the fix pass.
 
-### Testing
+#### Forced re-audit — 2026-07-31 (`--force --focus all --fix all`)
 
+Verdict: PASS. Requirements R1-R9 all MET with fresh evidence (see Testing); four documented
+design deviations confirmed goal-equivalent and sanctioned (`MessageStore` port per ADR-023 A4,
+DAO at `src/` root matching `queue-job-dao.ts` convention, async orchestrator methods,
+`ts-runtime` seams instead of direct `Bun.*` per ADR-011/014).
+
+Priority findings:
+
+| Priority | Finding | Dimension | Status |
+|----------|---------|-----------|--------|
+| P1 | None | — | — |
+| P2 | None | — | — |
+| P3 | Frontmatter `dependencies` used unquoted `@`-leading scalars — invalid YAML (reserved indicator); entire frontmatter unparseable, `spur task check` L1 failed with 5 schema errors | Correctness (corpus) | Fixed 2026-07-31 — scalars quoted; L1 passes |
+| P3 | Solution text named `MessageService`; shipped shape is the `MessageStore` port + standalone `formatMessage` (ADR-023 A4) | Usability (doc drift) | Fixed 2026-07-31 — Solution rewritten with `file:line` anchors and the correction |
+| P4 | Design module layout showed `packages/db/src/dao/`; repo convention places DAOs at `src/` root (`queue-job-dao.ts`) | Architecture (doc drift) | Accepted — implementation matches repo convention; no code change |
+
+SECUA sweep (all dimensions) over the current tree: no new blocker/major findings.
+### Testing
 - Timestamp: 2026-06-02T19:05:00-07:00.
 - Command: `biome check packages/runtime packages/db packages/ai-runner packages/rule-engine`
   - Result: PASS.
@@ -458,7 +472,65 @@ Traceability result: R1-R9 remain satisfied after the fix pass.
 - Command: `bun run build` after forced verification fix pass
   - Result: PASS. All workspace packages built successfully.
 
+**Forced re-audit — 2026-07-31 (`/sp:dev-verify 0005 --force --focus all --fix all`)**
 
+Verdict: PASS. All evidence below gathered fresh this run; every `file:line` anchor re-read and
+confirmed to name the requirement's subject.
+
+**Per-Requirement Traceability**
+
+| Req | Status | Evidence |
+|-----|--------|----------|
+| R1 | MET | Schema `packages/db/src/schema/inbox-messages.ts:7-22` (id/from_id/to_id/body/status/in_reply_to/created_at/delivered_at/inject_attempts/inject_error + additive `updated_at`; index `idx_inbox_messages_to_status` at :21). DAO `packages/db/src/inbox-message-dao.ts:89-198` — `enqueue:97`, `drainPending:121`, `markDelivered:156`, `markFailed:173`, `inbox:189`, `countPending:198`. Subpath `./inbox` in `packages/db/package.json:43-46`. Tests `packages/db/tests/inbox-message-dao.test.ts:32-83` (enqueue, atomic drain, deliver/fail, inbox paging, concurrent enqueue). |
+| R2 | MET | `packages/ai-runner/src/identity.ts` — `IdentityContext:4`, `buildIdentityPreamble:19` with all 8 sections (peers list :35, `spur message send`/`reply` instructions :46-47, git context :54, guardrails :61), `getGitContext:68`. Platform APIs routed through `ts-runtime` seams (no direct `Bun.*` — CHANGED from spec text, required by ADR-011/014). Tests `packages/ai-runner/tests/identity.test.ts` (5 tests). |
+| R3 | MET | `PromptOptions` at `packages/ai-runner/src/agents/shims.ts:28-47` — `purpose:38`, `tags:40`, `systemPrompt:42`, `taskId:44`, `peers:46`, all optional. Preamble gate + composition in `packages/ai-runner/src/ai-runner.ts:257-291` (prepended only when `purpose`/`systemPrompt`/`taskId`/non-empty `peers` present). Backward compatible: full workspace typecheck + 1674-test suite green with existing callers unchanged. |
+| R4 | MET | `packages/ai-runner/src/agent-spec.ts` — `AgentSpec:11`, `validateAgentId:31`, `loadAgentSpecs:39`, `saveAgentSpec:56`, `deleteAgentSpec:67` (FileSystem param defaulted — additive, sanctioned seam). Tests `packages/ai-runner/tests/agent-spec.test.ts` (7 tests). |
+| R5 | MET (CHANGED) | No `MessageService` wrapper class; goal-equivalent port shape per ADR-023 A4 (`docs/00_ADR.md:324`): `MessageStore` port `packages/ai-runner/src/message-store.ts:26-31` (enqueue/drainPending/markDelivered/markFailed) satisfied structurally by `InboxMessageDao`; `inbox`/`countPending` consumed directly from the DAO (R1). `formatMessage` standalone at `packages/ai-runner/src/messages.ts:4-6` with the exact spec output `[task from=<fromId or 'operator'> id=<msg.id>] <msg.body>`. Zero subprocess/PTY dependency holds. |
+| R6 | MET | `packages/ai-runner/src/team-agent-process.ts` — `AgentProcessOptions:7`, `TeamAgentProcess:22`, `start:43`, `stop:64` (SIGTERM → 5s → SIGKILL), `send:90`, `subscribe:105` (returns unsubscribe), `getStatus:112`, `getPid:116`, `getExitCode:120`. Tests `packages/ai-runner/tests/team-agent-process.test.ts` (15 tests). |
+| R7 | MET | `packages/ai-runner/src/team-orchestrator.ts:29` — ctor `(configDir, inbox: MessageStore, options)` :35-46; `loadSpecs:48`, `getSpec:53`, `startAgent:58` (spec → peers → `buildAgentCommand` → factory → start → `injectPendingMessages` drain → emit `agent.started`), `stopAgent:91`, `restartAgent:99`, `sendMessage:104` (durable enqueue → `flushInbox` live stdin injection → emit `agent.message.sent`), `getRunningAgents:112`, `getAgentStatus:116`, `getPeerSpecs:122`, `stopAll:127`. CHANGED: query/lifecycle methods are async (goal-equivalent; correct for fs-backed spec loading). |
+| R8 | MET | All eight test areas present: dao 13 tests, identity 5, agent-spec 7, message-store 1, messages 2, process 15, orchestrator 2 (incl. R8.6 integration round-trip `packages/ai-runner/tests/team-orchestrator.test.ts:103` — start → drain → live inject → stopAll), inbox subpath 1. Fresh full suite this run: 1674 pass / 0 fail / 3735 expects across 171 files. Coverage: spur `coverage-gate` rule PASS (≥90% line/function enforced by `.spur/rules/`). |
+| R9 | MET | Fresh `bun run spur-check` exit 0 (Biome + per-package `tsc --noEmit` + pre-check rules + full tests + post-check rules `coverage-gate`, `tsdoc-export`). Fresh `bun run build` exit 0 for all 8 packages. New `PromptOptions` fields all optional; new exports additive (`packages/ai-runner/src/index.ts:1-14`, `packages/db/src/index.ts:27`, `packages/db/src/schema/index.ts:5`). |
+
+**Acceptance Criteria Verification**
+
+N/A — this legacy task carries no `## Acceptance Criteria` section; traceability targets are R1-R9 above.
+
+**Design Conformance**
+
+| Check | Status | Evidence |
+|-------|--------|----------|
+| design-conformance | pass | Core claims DONE. 4 CHANGED, all documented/sanctioned, none silent: (1) DAO at `packages/db/src/inbox-message-dao.ts` not `src/dao/` — matches actual repo convention (`queue-job-dao.ts` lives at `src/` root; no `src/dao/` exists); (2) `MessageStore` port instead of `MessageService` class — ADR-023 A4; (3) orchestrator methods async; (4) git/process/fs via `ts-runtime` seams instead of direct `Bun.*` — ADR-011/014. No scope-creep: later-task enrichments on these files (event sink, lifecycle bus) belong to their own tasks. |
+
+**Fresh gate evidence (this run, 2026-07-31)**
+
+- Command: `bun run spur-check`
+  - Result: PASS (exit 0). Biome, workspace typecheck, `recommended-pre-check` rules, full test suite
+    (1674 pass, 0 fail, 3735 `expect()` calls, 171 files), and `recommended-post-check` rules
+    (`coverage-gate` ✓, `every-export-has-tsdoc` ✓) — all `--fail-on warning`.
+- Command: `bun run build`
+  - Result: PASS (exit 0). All 8 workspace packages built successfully.
+- Coverage: enforced by the spur `coverage-gate` rule (≥90% line/function) — PASS this run.
+
+**Fix pass (`--fix all`)**
+
+No UNMET/PARTIAL requirements and no major SECUA findings. Two corpus-level defects surfaced by
+this run's gate and repaired:
+
+1. Frontmatter `dependencies` line used unquoted `@`-leading scalars (invalid YAML — `@` is a
+   reserved indicator), which made the entire frontmatter unparseable and failed `spur task check`
+   L1 with 5 schema errors. Repaired at
+   `docs/tasks/0005_Implement_team_mode_primitives_in_ts-ai-runner_and_ts-db.md:9` (scalars quoted;
+   no CLI verb can write a file whose frontmatter does not parse, so the documented
+   `SPUR_WRITE_GUARD=off` escape hatch was used for this one-line repair; all subsequent writes went
+   through `spur task update --section`). Re-check: L1 PASS, task recognized as `0005 (done)`.
+2. Solution section named `MessageService` (never shipped) and carried no `file:line` citation
+   (L3 error). Rewritten via `spur task update 0005 --section Solution` with anchors and the
+   `MessageStore` (ADR-023 A4) correction. Review section gained the checker-required P1–P4
+   findings table via `--section Review` (existing three-dimensional content preserved).
+
+Residual minor (non-blocking): L3 warning on R-numbering style (legacy `**R1**` format) and L4
+warning on missing `feature_id` (task predates the feature era) — both left as warnings, not
+errors; no fabricated feature link added.
 ### History
 
 - Migrated from legacy format (2026-07-31)
