@@ -2,6 +2,8 @@
  * Node.js scheduler adapter using a simple setInterval-based approach.
  * No external cron library dependency — cron expressions are parsed minimally.
  */
+
+import { settleWithin } from '../internals/drain';
 import { getLogger } from '../logger';
 import {
     getSchedulerJobDuration,
@@ -44,15 +46,39 @@ interface ScheduledEntry {
     timer?: ReturnType<typeof setInterval>;
 }
 
+/** Constructor options for {@link NodeSchedulerAdapter}. */
+export interface NodeSchedulerAdapterConfig {
+    /**
+     * Upper bound (ms) on how long `stop()` waits for an in-flight tick to settle.
+     * A hung action is abandoned at this deadline so it cannot block shutdown.
+     * Defaults to 30000 (matching `DBQueueConsumer`).
+     */
+    readonly drainTimeoutMs?: number;
+}
+
 /**
  * Scheduler adapter for Node.js using a setInterval-based approach.
  * No external cron library dependency — cron expressions are parsed minimally.
+ *
+ * `stop()` drains in-flight ticks, bounded by `drainTimeoutMs` (ADR-024): an
+ * action already running when `stop()` is called is awaited rather than torn
+ * down, which would leave a half-written row or a half-flushed batch.
  */
 export class NodeSchedulerAdapter implements SchedulerAdapter {
     private readonly entries: ScheduledEntry[] = [];
+    private readonly drainTimeoutMs: number;
     private running = false;
+    private readonly inflight = new Set<Promise<void>>();
 
-    constructor() {}
+    constructor(config: NodeSchedulerAdapterConfig = {}) {
+        const { drainTimeoutMs } = config;
+        if (drainTimeoutMs !== undefined && (!Number.isFinite(drainTimeoutMs) || drainTimeoutMs < 0)) {
+            throw new RangeError(
+                `NodeSchedulerAdapter drainTimeoutMs must be a non-negative finite number; received ${drainTimeoutMs}`,
+            );
+        }
+        this.drainTimeoutMs = drainTimeoutMs ?? 30_000;
+    }
 
     register(cron: string, action: ScheduledAction): void {
         this.entries.push({ cron, action });
@@ -81,13 +107,32 @@ export class NodeSchedulerAdapter implements SchedulerAdapter {
                 entry.timer = undefined;
             }
         }
+
+        // Drain in-flight ticks, bounded by a shared absolute deadline. clearInterval
+        // cancels future ticks but not one already executing; without this wait a tick
+        // mid-action when stop() is called would keep running after stop() resolves,
+        // tearing down a half-written row or half-flushed batch (ADR-024).
+        const deadline = Date.now() + this.drainTimeoutMs;
+        for (const p of [...this.inflight]) {
+            await settleWithin(p, deadline);
+        }
     }
 
     private startEntry(entry: ScheduledEntry): void {
         if (entry.timer) return;
 
         const interval = parseInterval(entry.cron);
-        entry.timer = setInterval(this._onScheduledTick.bind(this, entry), interval);
+        // setInterval discards the async handler's returned promise, so capture it
+        // here for stop() to drain. _onScheduledTick never rejects (try/catch),
+        // so the cleanup runs on both paths with no unhandled-rejection risk.
+        entry.timer = setInterval(() => {
+            const tick = this._onScheduledTick(entry);
+            this.inflight.add(tick);
+            const cleanup = (): void => {
+                this.inflight.delete(tick);
+            };
+            tick.then(cleanup, cleanup);
+        }, interval);
     }
 
     private async _onScheduledTick(entry: ScheduledEntry): Promise<void> {

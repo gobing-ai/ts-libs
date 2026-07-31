@@ -8,6 +8,7 @@ import type {
     QueueJobFailedDetail,
     QueueJobRetryingDetail,
 } from '../events';
+import { settleWithin } from '../internals/drain';
 import { getLogger, type Logger } from '../logger';
 import {
     getQueueJobCompletedTotal,
@@ -307,27 +308,9 @@ function toJob<T>(record: QueueJobRecord): Job<T> {
 }
 
 function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Resolve when `promise` settles or when `deadline` passes, whichever comes first.
- *
- * WHY: stop() must wait for an in-flight poll cycle without surrendering its
- * `drainTimeoutMs` bound — an unbounded await would let one hung handler block
- * shutdown forever. Never rejects: a failed cycle ends the wait like a successful one.
- */
-function settleWithin(promise: Promise<void>, deadline: number): Promise<void> {
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) return Promise.resolve();
-    return new Promise((resolve) => {
-        const timer = setTimeout(resolve, remaining);
-        const done = (): void => {
-            clearTimeout(timer);
-            resolve();
-        };
-        promise.then(done, done);
-    });
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, ms);
+    return promise;
 }
 
 function positiveIntegerConfig(name: string, value: number): number {

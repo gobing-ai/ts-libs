@@ -3,7 +3,7 @@ template: issue
 schema_version: 1
 name: "NodeSchedulerAdapter.stop() abandons in-flight scheduled actions"
 description: ""
-status: backlog
+status: wip
 type: issue
 profile: standard
 feature_id: null
@@ -128,11 +128,69 @@ await it under a bound). The two differ only in blast radius: the consumer addit
 clean drain via `queue.consumer.stopped`, whereas the scheduler makes no claim at all.
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+**R1 — drain, not abandon.** `Application.performShutdown` is a documented
+deterministic reverse fan-out that includes scheduler stop
+(`packages/infra/src/application/index.ts:82-84`); abandoning a mid-flight tick
+would tear down a half-written row or half-flushed batch. Recorded as ADR-024 in
+`docs/00_ADR.md`.
+
+**R2 — Node adapter retains in-flight ticks and drains under a shared deadline.**
+- Shared `settleWithin(p, deadline)` primitive extracted to
+  `packages/infra/src/internals/drain.ts` (was a private copy in
+  `db-job-queue.ts`); `db-job-queue.ts` now imports it, removing the duplicate.
+- `NodeSchedulerAdapterConfig { drainTimeoutMs?: number }` added at
+  `packages/infra/src/scheduler/node.ts:50-57`; the constructor (`:72-80`)
+  validates it (`RangeError` on negative/non-finite) and defaults to `30_000`.
+- `inflight = new Set<Promise<void>>()` field (`:70`) tracks ticks (unlike the
+  queue consumer's single `pollPromise`, `setInterval` can stack overlapping
+  ticks, so a `Set` is needed).
+- `startEntry()` (`:120-135`) wraps the async handler in an arrow that captures
+  the returned promise (`setInterval` otherwise discards it), adds it to the
+  set, and removes it on settle via `tick.then(cleanup, cleanup)`
+  (`_onScheduledTick` never rejects — it has a `try/catch`, `:140-147` — so the
+  cleanup runs on both paths with no unhandled-rejection risk).
+- `stop()` (`:101-118`) clears intervals first, then drains with a single
+  shared absolute deadline `Date.now() + drainTimeoutMs` so the bound is not
+  compounded per tick.
+- `NodeSchedulerAdapterConfig` exported from the `/scheduler-node` subpath
+  (`packages/infra/src/scheduler-node.ts`).
+
+**R3 — Cloudflare is a deliberate no-op.** `cloudflare.ts` `stop()` gains TSDoc:
+  Cron Triggers fire externally and `ctx.waitUntil()` already bounds each
+  action, so there is no in-flight handle to drain. `types.ts`
+  `SchedulerAdapter.stop()` carries the drain contract in its TSDoc.
+
+**R4 — classified as `Fixed`, not breaking.** `stop()`'s signature is unchanged;
+callers that already `await stop()` keep working. The only observable difference
+is timing — `stop()` now blocks up to `drainTimeoutMs` instead of resolving
+immediately while a tick runs on. Recorded under `### Fixed` in `CHANGELOG.md`.
 
 ### Testing
 
-<!-- Filled during verification: regression command(s), outcomes, coverage claim or N/A. -->
+`packages/infra/tests/scheduler-node.test.ts` — 4 tests:
+
+- **R2 — `stop()` waits for an in-flight tick before resolving**: registers a
+  slow action that blocks on a `Promise.withResolvers` gate; starts the
+  scheduler; awaits the action's `started` signal; asserts `stop()` has not
+  resolved after microtask settling while the tick is blocked; then releases
+  the gate and asserts the action completed before `stop()` resolved.
+- **R2b — the drain wait is bounded when an action hangs**: registers an action
+  that awaits an unresolved promise; uses a low `drainTimeoutMs: 50`; asserts
+  `stop()` resolves in `[40, 2000)` ms (near the 50 ms deadline). This is the
+  documented exception to `ts-no-test-timers`: `settleWithin` enforces its
+  deadline with a real `setTimeout`, so the bound is only observable against the
+  real clock.
+- **constructor rejects an invalid `drainTimeoutMs`**: `RangeError` on `-1`,
+  `Infinity`, `NaN`.
+- **default drainTimeoutMs keeps the no-arg path backward compatible**: the
+  bare `new NodeSchedulerAdapter()` constructor still works.
+
+Verification:
+```
+bun test packages/infra/tests/scheduler-node.test.ts   # 5 pass (incl. smoke), 0 fail
+bun test packages/infra                                   # 310 pass, 0 fail
+bun run lint                                              # clean (Biome + per-pkg tsc --noEmit)
+```
 
 ### Review
 

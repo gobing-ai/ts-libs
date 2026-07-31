@@ -39,6 +39,13 @@ export class CloudflareSchedulerAdapter implements SchedulerAdapter {
         // The `scheduled()` handler should call `handleScheduledEvent()`.
     }
 
+    /**
+     * No-op drain. Cloudflare Workers fire Cron Triggers externally — this adapter
+     * owns no timer to cancel — and `handleScheduledEvent` already bounds each
+     * in-flight action via `ctx.waitUntil()`, the runtime's own drain. So there is
+     * nothing for stop() to await here; clearing registrations is the full contract
+     * (ADR-024).
+     */
     async stop(): Promise<void> {
         this.entries.clear();
     }

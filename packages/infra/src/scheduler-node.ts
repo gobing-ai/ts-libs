@@ -1,1 +1,1 @@
-export { NodeSchedulerAdapter } from './scheduler/node';
+export { NodeSchedulerAdapter, type NodeSchedulerAdapterConfig } from './scheduler/node';

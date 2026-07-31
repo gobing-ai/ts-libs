@@ -331,3 +331,41 @@ implementation in task 0041): (A1) injectable `RuntimePaths` seam for cwd/home p
 (A3) `runJsonlImport(source | SourceDefinition, …)` overload to open the importer source registry; (A4)
 ai-runner-owned `MessageStore` interface that `InboxMessageDao` satisfies structurally, loosening ts-db
 coupling consistent with the ts-db-as-optional-peer direction (task 0040).
+
+---
+
+## ADR-024: SchedulerAdapter.stop() Drains In-Flight Ticks
+
+**Status:** Accepted · **Date:** 2026-07-31 · **Targets:** `@gobing-ai/ts-infra` · **Amends:** ADR-014
+
+**Decision:** `SchedulerAdapter.stop()` drains in-flight ticks, bounded by a configurable
+`drainTimeoutMs`, rather than abandoning them.
+
+**Context.** `NodeSchedulerAdapter` launched each tick as a floating promise with no retained handle, so
+`stop()` could clear future timers but had no way to observe — let alone await — a tick already executing.
+`Application` documents shutdown (`application/index.ts`) as a deterministic reverse fan-out, so
+`await app.stop()` followed by process exit could tear down an action mid-execution: a torn DB write or a
+half-flushed batch. The defect is identical in shape to the `DBQueueConsumer` drain race fixed alongside
+this decision, differing only in blast radius (the consumer additionally asserted a clean drain it did not
+perform; the scheduler made no claim at all).
+
+**Alternatives considered.** Abandoning in-flight ticks was rejected because it contradicts the documented
+deterministic shutdown and leaves no path to observe completion. Mirroring the proven
+`drainTimeoutMs` + `settleWithin` shape from `DBQueueConsumer` (rather than inventing a second mechanism)
+keeps the two adapters from drifting; `settleWithin` is therefore extracted to
+`packages/infra/src/internals/drain.ts` and shared by both.
+
+**Node adapter.** Retains tick promises in a `Set<Promise<void>>` (unlike the consumer's single
+`pollPromise` + `inFlight` counter — `setInterval` can stack ticks when action duration exceeds the
+interval). `_onScheduledTick` never rejects (try/catch records `scheduler.job.failed.total`), so
+`p.then(cleanup, cleanup)` removes the entry on both paths with no unhandled-rejection risk. `stop()` shares
+a single absolute deadline across all awaited ticks so the bound is not compounded per tick.
+
+**Cloudflare adapter.** `stop()` is a deliberate no-op: Workers fire Cron Triggers externally (no timer to
+cancel here) and `handleScheduledEvent` already bounds each action via `ctx.waitUntil()`, the runtime's own
+drain. The contract — "future ticks cancelled, in-flight work bounded" — holds without an explicit wait.
+
+**Compatibility.** Classified as a **fix**, not a breaking change: the `stop()` signature is unchanged
+(`Promise<void>`) and callers that already `await stop()` continue to work. The only observable difference
+is timing — `stop()` may block up to `drainTimeoutMs` (default 30000) when a tick is in flight — which is
+the behaviour `Application`'s deterministic shutdown already assumed it had. Prior behaviour was a bug.
