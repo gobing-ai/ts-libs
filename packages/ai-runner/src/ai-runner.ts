@@ -46,6 +46,49 @@ export interface AgentRunCorrelation {
     readonly executionId: string;
     readonly actionId?: string;
 }
+/**
+ * Public environment-variable contract for agent run correlation.
+ *
+ * When `AgentRunOptions.correlation` is supplied, `AiRunner` forwards these
+ * identifiers into the agent subprocess environment via `ProcessOptions.env`.
+ * execa's default `extendEnv: true` merges them with the parent process
+ * environment, so they are additive — and because environment inheritance is
+ * transitive, every descendant of the run inherits the same values.
+ *
+ * Nesting semantics: **one id per run, shared by all descendants.** Depth is
+ * not observable. The consumer's question is "am I inside a run?", which the
+ * presence of `SPUR_RUN_ID` answers exactly; a depth counter was rejected as
+ * contract with no current consumer (see task 0056 Design).
+ *
+ * Prefix choice: **`SPUR_`**. The first consumer (Spur's `SessionStart`
+ * hook) already reads `SPUR_AGENT` / `SPUR_MODEL` from this environment, so a
+ * single vocabulary in one resolver beats a vendor-neutral prefix that forces
+ * that resolver to learn a second one. The prefix is a stable public contract;
+ * these names cannot be renamed in lockstep with consumers.
+ *
+ * Only correlation identifiers are forwarded — never tokens, keys, prompts, or
+ * user content.
+ */
+export const AGENT_RUN_ID_ENV = 'SPUR_RUN_ID';
+/** Execution-id leg of the correlation env contract (see block comment above). */
+export const AGENT_EXECUTION_ID_ENV = 'SPUR_EXECUTION_ID';
+/** Optional action-id leg of the correlation env contract (see block comment above). */
+export const AGENT_ACTION_ID_ENV = 'SPUR_ACTION_ID';
+
+/**
+ * Build the correlation environment for the agent subprocess. Returns
+ * `undefined` when there is no correlation, so the `env` key is omitted
+ * entirely and the spawn options stay byte-identical for existing callers.
+ *
+ * Internal: callers go through `AiRunner.invoke`, which guards the absent case.
+ */
+function buildCorrelationEnv(correlation: AgentRunCorrelation): Record<string, string> {
+    return {
+        [AGENT_RUN_ID_ENV]: correlation.runId,
+        [AGENT_EXECUTION_ID_ENV]: correlation.executionId,
+        ...(correlation.actionId !== undefined ? { [AGENT_ACTION_ID_ENV]: correlation.actionId } : {}),
+    };
+}
 
 /** Constructor options for AiRunner. */
 export interface AiRunnerOptions {
@@ -170,6 +213,7 @@ export class AiRunner {
             label,
             ...(options.correlation !== undefined ? { correlation: options.correlation } : {}),
         });
+        const correlationEnv = options.correlation === undefined ? undefined : buildCorrelationEnv(options.correlation);
         const result: ProcessResult = await this.processExecutor.run({
             command: command.command,
             args: command.args,
@@ -178,6 +222,7 @@ export class AiRunner {
             forceBuffered,
             cwd: options.cwd ?? this.defaultCwd,
             timeout: options.timeout ?? this.defaultTimeout,
+            ...(correlationEnv !== undefined ? { env: correlationEnv } : {}),
             ...(options.signal !== undefined ? { signal: options.signal } : {}),
             ...(options.onOutput !== undefined ? { onOutput: options.onOutput } : {}),
         });

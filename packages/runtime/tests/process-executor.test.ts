@@ -223,6 +223,31 @@ describe('NodeProcessExecutor', () => {
         expect(events.at(-1)?.detail.error).toBeDefined();
     });
 
+    test('a partial env extends rather than replaces process.env (extendEnv merge — task 0056 R2)', async () => {
+        // execa defaults extendEnv:true, so a partial env merges with process.env.
+        // This is load-bearing: a regression to extendEnv:false would strip PATH, HOME,
+        // and every provider credential from agent subprocesses. Use a process-local
+        // sentinel so the assertion is environment-independent (PATH/HOME vary by host
+        // and Bun injects a minimal PATH even under extendEnv:false, so PATH is an
+        // unreliable merge signal — HOME/sentinel are not).
+        const sentinel = `RUNTIME_MERGE_SENTINEL_${Date.now()}`;
+        process.env[sentinel] = 'parent-survives';
+        try {
+            const result = await new NodeProcessExecutor().run({
+                command: 'sh',
+                args: ['-c', `echo "SENTINEL=${'$'}${sentinel}"; echo "FORWARDED=${'$'}{SPUR_RUN_ID}"`],
+                env: { SPUR_RUN_ID: 'run-merge-1' },
+            });
+
+            expect(result.exitCode).toBe(0);
+            // Parent variable survives (merge, not replace).
+            expect(result.stdout).toContain(`SENTINEL=parent-survives`);
+            // Forwarded variable reaches the child.
+            expect(result.stdout).toContain('FORWARDED=run-merge-1');
+        } finally {
+            delete process.env[sentinel];
+        }
+    });
     test('runStreaming emits process events and opens a spawn span', async () => {
         const { events, sink } = recordEvents();
         const { spans, tracer } = recordTracer();

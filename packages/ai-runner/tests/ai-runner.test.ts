@@ -2,6 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { EventBus, type Logger } from '@gobing-ai/ts-infra';
 import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import {
+    AGENT_ACTION_ID_ENV,
+    AGENT_EXECUTION_ID_ENV,
+    AGENT_RUN_ID_ENV,
     AgentDetector,
     type AgentEvents,
     AiRunner,
@@ -166,6 +169,90 @@ describe('AiRunner', () => {
         expect(observed).toHaveLength(2);
         expect(observed[0]).toMatchObject({ correlation });
         expect(observed[1]).toMatchObject({ correlation });
+    });
+});
+
+describe('AiRunner correlation environment (task 0056 R1/R4/R6/R7)', () => {
+    test('forwards runId and executionId into the subprocess env when correlation is present', async () => {
+        const executor = new FakeExecutor(() => ({ stdout: 'ok' }));
+        await new AiRunner({ processExecutor: executor }).runPromptCommand(
+            'codex',
+            { input: 'ship it' },
+            { correlation: { runId: 'run-1', executionId: 'exec-1' } },
+        );
+
+        const opts = executor.calls[0];
+        expect(opts?.env).toEqual({
+            [AGENT_RUN_ID_ENV]: 'run-1',
+            [AGENT_EXECUTION_ID_ENV]: 'exec-1',
+        });
+    });
+
+    test('exports actionId only when present, keeping run/execution ids', async () => {
+        // actionId omitted
+        const withoutAction = new FakeExecutor(() => ({ stdout: 'ok' }));
+        await new AiRunner({ processExecutor: withoutAction }).runPromptCommand(
+            'codex',
+            { input: 'x' },
+            { correlation: { runId: 'r', executionId: 'e' } },
+        );
+        expect(withoutAction.calls[0]?.env).not.toHaveProperty(AGENT_ACTION_ID_ENV);
+        expect(withoutAction.calls[0]?.env).toEqual({
+            [AGENT_RUN_ID_ENV]: 'r',
+            [AGENT_EXECUTION_ID_ENV]: 'e',
+        });
+
+        // actionId present
+        const withAction = new FakeExecutor(() => ({ stdout: 'ok' }));
+        await new AiRunner({ processExecutor: withAction }).runPromptCommand(
+            'codex',
+            { input: 'x' },
+            { correlation: { runId: 'r', executionId: 'e', actionId: 'a-1' } },
+        );
+        expect(withAction.calls[0]?.env).toEqual({
+            [AGENT_RUN_ID_ENV]: 'r',
+            [AGENT_EXECUTION_ID_ENV]: 'e',
+            [AGENT_ACTION_ID_ENV]: 'a-1',
+        });
+    });
+
+    test('omits the env key entirely when correlation is absent — byte-identical spawn options', async () => {
+        const executor = new FakeExecutor(() => ({ stdout: 'ok' }));
+        const controller = new AbortController();
+        await new AiRunner({ processExecutor: executor }).runPromptCommand(
+            'codex',
+            { input: 'ship it' },
+            { signal: controller.signal },
+        );
+
+        expect(executor.calls).toHaveLength(1);
+        const opts = executor.calls[0];
+        expect(opts).not.toHaveProperty('env');
+        // The rest of the shape is the documented one-shot contract; pin it so a
+        // regression that adds `env` unconditionally is caught, not just the key's value.
+        expect(opts).toMatchObject({
+            command: expect.any(String),
+            args: expect.any(Array),
+            label: expect.any(String),
+            rejectOnError: false,
+            signal: controller.signal,
+        });
+    });
+
+    test('forwards only the three correlation identifiers — no secrets, prompts, or user content (R6)', async () => {
+        const executor = new FakeExecutor(() => ({ stdout: 'ok' }));
+        await new AiRunner({ processExecutor: executor }).runPromptCommand(
+            'codex',
+            { input: 'SECRET-API-KEY=prompt-user-content' },
+            { correlation: { runId: 'run-1', executionId: 'exec-1', actionId: 'act-1' } },
+        );
+
+        const env = executor.calls[0]?.env ?? {};
+        const keys = Object.keys(env);
+        expect(keys.sort()).toEqual([AGENT_ACTION_ID_ENV, AGENT_EXECUTION_ID_ENV, AGENT_RUN_ID_ENV]);
+        // The prompt input — which carries secret-looking content — must not leak into env.
+        expect(JSON.stringify(env)).not.toContain('SECRET-API-KEY');
+        expect(JSON.stringify(env)).not.toContain('prompt-user-content');
     });
 
     test('exposes stable shim metadata', () => {
