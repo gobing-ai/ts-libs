@@ -26,6 +26,7 @@ versioned in **lockstep** — a single version number covers every package in th
 ### Fixed
 
 - `@gobing-ai/ts-infra`: `DBQueueConsumer.stop()` no longer reports a false clean drain. The poll cycle was launched as a floating promise, and `inFlight` is only incremented after `claimReady()` resolves — so a `stop()` landing in that window observed `inFlight === 0`, exited the drain loop immediately, and emitted `queue.consumer.stopped` with `drained: true` while the cycle went on to claim and run handlers after `stop()` had resolved. On shutdown those jobs stayed `processing` until the visibility timeout reclaimed them. `stop()` now awaits the in-flight cycle, still bounded by `drainTimeoutMs`.
+- `@gobing-ai/ts-utils`: `deepMerge()` now skips a `__proto__` key in `source`. Plain assignment invoked the inherited `__proto__` setter, giving the returned object an attacker-controlled prototype, so `deepMerge(defaults, JSON.parse(userInput))` could resolve absent keys through it. `Object.prototype` was never affected (each level is a fresh spread) and stays clean.
 - `@gobing-ai/ts-llm-jsonl-importer`: registry `defaultRoots` (`.claude/projects`, `.codex/sessions`, …) now resolve against the user home directory instead of the ambient working directory. Previously, invoking `runJsonlImport` from any cwd ≠ `$HOME` resolved the home-relative roots to nonexistent paths and silently discovered zero files for every built-in source. Explicit `ImportOptions.roots` keep invocation-directory (cwd) semantics.
 
 ### Security

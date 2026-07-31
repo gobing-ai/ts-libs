@@ -32,6 +32,20 @@ describe('deepMerge', () => {
         expect(target).toEqual({ app: { port: 3000 } });
         expect(source).toEqual({ app: { port: 4000 } });
     });
+
+    test('a `__proto__` key in source cannot reach the result prototype', () => {
+        // Assigning `result.__proto__` invokes the inherited setter, handing the merged
+        // object an attacker-controlled prototype — so `deepMerge(defaults, JSON.parse(input))`
+        // would resolve absent keys through it. JSON.parse is required: an object literal
+        // would set the prototype at construction rather than creating an own key.
+        const merged = deepMerge({ role: 'user' }, JSON.parse('{"__proto__":{"isAdmin":true}}'));
+
+        expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
+        expect((merged as { isAdmin?: unknown }).isAdmin).toBeUndefined();
+        expect(merged).toEqual({ role: 'user' });
+        // Object.prototype was never the vector here (each level is a fresh spread), and stays clean.
+        expect(({} as { isAdmin?: unknown }).isAdmin).toBeUndefined();
+    });
 });
 
 describe('flattenKeys / deFlattenKeys', () => {

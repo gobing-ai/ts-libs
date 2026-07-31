@@ -7,10 +7,18 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
  * Recursively merge `source` into `target`, returning a new object. Nested plain objects merge;
  * arrays and scalars from `source` replace the target wholesale (a source array overrides, never
  * extends). Inputs are not mutated.
+ *
+ * A `__proto__` key in `source` is skipped: plain assignment would invoke the inherited
+ * `__proto__` setter and hand the returned object an attacker-controlled prototype, so
+ * `deepMerge(defaults, JSON.parse(userInput))` could resolve absent keys through it. Sibling
+ * keys like `constructor` need no guard here — `result` is a fresh object at every level
+ * (`{ ...target }`), so assigning them shadows an own property rather than mutating
+ * `Object.prototype`.
  */
 export function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
     const result = { ...target };
     for (const [key, value] of Object.entries(source)) {
+        if (key === '__proto__') continue;
         if (isPlainObject(value) && isPlainObject(result[key])) {
             result[key] = deepMerge(result[key] as Record<string, unknown>, value);
         } else {
