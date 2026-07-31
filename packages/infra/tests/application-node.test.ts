@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { metrics, trace } from '@opentelemetry/api';
 import type { ApplicationConfigValidator, SchedulerOptions } from '../src/application/types';
 import { ConfigValidationError, runNodeApplication } from '../src/application-node';
+import { setLoggerMuted } from '../src/logger';
 import type { ScheduledAction, SchedulerAdapter } from '../src/scheduler/types';
 import { NodeSchedulerAdapter } from '../src/scheduler-node';
 import { _resetMetrics, getHttpClientRequestTotal } from '../src/telemetry/metrics';
@@ -20,7 +21,19 @@ function resetModules() {
     trace.disable();
     metrics.disable();
     _resetNodeTelemetry();
+    // Restore logger output for sibling suites. LogTape is process-global and
+    // not reset here; muting only suppresses emission for this file's tests.
+    setLoggerMuted(false);
 }
+
+// PluginHost grabs a `plugin-host` logger in its constructor and emits DEBUG
+// lifecycle lines during loadAll/startAll — before `builtin:logger.onStart`
+// calls `initializeLogger()`. LogTape is process-global, so a console sink
+// left by a prior suite surfaces that fan-out on stdout. Mute for every test
+// (matches scheduler-node.test.ts); resetModules restores output afterward.
+beforeEach(() => {
+    setLoggerMuted(true);
+});
 
 function tmpDir(): string {
     return mkdtempSync(join(tmpdir(), 'infra-app-test-'));
