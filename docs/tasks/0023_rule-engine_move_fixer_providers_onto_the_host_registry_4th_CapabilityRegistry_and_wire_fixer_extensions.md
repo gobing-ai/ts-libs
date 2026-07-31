@@ -1,21 +1,12 @@
 ---
+schema_version: 1
 name: "rule-engine: move fixer providers onto the host registry (4th CapabilityRegistry) and wire fixer extensions"
-description: "rule-engine: move fixer providers onto the host registry (4th CapabilityRegistry) and wire fixer extensions"
-status: Done
+status: done
+type: task
+priority: P2
+tags: [rule-engine,extensions,fixers,refactor,capability-registry]
 created_at: 2026-06-07T22:06:04.254Z
 updated_at: 2026-06-07T23:30:00.000Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: medium
-estimated_hours: 5
-tags: ["rule-engine","extensions","fixers","refactor","capability-registry"]
-impl_progress:
-  planning: done
-  design: done
-  implementation: done
-  review: done
-  testing: done
 ---
 
 ## 0023. "rule-engine: move fixer providers onto the host registry (4th CapabilityRegistry) and wire fixer extensions"
@@ -221,3 +212,8 @@ _None._
 
 - Design seed notes in task file verified against live code 2026-06-07
 - Import-cycle resolution: option (a) from design — move interfaces to `types.ts`
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

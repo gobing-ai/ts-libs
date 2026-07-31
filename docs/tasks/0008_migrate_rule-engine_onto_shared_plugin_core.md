@@ -1,23 +1,14 @@
 ---
+schema_version: 1
 name: migrate rule-engine onto shared plugin core
-description: migrate rule-engine onto shared plugin core
-status: Done
+status: done
+type: task
+profile: complex
+priority: P1
+tags: ["0006",rule-engine,migration]
+dependencies: ["0007"]
 created_at: 2026-06-03T22:51:51.216Z
 updated_at: 2026-06-04T02:20:34.118Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: high
-estimated_hours: 6
-dependencies: ["0007"]
-tags: ["0006","rule-engine","migration"]
-preset: complex
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0008. migrate rule-engine onto shared plugin core
@@ -153,3 +144,8 @@ No findings.
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

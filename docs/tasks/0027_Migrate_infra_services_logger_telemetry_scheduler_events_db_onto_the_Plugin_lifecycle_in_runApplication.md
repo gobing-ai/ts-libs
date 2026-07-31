@@ -1,19 +1,11 @@
 ---
+schema_version: 1
 name: Migrate infra services (logger/telemetry/scheduler/events/db) onto the Plugin lifecycle in runApplication
-description: Migrate infra services (logger/telemetry/scheduler/events/db) onto the Plugin lifecycle in runApplication
-status: Done
+status: done
+type: task
+profile: standard
 created_at: 2026-06-08T23:01:48.222Z
 updated_at: 2026-06-08T23:56:53.714Z
-folder: docs/tasks
-type: task
-feature-id: ""
-preset: standard
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0027. Migrate infra services (logger/telemetry/scheduler/events/db) onto the Plugin lifecycle in runApplication
@@ -202,3 +194,8 @@ The task Design lists `dbPlugin` as a deliverable, but `index.ts` deferred its w
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

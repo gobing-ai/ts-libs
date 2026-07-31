@@ -1,18 +1,10 @@
 ---
+schema_version: 1
 name: "Workflow engine HITL+observability keystone: EventBus auto-logging, EventBus in ActionRunContext, HitlResponder contract, event.emit builtin, note emits workflow.hitl.note"
-description: "Workflow engine HITL+observability keystone: EventBus auto-logging, EventBus in ActionRunContext, HitlResponder contract, event.emit builtin, note emits workflow.hitl.note"
-status: Done
+status: done
+type: task
 created_at: 2026-06-10T06:48:42.183Z
 updated_at: 2026-06-10T15:37:11.600Z
-folder: docs/tasks
-type: task
-feature-id: ""
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0031. "Workflow engine HITL+observability keystone: EventBus auto-logging, EventBus in ActionRunContext, HitlResponder contract, event.emit builtin, note emits workflow.hitl.note"
@@ -167,3 +159,8 @@ _None._
 - ADR-015 (engine three-layer observability: logs / traces / events) — R1/R4/R5 fit this model.
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

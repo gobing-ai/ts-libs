@@ -1,20 +1,12 @@
 ---
+schema_version: 1
 name: "Workflow engine: stable event seam across rehydration (E4)"
-description: "Workflow engine: stable event seam across rehydration (E4)"
-status: Done
+status: done
+type: task
+priority: P1
+tags: [dual-workflow-engine,spur-consumer]
 created_at: 2026-06-13T01:09:37.989Z
 updated_at: 2026-06-13T05:33:36.226Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: P1
-tags: ["dual-workflow-engine","spur-consumer"]
-impl_progress:
-  planning: done
-  design: done
-  implementation: done
-  review: done
-  testing: done
 ---
 
 ## 0036. "Workflow engine: stable event seam across rehydration (E4)"
@@ -101,3 +93,8 @@ Findings fixed during verification:
 
 ### References
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

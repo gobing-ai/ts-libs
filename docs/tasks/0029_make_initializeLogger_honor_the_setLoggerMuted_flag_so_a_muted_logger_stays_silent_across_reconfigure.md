@@ -1,18 +1,10 @@
 ---
+schema_version: 1
 name: make initializeLogger honor the setLoggerMuted flag so a muted logger stays silent across reconfigure
-description: make initializeLogger honor the setLoggerMuted flag so a muted logger stays silent across reconfigure
-status: Done
+status: done
+type: task
 created_at: 2026-06-09T04:06:42.238Z
 updated_at: 2026-06-09T04:14:37.710Z
-folder: docs/tasks
-type: task
-feature-id: ""
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0029. make initializeLogger honor the setLoggerMuted flag so a muted logger stays silent across reconfigure
@@ -161,3 +153,8 @@ re-implements a per-app logging-off workaround — exactly what this removes).
 - **Source:** `packages/infra/src/logger.ts` (`initializeLogger`, `setLoggerMuted`, `LogTapeLogger`).
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

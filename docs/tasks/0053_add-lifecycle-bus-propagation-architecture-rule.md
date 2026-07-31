@@ -1,7 +1,7 @@
 ---
 template: feature-impl
 schema_version: 1
-name: "Add lifecycle-bus-propagation architecture rule"
+name: Add lifecycle-bus-propagation architecture rule
 description: ""
 status: done
 type: task
@@ -11,8 +11,8 @@ parent_wbs: null
 priority: P2
 tags: []
 dependencies: []
-created_at: "2026-07-13T03:54:37.571Z"
-updated_at: "2026-07-13T16:41:11.518Z"
+created_at: 2026-07-13T03:54:37.571Z
+updated_at: 2026-07-13T16:41:11.518Z
 ---
 
 ## 0053. Add lifecycle-bus-propagation architecture rule

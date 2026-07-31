@@ -1,19 +1,11 @@
 ---
+schema_version: 1
 name: "Complete infra plugin migration: stop-reason in onStop, caller-owned DB, user-stop + node-telemetry as plugins"
-description: "Complete infra plugin migration: stop-reason in onStop, caller-owned DB, user-stop + node-telemetry as plugins"
-status: Done
+status: done
+type: task
+profile: standard
 created_at: 2026-06-08T23:43:34.289Z
 updated_at: 2026-06-08T23:56:53.691Z
-folder: docs/tasks
-type: task
-feature-id: ""
-preset: standard
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0028. "Complete infra plugin migration: stop-reason in onStop, caller-owned DB, user-stop + node-telemetry as plugins"
@@ -186,3 +178,8 @@ Security/efficiency/correctness: clean. No secrets, no injection, no `any`. The 
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

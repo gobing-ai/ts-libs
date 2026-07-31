@@ -1,22 +1,13 @@
 ---
+schema_version: 1
 name: remove spur-specific presets from rule-engine and add generic example preset
-description: remove spur-specific presets from rule-engine and add generic example preset
-status: Done
+status: done
+type: task
+profile: standard
+priority: P2
+tags: [rule-engine,adr-015,cleanup,cross-repo]
 created_at: 2026-06-07T05:21:15.043Z
 updated_at: 2026-06-07T05:52:43.226Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: medium
-estimated_hours: 3
-tags: ["rule-engine","adr-015","cleanup","cross-repo"]
-impl_progress:
-  planning: done
-  design: done
-  implementation: done
-  review: done
-  testing: done
-preset: standard
 ---
 
 ## 0022. remove spur-specific presets from rule-engine and add generic example preset
@@ -112,3 +103,8 @@ All acceptance criteria met:
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

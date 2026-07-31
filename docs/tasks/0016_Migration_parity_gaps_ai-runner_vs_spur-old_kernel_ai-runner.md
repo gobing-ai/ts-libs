@@ -1,20 +1,12 @@
 ---
+schema_version: 1
 name: "Migration parity gaps: ai-runner vs spur-old kernel ai-runner"
-description: "Migration parity gaps: ai-runner vs spur-old kernel ai-runner"
-status: Done
+status: done
+type: task
+priority: P1
+tags: [migration,review,ai-runner,parity]
 created_at: 2026-06-05T00:59:54.894Z
 updated_at: 2026-06-05T01:18:11.232Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: high
-tags: ["migration","review","ai-runner","parity"]
-impl_progress:
-  planning: completed
-  design: completed
-  implementation: completed
-  review: completed
-  testing: completed
 ---
 
 ## 0016. "Migration parity gaps: ai-runner vs spur-old kernel ai-runner"
@@ -429,3 +421,8 @@ The migrated index uses `export *` (broader by default) so most symbols flow thr
 | ---- | ---- | ----- | ---- |
 
 ### References
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

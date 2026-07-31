@@ -1,18 +1,18 @@
 ---
 template: meta
 schema_version: 1
-name: "Record feature.* / task.* event-map ownership deferral (consumer app owns)"
+name: Record feature.* / task.* event-map ownership deferral (consumer app owns)
 description: ""
 status: cancelled
-type: meta
+type: task
 profile: standard
 feature_id: A
 parent_wbs: null
 priority: P2
-tags: ["meta"]
+tags: [meta]
 dependencies: []
-created_at: "2026-07-12T23:56:02.754Z"
-updated_at: "2026-07-13T00:13:18.181Z"
+created_at: 2026-07-12T23:56:02.754Z
+updated_at: 2026-07-13T00:13:18.181Z
 ---
 
 ## 0052. Record feature.* / task.* event-map ownership deferral (consumer app owns)

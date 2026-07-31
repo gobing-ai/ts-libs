@@ -1,22 +1,13 @@
 ---
+schema_version: 1
 name: ProcessExecutor observability ports and typed event maps
-description: ProcessExecutor observability ports and typed event maps
-status: Done
+status: done
+type: task
+profile: standard
+priority: P1
+tags: [ai-runner,runtime,observability,events,otel]
 created_at: 2026-06-05T05:24:51.840Z
 updated_at: 2026-06-05T05:43:30.000Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: high
-estimated_hours: 6
-tags: ["ai-runner","runtime","observability","events","otel"]
-impl_progress:
-  planning: completed
-  design: completed
-  implementation: completed
-  review: completed
-  testing: completed
-preset: standard
 ---
 
 ## 0018. ProcessExecutor observability ports and typed event maps
@@ -161,3 +152,8 @@ Implementation matches the refined requirements with no scope drift. Dependency-
 | test | `packages/ai-runner/tests/events.test.ts` | Codex | 2026-06-05 |
 
 ### References
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

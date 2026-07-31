@@ -1,10 +1,11 @@
 ---
+template: standard
 schema_version: 1
 name: "ts-runtime: declare @gobing-ai/ts-db as optional peerDependency + ADR-012 note for the literal createDbAdapter import"
-status: Done
-template: standard
+status: done
+type: task
 created_at: 2026-07-10T21:45:03.259Z
-updated_at: "2026-07-10T22:24:51.880Z"
+updated_at: 2026-07-10T22:24:51.880Z
 ---
 
 ## 0040. ts-runtime: declare @gobing-ai/ts-db as optional peerDependency + ADR-012 note for the literal createDbAdapter import

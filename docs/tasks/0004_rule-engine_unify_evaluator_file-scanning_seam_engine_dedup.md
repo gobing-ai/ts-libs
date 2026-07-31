@@ -1,19 +1,11 @@
 ---
+schema_version: 1
 name: "rule-engine: unify evaluator file-scanning seam + engine dedup"
-description: "rule-engine: unify evaluator file-scanning seam + engine dedup"
-status: Done
+status: done
+type: task
+priority: P2
 created_at: 2026-06-02T15:07:49.501Z
 updated_at: 2026-06-02T17:48:14.448Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: medium
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0004. "rule-engine: unify evaluator file-scanning seam + engine dedup"
@@ -152,3 +144,8 @@ Verification 2026-06-02 (Phase 7 + 8). **Verdict: PASS.**
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

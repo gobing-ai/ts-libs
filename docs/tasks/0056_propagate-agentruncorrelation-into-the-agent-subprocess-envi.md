@@ -1,18 +1,17 @@
 ---
 template: standard
 schema_version: 1
-name: "Propagate AgentRunCorrelation into the agent subprocess environment"
+name: Propagate AgentRunCorrelation into the agent subprocess environment
 description: ""
 status: done
 type: task
 profile: standard
-feature_id: null
 parent_wbs: null
 priority: P1
 tags: []
 dependencies: []
-created_at: "2026-07-31T06:12:41.145Z"
-updated_at: "2026-07-31T07:03:52.694Z"
+created_at: 2026-07-31T06:12:41.145Z
+updated_at: 2026-07-31T07:03:52.694Z
 ---
 
 ## 0056. Propagate AgentRunCorrelation into the agent subprocess environment

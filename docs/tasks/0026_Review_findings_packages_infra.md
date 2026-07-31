@@ -1,19 +1,11 @@
 ---
+schema_version: 1
 name: "Review findings: packages/infra"
-description: "Review findings: packages/infra"
-status: Done
+status: done
+type: task
+profile: simple
 created_at: 2026-06-08T22:07:33.273Z
 updated_at: 2026-06-08T22:34:34.100Z
-folder: docs/tasks
-type: task
-feature-id: ""
-preset: simple
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0026. "Review findings: packages/infra"
@@ -168,3 +160,8 @@ for an explicit decision rather than forcing (decision-authority: API shape chan
 | ---- | ---- | ----- | ---- |
 
 ### References
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

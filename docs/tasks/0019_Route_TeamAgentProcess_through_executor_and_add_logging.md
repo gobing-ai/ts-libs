@@ -1,23 +1,14 @@
 ---
+schema_version: 1
 name: Route TeamAgentProcess through executor and add logging
-description: Route TeamAgentProcess through executor and add logging
-status: Done
+status: done
+type: task
+profile: simple
+priority: P1
+tags: [ai-runner,team-mode,process-management,observability]
+dependencies: ["0018"]
 created_at: 2026-06-05T05:25:14.071Z
 updated_at: 2026-06-05T05:58:45.000Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: high
-estimated_hours: 3
-dependencies: ["0018"]
-tags: ["ai-runner","team-mode","process-management","observability"]
-impl_progress:
-  planning: completed
-  design: completed
-  implementation: completed
-  review: completed
-  testing: completed
-preset: simple
 ---
 
 ## 0019. Route TeamAgentProcess through executor and add logging
@@ -141,3 +132,8 @@ Implementation matches the refined requirements with no scope drift. The 0018→
 
 ### References
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

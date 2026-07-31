@@ -1,18 +1,10 @@
 ---
+schema_version: 1
 name: review on ai-runner after the migration
-description: review on ai-runner after the migration
-status: Done
+status: done
+type: task
 created_at: 2026-06-05T04:00:06.322Z
 updated_at: 2026-06-05T22:43:00.000Z
-folder: docs/tasks
-type: task
-feature-id: ""
-impl_progress:
-  planning: completed
-  design: completed
-  implementation: completed
-  review: completed
-  testing: completed
 ---
 
 ## 0017. review on ai-runner after the migration
@@ -100,3 +92,8 @@ If any, you should list them out as a finding list with severity level for furth
 - [Migration drift review & solution brainstorm](../plans/2026-06-04-ai-runner-migration-drift-brainstorm.md) — severity-ranked findings (F1–F9), observability seam design, and decomposition.
 - [ADR-013 Addendum — Observability Layering: Injected EventBus vs Structural Port](../00_ADR.md) (2026-06-04)
 - Prior parity audit: task 0016 (`Migration parity gaps: ai-runner vs spur-old kernel ai-runner`, **Done**) — resolved the overlapping-file shrinkage (auth/version detection); team-mode observability is the remaining scope, tracked below.
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

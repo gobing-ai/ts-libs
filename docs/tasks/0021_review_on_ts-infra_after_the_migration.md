@@ -1,18 +1,10 @@
 ---
+schema_version: 1
 name: review on ts-infra after the migration
-description: review on ts-infra after the migration
-status: Done
+status: done
+type: task
 created_at: 2026-06-05T06:52:19.033Z
 updated_at: 2026-06-05T16:28:16Z
-folder: docs/tasks
-type: task
-feature-id: ""
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: done
-  review: done
-  testing: done
 ---
 
 ## 0021. review on ts-infra after the migration
@@ -289,3 +281,8 @@ Focused regression coverage added:
 | ---- | ---- | ----- | ---- |
 
 ### References
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

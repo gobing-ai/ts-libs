@@ -1,23 +1,14 @@
 ---
+schema_version: 1
 name: add trust-gated workflow extension loading for actions and guards
-description: add trust-gated workflow extension loading for actions and guards
-status: Done
+status: done
+type: task
+profile: complex
+priority: P2
+tags: ["0006",dual-workflow-engine,extensions,security]
+dependencies: ["0007","0009"]
 created_at: 2026-06-03T22:52:17.688Z
 updated_at: 2026-06-04T00:21:29.993Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: medium
-estimated_hours: 6
-dependencies: ["0007","0009"]
-tags: ["0006","dual-workflow-engine","extensions","security"]
-preset: complex
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0010. add trust-gated workflow extension loading for actions and guards
@@ -179,3 +170,8 @@ Pre-existing spur `recommended` failures: `no-npm-pnpm-yarn-scripts` (3, in .spu
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

@@ -1,23 +1,13 @@
 ---
 schema_version: 1
 name: "Resolve codex review unresolved majors: atomic workflow transition commit, streaming JSONL importer, symlink-safe extension confinement"
-description: "Resolve codex review unresolved majors: atomic workflow transition commit, streaming JSONL importer, symlink-safe extension confinement"
-status: Done
-created_at: 2026-07-11T05:18:44.661Z
-updated_at: "2026-07-11T16:27:33.715Z"
-folder: docs/tasks
+status: done
 type: task
-feature-id: ""
+profile: complex
 priority: P1
-estimated_hours: 14
-tags: ["code-review","adr","dual-workflow-engine","llm-jsonl-importer","ts-runtime","ts-db","security"]
-preset: complex
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
+tags: [code-review,adr,dual-workflow-engine,llm-jsonl-importer,ts-runtime,ts-db,security]
+created_at: 2026-07-11T05:18:44.661Z
+updated_at: 2026-07-11T16:27:33.715Z
 ---
 
 ## 0041. "Resolve codex review unresolved majors: atomic workflow transition commit, streaming JSONL importer, symlink-safe extension confinement"

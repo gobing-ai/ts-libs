@@ -1,23 +1,14 @@
 ---
+schema_version: 1
 name: embed_eventbus_observability_into_rule-engine_and_dual-workflow-engine
-description: embed_eventbus_observability_into_rule-engine_and_dual-workflow-engine
-status: Done
+status: done
+type: task
+profile: complex
+priority: P2
+tags: [rule-engine,dual-workflow-engine,observability,eventbus,ts-infra,dx,additive]
+dependencies: [ADR-006,ADR-013,task-0013,task-0014]
 created_at: 2026-06-04T23:36:23.179Z
 updated_at: 2026-06-05T00:11:54Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: medium
-estimated_hours: 6
-dependencies: ["ADR-006","ADR-013","task-0013","task-0014"]
-tags: ["rule-engine","dual-workflow-engine","observability","eventbus","ts-infra","dx","additive"]
-impl_progress:
-  planning: complete
-  design: complete
-  implementation: complete
-  review: complete
-  testing: complete
-preset: complex
 ---
 
 ## 0015. embed_eventbus_observability_into_rule-engine_and_dual-workflow-engine
@@ -160,3 +151,8 @@ Focused checks:
 | Tests | `packages/dual-workflow-engine/tests/transition-flow.test.ts` | codex | 2026-06-05 |
 
 ### References
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

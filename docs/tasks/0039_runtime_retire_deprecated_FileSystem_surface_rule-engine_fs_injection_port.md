@@ -1,22 +1,13 @@
 ---
+schema_version: 1
 name: "runtime: retire deprecated FileSystem surface + rule-engine fs injection port"
-description: "runtime: retire deprecated FileSystem surface + rule-engine fs injection port"
-status: Done
+status: done
+type: task
+priority: P1
+tags: [refactor,runtime,rule-engine,migration,testability]
+dependencies: ["0012","0013"]
 created_at: 2026-06-20T05:58:54.732Z
 updated_at: 2026-06-20T06:49:12.199Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: high
-estimated_hours: 14
-dependencies: ["0012","0013"]
-tags: ["refactor","runtime","rule-engine","migration","testability"]
-impl_progress:
-  planning: done
-  design: done
-  implementation: done
-  review: done
-  testing: done
 ---
 
 ## 0039. "runtime: retire deprecated FileSystem surface + rule-engine fs injection port"
@@ -252,3 +243,8 @@ No new findings. All 11 deprecated `new NodeFileSystem()` sites migrated, deprec
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

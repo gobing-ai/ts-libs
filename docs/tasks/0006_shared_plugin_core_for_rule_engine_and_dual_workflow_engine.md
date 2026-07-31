@@ -1,20 +1,13 @@
 ---
-name: "shared plugin core for rule-engine and dual-workflow-engine"
-description: "Extract a shared plugin/capability core used by rule-engine and dual-workflow-engine"
-status: Done
+schema_version: 1
+name: shared plugin core for rule-engine and dual-workflow-engine
+description: Extract a shared plugin/capability core used by rule-engine and dual-workflow-engine
+status: done
+type: task
+profile: complex
+priority: P2
 created_at: 2026-06-03T00:36:54.000Z
 updated_at: 2026-06-04T02:29:40.400Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: medium
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
-preset: complex
 ---
 
 ## 0006. "shared plugin core for rule-engine and dual-workflow-engine"
@@ -576,3 +569,8 @@ Required test coverage:
 - `packages/dual-workflow-engine/src/service.ts` - current explicit state-machine vs transition-flow
   driver dispatch.
 - `docs/00_ADR.md` - authoritative architecture decisions; must be updated before implementation.
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

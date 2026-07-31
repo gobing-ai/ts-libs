@@ -1,18 +1,11 @@
 ---
+schema_version: 1
 name: add the default implementation of application bootstrap
 description: Add a default, architecture-safe application bootstrap layer for ts-infra with portable DI orchestration and a Node/Bun convenience subpath.
-status: Done
+status: done
+type: task
 created_at: 2026-06-07T22:48:16.319Z
 updated_at: 2026-06-08T00:03:59.117Z
-folder: docs/tasks
-type: task
-feature-id: ""
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0024. Add the default implementation of application bootstrap
@@ -439,3 +432,8 @@ Acceptance criteria:
 - [ADR-014: `ts-infra` Core/Adapter Boundary](../00_ADR.md#adr-014-ts-infra-coreadapter-boundary)
 - [ADR-009: `ts-infra` Telemetry Instruments Against the Global Provider; Export Is an Opt-In Subpath](../00_ADR.md#adr-009-ts-infra-telemetry-instruments-against-the-global-provider-export-is-an-opt-in-subpath)
 - [ADR-011/014 platform API ownership constraints](../00_ADR.md)
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

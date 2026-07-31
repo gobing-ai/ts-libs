@@ -1,7 +1,7 @@
 ---
 template: feature-impl
 schema_version: 1
-name: "Enrich queue.* EventBus payloads (consumer lifecycle + job correlators) for System Events observability"
+name: Enrich queue.* EventBus payloads (consumer lifecycle + job correlators) for System Events observability
 description: ""
 status: done
 type: task
@@ -11,8 +11,8 @@ parent_wbs: null
 priority: P1
 tags: []
 dependencies: []
-created_at: "2026-07-30T05:14:49.527Z"
-updated_at: "2026-07-31T15:54:14.413Z"
+created_at: 2026-07-30T05:14:49.527Z
+updated_at: "2026-07-31T16:32:53.051Z"
 ---
 
 ## 0055. Enrich queue.* EventBus payloads (consumer lifecycle + job correlators) for System Events observability
@@ -365,34 +365,52 @@ invariant).
 job.attempts + 1` (1-based failure number), matching the pre-existing convention.
 Documented in JSDoc on each interface.
 ### Testing
+**Pipeline verify results** — re-audit via `/sp:dev-verify 0055 --force --focus all --fix all` on 2026-07-31 (task already `done`; independent re-run of all evidence, not the implementer's self-report).
 
+- Verdict: PASS
+- Confidence: **HIGH** — every cited line re-read and every gate re-run this turn.
+- Suites this run: `bun test packages/infra` → **304 pass / 0 fail** (32 files); `bunx tsc --noEmit` exit 0 for `packages/infra`; `bunx biome check` clean on all changed files.
+- Coverage: runtime change; suite ran under `bun test` coverage instrumentation. Implementer-measured `db-job-queue.ts` 100% lines / 100% branches; `events.ts` is type-only.
 
-Extended the existing `packages/infra/tests/job-queue/db-job-queue.test.ts` (real
-`bun-sqlite` in-memory adapter + `QueueJobDao`) and `packages/infra/tests/events.test.ts`.
-No mocks of the DAO or EventBus — emit-site behavior is verified end-to-end through the
-real `DBJobQueue` / `DBQueueConsumer` classes.
+**Per-Requirement Traceability**
 
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 consumer lifecycle details | MET | Interfaces `packages/infra/src/events.ts:53-77`; emit sites `db-job-queue.ts:107-113` (started config snapshot) and `:129-135` (stopped drain outcome); tests `db-job-queue.test.ts:285` (R1) and `:318` (R1b) — passed this run |
+| R2 enriched enqueued | MET | `events.ts:41-51`; shared `enqueuedDetail` helper `db-job-queue.ts:62-68` used by both `enqueue` `:37` and `enqueueBatch` `:47` (single/batch shape lockstep); never copies payload; tests `:341` (R2, asserts `not.toHaveProperty('payload')` + no `"v"` in stringified detail) and `:370` (R2b batch parity) — passed this run |
+| R3 completed durationMs + attempt | MET | `db-job-queue.ts:217-230`: `durationMs` computed `:221`, `Number.isFinite` guard → 0 `:227`, `attempt: job.attempts` `:228`; test `:391` asserts `durationMs >= 0` finite and `attempt === 0` on first success — passed this run |
+| R4 failed/retrying alignment | MET | `failOrRetry` `:239-273`: failed detail `:249-256` (+`maxRetries`, +`durationMs`), retrying detail `:264-271` (+`maxRetries`, +`error`, `nextRetryAt` preserved); `attempts = job.attempts + 1` `:244` unchanged; no renames; tests `:411` (R4) and `:437` (R4b) — passed this run |
+| R5 typed exports + docs | MET | Named interfaces for every `queue.*` key `events.ts:33-109`; `QueueEvents` map `:141-156` has zero zero-arg entries; barrel re-exports `packages/infra/src/index.ts:27-44`; module header rewritten `:1-19` with metadata-only invariant `:12-15`; type smoke `events.test.ts:38` + `maxRetries` fixture `:20`; `tsc --noEmit` exit 0 this run |
+| R6 tests | MET | 7 dedicated R-tests `db-job-queue.test.ts:285-468` + `events.test.ts` updates; real `bun-sqlite` in-memory adapter, no DAO/bus mocks; skip scan clean (the `xit(` rg hits are `captureExit` false positives); 304 pass / 0 fail this run |
+| R7 compatibility / versioning | MET | Additive fields only; `CHANGELOG.md` Unreleased Added `:11-13` + Breaking Changes `:15-17` (minor: zero-arg → detail handlers; required `maxRetries`/`error` gains); keys `jobId`/`type`/`attempt`/`nextRetryAt`/`error` unchanged in the interfaces |
+| R8 out of scope | MET | Event-name set unchanged (`enqueued`/`started`/`stopped`/`completed`/`failed`/`retrying`/`stats` — `events.ts:141-156`); no payload `T` on any emit path; `git show 85f45fe --stat` confines the diff to ts-infra + CHANGELOG + task file; no Spur/catalog changes in repo |
 
-**Line coverage:** `packages/infra/src/job-queue/db-job-queue.ts` → **100.00% lines / 100.00% branches**. `packages/infra/src/events.ts` is type-only (no executable lines; exercised via the typed `EventBus` smoke in `events.test.ts` and the db-job-queue emit tests).
+**Acceptance Criteria Verification**
 
-| Requirement | Test | Asserts |
-| ----------- | ---- | ------- |
-| R1 (started config) | `R1 — queue.consumer.started carries config snapshot` | `startedAt` finite; `pollInterval`/`batchSize`/`maxConcurrency`/`visibilityTimeout` echoed from config |
-| R1b (stopped drain) | `R1b — queue.consumer.stopped carries drain outcome` | `stoppedAt` finite; `drainTimeoutMs`/`inFlightAtStop`/`drained` present and correct |
-| R2 (enqueue correlators) | `R2 — enqueue enriches detail with correlators and omits payload` | `jobId`/`type`/`enqueuedAt`/`maxRetries`/`delayMs`; payload key `v` absent from stringified detail |
-| R2b (batch shape parity) | `R2b — batch enqueue emits one enriched event per job with matching shape` | 2 events; per-event `jobId`/`type`/`enqueuedAt` |
-| R3 (completed duration) | `R3 — completed job detail includes durationMs and attempt` | `durationMs >= 0` and finite; `attempt === 0` |
-| R4 (failed maxRetries+error) | `R4 — failed job detail includes maxRetries, attempt, and error` | `error`/`attempt`/`maxRetries`/`durationMs` present and correct |
-| R4b (retrying error) | `R4b — retrying job detail includes error, nextRetryAt, and maxRetries` | `error`/`nextRetryAt`/`maxRetries`/`attempt` present and correct |
-| R5 (typed map) | `consumer lifecycle events carry config and drain detail (R5)` in events.test.ts | Map compiles + emits the new shapes |
-| R7 (metadata-only) | R2 test asserts payload key `v` is absent from the stringified detail | Business payload `T` never on the bus |
+| AC | Status | Evidence Type | Evidence |
+|----|--------|---------------|----------|
+| R1 — started carries config snapshot | MET | test | `db-job-queue.test.ts:285` — passed this run |
+| R1b — stopped carries drain outcome | MET | test | `db-job-queue.test.ts:318` — passed this run |
+| R2 — enqueue emits correlators beyond jobId/type | MET | test | `db-job-queue.test.ts:341` (payload-omission asserted) — passed this run |
+| R2b — batch matches single shape | MET | test | `db-job-queue.test.ts:370` — passed this run |
+| R3 — completed includes durationMs | MET | test | `db-job-queue.test.ts:391` — passed this run |
+| R4 — failed includes maxRetries and error | MET | test | `db-job-queue.test.ts:411` — passed this run |
+| R4b — retrying includes error reason | MET | test | `db-job-queue.test.ts:437` — passed this run |
+| R5 — QueueEvents map fully named-typed | MET | command + static | `tsc --noEmit` exit 0; map read at `events.ts:141-156` (no zero-arg entries); `events.test.ts:38` |
+| R6 — regression suite green | MET | command | `bun test packages/infra` → 304 pass / 0 fail this run; no `.skip` |
+| R7 — metadata-only invariant | MET | test + static | R2 test payload assertions; all emit sites re-read — only correlator fields copied; error strings are the same message persisted on the job row (`markFailed`/`markForRetry` `:247`/`:263`) |
 
+**Design Conformance**
 
-- `bun test packages/infra/` → **304 pass / 0 fail** (baseline 296; +8 new assertions).
-- `bun run lint` (biome + per-package tsc) → clean across all 8 packages.
-- `bun run build` → green for all 8 packages.
-- `bun run spur-check` → 1674 pass / 0 fail; pre-check 47/47 rules; post-check 2/2 rules.
-- No `.skip`, no `biome-ignore`, no suppressions added.
+| Check | Status | Evidence |
+|-------|--------|----------|
+| design-conformance | pass | All claims DONE: additive enrichment with no new names/dual emission; contracts match the design sketch including optional markers; 7-file change map landed as written (events.ts, db-job-queue.ts, types.ts `:60-66` JSDoc, index.ts, both test files, CHANGELOG); all 5 invariants hold (metadata-only, no-silent-empty, stable keys, finite-only `:227`/`:234`, package boundary); attempt semantics locked as designed (`job.attempts` on completed, `+1` on fail/retry). One doc defect found and **fixed this run**: `events.ts:83` JSDoc said "1-based attempt" while code/tests pin `job.attempts` (0 on first success) — corrected to "Attempts counter on the job row at success (0 on the first successful run)"; biome + tsc + both test files re-run green after the edit |
+
+**SECUA Review** — focus: all. No blocker/major findings. Security: metadata-only invariant is structural (the shared helper copies only named option fields; payload is never referenced at any emit site) and test-pinned; error strings are the same message already persisted on the job row. Efficiency: one small object literal per emit; no added I/O. Correctness: finite-guards match design invariant 4; `stop()` emits only after `start()` (matches AC R1b's precondition). Usability: public contract fully TSDoc'd; the one defective adjective (P3) fixed this run. Architecture: change confined to the contract + emit seams; shared `enqueuedDetail` helper eliminates single/batch drift; barrel exports complete; ADR-014 subpath structure untouched.
+
+**Fix pass (`--fix all`)**: (1) `events.ts:83` JSDoc corrected (see design-conformance row). (2) Verdict-id repair for the Shippable gate: `spur feature check B` flagged R1b/R2b/R4b as "linked but unverified" — the prior artifact's AC rows didn't cover those titles. Rewrote `.spur/run/0055-verdict.json`; first pass used short ids (`R1b`) which regressed matching to 0/10 (the checker normalize-matches **full scenario titles**, stripping the `R\d+` tag from both sides — a bare `R1` normalizes to empty); corrected to full-title AC rows for all 10 scenarios → `spur feature check B` re-run: **0 findings** (verified this run). Gitignored artifact touched: `.spur/run/0055-verdict.json` (`acceptanceCriteria[]` rewritten; `checks[].shippable` synced).
+
+**Shippable gate** (feature B, active under `--fix all`): after repair, `spur feature check B --json` → pass, 0 findings; `spur task list --feature B` → all 5 tasks `done`. Shippable: **PASS**.
 ### Review
 
 

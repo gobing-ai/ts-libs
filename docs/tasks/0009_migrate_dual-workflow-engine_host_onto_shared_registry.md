@@ -1,23 +1,14 @@
 ---
+schema_version: 1
 name: migrate dual-workflow-engine host onto shared registry
-description: migrate dual-workflow-engine host onto shared registry
-status: Done
+status: done
+type: task
+profile: complex
+priority: P1
+tags: ["0006",dual-workflow-engine,migration]
+dependencies: ["0007"]
 created_at: 2026-06-03T22:52:03.032Z
 updated_at: 2026-06-04T02:24:05.720Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: high
-estimated_hours: 6
-dependencies: ["0007"]
-tags: ["0006","dual-workflow-engine","migration"]
-preset: complex
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0009. migrate dual-workflow-engine host onto shared registry
@@ -143,3 +134,8 @@ No findings.
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

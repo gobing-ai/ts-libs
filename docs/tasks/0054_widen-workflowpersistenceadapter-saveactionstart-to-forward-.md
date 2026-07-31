@@ -1,18 +1,17 @@
 ---
 template: standard
 schema_version: 1
-name: "Widen WorkflowPersistenceAdapter.saveActionStart to forward action.options to the observability seam (engine 0.5.0)"
+name: Widen WorkflowPersistenceAdapter.saveActionStart to forward action.options to the observability seam (engine 0.5.0)
 description: ""
 status: done
 type: task
 profile: standard
-feature_id: null
 parent_wbs: null
 priority: P2
 tags: []
 dependencies: []
-created_at: "2026-07-22T04:00:54.558Z"
-updated_at: "2026-07-22T05:06:20.829Z"
+created_at: 2026-07-22T04:00:54.558Z
+updated_at: 2026-07-22T05:06:20.829Z
 ---
 
 ## 0054. Widen WorkflowPersistenceAdapter.saveActionStart to forward action.options to the observability seam (engine 0.5.0)

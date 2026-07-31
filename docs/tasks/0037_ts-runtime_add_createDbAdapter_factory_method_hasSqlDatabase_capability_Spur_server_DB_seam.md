@@ -1,21 +1,12 @@
 ---
+schema_version: 1
 name: "ts-runtime: add createDbAdapter factory method + hasSqlDatabase capability (Spur server DB seam)"
-description: "ts-runtime: add createDbAdapter factory method + hasSqlDatabase capability (Spur server DB seam)"
-status: Done
+status: done
+type: task
+priority: P0
+tags: [ts-runtime,spur-consumer,server-side-adjustment]
 created_at: 2026-06-15T16:00:02.481Z
 updated_at: 2026-06-15T17:52:05.896Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: P0
-estimated_hours: 8
-tags: ["ts-runtime","spur-consumer","server-side-adjustment"]
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0037. "ts-runtime: add createDbAdapter factory method + hasSqlDatabase capability (Spur server DB seam)"
@@ -204,3 +195,8 @@ build: 8/8 packages built successfully
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

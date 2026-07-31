@@ -1,19 +1,11 @@
 ---
+schema_version: 1
 name: "rule-engine: allow extensions on rule files"
-description: "rule-engine: allow extensions on rule files"
-status: Done
+status: done
+type: task
+priority: P2
 created_at: 2026-06-02T14:56:32.779Z
 updated_at: 2026-06-02T15:45:16.159Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: medium
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0003. "rule-engine: allow extensions on rule files"
@@ -148,3 +140,8 @@ Verification 2026-06-02 (Phase 7 + 8). **Verdict: PASS.**
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

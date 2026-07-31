@@ -1,11 +1,12 @@
 ---
+template: standard
 schema_version: 1
 name: "A4: ai-runner-owned MessageStore interface port from InboxMessageDao"
 status: done
-template: standard
-created_at: 2026-07-13T16:53:27.080Z
-updated_at: "2026-07-13T20:32:41.981Z"
+type: task
 priority: P3
+created_at: 2026-07-13T16:53:27.080Z
+updated_at: 2026-07-13T20:32:41.981Z
 ---
 
 ## 0045. A4: ai-runner-owned MessageStore interface port from InboxMessageDao

@@ -1,19 +1,11 @@
 ---
+schema_version: 1
 name: "Review findings: packages"
-description: "Review findings: packages"
-status: Done
+status: done
+type: task
+profile: simple
 created_at: 2026-06-09T16:30:20.915Z
 updated_at: 2026-06-09T16:31:37.634Z
-folder: docs/tasks
-type: task
-feature-id: ""
-preset: simple
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0030. "Review findings: packages"
@@ -120,3 +112,8 @@ Fixed the only mechanical package-source finding:
 | ---- | ---- | ----- | ---- |
 
 ### References
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

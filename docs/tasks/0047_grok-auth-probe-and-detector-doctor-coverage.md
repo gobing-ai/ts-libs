@@ -1,13 +1,14 @@
 ---
-schema_version: 1
-name: "Grok auth probe and detector/doctor coverage"
-status: done
 template: feature-impl
-created_at: 2026-07-12T07:32:35.014Z
-updated_at: "2026-07-12T16:18:01.244Z"
+schema_version: 1
+name: Grok auth probe and detector/doctor coverage
+status: done
+type: task
 feature_id: A
 priority: P1
-tags: ["ai-runner", "grok", "auth", "doctor"]
+tags: [ai-runner,grok,auth,doctor]
+created_at: 2026-07-12T07:32:35.014Z
+updated_at: 2026-07-12T16:18:01.244Z
 ---
 
 ## 0047. Grok auth probe and detector/doctor coverage

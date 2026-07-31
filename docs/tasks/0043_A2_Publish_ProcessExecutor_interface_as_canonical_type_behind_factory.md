@@ -1,11 +1,12 @@
 ---
+template: standard
 schema_version: 1
 name: "A2: Publish ProcessExecutor interface as canonical type behind factory"
 status: done
-template: standard
-created_at: 2026-07-13T16:58:22.349Z
-updated_at: "2026-07-13T17:44:09.122Z"
+type: task
 priority: P2
+created_at: 2026-07-13T16:58:22.349Z
+updated_at: 2026-07-13T17:44:09.122Z
 ---
 
 ## 0043. A2: Publish ProcessExecutor interface as canonical type behind factory

@@ -1,20 +1,12 @@
 ---
+schema_version: 1
 name: "Workflow engine: durable named runs — create-or-attach by external key (E1)"
-description: "Workflow engine: durable named runs — create-or-attach by external key (E1)"
-status: Done
+status: done
+type: task
+priority: P0
+tags: [dual-workflow-engine,spur-consumer]
 created_at: 2026-06-13T01:09:37.988Z
 updated_at: 2026-06-13T04:09:45.336Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: P0
-tags: ["dual-workflow-engine","spur-consumer"]
-impl_progress:
-  planning: done
-  design: done
-  implementation: done
-  review: done
-  testing: done
 ---
 
 ## 0033. "Workflow engine: durable named runs — create-or-attach by external key (E1)"
@@ -127,3 +119,8 @@ transition request, E3 pause/resume, E4 stable event seam). Design constraints:
 | test | packages/dual-workflow-engine/tests/durable-runs.test.ts | Main | 2026-06-13 |
 
 ### References
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

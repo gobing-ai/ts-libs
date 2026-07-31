@@ -1,20 +1,12 @@
 ---
+schema_version: 1
 name: "Workflow engine: pause/resume — run suspension and continue (E3)"
-description: "Workflow engine: pause/resume — run suspension and continue (E3)"
-status: Done
+status: done
+type: task
+priority: P0
+tags: [dual-workflow-engine,spur-consumer]
 created_at: 2026-06-13T01:09:37.989Z
 updated_at: 2026-06-13T01:09:37.989Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: P0
-tags: ["dual-workflow-engine","spur-consumer"]
-impl_progress:
-  planning: done
-  design: done
-  implementation: done
-  review: done
-  testing: done
 ---
 
 ## 0035. "Workflow engine: pause/resume — run suspension and continue (E3)"
@@ -136,3 +128,8 @@ invocation resumes it.
 
 ### References
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

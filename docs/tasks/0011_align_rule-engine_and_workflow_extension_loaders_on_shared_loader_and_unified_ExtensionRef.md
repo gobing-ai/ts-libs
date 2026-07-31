@@ -1,23 +1,14 @@
 ---
+schema_version: 1
 name: align rule-engine and workflow extension loaders on shared loader and unified ExtensionRef
-description: align rule-engine and workflow extension loaders on shared loader and unified ExtensionRef
-status: Done
+status: done
+type: task
+profile: complex
+priority: P2
+tags: ["0006",rule-engine,dual-workflow-engine,loader,follow-up]
+dependencies: ["0008","0010"]
 created_at: 2026-06-03T23:31:27.801Z
 updated_at: 2026-06-04T00:51:27.576Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: medium
-estimated_hours: 5
-dependencies: ["0008","0010"]
-tags: ["0006","rule-engine","dual-workflow-engine","loader","follow-up"]
-preset: complex
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0011. align rule-engine and workflow extension loaders on shared loader and unified ExtensionRef
@@ -159,3 +150,8 @@ Key changes:
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

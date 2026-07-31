@@ -1,23 +1,14 @@
 ---
+schema_version: 1
 name: Emit agent events and replace TeamOrchestrator private listeners with EventBus
-description: Emit agent events and replace TeamOrchestrator private listeners with EventBus
-status: Done
+status: done
+type: task
+profile: standard
+priority: P2
+tags: [ai-runner,team-mode,observability,events]
+dependencies: ["0018"]
 created_at: 2026-06-05T05:25:14.107Z
 updated_at: 2026-06-05T06:08:15.000Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: medium
-estimated_hours: 4
-dependencies: ["0018"]
-tags: ["ai-runner","team-mode","observability","events"]
-impl_progress:
-  planning: completed
-  design: completed
-  implementation: completed
-  review: completed
-  testing: completed
-preset: standard
 ---
 
 ## 0020. Emit agent events and replace TeamOrchestrator private listeners with EventBus
@@ -142,3 +133,8 @@ Implementation matches the refined requirements with no scope drift. The flagged
 
 ### References
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

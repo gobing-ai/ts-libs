@@ -1,18 +1,10 @@
 ---
+schema_version: 1
 name: "Review findings: ts-infra SECU + architecture (dev-review)"
-description: "Review findings: ts-infra SECU + architecture (dev-review)"
-status: Done
+status: done
+type: task
 created_at: 2026-06-10T21:12:15.276Z
 updated_at: 2026-06-10T22:01:43.485Z
-folder: docs/tasks
-type: task
-feature-id: ""
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0032. "Review findings: ts-infra SECU + architecture (dev-review)"
@@ -199,3 +191,8 @@ All fixed findings include regression tests:
 - `packages/infra/README.md` — Package documentation
 - `docs/tasks/0032_Review_findings_ts-infra_SECU_architecture_dev-review.md` — This task file
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

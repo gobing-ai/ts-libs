@@ -1,18 +1,10 @@
 ---
+schema_version: 1
 name: add a bare PluginHost and Plugin lifecycle core to ts-infra and integrate it into runApplication
-description: add a bare PluginHost and Plugin lifecycle core to ts-infra and integrate it into runApplication
-status: Done
+status: done
+type: task
 created_at: 2026-06-08T19:26:01.968Z
 updated_at: 2026-06-08T21:20:14.792Z
-folder: docs/tasks
-type: task
-feature-id: ""
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0025. add a bare PluginHost and Plugin lifecycle core to ts-infra and integrate it into runApplication
@@ -221,3 +213,8 @@ Rejected alternatives:
 - **Integration seam:** `packages/infra/src/application/index.ts` (startup order steps 6–8 + `performShutdown`), `packages/infra/src/application/types.ts` (`ApplicationBootstrapOptions`/`ApplicationServices`/`ApplicationRuntime`).
 - **Bootstrap baseline:** ts-libs task `0024` (`runApplication` default implementation).
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

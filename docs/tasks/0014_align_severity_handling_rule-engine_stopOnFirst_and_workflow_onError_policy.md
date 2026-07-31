@@ -1,23 +1,14 @@
 ---
+schema_version: 1
 name: align_severity_handling_rule-engine_stopOnFirst_and_workflow_onError_policy
-description: align_severity_handling_rule-engine_stopOnFirst_and_workflow_onError_policy
-status: Done
+status: done
+type: task
+profile: complex
+priority: P2
+tags: [rule-engine,dual-workflow-engine,severity,error-policy,api,additive]
+dependencies: [ADR-006,ADR-013]
 created_at: 2026-06-04T22:24:26.829Z
 updated_at: 2026-06-05T00:00:00.000Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: medium
-estimated_hours: 4
-dependencies: ["ADR-006","ADR-013"]
-tags: ["rule-engine","dual-workflow-engine","severity","error-policy","api","additive"]
-impl_progress:
-  planning: done
-  design: done
-  implementation: done
-  review: done
-  testing: done
-preset: complex
 ---
 
 ## 0014. align_severity_handling_rule-engine_stopOnFirst_and_workflow_onError_policy
@@ -146,3 +137,8 @@ All 10 requirements MET. No scope drift.
 | Test | `packages/dual-workflow-engine/tests/state-machine.test.ts` | Codex | 2026-06-05 |
 
 ### References
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

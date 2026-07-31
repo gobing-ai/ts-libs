@@ -1,18 +1,10 @@
 ---
+schema_version: 1
 name: "Review findings: rule-engine SECU + architecture"
-description: "Review findings: rule-engine SECU + architecture"
-status: Done
+status: done
+type: task
 created_at: 2026-06-02T14:14:12.809Z
 updated_at: 2026-06-02T15:28:10.851Z
-folder: docs/tasks
-type: task
-feature-id: ""
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0002. "Review findings: rule-engine SECU + architecture"
@@ -213,3 +205,8 @@ pass, `verification-verdict-pass` pass, mandatory subset pass → ready for `don
 
 ### References
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

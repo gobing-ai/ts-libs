@@ -1,22 +1,13 @@
 ---
+schema_version: 1
 name: shared plugin core in ts-runtime plugin subpath
-description: shared plugin core in ts-runtime plugin subpath
-status: Done
+status: done
+type: task
+profile: complex
+priority: P1
+tags: ["0006",plugin-core,ts-runtime,security]
 created_at: 2026-06-03T22:51:38.876Z
 updated_at: 2026-06-04T02:15:24.143Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: high
-estimated_hours: 7
-tags: ["0006","plugin-core","ts-runtime","security"]
-preset: complex
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0007. shared plugin core in ts-runtime plugin subpath
@@ -168,3 +159,8 @@ No findings.
 - `docs/00_ADR.md` ADR-010 — shared-core decision and boundaries (R13 error types, R14 override/path).
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

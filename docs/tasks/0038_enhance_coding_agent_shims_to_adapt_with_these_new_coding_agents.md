@@ -1,18 +1,10 @@
 ---
+schema_version: 1
 name: enhance coding agent shims to adapt with these new coding agents
-description: enhance coding agent shims to adapt with these new coding agents
-status: Done
+status: done
+type: task
 created_at: 2026-06-20T00:20:24.175Z
 updated_at: 2026-06-20T04:40:28.154Z
-folder: docs/tasks
-type: task
-feature-id: ""
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0038. enhance coding agent shims to adapt with these new coding agents
@@ -452,3 +444,8 @@ table before implementation.
 - Hermes Agent (NousResearch): https://github.com/nousresearch/hermes-agent
 - Hermes CLI reference: https://openclawhub.tools/tutorial/hermes-agent-reference-cli-commands/
 - ADRs: `docs/00_ADR.md` (ADR-011/014 platform-API boundaries; shims stay pure)
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

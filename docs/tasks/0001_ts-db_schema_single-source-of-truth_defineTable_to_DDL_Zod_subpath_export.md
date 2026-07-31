@@ -1,20 +1,12 @@
 ---
+schema_version: 1
 name: "ts-db schema single-source-of-truth: defineTable to DDL+Zod + subpath export"
-description: "ts-db schema single-source-of-truth: defineTable to DDL+Zod + subpath export"
-status: Done
+status: done
+type: task
+priority: P1
+tags: [ts-db,schema,defineTable,ddl,zod,subpath-export,enforcement,0.2.3,breaking]
 created_at: 2026-06-01T03:59:55.660Z
 updated_at: 2026-06-01T04:28:00.000Z
-folder: docs/tasks
-type: task
-feature-id: ""
-priority: high
-tags: ["ts-db","schema","defineTable","ddl","zod","subpath-export","enforcement","0.2.3","breaking"]
-impl_progress:
-  planning: done
-  design: done
-  implementation: done
-  review: done
-  testing: done
 ---
 
 ## 0001. "ts-db schema single-source-of-truth: defineTable to DDL+Zod + subpath export"
@@ -192,3 +184,8 @@ Re-ran the full gate on a fresh build and empirically re-tested the optional-pee
 ### References
 
 
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

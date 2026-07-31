@@ -1,23 +1,14 @@
 ---
-name: "Implement team mode primitives in ts-ai-runner and ts-db"
-description: "Implement team mode primitives in ts-ai-runner and ts-db for Spur team mode Phases 1-4"
-status: Done
+schema_version: 1
+name: Implement team mode primitives in ts-ai-runner and ts-db
+description: Implement team mode primitives in ts-ai-runner and ts-db for Spur team mode Phases 1-4
+status: done
+type: task
+priority: P1
+tags: [team-mode,feature,ts-ai-runner,ts-db,identity,messaging]
+dependencies: [@gobing-ai/ts-db 0.2.4 (inbox_messages table),@gobing-ai/ts-ai-runner 0.2.5 (AiRunner base)]
 created_at: 2026-06-02T17:55:06.281Z
 updated_at: 2026-06-02T18:35:52.558Z
-folder: docs/tasks
-type: task
-feature-id: "team-mode-ts-libs"
-priority: high
-dependencies:
-  - "@gobing-ai/ts-db 0.2.4 (inbox_messages table)"
-  - "@gobing-ai/ts-ai-runner 0.2.5 (AiRunner base)"
-tags: ["team-mode", "feature", "ts-ai-runner", "ts-db", "identity", "messaging"]
-impl_progress:
-  planning: pending
-  design: pending
-  implementation: pending
-  review: pending
-  testing: pending
 ---
 
 ## 0005. Implement team mode primitives in ts-ai-runner and ts-db
@@ -466,3 +457,8 @@ Traceability result: R1-R9 remain satisfied after the fix pass.
   - Result: PASS. Full suite: 838 tests, 0 failures, coverage all files 98.98% functions / 99.51% lines.
 - Command: `bun run build` after forced verification fix pass
   - Result: PASS. All workspace packages built successfully.
+
+
+### History
+
+- Migrated from legacy format (2026-07-31)

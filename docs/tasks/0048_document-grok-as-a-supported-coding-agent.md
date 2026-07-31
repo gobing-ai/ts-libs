@@ -1,13 +1,14 @@
 ---
-schema_version: 1
-name: "Document grok as a supported coding agent"
-status: done
 template: feature-impl
-created_at: 2026-07-12T07:32:35.014Z
-updated_at: "2026-07-12T16:18:38.418Z"
+schema_version: 1
+name: Document grok as a supported coding agent
+status: done
+type: task
 feature_id: A
 priority: P2
-tags: ["ai-runner", "grok", "docs"]
+tags: [ai-runner,grok,docs]
+created_at: 2026-07-12T07:32:35.014Z
+updated_at: 2026-07-12T16:18:38.418Z
 ---
 
 ## 0048. Document grok as a supported coding agent
