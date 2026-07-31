@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
-import { createNodeFileSystem, type FileSystem } from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem, type FileSystem, type RuntimePaths } from '@gobing-ai/ts-runtime';
 import { runJsonlImport } from '../src';
 
 let db: DbAdapter;
@@ -370,3 +370,95 @@ function virtualFileSystem(files: Record<string, string>): FileSystem {
         getProjectRoot: () => '/virtual',
     };
 }
+/**
+ * RuntimePaths seam (ADR-023 A1 / task 0042).
+ *
+ * Pins the two importer ACs:
+ *  - AC#3: registry defaultRoots resolve against `paths.home`, so an import run from a cwd ≠ $HOME
+ *    discovers fixture history files placed under a fake home.
+ *  - AC#4: explicit caller-supplied relative roots keep cwd semantics (resolve against the working
+ *    directory, not home).
+ */
+describe('runJsonlImport paths injection (ADR-023 A1)', () => {
+    test('defaultRoots resolve against paths.home when cwd is outside home', async () => {
+        const fakeHome = await mkdtemp(join(tmpdir(), 'a1-home-'));
+        const outsideCwd = await mkdtemp(join(tmpdir(), 'a1-cwd-'));
+        // Build a fixture claude tree at <fakeHome>/.claude/projects/<proj>/session.jsonl
+        const projectDir = join(fakeHome, '.claude', 'projects', 'proj-1');
+        await mkdir(projectDir, { recursive: true });
+        const fixtureFile = join(projectDir, 'session.jsonl');
+        await writeFile(
+            fixtureFile,
+            `${JSON.stringify({ id: 'home-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'x' })}\n`,
+        );
+
+        const paths: RuntimePaths = { cwd: outsideCwd, home: fakeHome };
+        const fileSystem = createNodeFileSystem(outsideCwd);
+
+        try {
+            const result = await runJsonlImport('claude', {
+                db,
+                mode: 'full',
+                now: fixedNow,
+                paths,
+                fileSystem,
+            });
+
+            // Before the fix, defaultRoots resolved against ambient cwd and silently skipped
+            // every source (scannedFiles === 0). With paths.home injected, the fixture is found.
+            expect(result.scannedFiles).toBe(1);
+            expect(result.importedRecords).toBe(1);
+
+            const rows = await db.queryAll<{ source_file: string }>('SELECT source_file FROM history_etl_claude');
+            expect(rows).toHaveLength(1);
+            expect(rows[0]?.source_file).toBe(fixtureFile);
+        } finally {
+            await rm(fakeHome, { recursive: true, force: true });
+            await rm(outsideCwd, { recursive: true, force: true });
+        }
+    });
+
+    test('explicit relative roots keep cwd semantics (resolved against paths.cwd, not home)', async () => {
+        const fakeHome = await mkdtemp(join(tmpdir(), 'a1-home-2-'));
+        const outsideCwd = await mkdtemp(join(tmpdir(), 'a1-cwd-2-'));
+        // A relative-rooted fixture living under cwd, NOT under home.
+        const localRoot = join(outsideCwd, 'local-history');
+        await mkdir(localRoot, { recursive: true });
+        const fixtureFile = join(localRoot, 'session.jsonl');
+        await writeFile(
+            fixtureFile,
+            `${JSON.stringify({ id: 'cwd-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'y' })}\n`,
+        );
+        // Decoy under home with the same relative path — must NOT be picked up.
+        const homeDecoyRoot = join(fakeHome, 'local-history');
+        await mkdir(homeDecoyRoot, { recursive: true });
+        await writeFile(
+            join(homeDecoyRoot, 'session.jsonl'),
+            `${JSON.stringify({ id: 'home-decoy', timestamp: '2026-05-30T00:00:00.000Z', content: 'decoy' })}\n`,
+        );
+
+        const paths: RuntimePaths = { cwd: outsideCwd, home: fakeHome };
+        const fileSystem = createNodeFileSystem(outsideCwd);
+
+        try {
+            const result = await runJsonlImport('claude', {
+                db,
+                mode: 'full',
+                now: fixedNow,
+                roots: ['local-history'],
+                paths,
+                fileSystem,
+            });
+
+            expect(result.scannedFiles).toBe(1);
+            expect(result.importedRecords).toBe(1);
+            const payloads = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_claude');
+            expect(payloads).toHaveLength(1);
+            expect(payloads[0]?.payload_json).toContain('cwd-1');
+            expect(payloads[0]?.payload_json).not.toContain('decoy');
+        } finally {
+            await rm(fakeHome, { recursive: true, force: true });
+            await rm(outsideCwd, { recursive: true, force: true });
+        }
+    });
+});

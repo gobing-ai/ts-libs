@@ -1,4 +1,11 @@
-import { createNodeFileSystem, type FileSystem, resolvePath, walkDir } from '@gobing-ai/ts-runtime';
+import {
+    ambientRuntimePaths,
+    createNodeFileSystem,
+    type FileSystem,
+    type RuntimePaths,
+    resolvePath,
+    walkDir,
+} from '@gobing-ai/ts-runtime';
 import { HistoryImportError } from './errors';
 import { sha256 } from './hash';
 import { redactRecord } from './redaction';
@@ -42,7 +49,7 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
     await applyHistoryImportSchema(options.db);
 
     const mode = options.mode ?? 'incremental';
-    const files = await discoverFiles(definition, options.roots, options.files, fileSystem);
+    const files = await discoverFiles(definition, options.roots, options.files, fileSystem, options.paths);
     if (mode === 'full' && !options.dryRun) {
         await resetCheckpoints(options.db, source, files);
     }
@@ -211,12 +218,23 @@ async function discoverFiles(
     roots: readonly string[] | undefined,
     files: readonly string[] | undefined,
     fileSystem: FileSystem,
+    paths: RuntimePaths | undefined,
 ): Promise<readonly string[]> {
     if (files !== undefined && files.length > 0) {
         return files.map((file) => resolvePath(file)).sort();
     }
 
-    const resolvedRoots = (roots ?? definition.defaultRoots).map((root) => resolvePath(root));
+    // Root resolution splits by provenance (ADR-023 A1 / task 0042):
+    //  - explicit caller-supplied `roots` → cwd semantics: resolve against `paths.cwd` when
+    //    injected, else ambient cwd (the pre-seam behaviour — R4 additive-only).
+    //  - registry `defaultRoots` → home-relative: resolve against `paths.home`.
+    //    Previously both kinds anchored to ambient cwd, so a cwd ≠ $HOME silently skipped every
+    //    registry source because the home-relative paths never existed relative to cwd.
+    const ambient = paths ?? ambientRuntimePaths();
+    const resolvedRoots =
+        roots !== undefined
+            ? roots.map((root) => resolvePath(ambient.cwd, root))
+            : definition.defaultRoots.map((root) => resolvePath(ambient.home, root));
     const found = new Set<string>();
     for (const root of resolvedRoots) {
         if (!(await fileSystem.exists(root))) continue;

@@ -11,6 +11,7 @@ versioned in **lockstep** — a single version number covers every package in th
 ### Added
 
 - Enriched `queue.*` EventBus detail payloads in `@gobing-ai/ts-infra` for System Events observability. `queue.consumer.started` / `queue.consumer.stopped` now carry config snapshots and drain outcomes (previously zero-arg, empty-payload). `queue.job.enqueued` adds `enqueuedAt`, `maxRetries`, `delayMs`, `ttlMs`. `queue.job.completed` adds `durationMs` and `attempt`. `queue.job.failed` adds `maxRetries` and `durationMs`; `queue.job.retrying` adds `maxRetries` and `error`. Details remain correlator-grade — the business payload `T` is never emitted on the bus. New named detail interfaces (`QueueJobRef`, `QueueJobEnqueuedDetail`, `QueueConsumerStartedDetail`, `QueueConsumerStoppedDetail`, `QueueJobCompletedDetail`) are exported from `@gobing-ai/ts-infra`.
+- Injectable `RuntimePaths` seam in `@gobing-ai/ts-runtime` (ADR-023 A1): new `RuntimePaths` value type (`{ readonly cwd: string; readonly home: string }`) and `ambientRuntimePaths()` factory exported from the barrel. `createNodeFileSystem(root?, paths?)` and `ProcessExecutorConfig.paths` accept an optional anchor — injected `paths.cwd` seeds the project-root walk / applies to runs with no explicit per-call `cwd` (precedence: explicit > injected > ambient). `@gobing-ai/ts-llm-jsonl-importer` gains `ImportOptions.paths`; with no injection every call site behaves exactly as before.
 
 ### Breaking Changes
 
@@ -22,7 +23,7 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Fixed
 
-- None.
+- `@gobing-ai/ts-llm-jsonl-importer`: registry `defaultRoots` (`.claude/projects`, `.codex/sessions`, …) now resolve against the user home directory instead of the ambient working directory. Previously, invoking `runJsonlImport` from any cwd ≠ `$HOME` resolved the home-relative roots to nonexistent paths and silently discovered zero files for every built-in source. Explicit `ImportOptions.roots` keep invocation-directory (cwd) semantics.
 
 ### Security
 

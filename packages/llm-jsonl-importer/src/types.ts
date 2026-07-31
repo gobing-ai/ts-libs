@@ -1,5 +1,5 @@
 import type { DbAdapter } from '@gobing-ai/ts-db';
-import type { FileSystem } from '@gobing-ai/ts-runtime';
+import type { FileSystem, RuntimePaths } from '@gobing-ai/ts-runtime';
 import type { z } from 'zod';
 
 /** Built-in source identifiers supported by the importer. */
@@ -68,6 +68,12 @@ export interface ImportOptions {
     readonly dryRun?: boolean;
     readonly redactionRules?: readonly RedactionRule[];
     readonly now?: () => Date;
+    /**
+     * Optional cwd/home anchor (ADR-023 A1 / task 0042). When set, registry `defaultRoots`
+     * resolve against `paths.home` instead of the ambient working directory; explicit
+     * {@link ImportOptions.roots} keep cwd semantics unchanged. Defaults to ambient cwd/home.
+     */
+    readonly paths?: RuntimePaths;
 }
 
 /** Structured importer error that can be reported without persisting raw input. */
