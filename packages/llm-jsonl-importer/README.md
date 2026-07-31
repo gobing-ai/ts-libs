@@ -8,10 +8,13 @@ Generic JSONL import pipeline for AI-agent history-style files: discover files, 
 
 | Export | Purpose |
 |--------|---------|
-| `runJsonlImport()` | Runs discovery, parsing, validation, redaction, dedupe, and persistence |
+| `runJsonlImport()` | Runs discovery, parsing, validation, redaction, dedupe, and persistence. Accepts a built-in source string **or** a custom `SourceDefinition`. |
 | `applyHistoryImportSchema()` | Installs importer-owned checkpoint, ledger, and ETL tables |
 | `SOURCE_DEFINITIONS` | Built-in source definitions |
-| `getSourceDefinition()` | Returns one source definition by key |
+| `getSourceDefinition()` | Returns one built-in definition by key (throws `HistoryImportError` for unknown keys) |
+| `resolveSourceDefinition()` | Resolves a `string \| SourceDefinition` into a validated definition |
+| `validateSourceDefinition()` | Validates a custom definition (target-table names, required fields) before pipeline entry |
+| `VALID_TABLE_NAME` | Regex governing every importer-owned ETL table name |
 | `redactRecord()` / `redactValue()` | Applies redaction rules before persistence |
 | `sha256()` / `stableJson()` | Stable hash helpers used by the ledger |
 | `HISTORY_IMPORT_SCHEMA_SQL` | SQL schema string for explicit migration flows |
@@ -137,6 +140,42 @@ const result = await runJsonlImport('pi', { db, files: ['session.jsonl'], mode: 
 ```
 
 Downstream consumers should treat `source_file`, `source_line`, and `split_index` as the stable provenance tuple.
+
+## Custom Source Definitions
+
+Beyond the built-in source keys, `runJsonlImport()` accepts a fully-specified `SourceDefinition`
+for any custom agent history format. Unknown strings throw `HistoryImportError`; custom definitions
+are validated before any I/O (target-table names must match `VALID_TABLE_NAME` = `/^history_etl_[a-z_]+$/`,
+and required fields must be present).
+
+```ts
+import { z } from 'zod';
+import { createDbAdapter } from '@gobing-ai/ts-db';
+import { runJsonlImport, type SourceDefinition } from '@gobing-ai/ts-llm-jsonl-importer';
+
+const acme: SourceDefinition = {
+    source: 'acme',
+    displayName: 'Acme Assistant',
+    defaultRoots: ['.acme'],
+    filePatterns: ['*.jsonl'],
+    targetTable: 'history_etl_acme',
+    splitConfig: { mode: 'one-to-one' },
+    fieldMap: { id: 'source_record_id', timestamp: 'created_at', content: 'content' },
+    fieldTransforms: {},
+    schema: z.object({
+        source_record_id: z.string().min(1),
+        created_at: z.string().min(1),
+        content: z.string().min(1),
+    }),
+};
+
+const db = await createDbAdapter({ driver: 'bun-sqlite', url: './history.db' });
+const result = await runJsonlImport(acme, { db, roots: ['~/.acme'], mode: 'incremental' });
+```
+
+The custom `source` name flows through checkpoints, the ledger, and `ImportResult.source` exactly
+like a built-in key. The importer creates the target ETL table on demand if it does not exist
+(idempotent `CREATE TABLE IF NOT EXISTS`), so built-in tables are unaffected.
 
 ## Boundary Notes
 

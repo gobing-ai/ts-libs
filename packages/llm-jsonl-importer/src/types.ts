@@ -32,7 +32,8 @@ export type FieldTransform = (value: unknown, raw: JsonObject, context: Transfor
 
 /** Context available while normalizing a split record. */
 export interface TransformContext {
-    readonly source: LlmJsonlSource;
+    /** Source identifier — a built-in {@link LlmJsonlSource} or a custom definition's name. */
+    readonly source: string;
     readonly sourceFile: string;
     readonly sourceLine: number;
     readonly splitIndex: number;
@@ -40,7 +41,8 @@ export interface TransformContext {
 
 /** Declarative importer configuration for one LLM history source. */
 export interface SourceDefinition<TRecord extends JsonObject = JsonObject> {
-    readonly source: LlmJsonlSource;
+    /** Source identifier — a built-in {@link LlmJsonlSource} or a custom name. Becomes the checkpoint/ledger key. */
+    readonly source: string;
     readonly displayName: string;
     readonly defaultRoots: readonly string[];
     readonly filePatterns: readonly string[];
@@ -85,7 +87,8 @@ export interface ImportIssue {
 
 /** Summary produced by the importer control function. */
 export interface ImportResult {
-    readonly source: LlmJsonlSource;
+    /** Source identifier — the built-in name or custom definition name that produced this result. */
+    readonly source: string;
     readonly mode: ImportMode;
     readonly scannedFiles: number;
     readonly processedLines: number;

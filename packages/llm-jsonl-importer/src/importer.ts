@@ -10,16 +10,8 @@ import { HistoryImportError } from './errors';
 import { sha256 } from './hash';
 import { redactRecord } from './redaction';
 import { HISTORY_IMPORT_SCHEMA_SQL } from './schema-sql';
-import { getSourceDefinition } from './sources';
-import type {
-    ImportIssue,
-    ImportOptions,
-    ImportResult,
-    JsonObject,
-    LlmJsonlSource,
-    SourceDefinition,
-    TransformContext,
-} from './types';
+import { resolveSourceDefinition, VALID_TABLE_NAME } from './sources';
+import type { ImportIssue, ImportOptions, ImportResult, JsonObject, SourceDefinition, TransformContext } from './types';
 
 interface SplitRecord {
     readonly targetTable: string;
@@ -29,8 +21,6 @@ interface SplitRecord {
 interface CheckpointRow {
     readonly last_imported_line: number;
 }
-
-const VALID_TABLE_NAME = /^history_etl_[a-z_]+$/;
 
 /** Apply importer-owned schema to the target database. */
 export async function applyHistoryImportSchema(db: ImportOptions['db']): Promise<void> {
@@ -42,16 +32,57 @@ export async function applyHistoryImportSchema(db: ImportOptions['db']): Promise
     }
 }
 
-/** Run the JSONL import pipeline for one source definition. */
-export async function runJsonlImport(source: LlmJsonlSource, options: ImportOptions): Promise<ImportResult> {
-    const definition = getSourceDefinition(source);
+/**
+ * Ensure the ETL table(s) for a source definition exist.
+ *
+ * WHY: the static {@link HISTORY_IMPORT_SCHEMA_SQL} only creates the built-in
+ * `history_etl_*` tables. Custom source definitions (and built-in definitions
+ * with a `splitConfig.targetTable` override) need their target table(s) created
+ * on demand. The table name is already gated by {@link VALID_TABLE_NAME} in
+ * {@link validateSourceDefinition} / {@link targetTableFor}, so it is safe to
+ * interpolate into DDL. `CREATE TABLE IF NOT EXISTS` makes this idempotent for
+ * built-in tables that the static schema already created.
+ */
+async function ensureTargetTables(db: ImportOptions['db'], definition: SourceDefinition): Promise<void> {
+    const tables = new Set<string>([targetTableFor(definition.targetTable)]);
+    if (definition.splitConfig.mode !== 'one-to-one' && definition.splitConfig.targetTable !== undefined) {
+        tables.add(targetTableFor(definition.splitConfig.targetTable));
+    }
+    for (const table of tables) {
+        await db.exec(ETL_TABLE_DDL(table));
+    }
+}
+
+function ETL_TABLE_DDL(table: string): string {
+    return `CREATE TABLE IF NOT EXISTS ${table} (
+    record_hash TEXT PRIMARY KEY,
+    source_file TEXT NOT NULL,
+    source_line INTEGER NOT NULL,
+    split_index INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    imported_at TEXT NOT NULL
+);`;
+}
+/**
+ * Run the JSONL import pipeline for one source.
+ *
+ * @param source - Either a built-in source identifier resolved from the
+ *   registry, or a fully-specified {@link SourceDefinition} for a custom
+ *   source. Unknown strings throw {@link HistoryImportError}; custom
+ *   definitions are validated before any I/O.
+ * @param options - Importer options (database, roots/files, mode, etc.).
+ */
+export async function runJsonlImport(source: string | SourceDefinition, options: ImportOptions): Promise<ImportResult> {
+    const definition = resolveSourceDefinition(source);
+    const resolvedSource = definition.source;
     const fileSystem = options.fileSystem ?? createNodeFileSystem();
     await applyHistoryImportSchema(options.db);
+    await ensureTargetTables(options.db, definition);
 
     const mode = options.mode ?? 'incremental';
     const files = await discoverFiles(definition, options.roots, options.files, fileSystem, options.paths);
     if (mode === 'full' && !options.dryRun) {
-        await resetCheckpoints(options.db, source, files);
+        await resetCheckpoints(options.db, resolvedSource, files);
     }
 
     const parseErrors: ImportIssue[] = [];
@@ -62,7 +93,7 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
     let checkpointUpdates = 0;
 
     for (const file of files) {
-        const checkpoint = mode === 'incremental' ? await readCheckpoint(options.db, source, file) : 0;
+        const checkpoint = mode === 'incremental' ? await readCheckpoint(options.db, resolvedSource, file) : 0;
         let lineNumber = 0;
         for await (const rawLine of readLines(fileSystem, file)) {
             lineNumber += 1;
@@ -80,7 +111,7 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
                 const split = splitRecords[splitIndex];
                 if (split === undefined) continue;
                 const normalized = normalizeRecord(definition, split.raw, {
-                    source,
+                    source: resolvedSource,
                     sourceFile: file,
                     sourceLine: lineNumber,
                     splitIndex,
@@ -98,7 +129,7 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
                 const redacted = redactRecord(parsed.data, options.redactionRules);
                 lineSucceeded = true;
                 const recordHash = sha256({
-                    source,
+                    source: resolvedSource,
                     sourceFile: file,
                     sourceLine: lineNumber,
                     splitIndex,
@@ -122,7 +153,7 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
                     await insertLedger(
                         options.db,
                         recordHash,
-                        source,
+                        resolvedSource,
                         file,
                         lineNumber,
                         splitIndex,
@@ -134,14 +165,14 @@ export async function runJsonlImport(source: LlmJsonlSource, options: ImportOpti
             }
 
             if (lineSucceeded && !options.dryRun) {
-                await writeCheckpoint(options.db, source, file, lineNumber, options.now);
+                await writeCheckpoint(options.db, resolvedSource, file, lineNumber, options.now);
                 checkpointUpdates += 1;
             }
         }
     }
 
     return {
-        source,
+        source: resolvedSource,
         mode,
         scannedFiles: files.length,
         processedLines,

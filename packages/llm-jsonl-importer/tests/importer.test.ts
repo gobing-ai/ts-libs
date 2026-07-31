@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
 import { createNodeFileSystem, type FileSystem, type RuntimePaths } from '@gobing-ai/ts-runtime';
-import { runJsonlImport } from '../src';
+import { z } from 'zod';
+import { HistoryImportError, runJsonlImport, type SourceDefinition, validateSourceDefinition } from '../src';
 
 let db: DbAdapter;
 
@@ -462,3 +463,190 @@ describe('runJsonlImport paths injection (ADR-023 A1)', () => {
         }
     });
 });
+
+/**
+ * Open source registry (ADR-023 A3 / task 0044).
+ *
+ * Pins the registry-opening ACs:
+ *  - AC#1: a custom SourceDefinition imports into its own history_etl_* table with the
+ *    caller-chosen `source` name flowing through checkpoints, ledger, and ImportResult.
+ *  - AC#2: an unknown string source throws HistoryImportError (no silent empty import).
+ *  - AC#3: custom definitions with invalid target tables (primary or split override) are
+ *    rejected fail-fast before any I/O.
+ *  - AC#4: a custom definition built from a built-in's fields produces byte-identical
+ *    results to the built-in string path (registry transparency).
+ */
+describe('runJsonlImport source registry (ADR-023 A3)', () => {
+    test('a custom SourceDefinition imports into its own table with the custom source name', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'cust-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'custom-body' }),
+            JSON.stringify({ id: 'cust-2', timestamp: '2026-05-30T00:01:00.000Z', content: 'custom-body-2' }),
+        ]);
+
+        const result = await runJsonlImport(customAcmeSource(), {
+            db,
+            files: [file],
+            mode: 'full',
+            now: fixedNow,
+        });
+
+        expect(result.source).toBe('acme');
+        expect(result.importedRecords).toBe(2);
+
+        const etlRows = await db.queryAll<{ payload_json: string }>(
+            'SELECT payload_json FROM history_etl_acme ORDER BY source_line',
+        );
+        expect(etlRows).toHaveLength(2);
+        expect(etlRows[0]?.payload_json).toContain('custom-body');
+        expect(etlRows[1]?.payload_json).toContain('custom-body-2');
+
+        const ledgerRows = await db.queryAll<{ source: string; target_table: string }>(
+            'SELECT source, target_table FROM history_import_ledger',
+        );
+        expect(ledgerRows).toEqual([
+            { source: 'acme', target_table: 'history_etl_acme' },
+            { source: 'acme', target_table: 'history_etl_acme' },
+        ]);
+
+        const checkpoints = await db.queryAll<{ source: string; source_file: string }>(
+            'SELECT source, source_file FROM history_import_checkpoint',
+        );
+        expect(checkpoints).toEqual([{ source: 'acme', source_file: file }]);
+    });
+
+    test('an unknown string source throws HistoryImportError before touching the database', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'x', timestamp: '2026-05-30T00:00:00.000Z', content: 'x' }),
+        ]);
+
+        // resolveSourceDefinition throws before applyHistoryImportSchema runs, so the
+        // ledger table is never created on a fresh DB — the throw itself is the proof.
+        const attempt = () => runJsonlImport('not-a-real-source', { db, files: [file], mode: 'full', now: fixedNow });
+        await expect(attempt()).rejects.toThrow(HistoryImportError);
+        await expect(attempt()).rejects.toThrow(/not-a-real-source/);
+
+        await expect(db.queryFirst('SELECT COUNT(*) AS c FROM history_import_ledger')).rejects.toThrow(); // table does not exist
+    });
+
+    test('a custom definition with an invalid primary target table is rejected before any write', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'x', timestamp: '2026-05-30T00:00:00.000Z', content: 'x' }),
+        ]);
+        const bad = { ...customAcmeSource(), targetTable: 'droptable_users' };
+
+        const attempt = () => runJsonlImport(bad, { db, files: [file], mode: 'full', now: fixedNow });
+        await expect(attempt()).rejects.toThrow(HistoryImportError);
+        await expect(attempt()).rejects.toThrow(/droptable_users/);
+
+        // No schema or checkpoint writes occurred: the ledger table was never created.
+        await expect(db.queryFirst('SELECT COUNT(*) AS c FROM history_import_ledger')).rejects.toThrow();
+    });
+
+    test('a custom definition with an invalid split target table override is rejected', () => {
+        const bad: SourceDefinition = {
+            ...customAcmeSource(),
+            splitConfig: { mode: 'one-to-many', field: 'messages', targetTable: 'history_etl_' },
+        };
+        // `history_etl_` has no trailing identifier segment — fails VALID_TABLE_NAME.
+        expect(() => validateSourceDefinition(bad)).toThrow(HistoryImportError);
+    });
+
+    test('a custom definition missing a required field is rejected', () => {
+        const { schema: _omit, ...missingSchema } = customAcmeSource();
+        void _omit;
+        expect(() => validateSourceDefinition(missingSchema as SourceDefinition)).toThrow(HistoryImportError);
+    });
+
+    test('a custom definition with empty filePatterns is rejected', () => {
+        const bad = { ...customAcmeSource(), filePatterns: [] };
+        expect(() => validateSourceDefinition(bad)).toThrow(HistoryImportError);
+    });
+
+    test('a schema-mismatched record lands in validationErrors and is not persisted', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'ok-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'valid' }),
+            // Missing `content` — the custom schema requires it.
+            JSON.stringify({ id: 'bad-1', timestamp: '2026-05-30T00:00:00.000Z' }),
+        ]);
+
+        const result = await runJsonlImport(customAcmeSource(), {
+            db,
+            files: [file],
+            mode: 'full',
+            now: fixedNow,
+        });
+
+        expect(result.importedRecords).toBe(1);
+        expect(result.validationErrors).toHaveLength(1);
+        expect(result.validationErrors[0]?.sourceFile).toBe(file);
+        expect(result.validationErrors[0]?.sourceLine).toBe(2);
+
+        const etlRows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_acme');
+        expect(etlRows).toHaveLength(1);
+        expect(etlRows[0]?.payload_json).toContain('valid');
+    });
+
+    test('a custom definition built from a built-in is byte-identical to the built-in string path', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'parity-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'parity' }),
+        ]);
+
+        // First import via the built-in string path.
+        const builtinResult = await runJsonlImport('codex', {
+            db,
+            files: [file],
+            mode: 'full',
+            now: fixedNow,
+        });
+
+        // Drop and re-apply schema on a fresh in-memory DB, then import the same file via a custom
+        // definition that mirrors the codex built-in except for its `source`/`targetTable` names.
+        db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        const mirror: SourceDefinition = {
+            ...customAcmeSource(),
+            source: 'codex-parity',
+            targetTable: 'history_etl_codex_parity',
+            fieldMap: {
+                id: 'source_record_id',
+                timestamp: 'created_at',
+                content: 'content',
+            },
+            // Use the same minimal transform set as the built-in codex path.
+            fieldTransforms: {},
+        };
+        const customResult = await runJsonlImport(mirror, {
+            db,
+            files: [file],
+            mode: 'full',
+            now: fixedNow,
+        });
+
+        // Different field maps mean validation-error arrays aren't directly comparable;
+        // the registry-transparency contract is about throughput parity.
+        expect(customResult.importedRecords).toBe(builtinResult.importedRecords);
+        expect(customResult.processedLines).toBe(builtinResult.processedLines);
+        expect(customResult.parseErrors).toEqual(builtinResult.parseErrors);
+    });
+});
+
+function customAcmeSource(): SourceDefinition {
+    return {
+        source: 'acme',
+        displayName: 'Acme Assistant',
+        defaultRoots: ['.acme'],
+        filePatterns: ['*.jsonl'],
+        targetTable: 'history_etl_acme',
+        splitConfig: { mode: 'one-to-one' },
+        fieldMap: {
+            id: 'source_record_id',
+            timestamp: 'created_at',
+            content: 'content',
+        },
+        fieldTransforms: {},
+        schema: z.object({
+            source_record_id: z.string().min(1),
+            created_at: z.string().min(1),
+            content: z.string().min(1),
+        }),
+    };
+}

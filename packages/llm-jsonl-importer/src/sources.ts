@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HistoryImportError } from './errors';
 import type { FieldTransform, JsonObject, LlmJsonlSource, SourceDefinition, TransformContext } from './types';
 
 const sourceRecordSchema = z
@@ -93,6 +94,15 @@ function sourceDefinition(
         schema: sourceRecordSchema,
     };
 }
+/**
+ * Pattern every importer-owned table must match.
+ *
+ * WHY: the table name is interpolated into generated SQL (it is not a bind
+ * parameter), so it must be a safe identifier. The `history_etl_` prefix also
+ * namespaces importer tables away from consumer schemas. Both built-in and
+ * custom source definitions are held to this rule.
+ */
+export const VALID_TABLE_NAME = /^history_etl_[a-z_]+$/;
 
 /** Built-in source definitions keyed by source identifier. */
 export const SOURCE_DEFINITIONS: Readonly<Record<LlmJsonlSource, SourceDefinition>> = {
@@ -105,7 +115,79 @@ export const SOURCE_DEFINITIONS: Readonly<Record<LlmJsonlSource, SourceDefinitio
     openclaw: sourceDefinition('openclaw', 'OpenClaw', ['.openclaw'], ['*.jsonl']),
 };
 
-/** Resolve a built-in source definition by identifier. */
+/**
+ * Resolve a built-in source definition by identifier.
+ *
+ * Throws {@link HistoryImportError} for unknown identifiers so misconfigured
+ * callers fail fast at the seam instead of producing empty imports.
+ */
 export function getSourceDefinition(source: LlmJsonlSource): SourceDefinition {
-    return SOURCE_DEFINITIONS[source];
+    const definition = SOURCE_DEFINITIONS[source];
+    if (definition === undefined) {
+        throw new HistoryImportError(`Unknown LLM JSONL source: ${source}`, { source });
+    }
+    return definition;
+}
+
+/**
+ * Validate a caller-supplied source definition before it enters the pipeline.
+ *
+ * WHY: target table names are interpolated into SQL, so both the primary
+ * `targetTable` and any `splitConfig.targetTable` override must match
+ * {@link VALID_TABLE_NAME}. Required structural fields are checked here so the
+ * importer can assume they are present. Built-in definitions skip this — they
+ * are validated by construction.
+ */
+export function validateSourceDefinition(definition: SourceDefinition): SourceDefinition {
+    const requiredFields: ReadonlyArray<keyof SourceDefinition> = [
+        'source',
+        'displayName',
+        'defaultRoots',
+        'filePatterns',
+        'targetTable',
+        'splitConfig',
+        'fieldMap',
+        'fieldTransforms',
+        'schema',
+    ];
+    for (const field of requiredFields) {
+        if (definition[field] === undefined || definition[field] === null) {
+            throw new HistoryImportError(`Source definition is missing required field: ${String(field)}`, {
+                source: definition.source,
+                field: String(field),
+            });
+        }
+    }
+    if (definition.filePatterns.length === 0) {
+        throw new HistoryImportError('Source definition must declare at least one file pattern', {
+            source: definition.source,
+            field: 'filePatterns',
+        });
+    }
+    assertValidTable(definition.targetTable, definition.source);
+    if (definition.splitConfig.mode !== 'one-to-one' && definition.splitConfig.targetTable !== undefined) {
+        assertValidTable(definition.splitConfig.targetTable, definition.source);
+    }
+    return definition;
+}
+
+/**
+ * Resolve a `string | SourceDefinition` source argument into a validated
+ * {@link SourceDefinition}. Strings resolve from {@link SOURCE_DEFINITIONS}
+ * (unknown strings throw); objects are validated via {@link validateSourceDefinition}.
+ */
+export function resolveSourceDefinition(input: string | SourceDefinition): SourceDefinition {
+    if (typeof input === 'string') {
+        return getSourceDefinition(input as LlmJsonlSource);
+    }
+    return validateSourceDefinition(input);
+}
+
+function assertValidTable(table: string, source: string): void {
+    if (!VALID_TABLE_NAME.test(table)) {
+        throw new HistoryImportError(
+            `Invalid history ETL target table for source "${source}": ${table}. Must match ${VALID_TABLE_NAME.source}.`,
+            { source, table },
+        );
+    }
 }
