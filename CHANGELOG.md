@@ -10,15 +10,32 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Added
 
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
+## [0.4.15] — 2026-07-31
+
+### Added
+
 - Enriched `queue.*` EventBus detail payloads in `@gobing-ai/ts-infra` for System Events observability. `queue.consumer.started` / `queue.consumer.stopped` now carry config snapshots and drain outcomes (previously zero-arg, empty-payload). `queue.job.enqueued` adds `enqueuedAt`, `maxRetries`, `delayMs`, `ttlMs`. `queue.job.completed` adds `durationMs` and `attempt`. `queue.job.failed` adds `maxRetries` and `durationMs`; `queue.job.retrying` adds `maxRetries` and `error`. Details remain correlator-grade — the business payload `T` is never emitted on the bus. New named detail interfaces (`QueueJobRef`, `QueueJobEnqueuedDetail`, `QueueConsumerStartedDetail`, `QueueConsumerStoppedDetail`, `QueueJobCompletedDetail`) are exported from `@gobing-ai/ts-infra`.
 - Injectable `RuntimePaths` seam in `@gobing-ai/ts-runtime` (ADR-023 A1): new `RuntimePaths` value type (`{ readonly cwd: string; readonly home: string }`) and `ambientRuntimePaths()` factory exported from the barrel. `createNodeFileSystem(root?, paths?)` and `ProcessExecutorConfig.paths` accept an optional anchor — injected `paths.cwd` seeds the project-root walk / applies to runs with no explicit per-call `cwd` (precedence: explicit > injected > ambient). `@gobing-ai/ts-llm-jsonl-importer` gains `ImportOptions.paths`; with no injection every call site behaves exactly as before.
 - Open source registry in `@gobing-ai/ts-llm-jsonl-importer` (ADR-023 A3): `runJsonlImport()` now accepts `source: string | SourceDefinition` — strings resolve from the built-in registry (unknown strings throw `HistoryImportError`), and a custom `SourceDefinition` object is validated and used directly. The `source` fields on `SourceDefinition`, `TransformContext`, and `ImportResult` widen from the closed `LlmJsonlSource` union to `string` so a custom source name flows through checkpoints, the ledger, and the result. New exports: `resolveSourceDefinition()`, `validateSourceDefinition()`, and `VALID_TABLE_NAME` (the `/^history_etl_[a-z_]+$/` gate). Custom target tables are created on demand (`CREATE TABLE IF NOT EXISTS`, idempotent for built-ins). `LlmJsonlSou…
 - `@gobing-ai/ts-infra`: `NodeSchedulerAdapter` accepts a `NodeSchedulerAdapterConfig` (`{ drainTimeoutMs?: number }`) and exports it from the `scheduler-node` subpath, so the shutdown drain bound (ADR-024) is configurable without injecting a whole adapter. The auto-wired path in `createNodeApplication` keeps the 30000 ms default.
-
-### Breaking Changes
-
-- `@gobing-ai/ts-infra` (minor): `queue.consumer.started` and `queue.consumer.stopped` EventBus handlers typed against `QueueEvents` must now accept a detail object instead of being zero-arg. `QueueJobFailedDetail` and `QueueJobRetryingDetail` gained required `maxRetries` (and `error` on retrying) fields. Runtime JS listeners that ignore arguments keep working.
-- `@gobing-ai/ts-llm-jsonl-importer` (type-level only, no runtime change): `SourceDefinition.source`, `TransformContext.source`, and `ImportResult.source` widen from the closed `LlmJsonlSource` union to `string` (ADR-023 A3). Only consumers narrowing on the union (e.g. an exhaustive `switch` over built-in source names) need to widen their types.
 
 ### Changed
 
@@ -38,7 +55,8 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Breaking Changes
 
-- None.
+- `@gobing-ai/ts-infra` (minor): `queue.consumer.started` and `queue.consumer.stopped` EventBus handlers typed against `QueueEvents` must now accept a detail object instead of being zero-arg. `QueueJobFailedDetail` and `QueueJobRetryingDetail` gained required `maxRetries` (and `error` on retrying) fields. Runtime JS listeners that ignore arguments keep working.
+- `@gobing-ai/ts-llm-jsonl-importer` (type-level only, no runtime change): `SourceDefinition.source`, `TransformContext.source`, and `ImportResult.source` widen from the closed `LlmJsonlSource` union to `string` (ADR-023 A3). Only consumers narrowing on the union (e.g. an exhaustive `switch` over built-in source names) need to widen their types.
 
 ---
 
@@ -620,6 +638,8 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
+[Unreleased]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.15...HEAD
+[0.4.15]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.14...@gobing-ai/ts-libs-v0.4.15
 [0.4.12]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.11...@gobing-ai/ts-libs-v0.4.12
 [0.4.11]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.10...@gobing-ai/ts-libs-v0.4.11
 [0.4.6]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.5...HEAD
