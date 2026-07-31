@@ -1,6 +1,13 @@
 import type { QueueJobDao, QueueJobRecord, QueueStats } from '@gobing-ai/ts-db';
 import type { EventBus } from '../event-bus/event-bus';
-import type { QueueEvents } from '../events';
+import type {
+    QueueConsumerStoppedDetail,
+    QueueEvents,
+    QueueJobCompletedDetail,
+    QueueJobEnqueuedDetail,
+    QueueJobFailedDetail,
+    QueueJobRetryingDetail,
+} from '../events';
 import { getLogger, type Logger } from '../logger';
 import {
     getQueueJobCompletedTotal,
@@ -27,7 +34,7 @@ export class DBJobQueue<T = unknown> implements JobQueue<T> {
     async enqueue(type: string, payload: T, options?: EnqueueOptions): Promise<string> {
         const id = await this.dao.enqueue(type, payload, options);
         getQueueJobEnqueuedTotal().add(1, { type });
-        await this.events?.emit('queue.job.enqueued', { jobId: id, type });
+        await this.events?.emit('queue.job.enqueued', enqueuedDetail(id, type, options));
         return id;
     }
 
@@ -36,7 +43,8 @@ export class DBJobQueue<T = unknown> implements JobQueue<T> {
         getQueueJobEnqueuedTotal().add(jobs.length);
         if (this.events) {
             for (const [index, jobId] of ids.entries()) {
-                await this.events.emit('queue.job.enqueued', { jobId, type: jobs[index]?.type ?? 'unknown' });
+                const job = jobs[index];
+                await this.events.emit('queue.job.enqueued', enqueuedDetail(jobId, job?.type ?? 'unknown', job));
             }
         }
         return ids;
@@ -45,6 +53,18 @@ export class DBJobQueue<T = unknown> implements JobQueue<T> {
     async stats(): Promise<QueueStats> {
         return this.dao.getStats();
     }
+}
+
+/**
+ * Build the `queue.job.enqueued` correlator detail, filling optional retry/delay/TTL
+ * fields only when supplied. Shared by single and batch enqueue so both emit one shape.
+ */
+function enqueuedDetail(jobId: string, type: string, options: EnqueueOptions | undefined): QueueJobEnqueuedDetail {
+    const detail: QueueJobEnqueuedDetail = { jobId, type, enqueuedAt: Date.now() };
+    if (options && options.maxRetries !== undefined) detail.maxRetries = options.maxRetries;
+    if (options && options.delay !== undefined) detail.delayMs = options.delay;
+    if (options && options.ttlMs !== undefined) detail.ttlMs = options.ttlMs;
+    return detail;
 }
 
 /** DB-backed queue consumer with polling, retry, and visibility-timeout handling. */
@@ -84,7 +104,13 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         if (this.running) return;
         this.running = true;
         this.schedule(0);
-        await this.events?.emit('queue.consumer.started');
+        await this.events?.emit('queue.consumer.started', {
+            startedAt: Date.now(),
+            pollInterval: this.pollInterval,
+            batchSize: this.batchSize,
+            maxConcurrency: this.maxConcurrency,
+            visibilityTimeout: this.visibilityTimeout,
+        });
     }
 
     async stop(): Promise<void> {
@@ -99,7 +125,15 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         while (this.inFlight > 0 && Date.now() < deadline) {
             await sleep(10);
         }
-        if (wasRunning) await this.events?.emit('queue.consumer.stopped');
+        if (wasRunning) {
+            const detail: QueueConsumerStoppedDetail = {
+                stoppedAt: Date.now(),
+                drainTimeoutMs: this.drainTimeoutMs,
+                inFlightAtStop: this.inFlight,
+                drained: this.inFlight === 0,
+            };
+            await this.events?.emit('queue.consumer.stopped', detail);
+        }
     }
 
     async stats(): Promise<QueueStats> {
@@ -164,7 +198,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         } catch (error) {
             // Corrupt payload — the job can never parse; route it through the
             // retry/fail path instead of rejecting the whole batch.
-            await this.failOrRetry(record, error);
+            await this.failOrRetry(record, error, 0);
             return;
         }
         return traceAsync('queue.job.process', async () => {
@@ -176,7 +210,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
 
             const handler = this.handlers.get(job.type);
             if (handler === undefined) {
-                await this.failOrRetry(job, new Error(`No handler registered for job type "${job.type}"`));
+                await this.failOrRetry(job, new Error(`No handler registered for job type "${job.type}"`), 0);
                 return;
             }
 
@@ -184,12 +218,20 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
             try {
                 await handler(job);
                 await this.dao.markCompleted(job.id);
+                const durationMs = performance.now() - startMs;
                 getQueueJobCompletedTotal().add(1, { type: job.type });
-                getQueueJobProcessingDuration().record(performance.now() - startMs, { type: job.type });
-                await this.events?.emit('queue.job.completed', { jobId: job.id, type: job.type });
+                getQueueJobProcessingDuration().record(durationMs, { type: job.type });
+                const completed: QueueJobCompletedDetail = {
+                    jobId: job.id,
+                    type: job.type,
+                    durationMs: Number.isFinite(durationMs) ? durationMs : 0,
+                    attempt: job.attempts,
+                };
+                await this.events?.emit('queue.job.completed', completed);
             } catch (error) {
-                getQueueJobProcessingDuration().record(performance.now() - startMs, { type: job.type });
-                await this.failOrRetry(job, error);
+                const durationMs = performance.now() - startMs;
+                getQueueJobProcessingDuration().record(durationMs, { type: job.type });
+                await this.failOrRetry(job, error, Number.isFinite(durationMs) ? durationMs : 0);
             }
         });
     }
@@ -197,30 +239,37 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
     private async failOrRetry(
         job: Pick<Job<T>, 'id' | 'type' | 'attempts' | 'maxRetries'>,
         error: unknown,
+        durationMs: number,
     ): Promise<void> {
         const attempts = job.attempts + 1;
         const message = error instanceof Error ? error.message : String(error);
         if (attempts >= job.maxRetries) {
             await this.dao.markFailed(job.id, attempts, message);
             getQueueJobFailedTotal().add(1, { type: job.type });
-            await this.events?.emit('queue.job.failed', {
+            const failed: QueueJobFailedDetail = {
                 jobId: job.id,
                 type: job.type,
                 error: message,
                 attempt: attempts,
-            });
+                maxRetries: job.maxRetries,
+                durationMs,
+            };
+            await this.events?.emit('queue.job.failed', failed);
             return;
         }
 
         const delay = Math.min(this.maxDelay, this.baseDelay * 2 ** Math.max(0, attempts - 1));
         const nextRetryAt = Date.now() + delay;
         await this.dao.markForRetry(job.id, attempts, message, nextRetryAt);
-        await this.events?.emit('queue.job.retrying', {
+        const retrying: QueueJobRetryingDetail = {
             jobId: job.id,
             type: job.type,
             attempt: attempts,
+            maxRetries: job.maxRetries,
             nextRetryAt,
-        });
+            error: message,
+        };
+        await this.events?.emit('queue.job.retrying', retrying);
     }
 }
 

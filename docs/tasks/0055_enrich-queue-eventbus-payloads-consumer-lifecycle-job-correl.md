@@ -3,7 +3,7 @@ template: feature-impl
 schema_version: 1
 name: "Enrich queue.* EventBus payloads (consumer lifecycle + job correlators) for System Events observability"
 description: ""
-status: todo
+status: done
 type: task
 profile: standard
 feature_id: B
@@ -12,7 +12,7 @@ priority: P1
 tags: []
 dependencies: []
 created_at: "2026-07-30T05:14:49.527Z"
-updated_at: "2026-07-30T05:18:12.537Z"
+updated_at: "2026-07-31T15:54:14.413Z"
 ---
 
 ## 0055. Enrich queue.* EventBus payloads (consumer lifecycle + job correlators) for System Events observability
@@ -340,34 +340,83 @@ Document in JSDoc on `QueueJobCompletedDetail.attempt`.
 11. **Consumer note** — file a short spur-new follow-up (optional) only if UI should
     *display* new fields beyond raw payload JSON (ledger already shows payload).
 ### Solution
-_Pending implementation._ Baseline emit sites and contracts to change (pre-implementation anchors):
 
-- `packages/infra/src/events.ts:77` — `QueueEvents` map (zero-arg consumer entries + inline job shapes)
-- `packages/infra/src/events.ts:29` — `QueueJobFailedDetail` / `QueueJobRetryingDetail` extension points
-- `packages/infra/src/job-queue/db-job-queue.ts:30` — `queue.job.enqueued` single
-- `packages/infra/src/job-queue/db-job-queue.ts:39` — `queue.job.enqueued` batch
-- `packages/infra/src/job-queue/db-job-queue.ts:87` — `queue.consumer.started` (no detail today)
-- `packages/infra/src/job-queue/db-job-queue.ts:102` — `queue.consumer.stopped` (no detail today)
-- `packages/infra/src/job-queue/db-job-queue.ts:189` — `queue.job.completed` (missing durationMs)
-- `packages/infra/src/job-queue/db-job-queue.ts:206` — `queue.job.failed`
-- `packages/infra/src/job-queue/db-job-queue.ts:218` — `queue.job.retrying`
-- `packages/infra/tests/job-queue/db-job-queue.test.ts:247` — existing capture-array event tests to extend
 
-Post-implementation: replace this section with the actual change map and rationale.
+Additive enrichment of existing `queue.*` event names — no new event names, no dual
+emission. Expanded detail interfaces in `packages/infra/src/events.ts`; updated emit sites
+in `packages/infra/src/job-queue/db-job-queue.ts` to populate fields already in lexical
+scope. The job business payload `T` is never attached to bus details (metadata-only
+invariant).
+
+
+| File | Change |
+| ---- | ------ |
+| `packages/infra/src/events.ts:33-109` | Added named detail interfaces (`QueueJobRef` `:33`, `QueueJobEnqueuedDetail` `:41`, `QueueConsumerStartedDetail` `:53`, `QueueConsumerStoppedDetail` `:67`, `QueueJobCompletedDetail` `:79`); extended `QueueJobFailedDetail` `:87` (+`maxRetries`, +`durationMs?`) and `QueueJobRetryingDetail` `:99` (+`maxRetries`, +`error`); rewrote `QueueEvents` map `:140-156` so consumer lifecycle events carry detail objects; fixed stale module header docstring `:1-19`; documented metadata-only invariant. |
+| `packages/infra/src/job-queue/db-job-queue.ts:34-68` | `DBJobQueue.enqueue` `:34` / `enqueueBatch` `:41` emit enriched enqueued detail via shared `enqueuedDetail` helper `:62` (lockstep shape, single + batch). `DBQueueConsumer.start` `:108` emits config snapshot; `stop` `:121` emits drain outcome (`inFlightAtStop`, `drained`). `processJob` `:199` threads `durationMs` into `completed` detail `:229` and into `failOrRetry` on error `:239`. `failOrRetry` `:244` signature gained `durationMs`; `failed` detail `:254` adds `maxRetries`+`durationMs`, `retrying` detail `:269` adds `maxRetries`+`error`. `Number.isFinite` guard normalizes non-finite durations to `0`. |
+| `packages/infra/src/job-queue/types.ts:60-66` | Updated `events?` config JSDoc to describe the richer detail payloads and metadata-only contract. |
+| `packages/infra/src/index.ts:27-44` | Re-exported the new detail types (`QueueJobRef`, `QueueJobEnqueuedDetail`, `QueueConsumerStartedDetail`, `QueueConsumerStoppedDetail`, `QueueJobCompletedDetail`). |
+| `packages/infra/tests/job-queue/db-job-queue.test.ts:285-468` | Added R1, R1b, R2, R2b, R3, R4, R4b dedicated tests asserting the new required/optional fields and the metadata-only invariant (no payload `T` on the wire). |
+| `packages/infra/tests/events.test.ts:38-67` | Updated `queue.job.failed` fixture to include `maxRetries` `:20`; added consumer-lifecycle shape smoke (R5) `:38`. |
+| `CHANGELOG.md:11-17` | Unreleased Added + Breaking Changes entries. |
+
+
+`QueueJobCompletedDetail.attempt` is the **attempts counter on the job row at success**
+(0-based; first successful run = 0). `queue.job.failed` / `retrying` use `attempt =
+job.attempts + 1` (1-based failure number), matching the pre-existing convention.
+Documented in JSDoc on each interface.
 ### Testing
-_Pending verification (implementation not started)._
 
-Planned commands:
 
-```bash
-bun test packages/infra/tests/job-queue/db-job-queue.test.ts
-bun test packages/infra/tests/events.test.ts
-bun run check
-```
+Extended the existing `packages/infra/tests/job-queue/db-job-queue.test.ts` (real
+`bun-sqlite` in-memory adapter + `QueueJobDao`) and `packages/infra/tests/events.test.ts`.
+No mocks of the DAO or EventBus — emit-site behavior is verified end-to-end through the
+real `DBJobQueue` / `DBQueueConsumer` classes.
 
-Coverage claim: N/A until implementation — target is package-level suite green with new assertions for R1–R4b (no coverage regression vs current infra package gate).
+
+**Line coverage:** `packages/infra/src/job-queue/db-job-queue.ts` → **100.00% lines / 100.00% branches**. `packages/infra/src/events.ts` is type-only (no executable lines; exercised via the typed `EventBus` smoke in `events.test.ts` and the db-job-queue emit tests).
+
+| Requirement | Test | Asserts |
+| ----------- | ---- | ------- |
+| R1 (started config) | `R1 — queue.consumer.started carries config snapshot` | `startedAt` finite; `pollInterval`/`batchSize`/`maxConcurrency`/`visibilityTimeout` echoed from config |
+| R1b (stopped drain) | `R1b — queue.consumer.stopped carries drain outcome` | `stoppedAt` finite; `drainTimeoutMs`/`inFlightAtStop`/`drained` present and correct |
+| R2 (enqueue correlators) | `R2 — enqueue enriches detail with correlators and omits payload` | `jobId`/`type`/`enqueuedAt`/`maxRetries`/`delayMs`; payload key `v` absent from stringified detail |
+| R2b (batch shape parity) | `R2b — batch enqueue emits one enriched event per job with matching shape` | 2 events; per-event `jobId`/`type`/`enqueuedAt` |
+| R3 (completed duration) | `R3 — completed job detail includes durationMs and attempt` | `durationMs >= 0` and finite; `attempt === 0` |
+| R4 (failed maxRetries+error) | `R4 — failed job detail includes maxRetries, attempt, and error` | `error`/`attempt`/`maxRetries`/`durationMs` present and correct |
+| R4b (retrying error) | `R4b — retrying job detail includes error, nextRetryAt, and maxRetries` | `error`/`nextRetryAt`/`maxRetries`/`attempt` present and correct |
+| R5 (typed map) | `consumer lifecycle events carry config and drain detail (R5)` in events.test.ts | Map compiles + emits the new shapes |
+| R7 (metadata-only) | R2 test asserts payload key `v` is absent from the stringified detail | Business payload `T` never on the bus |
+
+
+- `bun test packages/infra/` → **304 pass / 0 fail** (baseline 296; +8 new assertions).
+- `bun run lint` (biome + per-package tsc) → clean across all 8 packages.
+- `bun run build` → green for all 8 packages.
+- `bun run spur-check` → 1674 pass / 0 fail; pre-check 47/47 rules; post-check 2/2 rules.
+- No `.skip`, no `biome-ignore`, no suppressions added.
 ### Review
-_Pending review after implementation._
+
+
+Reviewed the diff against R1–R8 and the metadata-only / stable-keys invariants.
+
+| Priority | Finding | Status |
+| -------- | ------- | ------ |
+| P1 | (none) | — |
+| P2 | `failOrRetry` signature widened with required `durationMs`; all three call sites (corrupt-payload, no-handler, handler-throw) updated to pass a finite number | Resolved — verified by tsc + tests |
+| P3 | `Number.isFinite` guard normalizes `NaN`/`Infinity` duration to `0` (R4 invariant #4) | Resolved — applied on both completed and failed paths |
+| P3 | `enqueuedDetail` shared helper keeps single + batch enqueue shape-identical (R2/R2b) | Resolved — single test path covers both |
+| P4 | No business payload `T` on any emit; R2 test asserts payload key absence | Resolved |
+
+
+1. **Metadata-only:** no `payload: T` on any detail — confirmed by grep + R2 assertion.
+2. **No silent empty:** every `queue.*` emit now passes a plain object.
+3. **Stable keys:** `jobId`, `type`, `attempt`, `nextRetryAt`, `error` unchanged.
+4. **Finite numbers:** `durationMs` guarded; timestamps are `Date.now()` (finite).
+5. **Package boundary:** changes confined to `ts-infra` (+ tests + root CHANGELOG).
+
+
+Changing `queue.consumer.started` / `queue.consumer.stopped` from `() => void` to
+`(detail) => void` is a TypeScript minor break for typed subscribers; runtime JS listeners
+that ignore arguments keep working. Recorded in CHANGELOG Breaking Changes.
 ### References
 - Feature **B** — `docs/features/B_restore-system-events-observability-coverage.md`
 - Task **0049** — diagnosis of missing System Events prefixes (done)
@@ -388,3 +437,6 @@ _Pending review after implementation._
 - Discovery date: 2026-07-29 (Spur System Events operator review: Actor=unavailable,
   empty queue.consumer payloads)
 ### History
+- 2026-07-31T07:19:34.406Z todo → wip (system)
+- 2026-07-31T07:24:56.315Z wip → testing (system)
+- 2026-07-31T15:54:14.413Z testing → done (system)

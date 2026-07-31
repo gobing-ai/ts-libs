@@ -58,9 +58,11 @@ export interface QueueConsumerConfig {
     maxDelay?: number;
     drainTimeoutMs?: number;
     /**
-     * Optional bus for queue lifecycle events: `queue.consumer.started` /
-     * `queue.consumer.stopped` and `queue.job.completed` / `queue.job.failed` /
-     * `queue.job.retrying`. Omitting it leaves the consumer silent (default).
+     * Optional bus for queue lifecycle events with correlator-grade detail payloads:
+     * `queue.consumer.started` / `queue.consumer.stopped` (config snapshot + drain
+     * outcome), `queue.job.enqueued` / `queue.job.completed` / `queue.job.failed` /
+     * `queue.job.retrying`. Details carry job identity, timing, and retry counters
+     * only — never the business payload `T`. Omitting it leaves the consumer silent.
      */
     events?: EventBus<QueueEvents>;
 }

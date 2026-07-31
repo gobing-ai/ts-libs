@@ -241,7 +241,7 @@ describe('DBQueueConsumer', () => {
         expect(true).toBe(true);
     });
 
-    test('emits queue lifecycle events through the injected bus', async () => {
+    test('emits enriched queue lifecycle events through the injected bus', async () => {
         const captured: Array<{ event: string; detail: unknown }> = [];
         const bus = new EventBus<QueueEvents>();
         bus.on('queue.job.enqueued', (d) => captured.push({ event: 'queue.job.enqueued', detail: d }));
@@ -280,6 +280,191 @@ describe('DBQueueConsumer', () => {
         await adapter.run('UPDATE queue_jobs SET next_retry_at = ? WHERE id = ?', Date.now() - 1, id);
         await consumer.processOnce();
         expect(captured).toEqual([`retrying:${id}:unstable`, `failed:${id}:unstable`]);
+    });
+
+    test('R1 — queue.consumer.started carries config snapshot', async () => {
+        const bus = new EventBus<QueueEvents>();
+        let started:
+            | {
+                  startedAt: number;
+                  pollInterval: number;
+                  batchSize: number;
+                  maxConcurrency: number;
+                  visibilityTimeout: number;
+              }
+            | undefined;
+        bus.on('queue.consumer.started', (d) => {
+            started = d;
+        });
+
+        const consumer = new DBQueueConsumer<{ v: number }>(dao, {
+            events: bus,
+            pollInterval: 1000,
+            batchSize: 10,
+            maxConcurrency: 5,
+            visibilityTimeout: 30_000,
+        });
+        await consumer.start();
+        await consumer.stop();
+
+        expect(started).toBeDefined();
+        expect(Number.isFinite(started?.startedAt)).toBe(true);
+        expect(started?.pollInterval).toBe(1000);
+        expect(started?.batchSize).toBe(10);
+        expect(started?.maxConcurrency).toBe(5);
+        expect(started?.visibilityTimeout).toBe(30_000);
+    });
+
+    test('R1b — queue.consumer.stopped carries drain outcome', async () => {
+        const bus = new EventBus<QueueEvents>();
+        let stopped:
+            | { stoppedAt: number; drainTimeoutMs: number; inFlightAtStop: number; drained: boolean }
+            | undefined;
+        bus.on('queue.consumer.stopped', (d) => {
+            stopped = d;
+        });
+
+        const consumer = new DBQueueConsumer<{ v: number }>(dao, {
+            events: bus,
+            drainTimeoutMs: 5_000,
+        });
+        await consumer.start();
+        await consumer.stop();
+
+        expect(stopped).toBeDefined();
+        expect(Number.isFinite(stopped?.stoppedAt)).toBe(true);
+        expect(stopped?.drainTimeoutMs).toBe(5_000);
+        expect(stopped?.inFlightAtStop).toBe(0);
+        expect(stopped?.drained).toBe(true);
+    });
+
+    test('R2 — enqueue enriches detail with correlators and omits payload', async () => {
+        const bus = new EventBus<QueueEvents>();
+        let enqueued:
+            | {
+                  jobId: string;
+                  type: string;
+                  enqueuedAt: number;
+                  maxRetries?: number;
+                  delayMs?: number;
+                  ttlMs?: number;
+              }
+            | undefined;
+        bus.on('queue.job.enqueued', (d) => {
+            enqueued = d;
+        });
+
+        const queue = new DBJobQueue<{ v: number }>(dao, bus);
+        const id = await queue.enqueue('FEATURE_ACTION', { v: 1 }, { maxRetries: 3, delay: 500 });
+
+        expect(enqueued).toBeDefined();
+        expect(enqueued?.jobId).toBe(id);
+        expect(enqueued?.type).toBe('FEATURE_ACTION');
+        expect(Number.isFinite(enqueued?.enqueuedAt)).toBe(true);
+        expect(enqueued?.maxRetries).toBe(3);
+        expect(enqueued?.delayMs).toBe(500);
+        expect(enqueued).not.toHaveProperty('payload');
+        expect(JSON.stringify(enqueued)).not.toContain('"v"');
+    });
+
+    test('R2b — batch enqueue emits one enriched event per job with matching shape', async () => {
+        const bus = new EventBus<QueueEvents>();
+        const enqueued: Array<{ jobId: string; type: string; enqueuedAt: number }> = [];
+        bus.on('queue.job.enqueued', (d) => {
+            enqueued.push(d);
+        });
+
+        const queue = new DBJobQueue<{ v: number }>(dao, bus);
+        await queue.enqueueBatch([
+            { type: 'a', payload: { v: 1 } },
+            { type: 'b', payload: { v: 2 } },
+        ]);
+
+        expect(enqueued).toHaveLength(2);
+        expect(enqueued.map((e) => e.type).sort()).toEqual(['a', 'b']);
+        for (const e of enqueued) {
+            expect(Number.isFinite(e.enqueuedAt)).toBe(true);
+            expect(typeof e.jobId).toBe('string');
+        }
+    });
+
+    test('R3 — completed job detail includes durationMs and attempt', async () => {
+        const bus = new EventBus<QueueEvents>();
+        let completed: { durationMs: number; attempt: number } | undefined;
+        bus.on('queue.job.completed', (d) => {
+            completed = d;
+        });
+
+        const queue = new DBJobQueue<{ v: number }>(dao, bus);
+        const id = await queue.enqueue('work', { v: 1 });
+        const consumer = new DBQueueConsumer<{ v: number }>(dao, { events: bus });
+        consumer.register('work', async () => {});
+        await consumer.processOnce();
+
+        expect(completed).toBeDefined();
+        expect(completed?.durationMs).toBeGreaterThanOrEqual(0);
+        expect(Number.isFinite(completed?.durationMs)).toBe(true);
+        expect(completed?.attempt).toBe(0);
+        expect(id).toBeTruthy();
+    });
+
+    test('R4 — failed job detail includes maxRetries, attempt, and error', async () => {
+        const bus = new EventBus<QueueEvents>();
+        let failed:
+            | { jobId: string; type: string; error: string; attempt: number; maxRetries: number; durationMs?: number }
+            | undefined;
+        bus.on('queue.job.failed', (d) => {
+            failed = d;
+        });
+
+        const queue = new DBJobQueue<{ v: number }>(dao);
+        const id = await queue.enqueue('unstable', { v: 1 }, { maxRetries: 1 });
+        const consumer = new DBQueueConsumer<{ v: number }>(dao, { events: bus, baseDelay: 1, maxDelay: 1 });
+        consumer.register('unstable', async () => {
+            throw new Error('boom');
+        });
+        await consumer.processOnce();
+
+        expect(failed).toBeDefined();
+        expect(failed?.jobId).toBe(id);
+        expect(failed?.type).toBe('unstable');
+        expect(failed?.error).toBe('boom');
+        expect(failed?.attempt).toBe(1);
+        expect(failed?.maxRetries).toBe(1);
+        expect(typeof failed?.durationMs).toBe('number');
+    });
+
+    test('R4b — retrying job detail includes error, nextRetryAt, and maxRetries', async () => {
+        const bus = new EventBus<QueueEvents>();
+        let retrying:
+            | {
+                  jobId: string;
+                  type: string;
+                  attempt: number;
+                  nextRetryAt: number;
+                  maxRetries: number;
+                  error: string;
+              }
+            | undefined;
+        bus.on('queue.job.retrying', (d) => {
+            retrying = d;
+        });
+
+        const queue = new DBJobQueue<{ v: number }>(dao);
+        const id = await queue.enqueue('unstable', { v: 1 }, { maxRetries: 3 });
+        const consumer = new DBQueueConsumer<{ v: number }>(dao, { events: bus, baseDelay: 1, maxDelay: 1 });
+        consumer.register('unstable', async () => {
+            throw new Error('transient');
+        });
+        await consumer.processOnce();
+
+        expect(retrying).toBeDefined();
+        expect(retrying?.jobId).toBe(id);
+        expect(retrying?.type).toBe('unstable');
+        expect(retrying?.attempt).toBe(1);
+        expect(retrying?.maxRetries).toBe(3);
+        expect(retrying?.nextRetryAt).toBeGreaterThan(Date.now() - 10_000);
+        expect(retrying?.error).toBe('transient');
     });
 });
 

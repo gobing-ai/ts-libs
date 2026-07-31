@@ -1,14 +1,18 @@
 /**
  * Infrastructure-level event definitions for ts-infra observability.
  *
- * Mirrors the package-local pattern in `@gobing-ai/ts-ai-runner` (`events.ts`):
- * these maps define the infra-level event *contract*. ts-infra itself currently
- * emits only `queue.stats` (`QueueStatsAction`) and `scheduler.job.executed`
- * (`wrapScheduledHandler`); the remaining events are contracts for the consuming
- * app or higher-level wiring to emit on the same bus. Application-domain events
- * (history import, HTTP server, …) belong to the consuming app, not this
- * library. Process events belong to `@gobing-ai/ts-runtime` (the owner of
- * `ProcessExecutor`) and are intentionally not re-exported here.
+ * These maps define the infra-level event *contract* for the consumers of
+ * `@gobing-ai/ts-infra`. ts-infra emits `queue.*` (DBJobQueue / DBQueueConsumer),
+ * `scheduler.job.executed` (`wrapScheduledHandler`), and `db.connection.error`
+ * (DB wiring). Application-domain events (history import, HTTP server, …) belong
+ * to the consuming app, not this library. Process events belong to
+ * `@gobing-ai/ts-runtime` (the owner of `ProcessExecutor`) and are intentionally
+ * not re-exported here.
+ *
+ * **Metadata-only invariant:** every `queue.*` detail object is correlator-grade —
+ * it carries job identity, timing, and retry counters only, and NEVER embeds the
+ * job business payload `T` (which may contain prompts, tokens, PII, or large
+ * blobs). Inspect job bodies via the Jobs DAO when needed.
  *
  * Consume via `EventBus<InfraEvents>` or compose individual maps into a wider
  * app event map.
@@ -26,22 +30,82 @@ export interface DbConnectionErrorDetail {
     adapter: string;
 }
 
-/** Payload for `queue.job.failed` — a job exhausted retries. */
-export interface QueueJobFailedDetail {
+/** Shared job identity correlators present on every `queue.job.*` event. */
+export interface QueueJobRef {
+    /** Job id. */
     jobId: string;
+    /** Job type (the handler registration key). */
     type: string;
-    error: string;
-    /** Attempt number (0-indexed, incremented after each failure). */
+}
+
+/** Payload for `queue.job.enqueued` — a new job was added to the queue. */
+export interface QueueJobEnqueuedDetail extends QueueJobRef {
+    /** Epoch ms when the job was enqueued. */
+    enqueuedAt: number;
+    /** Max retry count from `EnqueueOptions.maxRetries`, when supplied. */
+    maxRetries?: number;
+    /** Requested delay before the job becomes ready (ms), from `EnqueueOptions.delay`. */
+    delayMs?: number;
+    /** Job TTL in ms, from `EnqueueOptions.ttlMs`. */
+    ttlMs?: number;
+}
+
+/** Payload for `queue.consumer.started` — the polling loop began. */
+export interface QueueConsumerStartedDetail {
+    /** Epoch ms when the consumer was started. */
+    startedAt: number;
+    /** Polling interval in ms. */
+    pollInterval: number;
+    /** Claim batch size per poll cycle. */
+    batchSize: number;
+    /** Maximum concurrent in-flight handlers. */
+    maxConcurrency: number;
+    /** Visibility-timeout window in ms. */
+    visibilityTimeout: number;
+}
+
+/** Payload for `queue.consumer.stopped` — the polling loop was halted. */
+export interface QueueConsumerStoppedDetail {
+    /** Epoch ms when `stop()` was called. */
+    stoppedAt: number;
+    /** Drain deadline in ms applied to in-flight handlers at stop time. */
+    drainTimeoutMs: number;
+    /** In-flight handler count observed at stop time. */
+    inFlightAtStop: number;
+    /** `true` when all in-flight handlers completed within the drain deadline. */
+    drained: boolean;
+}
+
+/** Payload for `queue.job.completed` — a job ran to success. */
+export interface QueueJobCompletedDetail extends QueueJobRef {
+    /** Handler wall-clock duration in ms. */
+    durationMs: number;
+    /** 1-based attempt number that produced this outcome (attempts counter on the job row at success). */
     attempt: number;
 }
 
-/** Payload for `queue.job.retrying` — a job will be retried after backoff. */
-export interface QueueJobRetryingDetail {
-    jobId: string;
-    type: string;
+/** Payload for `queue.job.failed` — a job exhausted retries. */
+export interface QueueJobFailedDetail extends QueueJobRef {
+    /** Error message from the final attempt. */
+    error: string;
+    /** 1-based attempt number of the failure. */
     attempt: number;
+    /** Maximum retry count configured for the job. */
+    maxRetries: number;
+    /** Handler wall-clock duration in ms, when measured at the failing attempt. */
+    durationMs?: number;
+}
+
+/** Payload for `queue.job.retrying` — a job will be retried after backoff. */
+export interface QueueJobRetryingDetail extends QueueJobRef {
+    /** 1-based attempt number of the failure that triggers this retry. */
+    attempt: number;
+    /** Maximum retry count configured for the job. */
+    maxRetries: number;
     /** When the next retry will fire (epoch ms). */
     nextRetryAt: number;
+    /** Error message that caused this retry. */
+    error: string;
 }
 
 /** Payload for `scheduler.job.executed`. */
@@ -76,13 +140,13 @@ export type DbEvents = {
 /** Job-queue lifecycle events emitted by the queue and its consumer. */
 export type QueueEvents = {
     /** A new job was enqueued. */
-    'queue.job.enqueued': (detail: { jobId: string; type: string }) => void;
+    'queue.job.enqueued': (detail: QueueJobEnqueuedDetail) => void;
     /** Consumer polling loop started. */
-    'queue.consumer.started': () => void;
-    /** Consumer stopped. */
-    'queue.consumer.stopped': () => void;
+    'queue.consumer.started': (detail: QueueConsumerStartedDetail) => void;
+    /** Consumer polling loop stopped. */
+    'queue.consumer.stopped': (detail: QueueConsumerStoppedDetail) => void;
     /** A job completed successfully. */
-    'queue.job.completed': (detail: { jobId: string; type: string }) => void;
+    'queue.job.completed': (detail: QueueJobCompletedDetail) => void;
     /** A job exhausted retries and is permanently failed. */
     'queue.job.failed': (detail: QueueJobFailedDetail) => void;
     /** A job will be retried after backoff. */

@@ -10,7 +10,11 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Added
 
-- None.
+- Enriched `queue.*` EventBus detail payloads in `@gobing-ai/ts-infra` for System Events observability. `queue.consumer.started` / `queue.consumer.stopped` now carry config snapshots and drain outcomes (previously zero-arg, empty-payload). `queue.job.enqueued` adds `enqueuedAt`, `maxRetries`, `delayMs`, `ttlMs`. `queue.job.completed` adds `durationMs` and `attempt`. `queue.job.failed` adds `maxRetries` and `durationMs`; `queue.job.retrying` adds `maxRetries` and `error`. Details remain correlator-grade — the business payload `T` is never emitted on the bus. New named detail interfaces (`QueueJobRef`, `QueueJobEnqueuedDetail`, `QueueConsumerStartedDetail`, `QueueConsumerStoppedDetail`, `QueueJobCompletedDetail`) are exported from `@gobing-ai/ts-infra`.
+
+### Breaking Changes
+
+- `@gobing-ai/ts-infra` (minor): `queue.consumer.started` and `queue.consumer.stopped` EventBus handlers typed against `QueueEvents` must now accept a detail object instead of being zero-arg. `QueueJobFailedDetail` and `QueueJobRetryingDetail` gained required `maxRetries` (and `error` on retrying) fields. Runtime JS listeners that ignore arguments keep working.
 
 ### Changed
 
