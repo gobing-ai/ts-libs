@@ -3,7 +3,7 @@ template: issue
 schema_version: 1
 name: "NodeSchedulerAdapter.stop() abandons in-flight scheduled actions"
 description: ""
-status: wip
+status: done
 type: issue
 profile: standard
 feature_id: null
@@ -12,7 +12,7 @@ priority: P2
 tags: ["bug"]
 dependencies: []
 created_at: "2026-07-31T19:37:58.852Z"
-updated_at: "2026-07-31T19:39:11.000Z"
+updated_at: "2026-07-31T21:03:09.945Z"
 ---
 
 ## 0058. NodeSchedulerAdapter.stop() abandons in-flight scheduled actions
@@ -185,11 +185,17 @@ immediately while a tick runs on. Recorded under `### Fixed` in `CHANGELOG.md`.
 - **default drainTimeoutMs keeps the no-arg path backward compatible**: the
   bare `new NodeSchedulerAdapter()` constructor still works.
 
+Coverage (bun test --coverage, packages/infra): `src/internals/drain.ts`,
+`src/scheduler/node.ts`, `src/scheduler/cloudflare.ts`, `src/scheduler-node.ts`,
+and `src/scheduler-cloudflare.ts` all at 100% line / 100% branch.
+
 Verification:
 ```
 bun test packages/infra/tests/scheduler-node.test.ts   # 5 pass (incl. smoke), 0 fail
-bun test packages/infra                                   # 310 pass, 0 fail
-bun run lint                                              # clean (Biome + per-pkg tsc --noEmit)
+bun test packages/infra/tests/internals/drain.test.ts   # 4 pass, 0 fail
+bun test packages/infra                                   # 314 pass, 0 fail
+bun run spur-check                                        # clean (Biome + per-pkg tsc + 49 rules + coverage-gate)
+bun run build                                             # all 8 packages clean
 ```
 
 ### Review
