@@ -1,6 +1,7 @@
 import { isatty } from 'node:tty';
 import { type Options as ExecaOptions, execa } from 'execa';
 import type { ProcessExecutionSource, ProcessRegistry } from './process-registry';
+import type { RuntimePaths } from './runtime-paths';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,12 @@ export interface ProcessExecutorConfig {
      * Share one registry across all executors that should appear in the same watch list.
      */
     registry?: ProcessRegistry;
+    /**
+     * Optional cwd/home anchor (ADR-023 A1 / task 0042). When set, `paths.cwd` is applied to
+     * any `run` that carries no explicit per-call `cwd`. Precedence is total:
+     * explicit per-call `cwd` > injected `paths.cwd` > ambient process cwd.
+     */
+    paths?: RuntimePaths;
 }
 
 /** Options for spawning a child process. */
@@ -194,7 +201,7 @@ export class NodeProcessExecutor implements ProcessExecutor {
     private async runUntraced(options: ProcessOptions): Promise<ProcessResult> {
         const args = options.args ?? [];
         const execaOptions = buildExecaOptions({
-            cwd: options.cwd,
+            cwd: options.cwd ?? this.config.paths?.cwd,
             env: options.env,
             timeout: options.timeout ?? this.config.defaultTimeout,
             maxOutput: options.maxOutput ?? this.config.defaultMaxOutput,

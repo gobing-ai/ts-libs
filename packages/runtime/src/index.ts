@@ -47,6 +47,8 @@ export { createInMemoryProcessRegistry, InMemoryProcessRegistry } from './proces
 export { cloudflareWorkersFactory } from './runtime-cf';
 export type { RuntimeFactory } from './runtime-factory';
 export { _resetNodeFileSystem, nodeBunFactory } from './runtime-node-bun';
+export type { RuntimePaths } from './runtime-paths';
+export { ambientRuntimePaths } from './runtime-paths';
 export * from './schema-validation';
 export * from './types';
 

@@ -28,14 +28,16 @@ import {
 import { dirname, resolve as resolvePath } from 'node:path';
 
 import type { FileSystem } from './file-system';
+import type { RuntimePaths } from './runtime-paths';
 
 /**
  * Create a {@link FileSystem} backed by `node:fs`.
  *
  * @param root - Project root directory (default: walks up from `process.cwd()` looking for `bun.lock` or `package.json`).
+ * @param paths - Optional {@link RuntimePaths} anchor; `paths.cwd` seeds the project-root walk when `root` is absent. Defaults to the ambient process cwd.
  */
-export function createNodeFileSystem(root?: string): FileSystem {
-    const projectRoot = root ?? findProjectRoot(process.cwd());
+export function createNodeFileSystem(root?: string, paths?: RuntimePaths): FileSystem {
+    const projectRoot = root ?? findProjectRoot(paths?.cwd ?? process.cwd());
 
     return {
         getProjectRoot: () => projectRoot,
