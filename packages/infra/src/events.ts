@@ -80,7 +80,7 @@ export interface QueueConsumerStoppedDetail {
 export interface QueueJobCompletedDetail extends QueueJobRef {
     /** Handler wall-clock duration in ms. */
     durationMs: number;
-    /** 1-based attempt number that produced this outcome (attempts counter on the job row at success). */
+    /** Attempts counter on the job row at success (0 on the first successful run). */
     attempt: number;
 }
 
