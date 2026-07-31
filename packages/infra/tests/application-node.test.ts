@@ -3,8 +3,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { metrics, trace } from '@opentelemetry/api';
-import type { ApplicationConfigValidator } from '../src/application/types';
+import type { ApplicationConfigValidator, SchedulerOptions } from '../src/application/types';
 import { ConfigValidationError, runNodeApplication } from '../src/application-node';
+import type { ScheduledAction, SchedulerAdapter } from '../src/scheduler/types';
+import { NodeSchedulerAdapter } from '../src/scheduler-node';
 import { _resetMetrics, getHttpClientRequestTotal } from '../src/telemetry/metrics';
 import { _resetNodeTelemetry } from '../src/telemetry/otel-node';
 import { _resetTelemetry } from '../src/telemetry/sdk';
@@ -688,5 +690,88 @@ bootstrap:
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }
+    });
+});
+
+// ── Scheduler adapter injection (0059) ─────────────────────────────────────
+
+/** Minimal in-memory SchedulerAdapter double for injection tests. */
+class FakeSchedulerAdapter implements SchedulerAdapter {
+    readonly registered: Array<[string, ScheduledAction]> = [];
+    started = false;
+    stopped = false;
+    register(cron: string, action: ScheduledAction): void {
+        this.registered.push([cron, action]);
+    }
+    async start(): Promise<void> {
+        this.started = true;
+    }
+    async stop(): Promise<void> {
+        this.stopped = true;
+    }
+}
+
+describe('runNodeApplication — scheduler adapter injection', () => {
+    afterEach(resetModules);
+
+    test('R1 — a caller-supplied adapter survives bootstrap when enabled', async () => {
+        const injected = new FakeSchedulerAdapter();
+        const app = await runNodeApplication({
+            config: { scheduler: { enabled: true, adapter: injected } },
+            start: async () => {},
+        });
+
+        // The running scheduler IS the caller's adapter, not a NodeSchedulerAdapter.
+        expect(app.scheduler).toBe(injected);
+        expect(app.scheduler).not.toBeInstanceOf(NodeSchedulerAdapter);
+        expect(injected.started).toBe(true);
+        await app.stop();
+        expect(injected.stopped).toBe(true);
+    });
+
+    test('R1b — default NodeSchedulerAdapter applies when no adapter is supplied', async () => {
+        const app = await runNodeApplication({
+            config: { scheduler: { enabled: true } },
+            start: async () => {},
+        });
+
+        expect(app.scheduler).toBeInstanceOf(NodeSchedulerAdapter);
+        await app.stop();
+    });
+
+    test('R2 — drainTimeoutMs reaches the adapter via injection', async () => {
+        // ADR-024: the drain bound is reachable by passing a pre-built adapter.
+        // An invalid bound is rejected at the adapter constructor boundary.
+        expect(() => new NodeSchedulerAdapter({ drainTimeoutMs: -1 })).toThrow(RangeError);
+        expect(() => new NodeSchedulerAdapter({ drainTimeoutMs: Number.POSITIVE_INFINITY })).toThrow(RangeError);
+
+        const adapter = new NodeSchedulerAdapter({ drainTimeoutMs: 5000 });
+        const app = await runNodeApplication({
+            config: { scheduler: { enabled: true, adapter } },
+            start: async () => {},
+        });
+
+        expect(app.scheduler).toBe(adapter);
+        await app.stop();
+    });
+
+    test('R1 — caller entries are registered when supplied via config', async () => {
+        const action: ScheduledAction = async () => {};
+        const injected = new FakeSchedulerAdapter();
+        const entries: SchedulerOptions['entries'] = [['*/1 * * * *', action]];
+        const app = await runNodeApplication({
+            config: {
+                scheduler: {
+                    enabled: true,
+                    adapter: injected,
+                    entries,
+                },
+            },
+            start: async () => {},
+        });
+
+        expect(injected.registered.length).toBe(1);
+        expect(injected.registered[0]?.[0]).toBe('*/1 * * * *');
+        await app.stop();
     });
 });

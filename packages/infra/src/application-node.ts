@@ -265,12 +265,19 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
         typeof logFilePath === 'string' ? { ...loggingOpts, fileSink: createFileSink(logFilePath) } : loggingOpts;
 
     // ── Scheduler adapter ───────────────────────────────────────────────
+    // Honour a caller-supplied `SchedulerOptions.adapter` (documented injection
+    // point, application/types.ts:82) instead of unconditionally overwriting
+    // it. Only default-construct a NodeSchedulerAdapter when none was provided.
+    // `drainTimeoutMs` (ADR-024) is reachable by passing a pre-built adapter;
+    // the auto-wired default keeps the 30000 ms bound (CHANGELOG.md:16).
     const schedulerConfig: SchedulerOptions = {};
-    const rawSched = { ...schedulerOpts } as Record<string, unknown>;
-    if (rawSched.enabled === true) {
+    if (schedulerOpts.enabled === true) {
         schedulerConfig.enabled = true;
         schedulerConfig.autoStart = schedulerOpts.autoStart;
-        schedulerConfig.adapter = new NodeSchedulerAdapter();
+        schedulerConfig.adapter = schedulerOpts.adapter ?? new NodeSchedulerAdapter();
+        if (schedulerOpts.entries) {
+            schedulerConfig.entries = schedulerOpts.entries;
+        }
     }
 
     // ── Node-owned plugins ──────────────────────────────────────────────
