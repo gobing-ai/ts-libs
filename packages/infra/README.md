@@ -271,6 +271,8 @@ const processed = await consumer.processOnce();
 
 The consumer claims ready jobs, resets stuck processing jobs after the visibility timeout, retries failed jobs with exponential backoff, and marks expired jobs failed through `QueueJobDao`. Corrupt payloads are failed individually without rejecting the batch. Poll-cycle errors are logged and retried on the next cycle — a single DAO hiccup will not crash the process.
 
+`stop()` drains gracefully: it stops polling, then waits for work already in flight — including a poll cycle that has claimed nothing yet — before resolving. The wait is capped by `drainTimeoutMs` (default 30s) so a stuck handler cannot block shutdown; when the cap is hit, `queue.consumer.stopped` reports `drained: false` with the outstanding `inFlightAtStop` count.
+
 **Queue lifecycle events** are opt-in through the injected `EventBus`:
 
 ```ts

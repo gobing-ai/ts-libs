@@ -81,6 +81,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
     private timer: ReturnType<typeof setTimeout> | null = null;
     private running = false;
     private inFlight = 0;
+    private pollPromise: Promise<void> | null = null;
 
     constructor(
         private readonly dao: QueueJobDao,
@@ -122,6 +123,17 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         }
 
         const deadline = Date.now() + this.drainTimeoutMs;
+
+        // Wait for an already-running poll cycle before consulting `inFlight`.
+        // `inFlight` is only incremented once claimReady() has resolved, so a stop()
+        // landing between the timer firing and that increment would see 0, exit the
+        // drain loop immediately, and report `drained: true` while the cycle went on
+        // to claim and process jobs after stop() resolved.
+        const pending = this.pollPromise;
+        if (pending !== null) {
+            await settleWithin(pending, deadline);
+        }
+
         while (this.inFlight > 0 && Date.now() < deadline) {
             await sleep(10);
         }
@@ -171,7 +183,12 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
 
     private schedule(delay: number): void {
         this.timer = setTimeout(() => {
-            void this.poll();
+            // Retained so stop() can await the cycle it interrupts; poll() contains its
+            // own errors, so this promise settles rather than rejecting.
+            const cycle = this.poll().finally(() => {
+                if (this.pollPromise === cycle) this.pollPromise = null;
+            });
+            this.pollPromise = cycle;
         }, delay);
     }
 
@@ -291,6 +308,26 @@ function toJob<T>(record: QueueJobRecord): Job<T> {
 
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Resolve when `promise` settles or when `deadline` passes, whichever comes first.
+ *
+ * WHY: stop() must wait for an in-flight poll cycle without surrendering its
+ * `drainTimeoutMs` bound — an unbounded await would let one hung handler block
+ * shutdown forever. Never rejects: a failed cycle ends the wait like a successful one.
+ */
+function settleWithin(promise: Promise<void>, deadline: number): Promise<void> {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return Promise.resolve();
+    return new Promise((resolve) => {
+        const timer = setTimeout(resolve, remaining);
+        const done = (): void => {
+            clearTimeout(timer);
+            resolve();
+        };
+        promise.then(done, done);
+    });
 }
 
 function positiveIntegerConfig(name: string, value: number): number {

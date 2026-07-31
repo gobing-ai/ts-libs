@@ -15,6 +15,7 @@ export interface Job<T = unknown> {
     payload: T;
     status: 'pending' | 'processing' | 'completed' | 'failed';
     attempts: number;
+    /** Total attempts allowed, not retries *after* the first — a job fails once `attempts >= maxRetries`. */
     maxRetries: number;
     createdAt: number;
     updatedAt: number;
@@ -25,6 +26,7 @@ export interface Job<T = unknown> {
 
 /** Options for enqueuing a job: retry policy, delay, and TTL. */
 export interface EnqueueOptions {
+    /** Total attempts allowed (default 3) — `maxRetries: 1` runs the job once with no retry. */
     maxRetries?: number;
     delay?: number;
     ttlMs?: number;
@@ -56,6 +58,7 @@ export interface QueueConsumerConfig {
     visibilityTimeout?: number;
     baseDelay?: number;
     maxDelay?: number;
+    /** Upper bound (ms, default 30_000) on how long `stop()` waits for in-flight work to drain. */
     drainTimeoutMs?: number;
     /**
      * Optional bus for queue lifecycle events with correlator-grade detail payloads:
@@ -71,6 +74,11 @@ export interface QueueConsumerConfig {
 export interface QueueConsumer<T = unknown> {
     register(type: string, handler: JobHandler<T>): void;
     start(): Promise<void>;
+    /**
+     * Stop polling and drain work already in flight, including a poll cycle that has
+     * claimed nothing yet. Resolves once the drain completes or `drainTimeoutMs`
+     * elapses — whichever comes first, so a hung handler cannot block shutdown.
+     */
     stop(): Promise<void>;
     stats(): Promise<QueueStats>;
 }

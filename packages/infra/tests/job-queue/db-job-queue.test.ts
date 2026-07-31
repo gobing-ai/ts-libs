@@ -202,6 +202,99 @@ describe('DBQueueConsumer', () => {
         expect((await dao.getById(id))?.status).toBe('completed');
     });
 
+    test('stop() waits for a poll cycle that has not claimed yet (drain race regression)', async () => {
+        // Regression: `inFlight` is incremented only after claimReady() resolves, so a
+        // stop() landing inside that window observed 0, exited the drain loop at once,
+        // and emitted `drained: true` while the cycle went on to claim and run handlers
+        // after stop() had resolved. The existing drain test waits for status
+        // 'processing' first, which synchronizes past this window.
+        const queue = new DBJobQueue<{ value: number }>(dao);
+        const id = await queue.enqueue('slow-claim', { value: 1 });
+
+        // Delay only the claim, so stop() is guaranteed to land before any increment.
+        const slowDao = new Proxy(dao, {
+            get(target, prop, receiver) {
+                if (prop === 'claimReady') {
+                    return async (batchSize: number) => {
+                        await Bun.sleep(60);
+                        return target.claimReady(batchSize);
+                    };
+                }
+                const value = Reflect.get(target, prop, receiver);
+                return typeof value === 'function' ? value.bind(target) : value;
+            },
+        });
+
+        const bus = new EventBus<QueueEvents>();
+        let drained: boolean | undefined;
+        bus.on('queue.consumer.stopped', (d) => {
+            drained = d.drained;
+        });
+
+        let stopReturned = false;
+        let ranAfterStop = false;
+        const consumer = new DBQueueConsumer<{ value: number }>(slowDao, {
+            pollInterval: 5,
+            drainTimeoutMs: 1_000,
+            events: bus,
+        });
+        consumer.register('slow-claim', async () => {
+            if (stopReturned) ranAfterStop = true;
+        });
+
+        await consumer.start();
+        await Bun.sleep(10); // timer fired; claimReady is mid-flight and inFlight is still 0
+        await consumer.stop();
+        stopReturned = true;
+
+        await Bun.sleep(120); // an escaped cycle would run its handler inside this window
+        expect(ranAfterStop).toBe(false);
+        expect(drained).toBe(true);
+        // The job was drained, not abandoned mid-claim.
+        expect((await dao.getById(id))?.status).toBe('completed');
+    });
+
+    test('stop() gives up after drainTimeoutMs when a handler hangs', async () => {
+        // The drain wait is bounded: awaiting the in-flight cycle must not let one stuck
+        // handler block shutdown forever. Pairs with the race regression above — that one
+        // proves stop() waits, this one proves it does not wait indefinitely.
+        const queue = new DBJobQueue<{ value: number }>(dao);
+        const id = await queue.enqueue('hang', { value: 1 });
+
+        const bus = new EventBus<QueueEvents>();
+        let drained: boolean | undefined;
+        bus.on('queue.consumer.stopped', (d) => {
+            drained = d.drained;
+        });
+
+        let release: () => void = () => {};
+        const consumer = new DBQueueConsumer<{ value: number }>(dao, {
+            pollInterval: 5,
+            drainTimeoutMs: 50,
+            events: bus,
+        });
+        consumer.register(
+            'hang',
+            () =>
+                new Promise<void>((resolve) => {
+                    release = resolve;
+                }),
+        );
+
+        await consumer.start();
+        await waitFor(async () => (await dao.getById(id))?.status === 'processing');
+
+        const startedAt = Date.now();
+        await consumer.stop();
+        const elapsed = Date.now() - startedAt;
+
+        expect(elapsed).toBeLessThan(2_000); // bounded by drainTimeoutMs, not by the handler
+        expect(drained).toBe(false); // and honestly reported as an incomplete drain
+
+        release(); // let the stuck cycle finish so it does not outlive the test
+        await Bun.sleep(10);
+    });
+
     test('a corrupt payload fails the job instead of rejecting the batch', async () => {
         const queue = new DBJobQueue<{ value: number }>(dao);
         const corruptId = await queue.enqueue('work', { value: 1 }, { maxRetries: 1 });
