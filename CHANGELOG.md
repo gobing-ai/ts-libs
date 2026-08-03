@@ -28,6 +28,28 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - None.
 
+## [0.4.16] — 2026-08-03
+
+### Added
+
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
 ## [0.4.15] — 2026-07-31
 
 ### Added
@@ -638,7 +660,8 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[Unreleased]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.15...HEAD
+[Unreleased]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.16...HEAD
+[0.4.16]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.15...@gobing-ai/ts-libs-v0.4.16
 [0.4.15]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.14...@gobing-ai/ts-libs-v0.4.15
 [0.4.12]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.11...@gobing-ai/ts-libs-v0.4.12
 [0.4.11]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.10...@gobing-ai/ts-libs-v0.4.11

@@ -77,6 +77,7 @@ rules:
       - "packages/db/src/schema/define-table.ts"
       - "**/schema-sql.ts"
       - "packages/rule-engine/src/persistence/schema.ts"
+      - "packages/llm-jsonl-importer/src/jsonl-importer-dao.ts"
       - "**/tests/**"
       - "**/*.test.ts"
 
@@ -95,6 +96,7 @@ rules:
       - "packages/db/src/schema/define-table.ts"
       - "**/schema-sql.ts"
       - "packages/rule-engine/src/persistence/schema.ts"
+      - "packages/llm-jsonl-importer/src/jsonl-importer-dao.ts"
       - "**/tests/**"
       - "**/*.test.ts"
 
@@ -130,7 +132,7 @@ rules:
       - "packages/db/**"
       - "packages/dual-workflow-engine/src/persistence.ts"
       - "packages/dual-workflow-engine/src/schema-sql.ts"
-      - "packages/llm-jsonl-importer/src/importer.ts"
+      - "packages/llm-jsonl-importer/src/jsonl-importer-dao.ts"
       - "packages/llm-jsonl-importer/src/schema-sql.ts"
       - "packages/rule-engine/src/persistence/db-adapter.ts"
       - "packages/rule-engine/src/persistence/schema.ts"

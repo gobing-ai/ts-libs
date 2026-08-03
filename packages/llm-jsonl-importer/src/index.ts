@@ -1,6 +1,7 @@
 export { HistoryImportError } from './errors';
 export { sha256, stableJson } from './hash';
-export { applyHistoryImportSchema, runJsonlImport } from './importer';
+export { runJsonlImport } from './importer';
+export { applyHistoryImportSchema } from './jsonl-importer-dao';
 export { DEFAULT_REDACTION_RULES, redactRecord, redactValue } from './redaction';
 export { HISTORY_IMPORT_SCHEMA_SQL } from './schema-sql';
 export {
