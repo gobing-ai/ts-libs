@@ -126,7 +126,8 @@ describe('insertRecord', () => {
 
         const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_codex');
         expect(rows).toHaveLength(1);
-        expect(JSON.parse(rows[0]!.payload_json)).toEqual({ content: 'hello' });
+        const row = rows[0] as { payload_json: string };
+        expect(JSON.parse(row.payload_json)).toEqual({ content: 'hello' });
     });
 
     test('is idempotent on duplicate record_hash', async () => {
@@ -135,6 +136,7 @@ describe('insertRecord', () => {
 
         const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_codex');
         expect(rows).toHaveLength(1);
-        expect(JSON.parse(rows[0]!.payload_json)).toEqual({ content: 'a' });
+        const row = rows[0] as { payload_json: string };
+        expect(JSON.parse(row.payload_json)).toEqual({ content: 'a' });
     });
 });
