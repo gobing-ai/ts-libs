@@ -25,6 +25,29 @@ describe('BunSqliteAdapter', () => {
         a.close();
     });
 
+    test('sets busy_timeout to 5000 by default', async () => {
+        const a = new BunSqliteAdapter({ databaseUrl: ':memory:' });
+        try {
+            const row = await a.queryFirst<{ timeout: number }>('PRAGMA busy_timeout');
+            expect(row?.timeout).toBe(5000);
+        } finally {
+            a.close();
+        }
+    });
+
+    test('allows overriding busy_timeout via pragmas option', async () => {
+        const a = new BunSqliteAdapter({
+            databaseUrl: ':memory:',
+            pragmas: { busyTimeout: 'PRAGMA busy_timeout = 10000' },
+        });
+        try {
+            const row = await a.queryFirst<{ timeout: number }>('PRAGMA busy_timeout');
+            expect(row?.timeout).toBe(10000);
+        } finally {
+            a.close();
+        }
+    });
+
     test('db exposes the internal typed drizzle db', () => {
         const db = adapter.db;
         expect(db).toBeDefined();

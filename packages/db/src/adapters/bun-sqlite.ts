@@ -22,6 +22,7 @@ export interface BunSqliteOptions {
         journalMode?: string;
         synchronous?: string;
         foreignKeys?: string;
+        busyTimeout?: string;
     };
 }
 
@@ -29,6 +30,7 @@ const DEFAULT_PRAGMAS = {
     journalMode: 'PRAGMA journal_mode = WAL',
     synchronous: 'PRAGMA synchronous = NORMAL',
     foreignKeys: 'PRAGMA foreign_keys = ON',
+    busyTimeout: 'PRAGMA busy_timeout = 5000',
 } as const;
 
 const DEFAULT_DB_PATH = '.spur/spur.db';
@@ -70,6 +72,7 @@ export class BunSqliteAdapter implements DbAdapter {
         this.sqlite.run(pragmas.journalMode);
         this.sqlite.run(pragmas.synchronous);
         this.sqlite.run(pragmas.foreignKeys);
+        this.sqlite.run(pragmas.busyTimeout);
 
         this.drizzleDb = drizzle({ client: this.sqlite, schema });
     }
