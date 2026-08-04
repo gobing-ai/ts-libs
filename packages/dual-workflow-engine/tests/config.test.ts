@@ -134,6 +134,24 @@ transitions:
         expect(() => loadWorkflowDefFromText(wf)).toThrow(/Terminal state "b" must not declare transitions/);
     });
 
+    test('W1: rejects a failure state not declared in terminalStates', () => {
+        const wf =
+            'name: w\ninitialState: a\nstates: [{id: a},{id: b},{id: c}]\nterminalStates: [b]\nfailureStates: [b,c]\ntransitions: [{from: a, to: b}]\n';
+        expect(() => loadWorkflowDefFromText(wf)).toThrow(/must also be declared as a terminal state/);
+    });
+
+    test('W1: rejects a failure state that is not a declared state at all', () => {
+        const wf =
+            'name: w\ninitialState: a\nstates: [{id: a},{id: b}]\nterminalStates: [b]\nfailureStates: [nope]\ntransitions: [{from: a, to: b}]\n';
+        expect(() => loadWorkflowDefFromText(wf)).toThrow(/Failure state "nope" is not declared/);
+    });
+
+    test('W1: accepts failureStates that are a subset of terminalStates', () => {
+        const wf =
+            'name: w\ninitialState: a\nstates: [{id: a},{id: b},{id: c}]\nterminalStates: [b,c]\nfailureStates: [c]\ntransitions: [{from: a, to: c}]\n';
+        expect(() => loadWorkflowDefFromText(wf)).not.toThrow();
+    });
+
     // `REF(x)` builds a literal `${x}` template placeholder without writing `${` in
     // source (which would trip the noTemplateCurlyInString lint on these fixtures).
     const REF = (expr: string) => `\${${expr}}`;

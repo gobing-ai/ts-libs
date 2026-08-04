@@ -119,6 +119,74 @@ describe('StateMachineDriver', () => {
         expect(result.transitionsTaken).toBe(0);
     });
 
+    test('reports failed when a declared failure terminal is reached by transition', async () => {
+        const driver = makeDriver();
+        const result = await driver.run({
+            name: 'fail-term',
+            initialState: 'start',
+            terminalStates: ['done', 'failed'],
+            failureStates: ['failed'],
+            states: [{ id: 'start' }, { id: 'done' }, { id: 'failed' }],
+            transitions: [{ from: 'start', to: 'failed', guard: { kind: 'always' } }],
+        });
+        expect(result.status).toBe('failed');
+        expect(result.finalState).toBe('failed');
+        expect(result.reason).toBe('terminal:failed');
+    });
+
+    test('reports failed when an on-enter action signals terminal on a failure state', async () => {
+        const host = new WorkflowEngineHost().registerAction({
+            kind: 'terminate',
+            async execute() {
+                return { ok: true, terminal: true };
+            },
+        });
+        const driver = new StateMachineDriver({
+            host,
+            persistence: new MemoryWorkflowPersistenceAdapter(),
+        });
+        const result = await driver.run({
+            name: 'fail-term-action',
+            initialState: 'failed',
+            terminalStates: ['done', 'failed'],
+            failureStates: ['failed'],
+            states: [{ id: 'failed', onEnter: [{ kind: 'terminate' }] }, { id: 'done' }],
+            transitions: [],
+        });
+        expect(result.status).toBe('failed');
+        expect(result.finalState).toBe('failed');
+        expect(result.reason).toBe('terminal:failed');
+    });
+
+    test('failure terminal persists failed status on the run row', async () => {
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new StateMachineDriver({ host: createDefaultWorkflowEngineHost(), persistence });
+        const result = await driver.run({
+            name: 'fail-row',
+            initialState: 'start',
+            terminalStates: ['failed'],
+            failureStates: ['failed'],
+            states: [{ id: 'start' }, { id: 'failed' }],
+            transitions: [{ from: 'start', to: 'failed', guard: { kind: 'always' } }],
+        });
+        expect(result.status).toBe('failed');
+        const row = await persistence.loadRun(result.runId);
+        expect(row?.status).toBe('failed');
+    });
+
+    test('workflow without failureStates finalizes a terminal as done (unchanged)', async () => {
+        const driver = makeDriver();
+        const result = await driver.run({
+            name: 'no-failure',
+            initialState: 'start',
+            terminalStates: ['failed', 'done'],
+            states: [{ id: 'start' }, { id: 'done' }, { id: 'failed' }],
+            transitions: [{ from: 'start', to: 'failed', guard: { kind: 'always' } }],
+        });
+        expect(result.status).toBe('done');
+        expect(result.finalState).toBe('failed');
+    });
+
     test('resolves runtime builtin templates for actions', async () => {
         const messages: unknown[] = [];
         const host = new WorkflowEngineHost()

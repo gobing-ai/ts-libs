@@ -59,6 +59,7 @@ export class StateMachineDriver {
         const runId = lifecycle.runId;
         const states = new Map(workflow.states.map((state) => [state.id, state]));
         const terminal = new Set(workflow.terminalStates ?? []);
+        const failure = new Set(workflow.failureStates ?? []);
         let vars = mergeVars(workflow.vars, options.vars);
         const env = allowedEnv(workflow.env?.allow ?? [], options.env);
         let current = resumeFromState !== undefined ? states.get(resumeFromState) : states.get(workflow.initialState);
@@ -110,7 +111,9 @@ export class StateMachineDriver {
                 if (enter.result !== undefined) lastActionResult = enter.result;
                 if (enter.result?.setVars) vars = mergeSetVars(vars, enter.result.setVars);
                 if (enter.outcome === 'terminal') {
-                    return await lifecycle.done(current.id, transitionsTaken);
+                    return failure.has(current.id)
+                        ? await lifecycle.fail(current.id, transitionsTaken, `terminal:${current.id}`)
+                        : await lifecycle.done(current.id, transitionsTaken);
                 }
                 // 4. Halt only when an action failed under a 'fail' policy.
                 if (enter.outcome === 'fail') {
@@ -125,7 +128,9 @@ export class StateMachineDriver {
 
             const outbound = workflow.transitions.filter((transition) => transition.from === current?.id);
             if (terminal.has(current.id) || outbound.length === 0) {
-                return await lifecycle.done(current.id, transitionsTaken);
+                return failure.has(current.id)
+                    ? await lifecycle.fail(current.id, transitionsTaken, `terminal:${current.id}`)
+                    : await lifecycle.done(current.id, transitionsTaken);
             }
 
             // 5. Evaluate transition guards in declaration order and pick the first passing transition.

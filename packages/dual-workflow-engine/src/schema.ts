@@ -47,6 +47,7 @@ export const StateMachineWorkflowDefSchema = z
         description: z.string().optional(),
         initialState: z.string().min(1),
         terminalStates: z.array(z.string().min(1)).optional(),
+        failureStates: z.array(z.string().min(1)).optional(),
         iterationBound: z.number().int().positive().optional(),
         defaultOnError: z.enum(['fail', 'continue']).optional(),
         vars: VarsSchema.optional(),

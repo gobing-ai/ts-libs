@@ -60,6 +60,11 @@ export interface StateMachineWorkflowDef {
     readonly description?: string;
     readonly initialState: string;
     readonly terminalStates?: readonly string[];
+    /**
+     * Subset of `terminalStates` whose reach marks the run as failed rather
+     * than done. Absent ⇒ every terminal state is a success (today's behavior).
+     */
+    readonly failureStates?: readonly string[];
     readonly iterationBound?: number;
     /** Default error policy applied to actions that don't specify their own. Defaults to 'fail'. */
     readonly defaultOnError?: OnErrorPolicy;

@@ -51,9 +51,19 @@ function validateStateMachine(workflow: Extract<WorkflowDef, { kind?: 'state-mac
     const ids = workflow.states.map((state) => state.id);
     const states = new Set(ids);
     const terminals = new Set(workflow.terminalStates ?? []);
+    const failures = new Set(workflow.failureStates ?? []);
 
     // Duplicate state ids.
     for (const id of duplicates(ids)) errors.push(`State "${id}" is declared more than once`);
+
+    // Failure states must be a subset of terminal states (a failure terminal is a
+    // terminal whose reach finalizes the run as failed).
+    for (const failure of failures) {
+        if (!states.has(failure)) errors.push(`Failure state "${failure}" is not declared`);
+        else if (!terminals.has(failure)) {
+            errors.push(`Failure state "${failure}" must also be declared as a terminal state`);
+        }
+    }
 
     // Initial state must be declared and must not be terminal.
     if (!states.has(workflow.initialState)) {
