@@ -28,6 +28,32 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - None.
 
+## [0.4.18] — 2026-08-04
+
+### Added
+
+- `@gobing-ai/ts-dual-workflow-engine`: declarative `failureStates` — a subset of
+  `terminalStates`. A run reaching a failure terminal now finalizes via `lifecycle.fail`
+  (status `failed`, reason `terminal:<state>`) instead of `lifecycle.done`. When absent,
+  every terminal is a success (unchanged behavior). Validation rejects failure states that
+  are not declared or not present in `terminalStates`.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
 ## [0.4.16] — 2026-08-03
 
 ### Added
