@@ -54,6 +54,16 @@ export interface ProcessOptions {
      */
     onOutput?: (output: ProcessOutputChunk) => void;
     /**
+     * Optional observer invoked once with the OS pid as soon as the child is
+     * spawned, for callers that need to identify the subprocess while it is
+     * still running (progress lines, `kill` targets, `ps` correlation).
+     *
+     * The buffered {@link ProcessResult} cannot carry this: execa@9 resolves
+     * only after exit, by which point the pid is historical. Failures are
+     * isolated — observation cannot change process semantics.
+     */
+    onSpawn?: (pid: number) => void;
+    /**
      * Registry metadata (spur#0264). Defaults: source `'one-shot'` for `run`.
      * Pass `source: 'supervisor'` (and optional teamId/agentId) when the spawn is
      * a supervised team agent loop.
@@ -231,11 +241,23 @@ export class NodeProcessExecutor implements ProcessExecutor {
 
         try {
             const subprocess = execa(options.command, args, execaOptions);
+            // execa@9's resolved Result carries no pid, but the live handle does.
+            // Publish it while the child is running so observers can identify the
+            // subprocess, and record it against the registry entry opened above.
+            if (subprocess.pid !== undefined) {
+                this.config.registry?.update(registryId, { pid: subprocess.pid });
+                if (options.onSpawn !== undefined) {
+                    try {
+                        options.onSpawn(subprocess.pid);
+                    } catch {
+                        // Spawn observation cannot change process semantics.
+                    }
+                }
+            }
             const stopGroupCancellation = observeProcessGroupCancellation(subprocess, options.signal);
             observeOutput(subprocess.stdout, 'stdout', options.onOutput);
             observeOutput(subprocess.stderr, 'stderr', options.onOutput);
             const result = await subprocess.finally(stopGroupCancellation);
-            // execa@9 Result does not expose pid — buffered runs leave pid unset.
             const processResult = {
                 command: options.command,
                 args,
