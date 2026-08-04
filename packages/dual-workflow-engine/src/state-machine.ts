@@ -142,6 +142,9 @@ export class StateMachineDriver {
                     current: current.id,
                     vars,
                     lastActionResult,
+                    // Shell guards use relative paths (e.g. .spur/run/${vars.__runId}-*) —
+                    // must share the run's workdir with actions or they read the process cwd.
+                    workdir: options.workdir,
                 },
                 lifecycle,
             );

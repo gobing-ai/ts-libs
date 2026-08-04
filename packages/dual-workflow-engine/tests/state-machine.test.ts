@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setLoggerMuted } from '@gobing-ai/ts-infra';
 import { createDefaultWorkflowEngineHost, WorkflowEngineHost } from '../src/host';
 import { MemoryWorkflowPersistenceAdapter } from '../src/persistence';
@@ -582,4 +585,54 @@ describe('StateMachineDriver — setVars cross-action flow', () => {
         // If exitVar were missing, ${vars.exitVar} would throw WorkflowValidationError.
         expect(result.status).toBe('done');
     });
+});
+
+test('shell guards honor run workdir for relative artifact paths (0425 R4)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wf-workdir-'));
+    const host = createDefaultWorkflowEngineHost();
+    const driver = new StateMachineDriver({
+        host,
+        persistence: new MemoryWorkflowPersistenceAdapter(),
+    });
+    const result = await driver.run(
+        {
+            name: 'workdir-guard',
+            initialState: 'probe',
+            terminalStates: ['done', 'failed'],
+            failureStates: ['failed'],
+            states: [
+                {
+                    id: 'probe',
+                    onEnter: [
+                        {
+                            kind: 'shell',
+                            options: {
+                                command: `mkdir -p .spur/run && printf "PASS\\n" > .spur/run/\${vars.__runId}-gate.status`,
+                            },
+                        },
+                    ],
+                },
+                { id: 'done' },
+                { id: 'failed' },
+            ],
+            transitions: [
+                {
+                    from: 'probe',
+                    to: 'done',
+                    guard: {
+                        kind: 'shell',
+                        options: {
+                            command: `test "$(cat .spur/run/\${vars.__runId}-gate.status 2>/dev/null)" = PASS`,
+                        },
+                    },
+                },
+                { from: 'probe', to: 'failed', guard: { kind: 'always' } },
+            ],
+            vars: { __runId: '' },
+        },
+        { workdir: dir, runId: 'r-wd', vars: { __runId: 'r-wd' } },
+    );
+    expect(result.status).toBe('done');
+    expect(result.finalState).toBe('done');
+    await rm(dir, { recursive: true, force: true });
 });

@@ -137,6 +137,8 @@ export class TransitionFlowDriver {
                     current: current.id,
                     vars,
                     lastActionResult,
+                    // Shell conditions must share the run workdir with actions (relative paths).
+                    workdir: options.workdir,
                 },
                 lifecycle,
             );
