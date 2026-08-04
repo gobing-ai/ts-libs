@@ -13,6 +13,11 @@
         "description": { "type": "string" },
         "initialState": { "type": "string", "minLength": 1 },
         "terminalStates": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "failureStates": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Subset of terminalStates whose reach finalizes the run as failed. Absent ⇒ every terminal is a success."
+        },
         "iterationBound": { "type": "integer", "exclusiveMinimum": 0 },
         "vars": {
             "type": "object",
