@@ -3,6 +3,7 @@ import {
     AGENT_SHIMS,
     type AgentName,
     DISPLAY_ORDER,
+    getAgentSessionCapability,
     getAgentShim,
     isAgentName,
     resolveAgentName,
@@ -215,6 +216,153 @@ describe('deprecation metadata', () => {
     test('non-deprecated agents have no deprecation metadata', () => {
         for (const name of ['claude', 'codex', 'pi', 'omp', 'hermes', 'opencode', 'openclaw', 'grok'] as AgentName[]) {
             expect(getAgentShim(name).deprecated).toBeUndefined();
+        }
+    });
+});
+
+// ── 0447 R2/R3/R5: session-affinity capability + argv matrix ──────────────
+
+describe('getAgentSessionCapability (0447 R2)', () => {
+    test('omp and pi fully support resume-by-id and session-dir', () => {
+        expect(getAgentSessionCapability('omp')).toEqual({ supportsResumeById: true, supportsSessionDir: true });
+        expect(getAgentSessionCapability('pi')).toEqual({ supportsResumeById: true, supportsSessionDir: true });
+    });
+
+    test('claude supports resume-by-id but no session-dir', () => {
+        expect(getAgentSessionCapability('claude')).toEqual({ supportsResumeById: true, supportsSessionDir: false });
+    });
+
+    test('codex degrades (no resume-by-id, no session-dir)', () => {
+        expect(getAgentSessionCapability('codex')).toEqual({ supportsResumeById: false, supportsSessionDir: false });
+    });
+
+    test('agy and grok support resume-by-id, no session-dir', () => {
+        expect(getAgentSessionCapability('antigravity-cli')).toEqual({
+            supportsResumeById: true,
+            supportsSessionDir: false,
+        });
+        expect(getAgentSessionCapability('grok')).toEqual({ supportsResumeById: true, supportsSessionDir: false });
+    });
+
+    test('every bundled agent has a capability entry', () => {
+        for (const name of Object.keys(AGENT_SHIMS) as AgentName[]) {
+            expect(getAgentSessionCapability(name)).toBeDefined();
+        }
+    });
+});
+
+describe('session-affinity argv matrix (0447 R3/R5)', () => {
+    // Per-agent argv locks for the four precedence states: fresh, sessionDir-only,
+    // sessionId+sessionDir, continue-only (legacy). R5: session* set → pin/isolate
+    // path that never emits unscoped global continue/last-session.
+    const cases: Array<{
+        agent: AgentName;
+        name: string;
+        fresh: string[];
+        sessionDirOnly: string[];
+        sessionIdAndDir: string[];
+        continueOnly: string[];
+    }> = [
+        {
+            agent: 'omp',
+            name: 'omp',
+            fresh: ['--no-session', '-p', '', '--mode', 'text'],
+            sessionDirOnly: ['-p', '', '--session-dir', '/run/sess', '--mode', 'text'],
+            sessionIdAndDir: ['-p', '', '--session-dir', '/run/sess', '-r', 'abc123', '--mode', 'text'],
+            continueOnly: ['-p', '', '-c', '--mode', 'text'],
+        },
+        {
+            agent: 'pi',
+            name: 'pi',
+            fresh: ['--no-session', '-p', '', '--mode', 'text'],
+            sessionDirOnly: ['-p', '', '--session-dir', '/run/sess', '--mode', 'text'],
+            sessionIdAndDir: ['-p', '', '--session-dir', '/run/sess', '-r', 'abc123', '--mode', 'text'],
+            continueOnly: ['-p', '', '-c', '--mode', 'text'],
+        },
+        {
+            agent: 'claude',
+            name: 'claude',
+            fresh: ['-p', '', '--output-format', 'text'],
+            // sessionDir unsupported → ignored; sessionId pins via --resume
+            sessionDirOnly: ['-p', '', '--output-format', 'text'],
+            sessionIdAndDir: ['-p', '', '--resume', 'abc123', '--output-format', 'text'],
+            continueOnly: ['-p', '', '--continue', '--output-format', 'text'],
+        },
+        {
+            agent: 'codex',
+            name: 'codex',
+            fresh: ['exec', ''],
+            // codex has no resume-by-id → session* set degrades to fresh exec
+            sessionDirOnly: ['exec', ''],
+            sessionIdAndDir: ['exec', ''],
+            continueOnly: ['exec', 'resume', '--last'],
+        },
+        {
+            agent: 'antigravity-cli',
+            name: 'agy',
+            fresh: ['-p', ''],
+            sessionDirOnly: ['-p', ''],
+            sessionIdAndDir: ['-p', '', '--conversation', 'abc123'],
+            continueOnly: ['-p', '', '--continue'],
+        },
+        {
+            agent: 'grok',
+            name: 'grok',
+            fresh: ['-p', '', '--output-format', 'plain'],
+            sessionDirOnly: ['-p', '', '--output-format', 'plain'],
+            sessionIdAndDir: ['-p', '', '--resume', 'abc123', '--output-format', 'plain'],
+            continueOnly: ['-p', '', '-c', '--output-format', 'plain'],
+        },
+    ];
+
+    for (const c of cases) {
+        const shim = getAgentShim(c.agent);
+
+        test(`${c.name}: fresh open emits no resume/continue flags`, () => {
+            expect(shim.getPromptCommand({ input: '' }).args).toEqual(c.fresh);
+        });
+
+        test(`${c.name}: sessionDir set → isolate path, never bare global continue`, () => {
+            const args = shim.getPromptCommand({ input: '', sessionDir: '/run/sess', continue: true }).args;
+            expect(args).toEqual(c.sessionDirOnly);
+            expect(args).not.toContain('-c');
+            expect(args).not.toContain('--continue');
+            expect(args).not.toContain('resume');
+            expect(args).not.toContain('--last');
+        });
+
+        test(`${c.name}: sessionId+sessionDir set → pin path, never bare global continue`, () => {
+            const args = shim.getPromptCommand({
+                input: '',
+                sessionDir: '/run/sess',
+                sessionId: 'abc123',
+                continue: true,
+            }).args;
+            expect(args).toEqual(c.sessionIdAndDir);
+            expect(args).not.toContain('-c');
+            expect(args).not.toContain('--continue');
+            expect(args).not.toContain('--last');
+        });
+
+        test(`${c.name}: continue-only (no session fields) keeps legacy resume-last`, () => {
+            // input omitted: resume-last never carries a new prompt (codex rejects one).
+            expect(shim.getPromptCommand({ continue: true }).args).toEqual(c.continueOnly);
+        });
+    }
+
+    test('omp/pi omit --no-session when sessionDir is set (durable open — R4)', () => {
+        for (const agent of ['omp', 'pi'] as AgentName[]) {
+            const args = getAgentShim(agent).getPromptCommand({ input: '', sessionDir: '/run/sess' }).args;
+            expect(args).not.toContain('--no-session');
+            expect(args).toContain('--session-dir');
+            expect(args).toContain('/run/sess');
+        }
+    });
+
+    test('omp/pi still emit --no-session on the legacy fresh path', () => {
+        for (const agent of ['omp', 'pi'] as AgentName[]) {
+            const args = getAgentShim(agent).getPromptCommand({ input: '' }).args;
+            expect(args).toContain('--no-session');
         }
     });
 });

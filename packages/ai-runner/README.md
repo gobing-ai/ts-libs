@@ -291,6 +291,57 @@ const gitBlock = getGitContext('/workspace/spur');
 // "Git context:\nbranch: feat/team-mode\ndirty: 3 files"
 ```
 
+## Session Affinity (run-scoped sessions)
+
+`PromptOptions` carries two additive fields for pinning or isolating sessions:
+
+- `sessionId?: string` — resume a specific prior session when the agent supports resume-by-id.
+- `sessionDir?: string` — isolate session storage into a caller-owned directory (durable).
+
+When either is set, the shim selects the **run-scoped session path** and **never** emits an unscoped
+global continue/last-session flag. This prevents a pipeline hop from attaching to the host's
+interactive session (ADR-047).
+
+**Precedence (R5):**
+
+1. `sessionId` or `sessionDir` set → pin/isolate path; bare `continue` is ignored for global-last.
+2. else `continue === true` → legacy resume-last (only where the agent allows it).
+3. else → fresh open.
+
+**Capability query (R2):** consult `getAgentSessionCapability(agent)` rather than inventing per-agent
+argv. It reports `supportsResumeById` and `supportsSessionDir`.
+
+```ts
+import { getAgentSessionCapability, getAgentShim } from '@gobing-ai/ts-ai-runner';
+
+const cap = getAgentSessionCapability('omp'); // { supportsResumeById: true, supportsSessionDir: true }
+const { args } = getAgentShim('omp').getPromptCommand({
+    input: '',
+    sessionDir: '.spur/run/r1/agent-sessions/omp',
+    sessionId: 'abc123',
+});
+// args: ['-p', '', '--session-dir', '.spur/run/r1/...', '-r', 'abc123', '--mode', 'text']
+```
+
+**Shim / capability matrix:**
+
+| Agent | `supportsResumeById` | `supportsSessionDir` | sessionDir flag | sessionId resume flag | Legacy continue |
+| ----- | -------------------- | -------------------- | --------------- | --------------------- | --------------- |
+| omp | ✓ | ✓ | `--session-dir <dir>` | `-r <id>` | `-c` |
+| pi | ✓ | ✓ | `--session-dir <dir>` | `-r <id>` | `-c` |
+| claude | ✓ | ✗ (ignored) | — | `--resume <id>` | `--continue` |
+| codex | ✗ | ✗ (ignored) | — | degrade → fresh `exec` | `exec resume --last` |
+| agy | ✓ | ✗ (ignored) | — | `--conversation <id>` | `--continue` |
+| grok | ✓ | ✗ (ignored) | — | `--resume <id>` | `-c` |
+
+**Degrade rule:** when `sessionDir`/`sessionId` is set and the agent lacks resume-by-id or a
+session-store flag, the shim opens **fresh in isolation** (or plain fresh) — never bare global
+continue/last. codex, which has no one-shot resume-by-id, always degrades to a fresh `exec`.
+
+**Durable vs ephemeral (R4):** for omp/pi, setting `sessionDir` implies a durable session — the shim
+omits `--no-session` so a session file is written and discoverable. The legacy fresh path (no session
+fields, `continue` false) keeps `--no-session`.
+
 ## Observability
 
 `AiRunner` and `TeamOrchestrator` emit typed events when an `EventBus<AgentEvents>` is provided:

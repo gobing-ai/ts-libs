@@ -104,3 +104,4 @@ vendors/
 /.spur/spur.*
 /.spur/run
 /.spur/context
+/docs/dogfood/

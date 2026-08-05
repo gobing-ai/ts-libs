@@ -1,10 +1,40 @@
-import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, posix, relative, resolve, sep } from 'node:path';
 import { buildConfig, repoRoot } from '../config';
 import type { Spawn } from './command';
 import { runCommand } from './command';
 import { sortPackagesByDependencyOrder } from './release';
 import type { WorkspacePackage } from './workspace';
+
+/**
+ * Create workspace symlinks under node_modules/@gobing-ai/ so that `tsc`
+ * (Node.js) can resolve workspace packages. Bun's own virtual resolution
+ * does not create these symlinks, but `tsc` run under Node.js needs them.
+ */
+async function ensureWorkspaceSymlinks(packages: WorkspacePackage[]): Promise<void> {
+    const scopeDir = join(repoRoot, 'node_modules', '@gobing-ai');
+    await mkdir(scopeDir, { recursive: true });
+
+    for (const pkg of packages) {
+        const scopeName = pkg.name; // e.g. "@gobing-ai/ts-db"
+        const linkPath = join(scopeDir, scopeName.split('/')[1]);
+        const target = join('..', '..', pkg.dir);
+        try {
+            const existing = await lstat(linkPath);
+            if (existing.isSymbolicLink()) {
+                // Already exists — skip
+                continue;
+            }
+        } catch {
+            // does not exist — create
+        }
+        try {
+            await symlink(target, linkPath, 'dir');
+        } catch {
+            // already exists from a concurrent call — fine
+        }
+    }
+}
 
 type SpecifierResolver = (specifier: string) => string;
 
@@ -121,6 +151,7 @@ export async function runWorkspaceScript(
     spawn?: Spawn,
 ): Promise<void> {
     const orderedPackages = await sortPackagesByDependencyOrder(packages);
+    await ensureWorkspaceSymlinks(orderedPackages);
 
     for (const pkg of orderedPackages) {
         if (!pkg.scripts?.[scriptName]) {
@@ -151,6 +182,7 @@ export async function cleanPackages(packages: WorkspacePackage[]): Promise<void>
 
 export async function buildPackages(packages: WorkspacePackage[], spawn?: Spawn): Promise<void> {
     await cleanPackages(packages);
+    await ensureWorkspaceSymlinks(packages);
     await runWorkspaceScript(packages, 'build', spawn);
     await smokeDistImports(packages, spawn);
 }

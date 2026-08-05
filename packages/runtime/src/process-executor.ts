@@ -5,8 +5,21 @@ import type { RuntimePaths } from './runtime-paths';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-/** Controls how stdout/stderr is captured: buffered in memory or streamed to the caller's terminal. */
-export type OutputPolicy = { mode: 'buffered' } | { mode: 'stream'; isTTY?: boolean };
+/**
+ * Controls how stdout/stderr is captured: buffered in memory, streamed to the
+ * caller's terminal, or piped without TTY inherit.
+ *
+ * - `{ mode: 'buffered' }` — end-buffered capture (`all: true`). `onOutput`
+ *   may observe, but the model is a completed result.
+ * - `{ mode: 'stream', isTTY? }` — inherit the terminal AND pipe, so chunks
+ *   render live. Requires a TTY (defaults to the parent's stdout TTY status).
+ * - `{ mode: 'pipe' }` — pipe stdout/stderr to the caller with **no TTY
+ *   inherit** and stdin ignored. `onOutput` fires as chunks arrive (mid-run),
+ *   distinct from both TTY stream-inherit and end-buffered `all: true`.
+ *   This is the non-interactive live-output policy for pipeline agent runs
+ *   (ADR-047): no interactive prompt, no terminal capture, live data events.
+ */
+export type OutputPolicy = { mode: 'buffered' } | { mode: 'stream'; isTTY?: boolean } | { mode: 'pipe' };
 
 /** Shared configuration for a process executor (default timeout, output buffering, output policy). */
 export interface ProcessExecutorConfig {
@@ -621,16 +634,20 @@ function buildExecaOptions(opts: {
     forceBuffered: boolean;
     signal?: AbortSignal;
 }): ExecaOptions {
-    const canStream =
-        !opts.forceBuffered &&
-        opts.outputPolicy?.mode === 'stream' &&
-        (opts.outputPolicy.isTTY ?? process.stdout.isTTY ?? isatty(1));
+    const mode = opts.forceBuffered ? 'buffered' : (opts.outputPolicy?.mode ?? 'buffered');
+    const streamToTerminal =
+        mode === 'stream' &&
+        (opts.outputPolicy?.mode === 'stream' ? (opts.outputPolicy.isTTY ?? process.stdout.isTTY ?? isatty(1)) : false);
 
     return {
         reject: opts.rejectOnError,
         stdin: 'ignore',
         stripFinalNewline: true,
-        ...(canStream ? { stdout: ['inherit', 'pipe'] as const, stderr: ['inherit', 'pipe'] as const } : { all: true }),
+        ...(mode === 'pipe'
+            ? { stdout: 'pipe', stderr: 'pipe' }
+            : streamToTerminal
+              ? { stdout: ['inherit', 'pipe'] as const, stderr: ['inherit', 'pipe'] as const }
+              : { all: true }),
         ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
         ...(opts.env !== undefined ? { env: opts.env } : {}),
         ...(opts.timeout !== undefined ? { timeout: opts.timeout } : {}),

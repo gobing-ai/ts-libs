@@ -30,6 +30,19 @@ export interface PromptOptions {
     input?: string;
     /** Continue the previous session if the agent supports it. */
     continue?: boolean;
+    /**
+     * Pin a specific session to resume, when the agent supports resume-by-id
+     * (see {@link getAgentSessionCapability}). Setting `sessionId` or `sessionDir`
+     * selects the run-scoped session path and suppresses any unscoped global
+     * continue/last-session flag (ADR-047 precedence R5).
+     */
+    sessionId?: string;
+    /**
+     * Isolate session storage into this directory (where the agent supports it).
+     * Implies a durable session: agents with a session-store flag (omp/pi) must not
+     * emit `--no-session` when this is set, so the session file is discoverable.
+     */
+    sessionDir?: string;
     /** Model identifier passed through to the agent CLI. */
     model?: string;
     /** Output mode passed through to the agent CLI. */
@@ -84,7 +97,14 @@ const claudeShim: AgentShim = {
     getVersionCommand: () => ({ command: 'claude', args: ['--version'] }),
     getPromptCommand: (options) => {
         const args = ['-p', options.input ?? ''];
-        if (options.continue === true) args.push('--continue');
+        const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
+        if (hasSession) {
+            // Session/pin path — never emit --continue. Claude has no session-dir
+            // flag; sessionDir is ignored (best-effort isolate).
+            if (options.sessionId !== undefined) args.push('--resume', options.sessionId);
+        } else if (options.continue === true) {
+            args.push('--continue');
+        }
         if (options.model !== undefined) args.push('--model', options.model);
         args.push('--output-format', options.mode ?? 'text');
         return { command: 'claude', args };
@@ -99,10 +119,14 @@ const codexShim: AgentShim = {
     getHelpCommand: () => ({ command: 'codex', args: ['--help'] }),
     getVersionCommand: () => ({ command: 'codex', args: ['--version'] }),
     getPromptCommand: (options) => {
-        if (options.continue === true && options.input !== undefined) {
+        const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
+        // Session/pin path degrades to a fresh `exec` — codex has no reliable
+        // one-shot resume-by-id, so never `exec resume --last` (no global last).
+        if (options.continue === true && !hasSession && options.input !== undefined) {
             throw new Error('Codex resume mode does not accept a new prompt');
         }
-        const args = options.continue === true ? ['exec', 'resume', '--last'] : ['exec', options.input ?? ''];
+        const args =
+            options.continue === true && !hasSession ? ['exec', 'resume', '--last'] : ['exec', options.input ?? ''];
         if (options.model !== undefined) args.push('-m', options.model);
         if ((options.mode ?? 'text') === 'json') args.push('--json');
         return { command: 'codex', args };
@@ -135,9 +159,13 @@ const piShim: AgentShim = {
     getVersionCommand: () => ({ command: 'pi', args: ['--version'] }),
     getPromptCommand: (options) => {
         const args: string[] = [];
-        if (options.continue !== true) args.push('--no-session');
+        const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
+        // Session/pin path: durable — never ephemeral --no-session, never global -c.
+        if (!hasSession && options.continue !== true) args.push('--no-session');
         args.push('-p', options.input ?? '');
-        if (options.continue === true) args.push('-c');
+        if (!hasSession && options.continue === true) args.push('-c');
+        if (options.sessionDir !== undefined) args.push('--session-dir', options.sessionDir);
+        if (options.sessionId !== undefined) args.push('-r', options.sessionId);
         if (options.model !== undefined) args.push('--model', options.model);
         args.push('--mode', options.mode ?? 'text');
         return { command: 'pi', args };
@@ -175,7 +203,14 @@ const antigravityCliShim: AgentShim = {
     getVersionCommand: () => ({ command: 'agy', args: ['--version'] }),
     getPromptCommand: (options) => {
         const args = ['-p', options.input ?? ''];
-        if (options.continue === true) args.push('--continue');
+        const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
+        if (hasSession) {
+            // Session/pin path — never emit --continue. agy has no session-dir flag;
+            // sessionDir is ignored (best-effort isolate).
+            if (options.sessionId !== undefined) args.push('--conversation', options.sessionId);
+        } else if (options.continue === true) {
+            args.push('--continue');
+        }
         if (options.model !== undefined) args.push('--model', options.model);
         return { command: 'agy', args };
     },
@@ -223,9 +258,13 @@ const ompShim: AgentShim = {
     getVersionCommand: () => ({ command: 'omp', args: ['--version'] }),
     getPromptCommand: (options) => {
         const args: string[] = [];
-        if (options.continue !== true) args.push('--no-session');
+        const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
+        // Session/pin path: durable — never ephemeral --no-session, never global -c.
+        if (!hasSession && options.continue !== true) args.push('--no-session');
         args.push('-p', options.input ?? '');
-        if (options.continue === true) args.push('-c');
+        if (!hasSession && options.continue === true) args.push('-c');
+        if (options.sessionDir !== undefined) args.push('--session-dir', options.sessionDir);
+        if (options.sessionId !== undefined) args.push('-r', options.sessionId);
         if (options.model !== undefined) args.push('--model', options.model);
         args.push('--mode', options.mode ?? 'text');
         return { command: 'omp', args };
@@ -247,7 +286,14 @@ const grokShim: AgentShim = {
     getVersionCommand: () => ({ command: 'grok', args: ['--version'] }),
     getPromptCommand: (options) => {
         const args = ['-p', options.input ?? ''];
-        if (options.continue === true) args.push('-c');
+        const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
+        if (hasSession) {
+            // Session/pin path — never emit -c. grok has no session-dir flag;
+            // sessionDir is ignored (best-effort isolate).
+            if (options.sessionId !== undefined) args.push('--resume', options.sessionId);
+        } else if (options.continue === true) {
+            args.push('-c');
+        }
         if (options.model !== undefined) args.push('-m', options.model);
         // Grok has no `text` format; map ai-runner OutputMode `text` → `plain`.
         const format = (options.mode ?? 'text') === 'json' ? 'json' : 'plain';
@@ -270,6 +316,44 @@ export const AGENT_SHIMS: Readonly<Record<AgentName, AgentShim>> = {
     omp: ompShim,
     grok: grokShim,
 };
+
+/** Session-affinity capability for one coding agent (ADR-047). */
+export interface AgentSessionCapability {
+    /** Can resume a specific prior session by id (e.g. `-r <id>` / `--resume <id>`). */
+    readonly supportsResumeById: boolean;
+    /** Can isolate session storage into a caller-supplied directory. */
+    readonly supportsSessionDir: boolean;
+}
+
+/**
+ * Session-affinity capability metadata per agent. Callers must consult this
+ * instead of inventing per-agent argv: when `sessionDir`/`sessionId` are set,
+ * `supportsResumeById` decides resume-by-id vs fresh-degrade, and
+ * `supportsSessionDir` decides whether `sessionDir` is honored (ADR-047 R2).
+ *
+ * Agents not in the six-agent affinity matrix default to no resume-by-id and no
+ * session-dir — they get the isolated-fresh / no-resume degrade.
+ */
+const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapability>> = {
+    omp: { supportsResumeById: true, supportsSessionDir: true },
+    pi: { supportsResumeById: true, supportsSessionDir: true },
+    claude: { supportsResumeById: true, supportsSessionDir: false },
+    // codex resume is interactive-only (`exec resume` picker); no one-shot
+    // resume-by-id and no session-dir — degrades to fresh exec.
+    codex: { supportsResumeById: false, supportsSessionDir: false },
+    'antigravity-cli': { supportsResumeById: true, supportsSessionDir: false },
+    grok: { supportsResumeById: true, supportsSessionDir: false },
+    // Non-matrix agents: conservative default (isolated-fresh / no-resume).
+    gemini: { supportsResumeById: false, supportsSessionDir: false },
+    opencode: { supportsResumeById: false, supportsSessionDir: false },
+    openclaw: { supportsResumeById: false, supportsSessionDir: false },
+    hermes: { supportsResumeById: false, supportsSessionDir: false },
+};
+
+/** Query a bundled agent's session-affinity capability by canonical name. */
+export function getAgentSessionCapability(agent: AgentName): AgentSessionCapability {
+    return AGENT_SESSION_CAPABILITY[agent];
+}
 
 /** Tier-1 auto-selection priority. Deprecated ids are excluded. */
 export const TIER1_PRIORITY: readonly AgentName[] = [

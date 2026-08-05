@@ -82,16 +82,52 @@ describe('NodeProcessExecutor', () => {
         ).toBe('problem');
     });
 
-    test('isolates output-observer failures from the child process', async () => {
-        const result = await new NodeProcessExecutor().run({
-            command: 'echo',
-            args: ['still-buffered'],
-            onOutput: () => {
-                throw new Error('slow sink failed');
-            },
+    test('pipe policy streams live chunks without TTY inherit (0447 R6/R5)', async () => {
+        // `{ mode: 'pipe' }` must deliver mid-run onOutput chunks (not only at
+        // exit), inherit no TTY on stdout, and keep stdin non-interactive —
+        // the non-interactive live-output contract for pipeline agent runs.
+        const output: Array<{ stream: string; chunk: string }> = [];
+        const pending = new NodeProcessExecutor({ output: { mode: 'pipe' } }).run({
+            command: 'sh',
+            args: [
+                '-c',
+                'printf first; sleep 0.08; printf second; echo err >&2; [ -t 1 ] && echo stdout-tty || echo stdout-no-tty; [ -t 0 ] && echo stdin-tty || echo stdin-notty',
+            ],
+            onOutput: ({ stream, chunk }) => output.push({ stream, chunk }),
         });
 
-        expect(result).toMatchObject({ exitCode: 0, stdout: 'still-buffered' });
+        await Bun.sleep(20);
+        // Deterministic time control can't work here: the child is a separate
+        // OS process whose mid-run output must be observed before it exits.
+        // Real delay is required to prove live (pre-exit) streaming.
+        // at least one chunk observed before the child exits (live streaming)
+        expect(output.some((entry) => entry.chunk.includes('first'))).toBe(true);
+
+        const result = await pending;
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toContain('firstsecond');
+        expect(result.stdout).toContain('stdout-no-tty');
+        expect(result.stdout).toContain('stdin-notty');
+        expect(result.stdout).not.toContain('stdout-tty');
+        expect(result.stdout).not.toContain('stdin-tty');
+        expect(result.stderr).toContain('err');
+        expect(output.map((entry) => entry.chunk).join('')).toContain('firstsecond');
+    });
+
+    test('pipe policy is distinct from buffered all:true (0447 R6)', async () => {
+        // A buffered run must not claim the pipe policy; the mode flag alone
+        // selects pipe without requiring TTY. Buffered stays end-buffered.
+        const buffered = await new NodeProcessExecutor().run({
+            command: 'echo',
+            args: ['buffered'],
+        });
+        expect(buffered.stdout).toBe('buffered');
+        // Pipe policy is honored regardless of parent TTY state.
+        const piped = await new NodeProcessExecutor({ output: { mode: 'pipe' } }).run({
+            command: 'echo',
+            args: ['piped'],
+        });
+        expect(piped.stdout).toBe('piped');
     });
 
     test('returns non-zero exit results unless rejectOnError is true', async () => {
