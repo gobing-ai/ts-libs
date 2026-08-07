@@ -3,10 +3,26 @@ import type { FileSystem, RuntimePaths } from '@gobing-ai/ts-runtime';
 import type { z } from 'zod';
 
 /** Built-in source identifiers supported by the importer. */
-export type LlmJsonlSource = 'pi' | 'claude' | 'codex' | 'gemini' | 'opencode' | 'antigravity' | 'openclaw';
+export type LlmJsonlSource =
+    | 'pi'
+    | 'claude'
+    | 'codex'
+    | 'gemini'
+    | 'opencode'
+    | 'antigravity'
+    | 'openclaw'
+    | 'omp'
+    | 'grok'
+    | 'agy';
 
 /** Import mode controlling checkpoint behavior. */
 export type ImportMode = 'full' | 'incremental' | 'force-file';
+
+/** One record emitted by a custom split, optionally routed to its own table. */
+export interface SplitEntry {
+    readonly targetTable?: string;
+    readonly record: JsonObject;
+}
 
 /** Split strategy for turning a raw JSONL object into one or more ETL records. */
 export type SplitConfig =
@@ -20,7 +36,7 @@ export type SplitConfig =
       }
     | {
           readonly mode: 'custom';
-          readonly split: (raw: JsonObject) => readonly JsonObject[];
+          readonly split: (raw: JsonObject) => readonly (JsonObject | SplitEntry)[];
           readonly targetTable?: string;
       };
 
@@ -94,6 +110,7 @@ export interface ImportResult {
     readonly processedLines: number;
     readonly importedRecords: number;
     readonly skippedDuplicates: number;
+    readonly unknownRecords: number;
     readonly parseErrors: readonly ImportIssue[];
     readonly validationErrors: readonly ImportIssue[];
     readonly checkpointUpdates: number;

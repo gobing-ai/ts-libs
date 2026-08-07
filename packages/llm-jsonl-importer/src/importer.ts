@@ -53,6 +53,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     let processedLines = 0;
     let importedRecords = 0;
     let skippedDuplicates = 0;
+    let unknownRecords = 0;
     let checkpointUpdates = 0;
 
     for (const file of files) {
@@ -70,6 +71,14 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             const splitRecords = splitRawRecord(definition, raw);
             let lineSucceeded = false;
 
+            // First pass: normalize, validate, redact, compute recordHash for every entry.
+            interface PreparedEntry {
+                readonly split: SplitRecord;
+                readonly splitIndex: number;
+                readonly normalized: JsonObject;
+                readonly recordHash: string;
+            }
+            const prepared: PreparedEntry[] = [];
             for (let splitIndex = 0; splitIndex < splitRecords.length; splitIndex += 1) {
                 const split = splitRecords[splitIndex];
                 if (split === undefined) continue;
@@ -102,6 +111,25 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                     skippedDuplicates += 1;
                     continue;
                 }
+                prepared.push({ split, splitIndex, normalized: redacted, recordHash });
+            }
+
+            // Second pass: resolve _messageSplitIndex → message_hash, then insert.
+            const recordHashBySplitIndex = new Map(prepared.map((e) => [e.splitIndex, e.recordHash] as const));
+            for (const entry of prepared) {
+                const { split, splitIndex, normalized, recordHash } = entry;
+                if (normalized.disposition === 'unknown') {
+                    unknownRecords += 1;
+                }
+                // Resolve _messageSplitIndex if present (tool call → parent message linkage).
+                const msgSplitIdx = normalized._messageSplitIndex as number | undefined;
+                delete normalized._messageSplitIndex;
+                if (msgSplitIdx !== undefined && typeof msgSplitIdx === 'number') {
+                    const msgHash = recordHashBySplitIndex.get(msgSplitIdx);
+                    if (msgHash !== undefined) {
+                        normalized.message_hash = msgHash;
+                    }
+                }
                 if (!options.dryRun) {
                     await insertRecord(
                         options.db,
@@ -110,7 +138,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                         file,
                         lineNumber,
                         splitIndex,
-                        redacted,
+                        normalized,
                         options.now,
                     );
                     await insertLedger(
@@ -141,6 +169,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
         processedLines,
         importedRecords,
         skippedDuplicates,
+        unknownRecords,
         parseErrors,
         validationErrors,
         checkpointUpdates,
@@ -173,10 +202,17 @@ function splitRawRecord(definition: SourceDefinition, raw: JsonObject): readonly
     }
     if (definition.splitConfig.mode === 'custom') {
         const config = definition.splitConfig;
-        return config.split(raw).map((entry) => ({
-            targetTable: targetTableFor(config.targetTable ?? definition.targetTable),
-            raw: entry,
-        }));
+        const configTable = config.targetTable !== undefined ? targetTableFor(config.targetTable) : undefined;
+        return config.split(raw).map((entry) => {
+            // Normalize: SplitEntry has a `record` property, bare object is the record itself.
+            const hasTargetTable =
+                'targetTable' in entry && typeof (entry as { targetTable: unknown }).targetTable === 'string';
+            const record = hasTargetTable ? (entry as { record: JsonObject }).record : (entry as JsonObject);
+            const entryTable = hasTargetTable ? (entry as { targetTable?: string }).targetTable : undefined;
+            // Resolution order: entry → splitConfig → definition
+            const table = entryTable ?? configTable ?? targetTable;
+            return { targetTable: targetTableFor(table), raw: record };
+        });
     }
 
     const config = definition.splitConfig;

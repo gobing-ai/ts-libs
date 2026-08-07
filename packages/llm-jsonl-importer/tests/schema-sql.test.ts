@@ -11,5 +11,7 @@ describe('HISTORY_IMPORT_SCHEMA_SQL', () => {
     test('contains expected table names', () => {
         expect(HISTORY_IMPORT_SCHEMA_SQL).toMatch(/history_import_checkpoint/);
         expect(HISTORY_IMPORT_SCHEMA_SQL).toMatch(/history_import_ledger/);
+        expect(HISTORY_IMPORT_SCHEMA_SQL).toMatch(/history_message/);
+        expect(HISTORY_IMPORT_SCHEMA_SQL).toMatch(/history_tool_call/);
     });
 });

@@ -1,5 +1,25 @@
 import { z } from 'zod';
 import { HistoryImportError } from './errors';
+import {
+    AGY_FIELD_MAP,
+    AGY_SCHEMA,
+    agySplit,
+    CLAUDE_FIELD_MAP,
+    CLAUDE_SCHEMA,
+    CODEX_FIELD_MAP,
+    CODEX_SCHEMA,
+    claudeSplit,
+    codexSplit,
+    GROK_FIELD_MAP,
+    GROK_SCHEMA,
+    grokSplit,
+    OMP_FIELD_MAP,
+    OMP_SCHEMA,
+    ompSplit,
+    PI_FIELD_MAP,
+    PI_SCHEMA,
+    piSplit,
+} from './mappers';
 import type { FieldTransform, JsonObject, LlmJsonlSource, SourceDefinition, TransformContext } from './types';
 
 const sourceRecordSchema = z
@@ -94,6 +114,30 @@ function sourceDefinition(
         schema: sourceRecordSchema,
     };
 }
+
+/** Build a source definition with a typed custom split for the forensic contract tables. */
+function customSourceDefinition(
+    source: LlmJsonlSource,
+    displayName: string,
+    defaultRoots: readonly string[],
+    filePatterns: readonly string[],
+    split: (raw: JsonObject) => readonly import('./types').SplitEntry[],
+    fieldMap: Readonly<Record<string, string>>,
+    schema: z.ZodType<JsonObject>,
+): SourceDefinition {
+    return {
+        source,
+        displayName,
+        defaultRoots,
+        filePatterns,
+        targetTable: `history_etl_${source}`,
+        splitConfig: { mode: 'custom', split },
+        fieldMap,
+        fieldTransforms: {},
+        schema,
+    };
+}
+
 /**
  * Pattern every importer-owned table must match.
  *
@@ -102,13 +146,56 @@ function sourceDefinition(
  * namespaces importer tables away from consumer schemas. Both built-in and
  * custom source definitions are held to this rule.
  */
-export const VALID_TABLE_NAME = /^history_etl_[a-z_]+$/;
+export const VALID_TABLE_NAME = /^history_[a-z_]+$/;
 
 /** Built-in source definitions keyed by source identifier. */
 export const SOURCE_DEFINITIONS: Readonly<Record<LlmJsonlSource, SourceDefinition>> = {
-    pi: sourceDefinition('pi', 'Pi', ['.pi/history', '.pi'], ['*.jsonl', '*.json']),
-    claude: sourceDefinition('claude', 'Claude Code', ['.claude/projects', '.claude'], ['*.jsonl']),
-    codex: sourceDefinition('codex', 'Codex', ['.codex/sessions', '.codex'], ['*.jsonl']),
+    pi: customSourceDefinition('pi', 'Pi', ['.pi/agent/sessions'], ['*.jsonl'], piSplit, PI_FIELD_MAP, PI_SCHEMA),
+    claude: customSourceDefinition(
+        'claude',
+        'Claude Code',
+        ['.claude/projects'],
+        ['*.jsonl'],
+        claudeSplit,
+        CLAUDE_FIELD_MAP,
+        CLAUDE_SCHEMA,
+    ),
+    codex: customSourceDefinition(
+        'codex',
+        'Codex',
+        ['.codex/sessions'],
+        ['*.jsonl'],
+        codexSplit,
+        CODEX_FIELD_MAP,
+        CODEX_SCHEMA,
+    ),
+    omp: customSourceDefinition(
+        'omp',
+        'OMP',
+        ['.omp/agent/sessions'],
+        ['*.jsonl'],
+        ompSplit,
+        OMP_FIELD_MAP,
+        OMP_SCHEMA,
+    ),
+    grok: customSourceDefinition(
+        'grok',
+        'Grok',
+        ['.grok/sessions'],
+        ['*.jsonl'],
+        grokSplit,
+        GROK_FIELD_MAP,
+        GROK_SCHEMA,
+    ),
+    agy: customSourceDefinition(
+        'agy',
+        'Antigravity CLI',
+        ['.gemini/antigravity-cli/brain'],
+        ['*.jsonl'],
+        agySplit,
+        AGY_FIELD_MAP,
+        AGY_SCHEMA,
+    ),
     gemini: sourceDefinition('gemini', 'Gemini CLI', ['.gemini', '.config/gemini'], ['*.jsonl']),
     opencode: sourceDefinition('opencode', 'OpenCode', ['.opencode', '.local/share/opencode'], ['*.jsonl']),
     antigravity: sourceDefinition('antigravity', 'Antigravity', ['.antigravity'], ['*.jsonl']),
@@ -186,7 +273,7 @@ export function resolveSourceDefinition(input: string | SourceDefinition): Sourc
 function assertValidTable(table: string, source: string): void {
     if (!VALID_TABLE_NAME.test(table)) {
         throw new HistoryImportError(
-            `Invalid history ETL target table for source "${source}": ${table}. Must match ${VALID_TABLE_NAME.source}.`,
+            `Invalid history target table for source "${source}": ${table}. Must match ${VALID_TABLE_NAME.source}.`,
             { source, table },
         );
     }

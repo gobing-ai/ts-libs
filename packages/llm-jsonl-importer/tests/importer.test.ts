@@ -21,7 +21,7 @@ describe('runJsonlImport', () => {
             '{',
         ]);
 
-        const result = await runJsonlImport('codex', {
+        const result = await runJsonlImport('gemini', {
             db,
             files: [file],
             mode: 'full',
@@ -32,8 +32,8 @@ describe('runJsonlImport', () => {
         expect(result.validationErrors).toHaveLength(1);
         expect(result.parseErrors).toHaveLength(1);
         const ledgerRows = await db.queryAll<{ source: string }>('SELECT source FROM history_import_ledger');
-        const etlRows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_codex');
-        expect(ledgerRows).toEqual([{ source: 'codex' }]);
+        const etlRows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_gemini');
+        expect(ledgerRows).toEqual([{ source: 'gemini' }]);
         expect(etlRows).toHaveLength(1);
         expect(etlRows[0]?.payload_json).toContain('hello');
     });
@@ -110,22 +110,22 @@ describe('runJsonlImport', () => {
         };
 
         await expect(
-            runJsonlImport('codex', { db: faultingDb, files: [file], mode: 'incremental', now: fixedNow }),
+            runJsonlImport('gemini', { db: faultingDb, files: [file], mode: 'incremental', now: fixedNow }),
         ).rejects.toThrow('injected ledger failure');
 
-        const result = await runJsonlImport('codex', {
+        const result = await runJsonlImport('gemini', {
             db: faultingDb,
             files: [file],
             mode: 'incremental',
             now: fixedNow,
         });
         expect(result.importedRecords).toBe(1);
-        expect(await db.queryAll('SELECT record_hash FROM history_etl_codex')).toHaveLength(1);
+        expect(await db.queryAll('SELECT record_hash FROM history_etl_gemini')).toHaveLength(1);
         expect(await db.queryAll('SELECT record_hash FROM history_import_ledger')).toHaveLength(1);
         expect(
             await db.queryFirst<{ last_imported_line: number }>(
                 'SELECT last_imported_line FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
-                'codex',
+                'gemini',
                 file,
             ),
         ).toEqual({ last_imported_line: 1 });
@@ -150,25 +150,24 @@ describe('runJsonlImport', () => {
         expect(checkpoints).toEqual([{ last_imported_line: 1 }]);
     });
 
-    test('splits Pi nested messages into one ETL row per message', async () => {
+    test('splits Pi records into history_message rows', async () => {
         const file = await fixtureFile([
+            JSON.stringify({ id: 'session-1', type: 'user', content: 'first', timestamp: '2026-05-30T00:00:00.000Z' }),
             JSON.stringify({
                 id: 'session-1',
+                type: 'assistant',
+                content: 'second',
                 timestamp: '2026-05-30T00:00:00.000Z',
-                messages: [
-                    { id: 'm1', role: 'user', content: 'first' },
-                    { id: 'm2', role: 'assistant', content: 'second' },
-                ],
             }),
         ]);
 
         const result = await runJsonlImport('pi', { db, files: [file], mode: 'full', now: fixedNow });
 
         expect(result.importedRecords).toBe(2);
-        const rows = await db.queryAll<{ payload_json: string }>(
-            'SELECT payload_json FROM history_etl_pi ORDER BY split_index',
+        const rows = await db.queryAll<{ content_text: string }>(
+            'SELECT content_text FROM history_message ORDER BY seq',
         );
-        expect(rows.map((row) => JSON.parse(row.payload_json).content)).toEqual(['first', 'second']);
+        expect(rows.map((row) => row.content_text)).toEqual(['first', 'second']);
     });
 
     test('redacts secrets before persistence', async () => {
@@ -250,7 +249,7 @@ describe('runJsonlImport', () => {
         expect(result.importedRecords).toBe(1);
     });
 
-    test('falls back to a single Pi record when the nested messages field is absent', async () => {
+    test('falls back to a single Pi record when type is absent', async () => {
         const file = await fixtureFile([
             JSON.stringify({ id: 'pi-single', timestamp: '2026-05-30T00:00:00.000Z', content: 'single' }),
         ]);
@@ -258,8 +257,8 @@ describe('runJsonlImport', () => {
         const result = await runJsonlImport('pi', { db, files: [file], mode: 'full', now: fixedNow });
 
         expect(result.importedRecords).toBe(1);
-        const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_pi');
-        expect(JSON.parse(rows[0]?.payload_json ?? '{}')).toMatchObject({ content: 'single' });
+        const rows = await db.queryAll<{ content_text: string }>('SELECT content_text FROM history_message');
+        expect(rows[0]?.content_text).toBe('single');
     });
 
     test('streaming readFileStream produces identical results to readFile fallback (ADR-021)', async () => {
@@ -270,7 +269,7 @@ describe('runJsonlImport', () => {
         ];
         const file = await fixtureFile(lines);
         const fs = createNodeFileSystem();
-        const result = await runJsonlImport('codex', {
+        const result = await runJsonlImport('gemini', {
             db,
             files: [file],
             mode: 'full',
@@ -281,7 +280,7 @@ describe('runJsonlImport', () => {
         expect(result.importedRecords).toBe(3);
         expect(result.parseErrors).toHaveLength(0);
         const rows = await db.queryAll<{ source_line: number }>(
-            'SELECT source_line FROM history_etl_codex ORDER BY source_line',
+            'SELECT source_line FROM history_etl_gemini ORDER BY source_line',
         );
         expect(rows.map((r) => r.source_line)).toEqual([1, 2, 3]);
     });
@@ -313,7 +312,7 @@ describe('runJsonlImport', () => {
         });
 
         const fs = createNodeFileSystem();
-        const result = await runJsonlImport('codex', {
+        const result = await runJsonlImport('gemini', {
             db,
             files: [file],
             mode: 'full',
@@ -324,7 +323,7 @@ describe('runJsonlImport', () => {
         expect(result.importedRecords).toBe(recordCount);
         expect(result.parseErrors).toHaveLength(0);
 
-        const countRow = await db.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_etl_codex');
+        const countRow = await db.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_etl_gemini');
         expect(countRow?.count).toBe(recordCount);
     });
 });
@@ -410,7 +409,7 @@ describe('runJsonlImport paths injection (ADR-023 A1)', () => {
             expect(result.scannedFiles).toBe(1);
             expect(result.importedRecords).toBe(1);
 
-            const rows = await db.queryAll<{ source_file: string }>('SELECT source_file FROM history_etl_claude');
+            const rows = await db.queryAll<{ source_file: string }>('SELECT source_file FROM history_message');
             expect(rows).toHaveLength(1);
             expect(rows[0]?.source_file).toBe(fixtureFile);
         } finally {
@@ -453,10 +452,9 @@ describe('runJsonlImport paths injection (ADR-023 A1)', () => {
 
             expect(result.scannedFiles).toBe(1);
             expect(result.importedRecords).toBe(1);
-            const payloads = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_claude');
+            const payloads = await db.queryAll<{ content_text: string }>('SELECT content_text FROM history_message');
             expect(payloads).toHaveLength(1);
-            expect(payloads[0]?.payload_json).toContain('cwd-1');
-            expect(payloads[0]?.payload_json).not.toContain('decoy');
+            expect(payloads[0]?.content_text).toBe('y');
         } finally {
             await rm(fakeHome, { recursive: true, force: true });
             await rm(outsideCwd, { recursive: true, force: true });
@@ -545,9 +543,9 @@ describe('runJsonlImport source registry (ADR-023 A3)', () => {
     test('a custom definition with an invalid split target table override is rejected', () => {
         const bad: SourceDefinition = {
             ...customAcmeSource(),
-            splitConfig: { mode: 'one-to-many', field: 'messages', targetTable: 'history_etl_' },
+            splitConfig: { mode: 'one-to-many', field: 'messages', targetTable: 'history_etl_DROP' },
         };
-        // `history_etl_` has no trailing identifier segment — fails VALID_TABLE_NAME.
+        // Uppercase characters fail VALID_TABLE_NAME.
         expect(() => validateSourceDefinition(bad)).toThrow(HistoryImportError);
     });
 
@@ -591,8 +589,8 @@ describe('runJsonlImport source registry (ADR-023 A3)', () => {
             JSON.stringify({ id: 'parity-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'parity' }),
         ]);
 
-        // First import via the built-in string path.
-        const builtinResult = await runJsonlImport('codex', {
+        // First import via the built-in string path (gemini still uses the generic path).
+        const builtinResult = await runJsonlImport('gemini', {
             db,
             files: [file],
             mode: 'full',
@@ -600,18 +598,18 @@ describe('runJsonlImport source registry (ADR-023 A3)', () => {
         });
 
         // Drop and re-apply schema on a fresh in-memory DB, then import the same file via a custom
-        // definition that mirrors the codex built-in except for its `source`/`targetTable` names.
+        // definition that mirrors the gemini built-in except for its `source`/`targetTable` names.
         db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
         const mirror: SourceDefinition = {
             ...customAcmeSource(),
-            source: 'codex-parity',
-            targetTable: 'history_etl_codex_parity',
+            source: 'gemini-parity',
+            targetTable: 'history_etl_gemini_parity',
             fieldMap: {
                 id: 'source_record_id',
                 timestamp: 'created_at',
                 content: 'content',
             },
-            // Use the same minimal transform set as the built-in codex path.
+            // Use the same minimal transform set as the built-in gemini path.
             fieldTransforms: {},
         };
         const customResult = await runJsonlImport(mirror, {
@@ -650,3 +648,168 @@ function customAcmeSource(): SourceDefinition {
         }),
     };
 }
+
+/**
+ * one-to-many split mode — fan a single raw JSONL row into multiple ETL records
+ * via `splitConfig.field` (a nested array). Covers `splitRawRecord`'s one-to-many
+ * branch (previously the only split mode with no coverage).
+ */
+describe('runJsonlImport one-to-many split mode', () => {
+    function manySource(): SourceDefinition {
+        return {
+            source: 'many',
+            displayName: 'Many',
+            defaultRoots: ['.many'],
+            filePatterns: ['*.jsonl'],
+            targetTable: 'history_etl_many',
+            splitConfig: { mode: 'one-to-many', field: 'messages' },
+            fieldMap: {
+                id: 'source_record_id',
+                content: 'content',
+                role: 'role',
+            },
+            fieldTransforms: {},
+            schema: z.object({
+                source_record_id: z.string().min(1),
+                content: z.string().min(1),
+                role: z.string().optional(),
+            }),
+        };
+    }
+
+    test('fans a nested array field into multiple records, merging top-level fields', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({
+                id: 'm1',
+                timestamp: '2026-05-30T00:00:00.000Z',
+                messages: [
+                    { role: 'user', content: 'first' },
+                    { role: 'assistant', content: 'second' },
+                ],
+            }),
+        ]);
+
+        const result = await runJsonlImport(manySource(), { db, files: [file], mode: 'full', now: fixedNow });
+
+        expect(result.importedRecords).toBe(2);
+        const rows = await db.queryAll<{ payload_json: string }>(
+            'SELECT payload_json FROM history_etl_many ORDER BY payload_json',
+        );
+        expect(rows.map((r) => JSON.parse(r.payload_json).content)).toEqual(['first', 'second']);
+    });
+
+    test('falls back to a single record when the nested field is absent', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'm2', timestamp: '2026-05-30T00:00:00.000Z', content: 'single' }),
+        ]);
+
+        const result = await runJsonlImport(manySource(), { db, files: [file], mode: 'full', now: fixedNow });
+
+        expect(result.importedRecords).toBe(1);
+        const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_many');
+        expect(rows).toHaveLength(1);
+        expect(JSON.parse(rows[0]?.payload_json ?? '{}').content).toBe('single');
+    });
+
+    test('routes split records to the config targetTable override when provided', async () => {
+        const source: SourceDefinition = {
+            ...manySource(),
+            splitConfig: { mode: 'one-to-many', field: 'messages', targetTable: 'history_etl_nested' },
+        };
+        const file = await fixtureFile([
+            JSON.stringify({
+                id: 'm3',
+                timestamp: '2026-05-30T00:00:00.000Z',
+                messages: [{ role: 'user', content: 'x' }],
+            }),
+        ]);
+
+        const result = await runJsonlImport(source, { db, files: [file], mode: 'full', now: fixedNow });
+
+        expect(result.importedRecords).toBe(1);
+        const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_nested');
+        expect(rows).toHaveLength(1);
+        expect(JSON.parse(rows[0]?.payload_json ?? '{}').source_record_id).toBe('m3');
+    });
+
+    test('filters out non-object entries in the nested array', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({
+                id: 'm4',
+                timestamp: '2026-05-30T00:00:00.000Z',
+                messages: ['string', { role: 'user', content: 'valid' }, 42],
+            }),
+        ]);
+
+        const result = await runJsonlImport(manySource(), { db, files: [file], mode: 'full', now: fixedNow });
+
+        expect(result.importedRecords).toBe(1);
+        const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_many');
+        expect(rows).toHaveLength(1);
+        expect(JSON.parse(rows[0]?.payload_json ?? '{}').content).toBe('valid');
+    });
+});
+
+/**
+ * Custom (non-`*.jsonl`/`*.json`) file patterns during discovery — exercises the
+ * `matchesPattern` fallback branch (previously uncovered).
+ */
+describe('runJsonlImport custom file patterns', () => {
+    test('discovers files matching a custom non-jsonl pattern via a file root', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'c1', timestamp: '2026-05-30T00:00:00.000Z', content: 'custom pattern' }),
+        ]);
+        // Rename so it ends with `history`, matching the `*history` pattern.
+        const renamed = file.replace('history.jsonl', 'session_history');
+        await writeFile(
+            renamed,
+            `${JSON.stringify({ id: 'c1', timestamp: '2026-05-30T00:00:00.000Z', content: 'x' })}\n`,
+        );
+        await rm(file, { recursive: true, force: true });
+
+        const source: SourceDefinition = {
+            ...customAcmeSource(),
+            filePatterns: ['*history'],
+        };
+
+        const result = await runJsonlImport(source, { db, roots: [renamed], mode: 'full', now: fixedNow });
+
+        expect(result.scannedFiles).toBe(1);
+        expect(result.importedRecords).toBe(1);
+    });
+});
+
+/**
+ * dryRun mode — records are validated and counted but never persisted and no
+ * checkpoints are written.
+ */
+describe('runJsonlImport dryRun mode', () => {
+    test('counts records without persisting or checkpointing', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'd1', timestamp: '2026-05-30T00:00:00.000Z', content: 'dry' }),
+            JSON.stringify({ id: 'd2', timestamp: '2026-05-30T00:01:00.000Z', content: 'run' }),
+        ]);
+
+        const result = await runJsonlImport('gemini', {
+            db,
+            files: [file],
+            mode: 'full',
+            dryRun: true,
+            now: fixedNow,
+        });
+
+        expect(result.importedRecords).toBe(2);
+        expect(result.processedLines).toBe(2);
+        expect(result.checkpointUpdates).toBe(0);
+
+        // Nothing persisted: no ETL rows, no ledger rows, no checkpoints.
+        const etlRows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_gemini');
+        expect(etlRows).toEqual([]);
+        const ledgerRows = await db.queryAll<{ record_hash: string }>('SELECT record_hash FROM history_import_ledger');
+        expect(ledgerRows).toEqual([]);
+        const checkpoints = await db.queryAll<{ last_imported_line: number }>(
+            'SELECT last_imported_line FROM history_import_checkpoint',
+        );
+        expect(checkpoints).toEqual([]);
+    });
+});

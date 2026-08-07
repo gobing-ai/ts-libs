@@ -7,6 +7,57 @@ interface CheckpointRow {
     readonly last_imported_line: number;
 }
 
+/** Column allowlist per typed contract table; order is the INSERT column order. */
+const TYPED_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+    history_message: [
+        'record_hash',
+        'source',
+        'source_file',
+        'source_line',
+        'session_id',
+        'seq',
+        'turn_index',
+        'role',
+        'record_type',
+        'disposition',
+        'ts',
+        'duration_ms',
+        'model',
+        'input_tokens',
+        'output_tokens',
+        'cache_read_tokens',
+        'cache_write_tokens',
+        'cost_usd',
+        'content_text',
+        'cwd',
+        'provenance',
+        'run_id',
+        'task_wbs',
+        'imported_at',
+    ],
+    history_tool_call: [
+        'record_hash',
+        'message_hash',
+        'source',
+        'source_file',
+        'source_line',
+        'session_id',
+        'seq',
+        'tool_name',
+        'args_digest',
+        'status',
+        'started_at',
+        'completed_at',
+        'duration_ms',
+        'result_bytes',
+        'error_text',
+        'imported_at',
+    ],
+};
+
+/** Keys that a typed table mapper may produce that are not columns. */
+const TYPED_IGNORED_KEYS = new Set<string>(['_meta', 'split_index']);
+
 function targetTableFor(table: string): string {
     if (!VALID_TABLE_NAME.test(table)) {
         throw new HistoryImportError(`Invalid history ETL target table: ${table}`, { table });
@@ -43,12 +94,12 @@ export async function applyHistoryImportSchema(db: ImportOptions['db']): Promise
  * Ensure the ETL table(s) for a source definition exist.
  *
  * WHY: the static {@link HISTORY_IMPORT_SCHEMA_SQL} only creates the built-in
- * `history_etl_*` tables. Custom source definitions (and built-in definitions
- * with a `splitConfig.targetTable` override) need their target table(s) created
- * on demand. The table name is already gated by {@link VALID_TABLE_NAME} in
- * {@link validateSourceDefinition} / {@link targetTableFor}, so it is safe to
- * interpolate into DDL. `CREATE TABLE IF NOT EXISTS` makes this idempotent for
- * built-in tables that the static schema already created.
+ * `history_etl_*` tables and the typed contract tables. Custom source definitions
+ * (and built-in definitions with a `splitConfig.targetTable` override) need their
+ * target table(s) created on demand. The table name is already gated by
+ * {@link VALID_TABLE_NAME} in {@link validateSourceDefinition} / {@link targetTableFor},
+ * so it is safe to interpolate into DDL. `CREATE TABLE IF NOT EXISTS` makes this
+ * idempotent for built-in tables that the static schema already created.
  */
 async function ensureTargetTables(db: ImportOptions['db'], definition: SourceDefinition): Promise<void> {
     const tables = new Set<string>([targetTableFor(definition.targetTable)]);
@@ -56,6 +107,8 @@ async function ensureTargetTables(db: ImportOptions['db'], definition: SourceDef
         tables.add(targetTableFor(definition.splitConfig.targetTable));
     }
     for (const table of tables) {
+        // Typed tables are created by the static schema; use ETL DDL for custom tables.
+        if (TYPED_TABLE_COLUMNS[table] !== undefined) continue;
         await db.exec(ETL_TABLE_DDL(table));
     }
 }
@@ -103,6 +156,8 @@ async function ledgerExists(db: ImportOptions['db'], recordHash: string): Promis
     return row !== undefined && row !== null;
 }
 
+const _ensuredTables = new Set<string>();
+
 async function insertRecord(
     db: ImportOptions['db'],
     targetTable: string,
@@ -114,17 +169,53 @@ async function insertRecord(
     now: ImportOptions['now'],
 ): Promise<void> {
     const table = targetTableFor(targetTable);
-    await db.run(
-        `INSERT INTO ${table} (record_hash, source_file, source_line, split_index, payload_json, imported_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(record_hash) DO NOTHING`,
-        recordHash,
-        sourceFile,
-        sourceLine,
-        splitIndex,
-        JSON.stringify(payload),
-        timestamp(now),
-    );
+    const typedColumns = TYPED_TABLE_COLUMNS[table];
+    if (typedColumns !== undefined) {
+        // Typed insert path: map each column from the payload, assert no unknown keys.
+        const unknownKeys = Object.keys(payload).filter((k) => !typedColumns.includes(k) && !TYPED_IGNORED_KEYS.has(k));
+        if (unknownKeys.length > 0) {
+            throw new HistoryImportError(
+                `Typed table "${table}" has unknown columns: ${unknownKeys.join(', ')}. ` +
+                    `Expected one of: ${typedColumns.join(', ')}.`,
+                { table, unknownKeys, knownColumns: typedColumns },
+            );
+        }
+        // record_hash and imported_at come from the function parameters, not the payload.
+        const ts = timestamp(now);
+        const values = typedColumns.map((col) => {
+            if (col === 'record_hash') return recordHash;
+            if (col === 'imported_at') return ts;
+            const v = payload[col];
+            return v === undefined ? null : v;
+        });
+        if (!_ensuredTables.has(table)) {
+            // Typed tables are created by the static schema in applyHistoryImportSchema.
+            _ensuredTables.add(table);
+        }
+        await db.run(
+            `INSERT INTO ${table} (${typedColumns.join(', ')})
+             VALUES (${typedColumns.map(() => '?').join(', ')})
+             ON CONFLICT(record_hash) DO NOTHING`,
+            ...values,
+        );
+    } else {
+        // Generic ETL insert path: store as payload_json blob.
+        if (!_ensuredTables.has(table)) {
+            await db.exec(ETL_TABLE_DDL(table));
+            _ensuredTables.add(table);
+        }
+        await db.run(
+            `INSERT INTO ${table} (record_hash, source_file, source_line, split_index, payload_json, imported_at)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(record_hash) DO NOTHING`,
+            recordHash,
+            sourceFile,
+            sourceLine,
+            splitIndex,
+            JSON.stringify(payload),
+            timestamp(now),
+        );
+    }
 }
 
 async function insertLedger(

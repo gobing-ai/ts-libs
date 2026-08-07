@@ -80,4 +80,61 @@ CREATE TABLE IF NOT EXISTS history_etl_openclaw (
     payload_json TEXT NOT NULL,
     imported_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS history_message (
+    record_hash        TEXT PRIMARY KEY,
+    source             TEXT NOT NULL,
+    source_file        TEXT NOT NULL,
+    source_line        INTEGER NOT NULL,
+    session_id         TEXT NOT NULL,
+    seq                INTEGER NOT NULL,
+    turn_index         INTEGER,
+    role               TEXT NOT NULL,
+    record_type        TEXT NOT NULL,
+    disposition        TEXT NOT NULL,
+    ts                 TEXT NOT NULL,
+    duration_ms        INTEGER,
+    model              TEXT,
+    input_tokens       INTEGER,
+    output_tokens      INTEGER,
+    cache_read_tokens  INTEGER,
+    cache_write_tokens INTEGER,
+    cost_usd           REAL,
+    content_text       TEXT,
+    cwd                TEXT,
+    provenance         TEXT NOT NULL,
+    run_id             TEXT,
+    task_wbs           TEXT,
+    imported_at        TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS history_tool_call (
+    record_hash   TEXT PRIMARY KEY,
+    message_hash  TEXT NOT NULL,
+    source        TEXT NOT NULL,
+    source_file   TEXT NOT NULL,
+    source_line   INTEGER NOT NULL,
+    session_id    TEXT NOT NULL,
+    seq           INTEGER NOT NULL,
+    tool_name     TEXT NOT NULL,
+    args_digest   TEXT,
+    status        TEXT NOT NULL,
+    started_at    TEXT,
+    completed_at  TEXT,
+    duration_ms   INTEGER,
+    result_bytes  INTEGER,
+    error_text    TEXT,
+    imported_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_history_message_session
+    ON history_message(source, session_id, seq);
+CREATE INDEX IF NOT EXISTS idx_history_message_ts
+    ON history_message(ts);
+CREATE INDEX IF NOT EXISTS idx_history_tool_call_session
+    ON history_tool_call(source, session_id, seq);
+CREATE INDEX IF NOT EXISTS idx_history_tool_call_tool_name
+    ON history_tool_call(tool_name);
+CREATE INDEX IF NOT EXISTS idx_history_tool_call_message_hash
+    ON history_tool_call(message_hash);
 `.trim();

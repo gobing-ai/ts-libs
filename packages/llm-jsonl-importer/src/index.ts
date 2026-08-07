@@ -22,5 +22,6 @@ export type {
     RedactionRule,
     SourceDefinition,
     SplitConfig,
+    SplitEntry,
     TransformContext,
 } from './types';

@@ -16,6 +16,9 @@ describe('SOURCE_DEFINITIONS', () => {
         expect(keys).toContain('pi');
         expect(keys).toContain('claude');
         expect(keys).toContain('codex');
+        expect(keys).toContain('omp');
+        expect(keys).toContain('grok');
+        expect(keys).toContain('agy');
     });
 
     test('each definition has required fields', () => {
