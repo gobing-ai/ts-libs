@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-db",
-    "version": "0.4.19",
+    "version": "0.4.20",
     "description": "@gobing-ai/ts-db — a drizzle-free database facade: typed DAOs over Bun SQLite / Cloudflare D1, a small predicate query spec, single-source-of-truth tables, and migrations. Drizzle stays an internal detail.",
     "keywords": [
         "typescript",
