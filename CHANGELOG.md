@@ -28,6 +28,33 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - None.
 
+## [0.4.20] — 2026-08-07
+
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer` — typed `history_message` / `history_tool_call` contract tables:** the static import schema now declares two typed contract tables in addition to the per-source `history_etl_*` tables. `history_message` holds canonical message rows (`session_id`, `seq`, `turn_index`, `role`, `record_type`, `disposition`, `ts`, `duration_ms`, `model`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cost_usd`, `content_text`, `cwd`, `provenance`, `run_id`, `task_wbs`); `history_tool_call` holds the matching tool-call rows (`tool_name`, `args_digest`, `status`, `started_at`, `completed_at`, `duration_ms`, `result_bytes`, `error_text`) plus a `message_hash` foreign key back to the parent message. Both tables get supporting indexes (`(source, session_id, seq)`, `ts`, `tool_name`, `message_hash`). The single-source `GROUP BY tool_name` query path no longer needs `JSON_EXTRACT`.
+- **`@gobing-ai/ts-llm-jsonl-importer` — per-source `*Split()` mappers wired into the built-in registry:** `pi`, `claude`, `codex`, `omp`, `grok`, and `agy` now route their raw JSONL through the `customSourceDefinition(..., split, fieldMap, schema)` factory in `sources.ts`. Each mapper classifies records into the `history_message` / `history_tool_call` contract tables (e.g. Claude `tool_use` blocks emit one `history_tool_call` row referencing the parent message via `message_hash`; Grok `phase_changed` / `turn_started` / `hook_execution` etc. land as `meta`; AGY `USER_INPUT` / `PLANNER_RESPONSE` / `ERROR_MESSAGE` / `RUN_COMMAND` / `CONVERSATION_HISTORY` / `CHECKPOINT` / `GENERIC` route by role + disposition per task 0463). Built-in sources: `pi` → `.pi/agent/sessions`, `claude` → `.claude/projects`, `codex` → `.codex/sessions`, `omp` → `.omp/agent/sessions`, `grok` → `.grok/sessions`, `agy` → `.gemini/antigravity-cli/brain`. `LlmJsonlSource` widens to include `omp` / `grok` / `agy`.
+- **`@gobing-ai/ts-llm-jsonl-importer` — `unknownRecords` counter on `ImportResult`:** `runJsonlImport()` now reports `unknownRecords: number` on the result, populated from any split entry whose normalized `disposition === 'unknown'` (e.g. Grok records with no type discriminator or an unlisted empty type). The previously-empty bookkeeping field is now a first-class counter; existing consumers ignore it.
+- **`@gobing-ai/ts-llm-jsonl-importer` — `SplitEntry` export + `one-to-many` split wiring:** the `SplitEntry` interface (`{ targetTable?: string; record: JsonObject }`) is now exported from the package barrel alongside `SplitConfig`. The `SplitConfig` `custom` mode accepts `readonly (JsonObject | SplitEntry)[]` and honours per-entry `targetTable` with the resolution order `entry → splitConfig → definition`, so a single split call can fan out to multiple tables.
+- **`@gobing-ai/ts-llm-jsonl-importer` — typed INSERT path on the contract tables:** `insertRecord` selects between the generic `payload_json` insert (for `history_etl_*` tables) and a typed insert (for the contract tables) using an internal `TYPED_TABLE_COLUMNS` allowlist. The typed path refuses to persist unknown column names — it throws `HistoryImportError` with the offending keys + the expected set — so a mapper that drifts from the contract cannot silently land in SQLite. Generic tables keep the existing `payload_json` path unchanged.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- **`@gobing-ai/ts-llm-jsonl-importer` — `_messageSplitIndex → message_hash` linkage is now stable across the insert pass:** `runJsonlImport()` now does a two-pass insert — first pass prepares (normalize, validate, redact, hash) every split entry, second pass resolves `normalized._messageSplitIndex` against the prepared `recordHashBySplitIndex` map and assigns `normalized.message_hash` before the INSERT. Previously the per-entry loop deleted `_messageSplitIndex` before any message row had been hashed, so tool-call rows never saw their parent `message_hash` and the `(source, session_id, seq)` join worked but `history_tool_call.message_hash` was always NULL for fan-out sources.
+- **`@gobing-ai/ts-llm-jsonl-importer` — `VALID_TABLE_NAME` widens to `/^history_[a-z_]+$/`:** the validator used to reject `history_message` / `history_tool_call` (note: `history_` not `history_etl_`), which was a hard-coded assumption from the generic-table-only era. Custom source definitions can now reference any `history_<snake>` table — including the new contract tables — without tripping the validator or the split-table override.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- `@gobing-ai/ts-llm-jsonl-importer` (minor): `LlmJsonlSource` widens to include `omp` / `grok` / `agy`. Consumers narrowing on the closed union (e.g. an exhaustive `switch` over built-in source names) must widen to `string` or add the new branches. `ImportResult` gains a required `unknownRecords: number` field; existing consumers that destructure it as a fixed-shape object must accept the extra key.
+
 ## [0.4.18] — 2026-08-04
 
 ### Added
@@ -686,8 +713,10 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[Unreleased]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.16...HEAD
-[0.4.16]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.15...@gobing-ai/ts-libs-v0.4.16
+[Unreleased]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.20...HEAD
+
+[0.4.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.19...@gobing-ai/ts-libs-v0.4.20
+[0.4.18]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.16...@gobing-ai/ts-libs-v0.4.18
 [0.4.15]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.14...@gobing-ai/ts-libs-v0.4.15
 [0.4.12]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.11...@gobing-ai/ts-libs-v0.4.12
 [0.4.11]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.10...@gobing-ai/ts-libs-v0.4.11
