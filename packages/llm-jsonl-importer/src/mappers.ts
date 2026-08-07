@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic JSON property access not compatible with noUncheckedIndexedAccess
 import { z } from 'zod';
 import { sha256 } from './hash';
 import type { JsonObject, SplitEntry } from './types';
@@ -211,12 +210,12 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
 export function piSplit(raw: unknown): readonly SplitEntry[] {
     const entries: SplitEntry[] = [];
     const r = raw as Record<string, unknown>;
-    const sessionId = s(r.id, r.session?.id) ?? 'unknown';
+    const sessionId = s(r.id, o(r.session).id) ?? 'unknown';
     const seq = typeof r.seq === 'number' ? r.seq : 0;
     const ts = s(r.ts, r.timestamp, r.createdAt) ?? new Date(0).toISOString();
     const role = mapRole(r.type ?? r.role);
     const recordType = String(r.type ?? '');
-    const model = s(r.model, r.message?.model);
+    const model = s(r.model, o(r.message).model);
     const cwd = s(r.cwd, r.dir);
 
     const msg = r.message as Record<string, unknown> | undefined;
@@ -299,7 +298,7 @@ export function ompSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
             {
                 targetTable: 'history_message',
                 record: {
-                    session_id: s(raw.id, raw.session?.id) ?? 'unknown',
+                    session_id: s(raw.id, o(raw.session).id) ?? 'unknown',
                     seq: typeof raw.seq === 'number' ? raw.seq : 0,
                     role: 'meta',
                     record_type: recordType,
@@ -312,11 +311,11 @@ export function ompSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
     }
 
     const entries: SplitEntry[] = [];
-    const sessionId = s(raw.id, raw.session?.id) ?? 'unknown';
+    const sessionId = s(raw.id, o(raw.session).id) ?? 'unknown';
     const seq = typeof raw.seq === 'number' ? raw.seq : 0;
     const ts = s(raw.ts, raw.timestamp, raw.createdAt) ?? new Date(0).toISOString();
     const role = mapRole(raw.type ?? raw.role);
-    const model = s(raw.model, raw.message?.model);
+    const model = s(raw.model, o(raw.message).model);
     const cwd = s(raw.cwd, raw.dir);
 
     const msg = raw.message as Record<string, unknown> | undefined;
@@ -388,7 +387,7 @@ export function codexSplit(raw: Record<string, unknown>): readonly SplitEntry[] 
     const entries: SplitEntry[] = [];
 
     const payload = (raw.payload ?? raw) as Record<string, unknown>;
-    const sessionId = s(raw.session_id, raw.session_meta?.id, raw.id) ?? 'unknown';
+    const sessionId = s(raw.session_id, o(raw.session_meta).id, raw.id) ?? 'unknown';
     const seq = typeof raw.seq === 'number' ? raw.seq : 0;
     const ts = s(raw.timestamp, raw.ts, payload.ts) ?? new Date(0).toISOString();
     const recordType = String(raw.type ?? '');
@@ -412,7 +411,7 @@ export function codexSplit(raw: Record<string, unknown>): readonly SplitEntry[] 
     }
 
     const role = mapRole(recordType);
-    const model = s(raw.model, payload.model, raw.turn_context?.payload?.model);
+    const model = s(raw.model, payload.model, o(o(raw.turn_context).payload).model);
     const cwd = s(raw.cwd, raw.dir);
 
     const tokenCount = payload.token_count as Record<string, unknown> | undefined;
@@ -1035,6 +1034,11 @@ export function grokSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
 // ---------------------------------------------------------------------------
 // Shared utilities
 // ---------------------------------------------------------------------------
+
+/** Narrow an unknown JSON value to an object bag so nested lookups type-check. */
+function o(value: unknown): Record<string, unknown> {
+    return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+}
 
 /** Safe string accessor: returns the first non-empty string value. */
 function s(...values: readonly unknown[]): string | undefined {
