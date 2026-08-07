@@ -43,7 +43,6 @@
         "lint": "biome check . && bun run typecheck",
         "format": "biome check . --write",
         "check": "bun run lint && bun run test",
-        "prepare": "bun run build",
         "prepublishOnly": "bun run build",
         "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-llm-jsonl-importer-v<version> && git push --tags' && exit 1"
     },
