@@ -251,7 +251,10 @@ async function discoverFiles(
     paths: RuntimePaths | undefined,
 ): Promise<readonly string[]> {
     if (files !== undefined && files.length > 0) {
-        return files.map((file) => resolvePath(file)).sort();
+        return files
+            .map((file) => resolvePath(file))
+            .map((file) => normalizeSourceFilePath(file, fileSystem))
+            .sort();
     }
 
     // Root resolution splits by provenance (ADR-023 A1 / task 0042):
@@ -271,14 +274,34 @@ async function discoverFiles(
         const stat = await fileSystem.stat(root);
         if (stat === null) continue;
         if (stat.isFile()) {
-            if (matchesPattern(root, definition.filePatterns)) found.add(root);
+            if (matchesPattern(root, definition.filePatterns)) found.add(normalizeSourceFilePath(root, fileSystem));
             continue;
         }
         for (const file of await walkDir(root, fileSystem)) {
-            if (matchesPattern(file, definition.filePatterns)) found.add(file);
+            if (matchesPattern(file, definition.filePatterns)) found.add(normalizeSourceFilePath(file, fileSystem));
         }
     }
     return [...found].sort();
+}
+
+/**
+ * Normalize a discovered source file path to its canonical real-path identity.
+ *
+ * WHY: the same physical session file is reachable via a symlinked path and via its
+ * real path (every agent history dir under `$HOME` is a symlink into the dotfiles
+ * tree here). Without normalization, the checkpoint, ledger, and record_hash keys
+ * diverge, yielding duplicate checkpoint rows and silent full-corpus re-imports.
+ * `realPath` is optional on `FileSystem`: injected and in-memory test doubles may
+ * omit it, and a path that does not exist on disk has no realpath. Fall back to the
+ * original path in either case — never throw, never bypass the injected FileSystem.
+ */
+function normalizeSourceFilePath(path: string, fileSystem: FileSystem): string {
+    if (!fileSystem.realPath) return path;
+    try {
+        return fileSystem.realPath(path);
+    } catch {
+        return path;
+    }
 }
 
 function matchesPattern(path: string, patterns: readonly string[]): boolean {

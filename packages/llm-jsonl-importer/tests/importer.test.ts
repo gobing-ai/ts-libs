@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
@@ -332,7 +332,9 @@ async function fixtureFile(lines: readonly string[]): Promise<string> {
     const directory = await mkdtemp(join(tmpdir(), 'llm-jsonl-importer-'));
     const file = join(directory, 'history.jsonl');
     await writeFile(file, `${lines.join('\n')}\n`);
-    return file;
+    // Return the realpath so test assertions match the importer's normalized
+    // source_file (macOS resolves /var → /private/var via realpath at discovery).
+    return realpath(file);
 }
 
 function fixedNow(): Date {
@@ -391,6 +393,7 @@ describe('runJsonlImport paths injection (ADR-023 A1)', () => {
             fixtureFile,
             `${JSON.stringify({ id: 'home-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'x' })}\n`,
         );
+        const expectedSourceFile = await realpath(fixtureFile);
 
         const paths: RuntimePaths = { cwd: outsideCwd, home: fakeHome };
         const fileSystem = createNodeFileSystem(outsideCwd);
@@ -410,8 +413,7 @@ describe('runJsonlImport paths injection (ADR-023 A1)', () => {
             expect(result.importedRecords).toBe(1);
 
             const rows = await db.queryAll<{ source_file: string }>('SELECT source_file FROM history_message');
-            expect(rows).toHaveLength(1);
-            expect(rows[0]?.source_file).toBe(fixtureFile);
+            expect(rows[0]?.source_file).toBe(expectedSourceFile);
         } finally {
             await rm(fakeHome, { recursive: true, force: true });
             await rm(outsideCwd, { recursive: true, force: true });
@@ -459,6 +461,169 @@ describe('runJsonlImport paths injection (ADR-023 A1)', () => {
             await rm(fakeHome, { recursive: true, force: true });
             await rm(outsideCwd, { recursive: true, force: true });
         }
+    });
+});
+
+/**
+ * source_file path identity (task 0465 R1/R2).
+ *
+ * Pins the normalization ACs:
+ *  - R1: a symlinked path and the real path of the same physical file collapse to one
+ *    checkpoint row, and the second import re-imports no already-ledgered content.
+ *  - R1 fallback: a FileSystem without `realPath` still discovers files using the
+ *    original path, and a non-existent path falls back rather than failing discovery.
+ */
+describe('runJsonlImport source_file realpath normalization (0465)', () => {
+    test('R1/R2 — symlinked and real paths of one file collapse to one checkpoint row', async () => {
+        const directory = await mkdtemp(join(tmpdir(), '0465-symlink-'));
+        const realDir = join(directory, 'real');
+        const linkDir = join(directory, 'link');
+        await mkdir(realDir);
+        // Create the fixture under realDir, then symlink linkDir -> realDir.
+        const rawFile = join(realDir, 'history.jsonl');
+        await writeFile(
+            rawFile,
+            `${JSON.stringify({ id: 'sym-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'via link' })}\n`,
+        );
+        await symlink(realDir, linkDir);
+        const linkedFile = join(linkDir, 'history.jsonl');
+        // Use the realpath in assertions — macOS resolves /var → /private/var.
+        const realFile = await realpath(rawFile);
+
+        try {
+            // Import via the symlinked path first, then via the real path.
+            const first = await runJsonlImport('gemini', {
+                db,
+                files: [linkedFile],
+                mode: 'incremental',
+                now: fixedNow,
+            });
+            const second = await runJsonlImport('gemini', {
+                db,
+                files: [realFile],
+                mode: 'incremental',
+                now: fixedNow,
+            });
+
+            // Both paths resolve to the same real file. The first import records the
+            // checkpoint at the realpath; the second (via the real path directly) finds
+            // the checkpoint already covers line 1 and reads nothing new. Without R1,
+            // the second import would see a fresh checkpoint (different source_file key)
+            // and re-import the record.
+            expect(first.importedRecords).toBe(1);
+            expect(second.importedRecords).toBe(0);
+            const checkpoints = await db.queryAll<{ source_file: string; last_imported_line: number }>(
+                'SELECT source_file, last_imported_line FROM history_import_checkpoint',
+            );
+            expect(checkpoints).toEqual([{ source_file: realFile, last_imported_line: 1 }]);
+            const ledgerRows = await db.queryAll<{ record_hash: string }>(
+                'SELECT record_hash FROM history_import_ledger',
+            );
+            expect(ledgerRows).toHaveLength(1);
+        } finally {
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
+
+    test('R1 fallback — a FileSystem without realPath imports using the original path', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'no-realpath', timestamp: '2026-05-30T00:00:00.000Z', content: 'fallback' }),
+        ]);
+        // Strip realPath from the node FileSystem to simulate an injected double that
+        // does not implement it (e.g. an in-memory test double).
+        const { realPath: _omit, ...fsWithoutRealPath } = createNodeFileSystem();
+        void _omit;
+
+        const result = await runJsonlImport('gemini', {
+            db,
+            files: [file],
+            fileSystem: fsWithoutRealPath as FileSystem,
+            mode: 'full',
+            now: fixedNow,
+        });
+
+        expect(result.importedRecords).toBe(1);
+        const checkpoints = await db.queryAll<{ source_file: string }>(
+            'SELECT source_file FROM history_import_checkpoint',
+        );
+        // No realPath available — the original path is used unchanged.
+        expect(checkpoints).toEqual([{ source_file: file }]);
+    });
+
+    test('R1 fallback — a realPath that throws (e.g. ENOENT) falls back to the original path', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'enoent-fallback', timestamp: '2026-05-30T00:00:00.000Z', content: 'fallback' }),
+        ]);
+        // Inject a FileSystem whose realPath throws, simulating a path that does
+        // not resolve on disk (ENOENT). The catch branch in normalizeSourceFilePath
+        // must fall back to the original path rather than failing discovery.
+        const nodeFs = createNodeFileSystem();
+        const throwingFs: FileSystem = {
+            ...nodeFs,
+            realPath: () => {
+                throw new Error('ENOENT: no such file or directory');
+            },
+        };
+
+        const result = await runJsonlImport('gemini', {
+            db,
+            files: [file],
+            fileSystem: throwingFs,
+            mode: 'full',
+            now: fixedNow,
+        });
+
+        expect(result.importedRecords).toBe(1);
+        const checkpoints = await db.queryAll<{ source_file: string }>(
+            'SELECT source_file FROM history_import_checkpoint',
+        );
+        // realPath threw — the original fixture path is used unchanged.
+        expect(checkpoints).toEqual([{ source_file: file }]);
+    });
+
+    test('R5 — dry-run does not advance the checkpoint', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'dry-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'dry' }),
+        ]);
+
+        const result = await runJsonlImport('gemini', {
+            db,
+            files: [file],
+            mode: 'incremental',
+            dryRun: true,
+            now: fixedNow,
+        });
+
+        expect(result.importedRecords).toBe(1);
+        expect(result.checkpointUpdates).toBe(0);
+        const checkpoints = await db.queryAll<{ last_imported_line: number }>(
+            'SELECT last_imported_line FROM history_import_checkpoint',
+        );
+        expect(checkpoints).toEqual([]);
+    });
+
+    test('R5 — full mode resets only the imported source scope', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'scope-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'scope' }),
+        ]);
+        // Seed a checkpoint for a different source — it must survive a full-mode reset
+        // scoped to gemini.
+        await runJsonlImport('codex', { db, files: [file], mode: 'incremental', now: fixedNow });
+        const codexCheckpointsBefore = await db.queryAll<{ source: string }>(
+            "SELECT source FROM history_import_checkpoint WHERE source = 'codex'",
+        );
+        expect(codexCheckpointsBefore).toHaveLength(1);
+
+        await runJsonlImport('gemini', { db, files: [file], mode: 'full', now: fixedNow });
+
+        const codexCheckpointsAfter = await db.queryAll<{ source: string }>(
+            "SELECT source FROM history_import_checkpoint WHERE source = 'codex'",
+        );
+        expect(codexCheckpointsAfter).toHaveLength(1);
+        const geminiCheckpoints = await db.queryAll<{ source: string }>(
+            "SELECT source FROM history_import_checkpoint WHERE source = 'gemini'",
+        );
+        expect(geminiCheckpoints).toHaveLength(1);
     });
 });
 

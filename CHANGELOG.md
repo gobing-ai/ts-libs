@@ -28,6 +28,28 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - None.
 
+## [0.4.23] — 2026-08-08
+
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer` — `normalizeSourceFilePaths()` migration export:** idempotent rewrite of `source_file` to its realpath identity across `history_import_checkpoint`, `history_import_ledger`, typed contract tables (`history_message`, `history_tool_call`), and any present `history_etl_*` tables. Checkpoint rows that describe the same physical file under both a symlink path and a real path collapse per `(source, realpath)`, keeping the highest `last_imported_line` so incremental resume does not re-import already-seen content. `record_hash` is intentionally left alone — it is path-representation dependent by construction, and pre-migration rows are grandfathered. The resolver is injected as `(sourceFile) => string | null | undefined` so the DAO stays decoupled from the runtime `FileSystem` seam. Exported from the package barrel alongside `applyHistoryImportSchema`.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- **`@gobing-ai/ts-llm-jsonl-importer` — `source_file` realpath normalization at discovery:** discovered and explicit file paths are canonicalized via optional `FileSystem.realPath` before they become checkpoint keys, ledger rows, or `record_hash` inputs. Without this, the same physical session file reachable via a symlink (e.g. `$HOME/.claude/projects` → a dotfiles tree) and via its real path produced divergent checkpoint/ledger keys, duplicate checkpoint rows, and silent full-corpus re-imports. When `realPath` is absent (injected/in-memory doubles) or throws (e.g. ENOENT), the original path is kept — discovery never fails because of normalization.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- `@gobing-ai/ts-llm-jsonl-importer` (patch behavior): when `FileSystem.realPath` is available, stored `source_file` values and new `record_hash` inputs use the realpath. Consumers that compare `source_file` to a non-realpath string, or that assumed symlink-form paths, must realpath (or call `normalizeSourceFilePaths`) for identity checks. Pre-migration `record_hash` values are unchanged and still dedupe correctly against their original path representation until those rows are re-imported under the new form.
+
 ## [0.4.20] — 2026-08-07
 
 ### Added
@@ -713,8 +735,9 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[Unreleased]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.20...HEAD
+[Unreleased]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.23...HEAD
 
+[0.4.23]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.22...@gobing-ai/ts-libs-v0.4.23
 [0.4.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.19...@gobing-ai/ts-libs-v0.4.20
 [0.4.18]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.16...@gobing-ai/ts-libs-v0.4.18
 [0.4.15]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.14...@gobing-ai/ts-libs-v0.4.15

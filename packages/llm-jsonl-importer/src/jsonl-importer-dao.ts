@@ -241,6 +241,133 @@ async function insertLedger(
     );
 }
 
+/**
+ * Idempotent migration that rewrites `source_file` to its realpath across the checkpoint,
+ * ledger, and any contract table present (R4).
+ *
+ * WHY: `record_hash` is `sha256({source, sourceFile, sourceLine, splitIndex, record})`, so
+ * `sourceFile` is inside the hash. Normalizing its representation at discovery (R1) changes
+ * every future hash; pre-normalization rows carry unnormalized paths and their old hashes
+ * remain valid as dedupe keys. This migration rewrites the `source_file` *column* so old and
+ * new rows agree on path identity, and collapses duplicate checkpoint rows produced when one
+ * physical file was imported via both a symlinked and a real path — keeping the highest
+ * `last_imported_line` so an incremental resume does not re-import already-seen content.
+ *
+ * `record_hash` is intentionally NOT touched: it is path-representation dependent by
+ * construction, pre-migration rows are grandfathered, and recomputing it would require the
+ * original record payload that the ledger does not store.
+ *
+ * @param resolveRealPath - resolves a `source_file` to its canonical real path. Falls back to
+ *   the original value when it returns null/undefined or throws. Decouples the DAO from the
+ *   runtime `FileSystem` seam.
+ */
+export async function normalizeSourceFilePaths(
+    db: ImportOptions['db'],
+    resolveRealPath: (sourceFile: string) => string | null | undefined,
+): Promise<void> {
+    await normalizeCheckpointPaths(db, resolveRealPath);
+    await normalizeColumnPaths(db, resolveRealPath, 'history_import_ledger');
+    for (const table of TYPED_TABLE_COLUMNS_SOURCE_FILE) {
+        if (await tableExists(db, table)) {
+            await normalizeColumnPaths(db, resolveRealPath, table);
+        }
+    }
+    for (const table of await listEtlTables(db)) {
+        await normalizeColumnPaths(db, resolveRealPath, table);
+    }
+}
+
+/** Typed contract tables that carry a `source_file` column (0466 forensic contract). */
+const TYPED_TABLE_COLUMNS_SOURCE_FILE = ['history_message', 'history_tool_call'] as const;
+
+async function tableExists(db: ImportOptions['db'], table: string): Promise<boolean> {
+    const row = await db.queryFirst<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        table,
+    );
+    return row !== undefined && row !== null;
+}
+
+async function listEtlTables(db: ImportOptions['db']): Promise<string[]> {
+    const rows = await db.queryAll<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'history_etl_%'",
+    );
+    return rows.map((row) => row.name);
+}
+
+/**
+ * Normalize `source_file` in the checkpoint table, collapsing duplicate rows per
+ * `(source, realpath)` by keeping the highest `last_imported_line`.
+ */
+async function normalizeCheckpointPaths(
+    db: ImportOptions['db'],
+    resolveRealPath: (sourceFile: string) => string | null | undefined,
+): Promise<void> {
+    const rows = await db.queryAll<{
+        source: string;
+        source_file: string;
+        last_imported_line: number;
+        updated_at: string;
+    }>('SELECT source, source_file, last_imported_line, updated_at FROM history_import_checkpoint');
+    // Collapse per (source, realPath) keeping the highest last_imported_line.
+    const collapsed = new Map<
+        string,
+        { source: string; source_file: string; last_imported_line: number; updated_at: string }
+    >();
+    for (const row of rows) {
+        const canonical = resolveWithFallback(resolveRealPath, row.source_file);
+        const key = `${row.source}\u0000${canonical}`;
+        const existing = collapsed.get(key);
+        if (existing === undefined || row.last_imported_line > existing.last_imported_line) {
+            collapsed.set(key, {
+                source: row.source,
+                source_file: canonical,
+                last_imported_line: row.last_imported_line,
+                updated_at: row.updated_at,
+            });
+        }
+    }
+    await db.exec('DELETE FROM history_import_checkpoint');
+    for (const row of collapsed.values()) {
+        await db.run(
+            `INSERT INTO history_import_checkpoint (source, source_file, last_imported_line, updated_at)
+             VALUES (?, ?, ?, ?)`,
+            row.source,
+            row.source_file,
+            row.last_imported_line,
+            row.updated_at,
+        );
+    }
+}
+
+/** Normalize `source_file` in a table that stores it as a plain column. */
+async function normalizeColumnPaths(
+    db: ImportOptions['db'],
+    resolveRealPath: (sourceFile: string) => string | null | undefined,
+    table: string,
+): Promise<void> {
+    const rows = await db.queryAll<{ rowid: number; source_file: string }>(
+        `SELECT rowid AS rowid, source_file FROM ${table} WHERE source_file IS NOT NULL`,
+    );
+    for (const row of rows) {
+        const canonical = resolveWithFallback(resolveRealPath, row.source_file);
+        if (canonical !== row.source_file) {
+            await db.run(`UPDATE ${table} SET source_file = ? WHERE rowid = ?`, canonical, row.rowid);
+        }
+    }
+}
+
+function resolveWithFallback(
+    resolveRealPath: (sourceFile: string) => string | null | undefined,
+    sourceFile: string,
+): string {
+    try {
+        return resolveRealPath(sourceFile) ?? sourceFile;
+    } catch {
+        return sourceFile;
+    }
+}
+
 export type { CheckpointRow };
 export {
     ETL_TABLE_DDL,
