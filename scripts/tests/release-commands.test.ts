@@ -1,45 +1,29 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { releaseConfig, repoRoot } from '../config';
 import type { Spawn } from '../lib/command';
 import type { WorkspacePackage } from '../lib/workspace';
 
-// ── module seams ────────────────────────────────────────────────────────────
-// The release commands discover the workspace and call npm through module
-// imports. Mock both so tests run against temp fixtures with deterministic
-// results — no real `npm view`/`npm publish` subprocess and no reads of the
-// real workspace (beyond the read-only CHANGELOG/bun.lock existence probe).
+// ── test seams ──────────────────────────────────────────────────────────────
 let fixture: { root: string; packages: WorkspacePackage[] } = { root: '', packages: [] };
 const fixtureRoots: string[] = [];
 let npmAlreadyPublished = false;
 let publishFailure = '';
 let publishConflict = false;
 
-mock.module('../lib/workspace', () => ({
-    findWorkspacePackages: async () => fixture.packages,
-}));
+const noopLog = () => {};
 
-mock.module('../lib/release', () => ({
-    createReleaseTag: (pkg: { name: string }, version: string) =>
-        `${pkg.name}${releaseConfig.tagVersionSeparator}${version}`,
-    createAggregateReleaseTag: (version: string) =>
-        `${releaseConfig.aggregatePackageName}${releaseConfig.tagVersionSeparator}${version}`,
-    branchPushArgs: (branch: string) => ['-c', 'push.followTags=false', 'push', '--no-follow-tags', 'origin', branch],
-    tagPushArgs: (tag: string) => [
-        '-c',
-        'push.followTags=false',
-        'push',
-        'origin',
-        `refs/tags/${tag}:refs/tags/${tag}`,
-    ],
-    sortPackagesByDependencyOrder: async (packages: WorkspacePackage[]) => packages.filter((pkg) => !pkg.private),
-    selectPackagesForPublish: async (packages: WorkspacePackage[]) => packages,
-    npmViewVersion: () => npmAlreadyPublished,
-    npmPublish: () =>
-        publishFailure !== '' ? { ok: false, output: publishFailure } : { ok: true, output: 'published' },
-    isAlreadyPublishedError: () => publishConflict,
-}));
+function fixtureDeps() {
+    return {
+        findWorkspacePackages: async () => fixture.packages,
+        npmViewVersion: () => npmAlreadyPublished,
+        npmPublish: () =>
+            publishFailure !== '' ? { ok: false, output: publishFailure } : { ok: true, output: 'published' },
+        isAlreadyPublishedError: () => publishConflict,
+        log: noopLog,
+    };
+}
 
 import { bumpVersion, dropTags, ensurePublishWorkflowRun, publishPackages } from '../lib/release-commands';
 
@@ -52,6 +36,22 @@ async function installFixture(workspaceRanges: boolean): Promise<void> {
     // Temp fixture lives INSIDE repoRoot so `${repoRoot}${pkg.dir}/package.json`
     // (publishWithResolvedRanges) resolves to the fixture, not the real workspace.
     const root = await mkdtemp(join(repoRoot, '.tmp-rel-test-'));
+    const rootDir = root.replace(repoRoot, '');
+    const rootPkgPath = join(root, 'package.json');
+    await writeFile(
+        rootPkgPath,
+        `${JSON.stringify({ name: releaseConfig.aggregatePackageName, version: '0.1.5', private: true }, null, 4)}\n`,
+    );
+    const packages: WorkspacePackage[] = [
+        {
+            path: rootPkgPath,
+            dir: rootDir,
+            name: releaseConfig.aggregatePackageName,
+            version: '0.1.5',
+            private: true,
+            dependencies: {},
+        },
+    ];
     const defs = [
         { name: '@gobing-ai/ts-utils', deps: {} },
         {
@@ -59,9 +59,8 @@ async function installFixture(workspaceRanges: boolean): Promise<void> {
             deps: workspaceRanges ? { '@gobing-ai/ts-utils': 'workspace:*' } : {},
         },
     ];
-    const packages: WorkspacePackage[] = [];
     for (const def of defs) {
-        const dir = join(root.replace(repoRoot, ''), 'packages', def.name.split('-').pop() as string);
+        const dir = join(rootDir, 'packages', def.name.split('-').pop() as string);
         const pkgDir = join(repoRoot, dir);
         await mkdir(pkgDir, { recursive: true });
         const manifest = { name: def.name, version: '0.1.5', private: false, dependencies: def.deps };
@@ -208,7 +207,7 @@ function cleanGitSpawn(push = false): { spawn: Spawn; calls: string[] } {
 describe('ensurePublishWorkflowRun (R4, task 0510)', () => {
     test('returns the push-triggered Publish run immediately when it is visible (no dispatch)', async () => {
         const { spawn, calls } = fakeSpawn([{ match: gh(...listArgs()), stdout: PUSH_RUN }]);
-        const run = await ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep);
+        const run = await ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep, noopLog);
         expect(run.databaseId).toBe('12345');
         expect(run.url).toContain('runs/12345');
         expect(run.event).toBe('push');
@@ -225,7 +224,7 @@ describe('ensurePublishWorkflowRun (R4, task 0510)', () => {
             { match: gh(...dispatchArgs()), stdout: '' },
             { match: gh(...listArgs()), stdout: DISPATCHED_RUN },
         ]);
-        const run = await ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep);
+        const run = await ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep, noopLog);
         expect(run.databaseId).toBe('67890');
         expect(run.event).toBe('workflow_dispatch');
         // Three lookups, one dispatch, one final lookup — exactly 5 commands.
@@ -244,19 +243,21 @@ describe('ensurePublishWorkflowRun (R4, task 0510)', () => {
             { match: gh(...dispatchArgs()), stdout: '' },
             { match: gh(...listArgs()), stdout: EMPTY },
         ]);
-        await expect(ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep)).rejects.toThrow(
+        await expect(ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep, noopLog)).rejects.toThrow(
             /No Publish workflow run found for aggregate tag/,
         );
     });
 
     test('throws on malformed gh run list JSON', async () => {
         const { spawn } = fakeSpawn([{ match: gh(...listArgs()), stdout: 'this is not json' }]);
-        await expect(ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep)).rejects.toThrow(/malformed JSON/);
+        await expect(ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep, noopLog)).rejects.toThrow(/malformed JSON/);
     });
 
     test('throws when gh fails instead of silently returning', async () => {
         const { spawn } = fakeSpawn([{ match: gh(...listArgs()), status: 1, stdout: '', stderr: 'gh: not logged in' }]);
-        await expect(ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep)).rejects.toThrow(/gh run list failed/);
+        await expect(ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep, noopLog)).rejects.toThrow(
+            /gh run list failed/,
+        );
     });
 
     test('never invokes a tag-mutating command on any path', async () => {
@@ -267,7 +268,7 @@ describe('ensurePublishWorkflowRun (R4, task 0510)', () => {
             { match: gh(...dispatchArgs()), stdout: '' },
             { match: gh(...listArgs()), stdout: DISPATCHED_RUN },
         ]);
-        await ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep);
+        await ensurePublishWorkflowRun(AGG_TAG, spawn, noopSleep, noopLog);
         expect(calls.length).toBeGreaterThan(0);
         for (const call of calls) {
             expect(call.startsWith('git')).toBe(false);
@@ -275,7 +276,7 @@ describe('ensurePublishWorkflowRun (R4, task 0510)', () => {
             expect(call).not.toContain('tag -d');
         }
         const { spawn: spawn2, calls: calls2 } = fakeSpawn([{ match: gh(...listArgs()), stdout: PUSH_RUN }]);
-        await ensurePublishWorkflowRun(AGG_TAG, spawn2, noopSleep);
+        await ensurePublishWorkflowRun(AGG_TAG, spawn2, noopSleep, noopLog);
         expect(calls2).toHaveLength(1);
         expect(calls2[0].startsWith('git')).toBe(false);
     });
@@ -283,15 +284,34 @@ describe('ensurePublishWorkflowRun (R4, task 0510)', () => {
 
 // ── bumpVersion ─────────────────────────────────────────────────────────────
 
+function bumpOpts(push = false) {
+    return {
+        push,
+        findWorkspacePackages: async () => fixture.packages,
+        npmViewVersion: () => npmAlreadyPublished,
+        log: noopLog,
+    };
+}
+
+function dropOpts(remote = false) {
+    return {
+        remote,
+        findWorkspacePackages: async () => fixture.packages,
+        log: noopLog,
+    };
+}
+
+// ── bumpVersion ─────────────────────────────────────────────────────────────
+
 describe('bumpVersion', () => {
     test('rejects an invalid semver version', async () => {
-        await expect(bumpVersion('nope', { push: false })).rejects.toThrow('not a valid semver');
+        await expect(bumpVersion('nope', bumpOpts(false))).rejects.toThrow('not a valid semver');
     });
 
     test('aborts on a dirty working tree before touching anything', async () => {
         await installFixture(false);
         const { spawn } = fakeSpawn([{ match: git('status', '--porcelain'), stdout: 'M package.json' }]);
-        await expect(bumpVersion(VERSION, { push: false }, spawn)).rejects.toThrow('working tree is not clean');
+        await expect(bumpVersion(VERSION, bumpOpts(false), spawn)).rejects.toThrow('working tree is not clean');
     });
 
     test('aborts on a detached HEAD', async () => {
@@ -300,7 +320,7 @@ describe('bumpVersion', () => {
             { match: git('status', '--porcelain'), stdout: '' },
             { match: git('rev-parse', '--abbrev-ref', 'HEAD'), stdout: 'HEAD' },
         ]);
-        await expect(bumpVersion(VERSION, { push: false }, spawn)).rejects.toThrow('detached HEAD');
+        await expect(bumpVersion(VERSION, bumpOpts(false), spawn)).rejects.toThrow('detached HEAD');
     });
 
     test('aborts when the release tags already exist locally', async () => {
@@ -310,7 +330,7 @@ describe('bumpVersion', () => {
             { match: git('rev-parse', '--abbrev-ref', 'HEAD'), stdout: 'main' },
             { match: git('tag', '-l'), stdout: `${UTILS_TAG}\n` },
         ]);
-        await expect(bumpVersion(VERSION, { push: false }, spawn)).rejects.toThrow('tags already exist locally');
+        await expect(bumpVersion(VERSION, bumpOpts(false), spawn)).rejects.toThrow('tags already exist locally');
     });
 
     test('aborts when the release tags already exist on origin', async () => {
@@ -321,7 +341,7 @@ describe('bumpVersion', () => {
             { match: git('tag', '-l'), stdout: '' },
             { match: git('ls-remote', '--tags', 'origin'), stdout: `refs/tags/${AGG_TAG}\n` },
         ]);
-        await expect(bumpVersion(VERSION, { push: false }, spawn)).rejects.toThrow('tags already exist on origin');
+        await expect(bumpVersion(VERSION, bumpOpts(false), spawn)).rejects.toThrow('tags already exist on origin');
     });
 
     test('aborts when the version is already published on npm', async () => {
@@ -333,13 +353,13 @@ describe('bumpVersion', () => {
             { match: git('tag', '-l'), stdout: '' },
             { match: git('ls-remote', '--tags', 'origin'), stdout: '' },
         ]);
-        await expect(bumpVersion(VERSION, { push: false }, spawn)).rejects.toThrow('already published on npm');
+        await expect(bumpVersion(VERSION, bumpOpts(false), spawn)).rejects.toThrow('already published on npm');
     });
 
     test('bumps manifests, commits, and tags locally without pushing when push=false', async () => {
         await installFixture(false);
         const { spawn, calls } = cleanGitSpawn(false);
-        await bumpVersion(VERSION, { push: false }, spawn);
+        await bumpVersion(VERSION, bumpOpts(false), spawn);
 
         // Manifests were bumped on disk.
         for (const pkg of fixture.packages) {
@@ -358,7 +378,7 @@ describe('bumpVersion', () => {
     test('push path verifies the Publish run and reports it', async () => {
         await installFixture(false);
         const { spawn, calls } = cleanGitSpawn(true);
-        await bumpVersion(VERSION, { push: true }, spawn);
+        await bumpVersion(VERSION, bumpOpts(true), spawn);
 
         for (const pkg of fixture.packages) {
             const manifest = JSON.parse(await readFile(pkg.path, 'utf8'));
@@ -379,7 +399,7 @@ describe('bumpVersion', () => {
 
 describe('dropTags', () => {
     test('rejects an invalid semver version', async () => {
-        await expect(dropTags('nope', { remote: false })).rejects.toThrow('not a valid semver');
+        await expect(dropTags('nope', dropOpts(false))).rejects.toThrow('not a valid semver');
     });
 
     test('deletes local tags only when remote=false', async () => {
@@ -390,7 +410,7 @@ describe('dropTags', () => {
             { match: (c, a) => c === 'git' && a[0] === 'tag' && a[1] === '-d', stdout: '' },
             { match: (c, a) => c === 'git' && a[0] === 'tag' && a[1] === '-d', stdout: '' },
         ]);
-        await dropTags(VERSION, { remote: false }, spawn);
+        await dropTags(VERSION, dropOpts(false), spawn);
         const deletions = calls.filter((c) => c.includes('tag -d'));
         expect(deletions).toHaveLength(3);
         expect(deletions.some((c) => c.includes(AGG_TAG))).toBe(true);
@@ -410,7 +430,7 @@ describe('dropTags', () => {
             { match: (c, a) => c === 'git' && a[0] === 'tag' && a[1] === '-d', stdout: '' },
             { match: (c, a) => c === 'git' && a[0] === 'push' && a[1] === 'origin', stdout: '' },
         ]);
-        await dropTags(VERSION, { remote: true }, spawn);
+        await dropTags(VERSION, dropOpts(true), spawn);
         const remoteDeletions = calls.filter((c) => c.includes(':refs/tags/'));
         expect(remoteDeletions).toHaveLength(3);
         expect(remoteDeletions.some((c) => c.includes(`:refs/tags/${AGG_TAG}`))).toBe(true);
@@ -422,7 +442,7 @@ describe('dropTags', () => {
 describe('publishPackages', () => {
     test('publishes every package, resolving workspace ranges without leaving writes behind', async () => {
         await installFixture(true);
-        await publishPackages('tag', AGG_TAG.replace(/.*-v/, ''));
+        await publishPackages('tag', `@gobing-ai/ts-libs-v0.1.5`, fixtureDeps());
 
         // The real publish path restores the manifest in its finally block.
         for (const pkg of fixture.packages) {
@@ -438,20 +458,22 @@ describe('publishPackages', () => {
         await installFixture(false);
         npmAlreadyPublished = true;
         // Must not throw and must not attempt a publish (npmPublish is mocked to fail loudly).
-        await publishPackages('tag', '0.1.5');
+        await publishPackages('tag', `@gobing-ai/ts-libs-v0.1.5`, fixtureDeps());
     });
 
     test('treats a lost publish race as a skip', async () => {
         await installFixture(false);
         publishFailure = 'EPUBLISHCONFLICT: cannot publish over';
         publishConflict = true;
-        await publishPackages('tag', '0.1.5');
+        await publishPackages('tag', `@gobing-ai/ts-libs-v0.1.5`, fixtureDeps());
     });
 
     test('fails loudly when a publish fails for a non-conflict reason', async () => {
         await installFixture(false);
         publishFailure = 'npm error: registry unreachable';
         publishConflict = false;
-        await expect(publishPackages('tag', '0.1.5')).rejects.toThrow('registry unreachable');
+        await expect(publishPackages('tag', `@gobing-ai/ts-libs-v0.1.5`, fixtureDeps())).rejects.toThrow(
+            'registry unreachable',
+        );
     });
 });

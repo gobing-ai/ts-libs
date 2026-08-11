@@ -530,6 +530,14 @@ export function openCodeDeleteOperations(entries: readonly OpenCodeExistingEntry
     ]);
 }
 
+/** Build checkpoint deletion operation for a source file. */
+export function deleteCheckpointOperation(source: string, sourceFile: string): DbBatchOp {
+    return {
+        sql: 'DELETE FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
+        params: [source, sourceFile],
+    };
+}
+
 /** Build batched history, ledger, and checkpoint writes for OpenCode entries. */
 export function openCodeBulkWriteOperations(
     entries: readonly OpenCodeQueuedEntry[],

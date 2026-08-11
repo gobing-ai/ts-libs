@@ -17,6 +17,9 @@ import { assertNoWorkspaceRanges, type ManifestLike, substituteWorkspaceRanges }
 
 export interface BumpVersionOptions {
     push: boolean;
+    findWorkspacePackages?: typeof findWorkspacePackages;
+    npmViewVersion?: typeof npmViewVersion;
+    log?: (message: string) => void;
 }
 
 /**
@@ -28,7 +31,13 @@ export interface BumpVersionOptions {
  * Fail-closed: if any `workspace:` range survives substitution, the publish is
  * refused rather than shipping a broken manifest.
  */
-async function publishWithResolvedRanges(dir: string, name: string, versions: Map<string, string>) {
+async function publishWithResolvedRanges(
+    dir: string,
+    name: string,
+    versions: Map<string, string>,
+    npmPublishFn: typeof npmPublish = npmPublish,
+    log: (message: string) => void = console.log,
+) {
     const manifestPath = `${repoRoot}${dir}/package.json`;
     const original = await Bun.file(manifestPath).text();
     const parsed = JSON.parse(original) as ManifestLike;
@@ -37,13 +46,13 @@ async function publishWithResolvedRanges(dir: string, name: string, versions: Ma
     assertNoWorkspaceRanges(manifest, name);
 
     if (changed === 0) {
-        return npmPublish(`${repoRoot}${dir}`);
+        return npmPublishFn(`${repoRoot}${dir}`);
     }
 
     await Bun.write(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
     try {
-        console.log(`  resolved ${changed} workspace dependency range(s) for ${name}`);
-        return npmPublish(`${repoRoot}${dir}`);
+        log(`  resolved ${changed} workspace dependency range(s) for ${name}`);
+        return npmPublishFn(`${repoRoot}${dir}`);
     } finally {
         await Bun.write(manifestPath, original);
     }
@@ -51,35 +60,56 @@ async function publishWithResolvedRanges(dir: string, name: string, versions: Ma
 
 export interface DropTagsOptions {
     remote: boolean;
+    findWorkspacePackages?: typeof findWorkspacePackages;
+    log?: (message: string) => void;
+}
+
+export interface PublishPackagesDeps {
+    findWorkspacePackages?: typeof findWorkspacePackages;
+    selectPackagesForPublish?: typeof selectPackagesForPublish;
+    sortPackagesByDependencyOrder?: typeof sortPackagesByDependencyOrder;
+    npmViewVersion?: typeof npmViewVersion;
+    npmPublish?: typeof npmPublish;
+    isAlreadyPublishedError?: typeof isAlreadyPublishedError;
+    log?: (message: string) => void;
 }
 
 export async function publishPackages(
     refType = process.env.GITHUB_REF_TYPE,
     refName = process.env.GITHUB_REF_NAME,
+    deps: PublishPackagesDeps = {},
 ): Promise<void> {
-    const packages = await findWorkspacePackages();
+    const findPkgs = deps.findWorkspacePackages ?? findWorkspacePackages;
+    const selectPkgs = deps.selectPackagesForPublish ?? selectPackagesForPublish;
+    const sortPkgs = deps.sortPackagesByDependencyOrder ?? sortPackagesByDependencyOrder;
+    const checkNpm = deps.npmViewVersion ?? npmViewVersion;
+    const pubNpm = deps.npmPublish ?? npmPublish;
+    const isAlreadyPubErr = deps.isAlreadyPublishedError ?? isAlreadyPublishedError;
+    const log = deps.log ?? console.log;
+
+    const packages = await findPkgs();
     const versions = new Map(packages.map((pkg) => [pkg.name, pkg.version]));
-    const selected = await selectPackagesForPublish(packages, refType, refName);
-    const orderedSelected = await sortPackagesByDependencyOrder(selected);
+    const selected = await selectPkgs(packages, refType, refName);
+    const orderedSelected = await sortPkgs(selected);
 
     for (const pkg of orderedSelected) {
-        if (npmViewVersion(pkg.name, pkg.version)) {
-            console.log(`skip: ${pkg.name}@${pkg.version} already published`);
+        if (checkNpm(pkg.name, pkg.version)) {
+            log(`skip: ${pkg.name}@${pkg.version} already published`);
             continue;
         }
 
-        console.log(`publish: ${pkg.name}@${pkg.version}`);
-        const result = await publishWithResolvedRanges(pkg.dir, pkg.name, versions);
+        log(`publish: ${pkg.name}@${pkg.version}`);
+        const result = await publishWithResolvedRanges(pkg.dir, pkg.name, versions, pubNpm, log);
         if (!result.ok) {
-            if (isAlreadyPublishedError(result.output)) {
-                console.log(`skip: ${pkg.name}@${pkg.version} already published (lost publish race)`);
+            if (isAlreadyPubErr(result.output)) {
+                log(`skip: ${pkg.name}@${pkg.version} already published (lost publish race)`);
                 continue;
             }
 
             throw new Error(result.output);
         }
 
-        console.log(result.output);
+        log(result.output);
     }
 }
 
@@ -92,7 +122,11 @@ export async function bumpVersion(
         throw new Error(`"${version}" is not a valid semver version (expected e.g. 0.1.4).`);
     }
 
-    const packages = await findWorkspacePackages();
+    const findPkgs = options.findWorkspacePackages ?? findWorkspacePackages;
+    const checkNpm = options.npmViewVersion ?? npmViewVersion;
+    const log = options.log ?? console.log;
+
+    const packages = await findPkgs();
     const publishable = await sortPackagesByDependencyOrder(packages);
     const packageTags = publishable.map((pkg) => createReleaseTag(pkg, version));
     const aggregateTag = createAggregateReleaseTag(version);
@@ -123,7 +157,7 @@ export async function bumpVersion(
         );
     }
 
-    const published = publishable.filter((pkg) => npmViewVersion(pkg.name, version));
+    const published = publishable.filter((pkg) => checkNpm(pkg.name, version));
     if (published.length > 0) {
         throw new Error(
             `already published on npm at ${version}: ${published.map((pkg) => pkg.name).join(', ')}. Use a new version.`,
@@ -135,9 +169,9 @@ export async function bumpVersion(
         const previous = manifest.version;
         manifest.version = version;
         await Bun.write(pkg.path, `${JSON.stringify(manifest, null, 4)}\n`);
-        console.log(`  ${manifest.name}: ${previous} -> ${version}`);
+        log(`  ${manifest.name}: ${previous} -> ${version}`);
     }
-    console.log(`\nBumped ${packages.length} manifests to ${version}.`);
+    log(`\nBumped ${packages.length} manifests to ${version}.`);
 
     const manifestPaths = packages.map((pkg) => (pkg.dir === '.' ? 'package.json' : `${pkg.dir}/package.json`));
     const optional = ['CHANGELOG.md', 'bun.lock'].filter((path) => Bun.file(`${repoRoot}${path}`).size > 0);
@@ -145,36 +179,36 @@ export async function bumpVersion(
 
     const commitMessage = `${releaseConfig.releaseCommitType}(${releaseConfig.releaseCommitScope}): ${releaseConfig.releaseCommitSubject(version)}`;
     mustGit(['commit', '-m', commitMessage], 'git commit', spawn);
-    console.log(`Committed: ${commitMessage}`);
+    log(`Committed: ${commitMessage}`);
 
     for (const tag of tags) {
         mustGit(['tag', '-a', tag, '-m', releaseConfig.releaseTagMessage(tag)], `git tag ${tag}`, spawn);
-        console.log(`  tagged ${tag}`);
+        log(`  tagged ${tag}`);
     }
 
     if (!options.push) {
-        console.log('\nDone (local). Review, then push to release:');
-        console.log(`  git push origin ${branch}`);
-        console.log('  git push origin --tags');
-        console.log('Or re-run with --push next time to do this automatically.');
+        log('\nDone (local). Review, then push to release:');
+        log(`  git push origin ${branch}`);
+        log('  git push origin --tags');
+        log('Or re-run with --push next time to do this automatically.');
         return;
     }
 
-    console.log('\nPushing branch (tags excluded)...');
+    log('\nPushing branch (tags excluded)...');
     mustGit(branchPushArgs(branch), `git push origin ${branch}`, spawn);
 
     for (const tag of packageTags) {
-        console.log(`Pushing tag ${tag}...`);
+        log(`Pushing tag ${tag}...`);
         mustGit(tagPushArgs(tag), `git push origin ${tag}`, spawn);
     }
-    console.log(`Pushing release trigger tag ${aggregateTag}...`);
+    log(`Pushing release trigger tag ${aggregateTag}...`);
     mustGit(tagPushArgs(aggregateTag), `git push origin ${aggregateTag}`, spawn);
 
     // R4 (task 0510): prove the aggregate tag created a Publish run before returning.
     // Bounded push-run lookup; a missed push event is recovered with exactly one
     // workflow_dispatch at the same immutable tag ref — never tag deletion/re-push.
-    const publishRun = await ensurePublishWorkflowRun(aggregateTag, spawn);
-    console.log(`\nReleased ${version}. Publish workflow run ${publishRun.databaseId}: ${publishRun.url}`);
+    const publishRun = await ensurePublishWorkflowRun(aggregateTag, spawn, (ms) => Bun.sleep(ms), log);
+    log(`\nReleased ${version}. Publish workflow run ${publishRun.databaseId}: ${publishRun.url}`);
 }
 
 /**
@@ -194,6 +228,7 @@ export async function ensurePublishWorkflowRun(
     aggregateTag: string,
     spawn: Spawn = spawnSync,
     sleep: (ms: number) => Promise<void> = (ms) => Bun.sleep(ms),
+    log: (message: string) => void = console.log,
 ): Promise<PublishRunInfo> {
     const listRuns = (): PublishRunInfo | undefined => {
         const result = runCommand(
@@ -220,7 +255,7 @@ export async function ensurePublishWorkflowRun(
     for (let attempt = 1; attempt <= PUBLISH_RUN_LOOKUP_ATTEMPTS; attempt++) {
         const run = listRuns();
         if (run !== undefined) {
-            console.log(`Publish workflow run ${run.databaseId} (${run.event}) for ${aggregateTag}: ${run.url}`);
+            log(`Publish workflow run ${run.databaseId} (${run.event}) for ${aggregateTag}: ${run.url}`);
             return run;
         }
         if (attempt < PUBLISH_RUN_LOOKUP_ATTEMPTS) {
@@ -228,7 +263,7 @@ export async function ensurePublishWorkflowRun(
         }
     }
 
-    console.log(
+    log(
         `No push-triggered Publish run for ${aggregateTag} after ${PUBLISH_RUN_LOOKUP_ATTEMPTS} lookups; ` +
             `dispatching ${releaseConfig.publishWorkflow} at ref ${aggregateTag}...`,
     );
@@ -252,7 +287,7 @@ export async function ensurePublishWorkflowRun(
                 'Tags were not mutated; re-inspect with `gh run list --workflow=publish.yml` or re-run bump-ver.',
         );
     }
-    console.log(`Dispatched Publish run ${dispatched.databaseId} (${dispatched.event}): ${dispatched.url}`);
+    log(`Dispatched Publish run ${dispatched.databaseId} (${dispatched.event}): ${dispatched.url}`);
     return dispatched;
 }
 
@@ -301,7 +336,10 @@ export async function dropTags(version: string, options: DropTagsOptions, spawn:
         throw new Error(`"${version}" is not a valid semver version (expected e.g. 0.1.2).`);
     }
 
-    const packages = await findWorkspacePackages();
+    const findPkgs = options.findWorkspacePackages ?? findWorkspacePackages;
+    const log = options.log ?? console.log;
+
+    const packages = await findPkgs();
     const publishable = packages.filter((pkg) => !pkg.private);
     const tags = [...publishable.map((pkg) => createReleaseTag(pkg, version)), createAggregateReleaseTag(version)];
     const existingLocal = new Set(git(['tag', '-l'], spawn).stdout.split('\n').filter(Boolean));
@@ -312,24 +350,24 @@ export async function dropTags(version: string, options: DropTagsOptions, spawn:
     for (const tag of tags) {
         if (existingLocal.has(tag)) {
             const result = git(['tag', '-d', tag], spawn);
-            console.log(result.ok ? `  local  deleted ${tag}` : `  local  failed ${tag}: ${result.stderr}`);
+            log(result.ok ? `  local  deleted ${tag}` : `  local  failed ${tag}: ${result.stderr}`);
             if (result.ok) deletedLocal++;
         } else {
-            console.log(`  local  not present ${tag}`);
+            log(`  local  not present ${tag}`);
         }
 
         if (options.remote) {
             const result = git(['push', 'origin', `:refs/tags/${tag}`], spawn);
-            console.log(result.ok ? `  remote deleted ${tag}` : `  remote failed ${tag}: ${result.stderr}`);
+            log(result.ok ? `  remote deleted ${tag}` : `  remote failed ${tag}: ${result.stderr}`);
             if (result.ok) deletedRemote++;
         }
     }
 
-    console.log(
+    log(
         `\nDeleted ${deletedLocal} local tag(s)${options.remote ? `, ${deletedRemote} remote tag(s)` : ''} for ${version}.`,
     );
     if (!options.remote) {
-        console.log('Local only. Re-run with --remote to also delete the tags on origin.');
+        log('Local only. Re-run with --remote to also delete the tags on origin.');
     }
 }
 

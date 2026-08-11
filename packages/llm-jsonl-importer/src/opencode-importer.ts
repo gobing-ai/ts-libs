@@ -9,6 +9,7 @@ import {
 import { sha256 } from './hash';
 import {
     applyHistoryImportSchema,
+    deleteCheckpointOperation,
     type OpenCodeMessageRow,
     type OpenCodePartRow,
     type OpenCodeQueuedEntry,
@@ -153,10 +154,7 @@ export async function runOpenCodeImport(options: OpenCodeImportOptions): Promise
                 staleCheckpointRows += 1;
                 if (!options.dryRun) {
                     operations.push(...openCodeDeleteOperations(entries));
-                    operations.push({
-                        sql: 'DELETE FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
-                        params: [SOURCE, sourceFile],
-                    });
+                    operations.push(deleteCheckpointOperation(SOURCE, sourceFile));
                 }
             }
             reconciliation = { staleTargetRows, staleLedgerRows, staleCheckpointRows };
