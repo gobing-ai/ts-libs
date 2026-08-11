@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { sha256 } from './hash';
-import type { JsonObject, SplitEntry } from './types';
+import type { JsonObject, SplitEntry, TransformContext } from './types';
 
 // ---------------------------------------------------------------------------
 // Helper: identity field map for typed columns
@@ -400,9 +400,9 @@ export function codexSplit(raw: Record<string, unknown>): readonly SplitEntry[] 
                 record: {
                     session_id: sessionId,
                     seq,
-                    role: 'unknown',
+                    role: 'meta',
                     record_type: 'short_format',
-                    disposition: 'unknown',
+                    disposition: 'meta',
                     ts,
                     provenance: 'ambient',
                 },
@@ -602,6 +602,119 @@ export function agySplit(raw: Record<string, unknown>): readonly SplitEntry[] {
 }
 
 // ---------------------------------------------------------------------------
+// Gemini mapper
+// ---------------------------------------------------------------------------
+
+/** Map Gemini CLI message, tool, and session-state events into the forensic contract tables. */
+export function geminiSplit(raw: Record<string, unknown>, context?: TransformContext): readonly SplitEntry[] {
+    const recordType = String(raw.type ?? (raw.kind !== undefined ? 'session' : raw.$set !== undefined ? 'state' : ''));
+    const state = o(raw.$set);
+    const sessionId = sessionIdFromContext(context, raw);
+    const seq = context?.sourceLine ?? 0;
+    const ts = s(raw.timestamp, raw.startTime, raw.lastUpdated, state.lastUpdated) ?? new Date(0).toISOString();
+
+    if (recordType === 'session' || recordType === 'state') {
+        return [
+            {
+                targetTable: 'history_message',
+                record: {
+                    session_id: sessionId,
+                    seq,
+                    role: 'meta',
+                    record_type: recordType,
+                    disposition: 'meta',
+                    ts,
+                    content_text: s(state.summary) ?? null,
+                    provenance: detectProvenance(context?.sourceFile),
+                },
+            },
+        ];
+    }
+
+    const role = recordType === 'gemini' ? 'assistant' : recordType === 'user' ? 'user' : 'system';
+    const tokens = o(raw.tokens);
+    const content = geminiContent(raw);
+    const entries: SplitEntry[] = [
+        {
+            targetTable: 'history_message',
+            record: {
+                session_id: sessionId,
+                seq,
+                role,
+                record_type: recordType,
+                disposition: 'keep',
+                ts,
+                duration_ms: null,
+                model: s(raw.model) ?? null,
+                input_tokens: numberOrNull(tokens.input),
+                output_tokens: numberOrNull(tokens.output),
+                cache_read_tokens: numberOrNull(tokens.cached),
+                cache_write_tokens: null,
+                cost_usd: null,
+                content_text: content,
+                cwd: null,
+                provenance: detectProvenance(context?.sourceFile),
+            },
+        },
+    ];
+
+    if (Array.isArray(raw.toolCalls)) {
+        for (const value of raw.toolCalls) {
+            if (value === null || typeof value !== 'object' || Array.isArray(value)) continue;
+            const tool = value as Record<string, unknown>;
+            const status = s(tool.status) ?? 'unknown';
+            const timestamp = s(tool.timestamp);
+            const result = tool.result ?? tool.resultDisplay;
+            entries.push({
+                targetTable: 'history_tool_call',
+                record: {
+                    _messageSplitIndex: 0,
+                    session_id: sessionId,
+                    seq,
+                    tool_name: s(tool.name, tool.displayName) ?? 'unknown',
+                    args_digest: argsDigest(tool.args),
+                    status,
+                    started_at: timestamp,
+                    completed_at: timestamp,
+                    duration_ms: null,
+                    result_bytes:
+                        result === undefined ? null : new TextEncoder().encode(JSON.stringify(result)).byteLength,
+                    error_text: status === 'error' ? (s(tool.resultDisplay, tool.result) ?? null) : null,
+                },
+            });
+        }
+    }
+
+    return entries;
+}
+
+function sessionIdFromContext(context: TransformContext | undefined, raw: Record<string, unknown>): string {
+    if (context !== undefined) {
+        const file = context.sourceFile.split('/').at(-1);
+        if (file !== undefined) return file.replace(/\.jsonl$/, '');
+    }
+    return s(raw.sessionId, raw.id) ?? 'unknown';
+}
+
+function geminiContent(raw: Record<string, unknown>): string | null {
+    const content = extractContentText(raw.content);
+    const thoughts = Array.isArray(raw.thoughts)
+        ? raw.thoughts
+              .map((value) => (value !== null && typeof value === 'object' ? s(o(value).description) : undefined))
+              .filter((value): value is string => value !== undefined)
+              .join('\n')
+        : '';
+    return (
+        [content, thoughts].filter((value): value is string => value !== undefined && value.length > 0).join('\n') ||
+        null
+    );
+}
+
+function numberOrNull(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+// ---------------------------------------------------------------------------
 // Grok mapper
 // ---------------------------------------------------------------------------
 
@@ -633,19 +746,41 @@ function normalizeGrokRecord(raw: Record<string, unknown>): {
     const isUpdatesShape = typeof raw.method === 'string' && params !== undefined && update !== undefined;
 
     const body = isUpdatesShape ? update : raw;
-    const recordType = String((isUpdatesShape ? update?.sessionUpdate : raw.type) ?? raw.sessionUpdate ?? '');
+    const recordType = String(
+        (isUpdatesShape ? update?.sessionUpdate : raw.type) ??
+            raw.sessionUpdate ??
+            raw.eventType ??
+            (raw.file_snapshots !== undefined || raw.after_snapshots !== undefined
+                ? 'file_snapshot'
+                : raw.prompt !== undefined
+                  ? 'user_message'
+                  : raw.answer !== undefined || raw.question !== undefined
+                    ? 'assistant'
+                    : ''),
+    );
     const sessionId =
         s(
             params?.sessionId,
             raw.session_id,
             raw.sessionId,
+            raw.parentSessionId,
+            raw.btwSessionId,
             (raw.params as Record<string, unknown> | undefined)?.sessionId,
         ) ?? 'unknown';
-    const ts = normalizeTs(raw.ts ?? raw.timestamp ?? body.ts ?? body.timestamp);
+    const ts = normalizeTs(raw.ts ?? raw.timestamp ?? raw.created_at ?? raw.askedAt ?? body.ts ?? body.timestamp);
     const seq = typeof raw.seq === 'number' ? raw.seq : typeof body.seq === 'number' ? body.seq : 0;
     const meta = (body._meta ?? params?._meta ?? raw._meta) as Record<string, unknown> | undefined;
     const model = s(meta?.modelId, body.model, raw.model);
-    const contentText = extractGrokContent(body.content ?? body.text ?? raw.content ?? raw.text);
+    const contentText = extractGrokContent(
+        body.content ??
+            body.text ??
+            raw.content ??
+            raw.text ??
+            raw.prompt ??
+            (raw.answer !== undefined || raw.question !== undefined
+                ? [raw.question, raw.answer].filter((value) => typeof value === 'string').join('\n')
+                : undefined),
+    );
     const usage = (body.usage ?? raw.usage) as Record<string, unknown> | undefined;
     const toolMeta = meta?.['x.ai/tool'] as Record<string, unknown> | undefined;
     const toolName =
@@ -837,6 +972,27 @@ export function grokSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
     }
 
     if (recordType === 'tool_completed') {
+        entries.push({
+            targetTable: 'history_message',
+            record: {
+                session_id: sessionId,
+                seq,
+                role: 'assistant',
+                record_type: recordType,
+                disposition: 'keep',
+                ts,
+                duration_ms: n.durationMs ?? null,
+                model: n.model ?? null,
+                input_tokens: null,
+                output_tokens: null,
+                cache_read_tokens: null,
+                cache_write_tokens: null,
+                cost_usd: null,
+                content_text: n.contentText,
+                cwd: null,
+                provenance: 'ambient',
+            },
+        });
         entries.push({
             targetTable: 'history_tool_call',
             record: {
@@ -1109,6 +1265,8 @@ export const CODEX_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_
 export const AGY_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS));
 /** Identity field map for the Grok mapper. */
 export const GROK_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS));
+/** Identity field map for the Gemini mapper. */
+export const GEMINI_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS));
 
 // ---------------------------------------------------------------------------
 // Zod schemas for the six source mappers
@@ -1128,3 +1286,5 @@ export const CODEX_SCHEMA = passthroughSchema;
 export const AGY_SCHEMA = passthroughSchema;
 /** Passthrough Zod schema for the Grok mapper. */
 export const GROK_SCHEMA = passthroughSchema;
+/** Passthrough Zod schema for the Gemini mapper. */
+export const GEMINI_SCHEMA = passthroughSchema;

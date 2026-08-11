@@ -9,8 +9,11 @@ import {
     CODEX_SCHEMA,
     claudeSplit,
     codexSplit,
+    GEMINI_FIELD_MAP,
+    GEMINI_SCHEMA,
     GROK_FIELD_MAP,
     GROK_SCHEMA,
+    geminiSplit,
     grokSplit,
     OMP_FIELD_MAP,
     OMP_SCHEMA,
@@ -450,9 +453,9 @@ describe('codexSplit', () => {
             instructions: 'do something',
         });
         expect(entries).toHaveLength(1);
-        expect(entries[0]?.record.role).toBe('unknown');
+        expect(entries[0]?.record.role).toBe('meta');
         expect(entries[0]?.record.record_type).toBe('short_format');
-        expect(entries[0]?.record.disposition).toBe('unknown');
+        expect(entries[0]?.record.disposition).toBe('meta');
     });
 
     test('extracts token counts from payload.token_count', () => {
@@ -699,6 +702,79 @@ describe('agySplit', () => {
 });
 
 // ---------------------------------------------------------------------------
+// geminiSplit
+// ---------------------------------------------------------------------------
+
+describe('geminiSplit', () => {
+    const context = {
+        source: 'gemini',
+        sourceFile: '/home/user/.gemini/tmp/project/chats/session-abc.jsonl',
+        sourceLine: 7,
+        splitIndex: 0,
+    };
+
+    test('maps user content blocks into a session-scoped message', () => {
+        const entries = geminiSplit(
+            {
+                id: 'message-1',
+                type: 'user',
+                timestamp: '2026-08-07T00:00:00.000Z',
+                content: [{ type: 'text', text: 'hello' }],
+            },
+            context,
+        );
+        expect(entries[0]?.record.session_id).toBe('session-abc');
+        expect(entries[0]?.record.seq).toBe(7);
+        expect(entries[0]?.record.role).toBe('user');
+        expect(entries[0]?.record.content_text).toBe('hello');
+    });
+
+    test('maps assistant usage, thoughts, and tool calls', () => {
+        const entries = geminiSplit(
+            {
+                id: 'message-2',
+                type: 'gemini',
+                timestamp: '2026-08-07T00:00:01.000Z',
+                model: 'gemini-3-flash-preview',
+                content: 'Done.',
+                thoughts: [{ subject: 'Plan', description: 'Inspect the source.' }],
+                tokens: { input: 10, output: 4, cached: 2 },
+                toolCalls: [
+                    {
+                        name: 'read_file',
+                        args: { path: '/tmp/a' },
+                        status: 'success',
+                        timestamp: '2026-08-07T00:00:01.000Z',
+                        result: 'contents',
+                    },
+                ],
+            },
+            context,
+        );
+        expect(entries).toHaveLength(2);
+        expect(entries[0]?.record.role).toBe('assistant');
+        expect(entries[0]?.record.model).toBe('gemini-3-flash-preview');
+        expect(entries[0]?.record.input_tokens).toBe(10);
+        expect(entries[0]?.record.cache_read_tokens).toBe(2);
+        expect(entries[0]?.record.content_text).toBe('Done.\nInspect the source.');
+        expect(entries[1]?.targetTable).toBe('history_tool_call');
+        expect(entries[1]?.record.tool_name).toBe('read_file');
+        expect(entries[1]?.record.args_digest).toMatch(/^[a-f0-9]{64}$/);
+        expect(entries[1]?.record.status).toBe('success');
+    });
+
+    test('maps session and state records as metadata', () => {
+        const session = geminiSplit({ kind: 'main', sessionId: 'source-session', startTime: '2026-08-07' }, context);
+        expect(session[0]?.record.record_type).toBe('session');
+        expect(session[0]?.record.disposition).toBe('meta');
+
+        const state = geminiSplit({ $set: { lastUpdated: '2026-08-08', summary: 'summary' } }, context);
+        expect(state[0]?.record.record_type).toBe('state');
+        expect(state[0]?.record.content_text).toBe('summary');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // grokSplit
 // ---------------------------------------------------------------------------
 
@@ -758,7 +834,7 @@ describe('grokSplit', () => {
         expect(entries[1]?.record.started_at).toBe('2026-08-07T00:00:00.000Z');
     });
 
-    test('tool_completed emits tool_call with completed_at and duration', () => {
+    test('tool_completed emits a parent message and linked tool call', () => {
         const entries = grokSplit({
             ts: '2026-08-07T00:00:00.000Z',
             type: 'tool_completed',
@@ -767,11 +843,12 @@ describe('grokSplit', () => {
             title: 'read_file',
             duration_ms: 1500,
         });
-        expect(entries).toHaveLength(1);
-        expect(entries[0]?.targetTable).toBe('history_tool_call');
-        expect(entries[0]?.record.tool_name).toBe('read_file');
-        expect(entries[0]?.record.completed_at).toBe('2026-08-07T00:00:00.000Z');
-        expect(entries[0]?.record.duration_ms).toBe(1500);
+        expect(entries).toHaveLength(2);
+        expect(entries[0]?.targetTable).toBe('history_message');
+        expect(entries[1]?.targetTable).toBe('history_tool_call');
+        expect(entries[1]?.record.tool_name).toBe('read_file');
+        expect(entries[1]?.record.completed_at).toBe('2026-08-07T00:00:00.000Z');
+        expect(entries[1]?.record.duration_ms).toBe(1500);
     });
 
     test('tool_call emits message + tool_call with started_at', () => {
@@ -921,6 +998,49 @@ describe('grokSplit', () => {
         expect(entries[0]?.record.role).toBe('meta');
         expect(entries[0]?.record.disposition).toBe('meta');
         expect(entries[0]?.record.record_type).toBe('some_new_event_type');
+    });
+
+    test('classifies observed eventType records as metadata', () => {
+        const entries = grokSplit({
+            eventType: 'file-change',
+            parentSessionId: 'sess-1',
+            timestamp: 1784274007,
+        });
+        expect(entries[0]?.record.session_id).toBe('sess-1');
+        expect(entries[0]?.record.record_type).toBe('file-change');
+        expect(entries[0]?.record.disposition).toBe('meta');
+    });
+
+    test('classifies observed prompt and snapshot records', () => {
+        const prompt = grokSplit({
+            is_bash: false,
+            prompt: 'Explain this code',
+            session_id: 'sess-1',
+            timestamp: 1784274007,
+        });
+        expect(prompt[0]?.record.role).toBe('user');
+        expect(prompt[0]?.record.content_text).toBe('Explain this code');
+
+        const snapshot = grokSplit({
+            after_snapshots: [],
+            created_at: 1784274007,
+            file_snapshots: [],
+            prompt_index: 1,
+        });
+        expect(snapshot[0]?.record.record_type).toBe('file_snapshot');
+        expect(snapshot[0]?.record.disposition).toBe('meta');
+    });
+
+    test('classifies observed question-answer records as assistant messages', () => {
+        const entries = grokSplit({
+            answer: 'Use the shared importer.',
+            askedAt: 1784274007,
+            btwSessionId: 'sess-1',
+            question: 'How should this be imported?',
+        });
+        expect(entries[0]?.record.session_id).toBe('sess-1');
+        expect(entries[0]?.record.role).toBe('assistant');
+        expect(entries[0]?.record.content_text).toBe('How should this be imported?\nUse the shared importer.');
     });
 
     test('normalizes unix second timestamps as numbers', () => {
@@ -1076,6 +1196,10 @@ describe('field maps', () => {
     test('GROK_FIELD_MAP has all expected keys', () => {
         checkFieldMap('GROK_FIELD_MAP', GROK_FIELD_MAP);
     });
+
+    test('GEMINI_FIELD_MAP has all expected keys', () => {
+        checkFieldMap('GEMINI_FIELD_MAP', GEMINI_FIELD_MAP);
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -1106,5 +1230,9 @@ describe('zod schemas', () => {
 
     test('GROK_SCHEMA passes through any object', () => {
         expect(GROK_SCHEMA.parse({ f: 6 })).toEqual({ f: 6 });
+    });
+
+    test('GEMINI_SCHEMA passes through any object', () => {
+        expect(GEMINI_SCHEMA.parse({ g: 7 })).toEqual({ g: 7 });
     });
 });

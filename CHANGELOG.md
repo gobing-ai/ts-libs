@@ -28,6 +28,29 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - None.
 
+## [0.4.24] — 2026-08-10
+
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer` — OpenCode SQLite history importer (`runOpenCodeImport`):** added `runOpenCodeImport` and `OpenCodeImportOptions` in `opencode-importer.ts` to import OpenCode session history directly from OpenCode's SQLite database (`~/.local/share/opencode/opencode.db`) into `history_message` and `history_tool_call` forensic contract tables. Includes support for incremental resume, SHA-256 record checksum deduplication, redaction rule application, and batch database operations.
+- **`@gobing-ai/ts-llm-jsonl-importer` — OpenCode source definition & mappers:** widened `LlmJsonlSource` to include `'opencode'` and added OpenCode record mappers in `mappers.ts` and DDL/DML DAO helpers in `jsonl-importer-dao.ts`.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
 ## [0.4.23] — 2026-08-08
 
 ### Added

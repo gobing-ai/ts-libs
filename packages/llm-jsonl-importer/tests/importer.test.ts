@@ -21,7 +21,7 @@ describe('runJsonlImport', () => {
             '{',
         ]);
 
-        const result = await runJsonlImport('gemini', {
+        const result = await runJsonlImport('antigravity', {
             db,
             files: [file],
             mode: 'full',
@@ -32,8 +32,8 @@ describe('runJsonlImport', () => {
         expect(result.validationErrors).toHaveLength(1);
         expect(result.parseErrors).toHaveLength(1);
         const ledgerRows = await db.queryAll<{ source: string }>('SELECT source FROM history_import_ledger');
-        const etlRows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_gemini');
-        expect(ledgerRows).toEqual([{ source: 'gemini' }]);
+        const etlRows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_antigravity');
+        expect(ledgerRows).toEqual([{ source: 'antigravity' }]);
         expect(etlRows).toHaveLength(1);
         expect(etlRows[0]?.payload_json).toContain('hello');
     });
@@ -76,13 +76,13 @@ describe('runJsonlImport', () => {
             JSON.stringify({ id: 'same', timestamp: '2026-05-30T00:00:00.000Z', content: 'same' }),
         ]);
 
-        const first = await runJsonlImport('gemini', { db, files: [file], mode: 'full', now: fixedNow });
-        const second = await runJsonlImport('gemini', { db, files: [file], mode: 'full', now: fixedNow });
+        const first = await runJsonlImport('antigravity', { db, files: [file], mode: 'full', now: fixedNow });
+        const second = await runJsonlImport('antigravity', { db, files: [file], mode: 'full', now: fixedNow });
 
         expect(first.importedRecords).toBe(1);
         expect(second.importedRecords).toBe(0);
         expect(second.skippedDuplicates).toBe(1);
-        const rows = await db.queryAll<{ count: number }>('SELECT COUNT(*) AS count FROM history_etl_gemini');
+        const rows = await db.queryAll<{ count: number }>('SELECT COUNT(*) AS count FROM history_etl_antigravity');
         expect(rows[0]?.count).toBe(1);
     });
 
@@ -110,22 +110,22 @@ describe('runJsonlImport', () => {
         };
 
         await expect(
-            runJsonlImport('gemini', { db: faultingDb, files: [file], mode: 'incremental', now: fixedNow }),
+            runJsonlImport('antigravity', { db: faultingDb, files: [file], mode: 'incremental', now: fixedNow }),
         ).rejects.toThrow('injected ledger failure');
 
-        const result = await runJsonlImport('gemini', {
+        const result = await runJsonlImport('antigravity', {
             db: faultingDb,
             files: [file],
             mode: 'incremental',
             now: fixedNow,
         });
         expect(result.importedRecords).toBe(1);
-        expect(await db.queryAll('SELECT record_hash FROM history_etl_gemini')).toHaveLength(1);
+        expect(await db.queryAll('SELECT record_hash FROM history_etl_antigravity')).toHaveLength(1);
         expect(await db.queryAll('SELECT record_hash FROM history_import_ledger')).toHaveLength(1);
         expect(
             await db.queryFirst<{ last_imported_line: number }>(
                 'SELECT last_imported_line FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
-                'gemini',
+                'antigravity',
                 file,
             ),
         ).toEqual({ last_imported_line: 1 });
@@ -136,15 +136,15 @@ describe('runJsonlImport', () => {
             JSON.stringify({ id: 'reset', timestamp: '2026-05-30T00:00:00.000Z', content: 'reset' }),
         ]);
 
-        await runJsonlImport('gemini', { db, files: [file], mode: 'incremental', now: fixedNow });
-        const result = await runJsonlImport('gemini', { db, files: [file], mode: 'full', now: fixedNow });
+        await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental', now: fixedNow });
+        const result = await runJsonlImport('antigravity', { db, files: [file], mode: 'full', now: fixedNow });
 
         expect(result.importedRecords).toBe(0);
         expect(result.skippedDuplicates).toBe(1);
         expect(result.checkpointUpdates).toBe(1);
         const checkpoints = await db.queryAll<{ last_imported_line: number }>(
             'SELECT last_imported_line FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
-            'gemini',
+            'antigravity',
             file,
         );
         expect(checkpoints).toEqual([{ last_imported_line: 1 }]);
@@ -269,7 +269,7 @@ describe('runJsonlImport', () => {
         ];
         const file = await fixtureFile(lines);
         const fs = createNodeFileSystem();
-        const result = await runJsonlImport('gemini', {
+        const result = await runJsonlImport('antigravity', {
             db,
             files: [file],
             mode: 'full',
@@ -280,7 +280,7 @@ describe('runJsonlImport', () => {
         expect(result.importedRecords).toBe(3);
         expect(result.parseErrors).toHaveLength(0);
         const rows = await db.queryAll<{ source_line: number }>(
-            'SELECT source_line FROM history_etl_gemini ORDER BY source_line',
+            'SELECT source_line FROM history_etl_antigravity ORDER BY source_line',
         );
         expect(rows.map((r) => r.source_line)).toEqual([1, 2, 3]);
     });
@@ -312,7 +312,7 @@ describe('runJsonlImport', () => {
         });
 
         const fs = createNodeFileSystem();
-        const result = await runJsonlImport('gemini', {
+        const result = await runJsonlImport('antigravity', {
             db,
             files: [file],
             mode: 'full',
@@ -323,7 +323,9 @@ describe('runJsonlImport', () => {
         expect(result.importedRecords).toBe(recordCount);
         expect(result.parseErrors).toHaveLength(0);
 
-        const countRow = await db.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_etl_gemini');
+        const countRow = await db.queryFirst<{ count: number }>(
+            'SELECT COUNT(*) AS count FROM history_etl_antigravity',
+        );
         expect(countRow?.count).toBe(recordCount);
     });
 });
@@ -492,13 +494,13 @@ describe('runJsonlImport source_file realpath normalization (0465)', () => {
 
         try {
             // Import via the symlinked path first, then via the real path.
-            const first = await runJsonlImport('gemini', {
+            const first = await runJsonlImport('antigravity', {
                 db,
                 files: [linkedFile],
                 mode: 'incremental',
                 now: fixedNow,
             });
-            const second = await runJsonlImport('gemini', {
+            const second = await runJsonlImport('antigravity', {
                 db,
                 files: [realFile],
                 mode: 'incremental',
@@ -534,7 +536,7 @@ describe('runJsonlImport source_file realpath normalization (0465)', () => {
         const { realPath: _omit, ...fsWithoutRealPath } = createNodeFileSystem();
         void _omit;
 
-        const result = await runJsonlImport('gemini', {
+        const result = await runJsonlImport('antigravity', {
             db,
             files: [file],
             fileSystem: fsWithoutRealPath as FileSystem,
@@ -565,7 +567,7 @@ describe('runJsonlImport source_file realpath normalization (0465)', () => {
             },
         };
 
-        const result = await runJsonlImport('gemini', {
+        const result = await runJsonlImport('antigravity', {
             db,
             files: [file],
             fileSystem: throwingFs,
@@ -586,7 +588,7 @@ describe('runJsonlImport source_file realpath normalization (0465)', () => {
             JSON.stringify({ id: 'dry-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'dry' }),
         ]);
 
-        const result = await runJsonlImport('gemini', {
+        const result = await runJsonlImport('antigravity', {
             db,
             files: [file],
             mode: 'incremental',
@@ -607,23 +609,23 @@ describe('runJsonlImport source_file realpath normalization (0465)', () => {
             JSON.stringify({ id: 'scope-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'scope' }),
         ]);
         // Seed a checkpoint for a different source — it must survive a full-mode reset
-        // scoped to gemini.
+        // scoped to antigravity.
         await runJsonlImport('codex', { db, files: [file], mode: 'incremental', now: fixedNow });
         const codexCheckpointsBefore = await db.queryAll<{ source: string }>(
             "SELECT source FROM history_import_checkpoint WHERE source = 'codex'",
         );
         expect(codexCheckpointsBefore).toHaveLength(1);
 
-        await runJsonlImport('gemini', { db, files: [file], mode: 'full', now: fixedNow });
+        await runJsonlImport('antigravity', { db, files: [file], mode: 'full', now: fixedNow });
 
         const codexCheckpointsAfter = await db.queryAll<{ source: string }>(
             "SELECT source FROM history_import_checkpoint WHERE source = 'codex'",
         );
         expect(codexCheckpointsAfter).toHaveLength(1);
-        const geminiCheckpoints = await db.queryAll<{ source: string }>(
-            "SELECT source FROM history_import_checkpoint WHERE source = 'gemini'",
+        const antigravityCheckpoints = await db.queryAll<{ source: string }>(
+            "SELECT source FROM history_import_checkpoint WHERE source = 'antigravity'",
         );
-        expect(geminiCheckpoints).toHaveLength(1);
+        expect(antigravityCheckpoints).toHaveLength(1);
     });
 });
 
@@ -754,8 +756,8 @@ describe('runJsonlImport source registry (ADR-023 A3)', () => {
             JSON.stringify({ id: 'parity-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'parity' }),
         ]);
 
-        // First import via the built-in string path (gemini still uses the generic path).
-        const builtinResult = await runJsonlImport('gemini', {
+        // First import via the built-in generic string path.
+        const builtinResult = await runJsonlImport('antigravity', {
             db,
             files: [file],
             mode: 'full',
@@ -763,18 +765,18 @@ describe('runJsonlImport source registry (ADR-023 A3)', () => {
         });
 
         // Drop and re-apply schema on a fresh in-memory DB, then import the same file via a custom
-        // definition that mirrors the gemini built-in except for its `source`/`targetTable` names.
+        // definition that mirrors the antigravity built-in except for its `source`/`targetTable` names.
         db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
         const mirror: SourceDefinition = {
             ...customAcmeSource(),
-            source: 'gemini-parity',
-            targetTable: 'history_etl_gemini_parity',
+            source: 'antigravity-parity',
+            targetTable: 'history_etl_antigravity_parity',
             fieldMap: {
                 id: 'source_record_id',
                 timestamp: 'created_at',
                 content: 'content',
             },
-            // Use the same minimal transform set as the built-in gemini path.
+            // Use the same minimal transform set as the built-in antigravity path.
             fieldTransforms: {},
         };
         const customResult = await runJsonlImport(mirror, {
@@ -955,7 +957,7 @@ describe('runJsonlImport dryRun mode', () => {
             JSON.stringify({ id: 'd2', timestamp: '2026-05-30T00:01:00.000Z', content: 'run' }),
         ]);
 
-        const result = await runJsonlImport('gemini', {
+        const result = await runJsonlImport('antigravity', {
             db,
             files: [file],
             mode: 'full',
@@ -968,7 +970,7 @@ describe('runJsonlImport dryRun mode', () => {
         expect(result.checkpointUpdates).toBe(0);
 
         // Nothing persisted: no ETL rows, no ledger rows, no checkpoints.
-        const etlRows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_gemini');
+        const etlRows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_antigravity');
         expect(etlRows).toEqual([]);
         const ledgerRows = await db.queryAll<{ record_hash: string }>('SELECT record_hash FROM history_import_ledger');
         expect(ledgerRows).toEqual([]);

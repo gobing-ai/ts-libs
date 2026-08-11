@@ -68,7 +68,12 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             const raw = parseJsonLine(line, file, lineNumber, parseErrors);
             if (raw === undefined) continue;
 
-            const splitRecords = splitRawRecord(definition, raw);
+            const splitRecords = splitRawRecord(definition, raw, {
+                source: resolvedSource,
+                sourceFile: file,
+                sourceLine: lineNumber,
+                splitIndex: 0,
+            });
             let lineSucceeded = false;
 
             // First pass: normalize, validate, redact, compute recordHash for every entry.
@@ -195,7 +200,11 @@ function parseJsonLine(
     }
 }
 
-function splitRawRecord(definition: SourceDefinition, raw: JsonObject): readonly SplitRecord[] {
+function splitRawRecord(
+    definition: SourceDefinition,
+    raw: JsonObject,
+    context: TransformContext,
+): readonly SplitRecord[] {
     const targetTable = targetTableFor(definition.targetTable);
     if (definition.splitConfig.mode === 'one-to-one') {
         return [{ targetTable, raw }];
@@ -203,7 +212,7 @@ function splitRawRecord(definition: SourceDefinition, raw: JsonObject): readonly
     if (definition.splitConfig.mode === 'custom') {
         const config = definition.splitConfig;
         const configTable = config.targetTable !== undefined ? targetTableFor(config.targetTable) : undefined;
-        return config.split(raw).map((entry) => {
+        return config.split(raw, context).map((entry) => {
             // Normalize: SplitEntry has a `record` property, bare object is the record itself.
             const hasTargetTable =
                 'targetTable' in entry && typeof (entry as { targetTable: unknown }).targetTable === 'string';

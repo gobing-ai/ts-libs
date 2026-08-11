@@ -36,7 +36,7 @@ export type SplitConfig =
       }
     | {
           readonly mode: 'custom';
-          readonly split: (raw: JsonObject) => readonly (JsonObject | SplitEntry)[];
+          readonly split: (raw: JsonObject, context?: TransformContext) => readonly (JsonObject | SplitEntry)[];
           readonly targetTable?: string;
       };
 

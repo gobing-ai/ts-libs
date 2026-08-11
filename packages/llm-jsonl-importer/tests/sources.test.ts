@@ -45,6 +45,11 @@ describe('SOURCE_DEFINITIONS', () => {
         expect(claudeDef.displayName).toBe('Claude Code');
     });
 
+    test('Gemini discovery excludes Antigravity CLI transcripts', () => {
+        expect(getSourceDefinition('gemini').defaultRoots).toContain('.gemini/tmp');
+        expect(getSourceDefinition('gemini').defaultRoots).not.toContain('.gemini');
+    });
+
     test('rejects unsafe target table names with importer-specific error', async () => {
         const original = SOURCE_DEFINITIONS.codex;
         const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });

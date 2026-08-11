@@ -1,3 +1,4 @@
+import type { DbAdapter, DbBatchOp } from '@gobing-ai/ts-db';
 import { HistoryImportError } from './errors';
 import { HISTORY_IMPORT_SCHEMA_SQL } from './schema-sql';
 import { VALID_TABLE_NAME } from './sources';
@@ -366,6 +367,167 @@ function resolveWithFallback(
     } catch {
         return sourceFile;
     }
+}
+
+const OPENCODE_SOURCE = 'opencode';
+
+/** OpenCode message row projected from its SQLite store. */
+export interface OpenCodeMessageRow {
+    id: string;
+    session_id: string;
+    time_created: number;
+    data: string;
+    directory: string;
+}
+
+/** OpenCode message-part row projected from its SQLite store. */
+export interface OpenCodePartRow {
+    id: string;
+    message_id: string;
+    time_created: number;
+    data: string;
+}
+
+/** Previously imported OpenCode ledger entry. */
+export interface OpenCodeExistingEntry {
+    record_hash: string;
+    target_table: string;
+}
+
+/** Normalized OpenCode entry awaiting a history-table write. */
+export interface OpenCodeQueuedEntry {
+    targetTable: 'history_message' | 'history_tool_call';
+    splitIndex: number;
+    record: JsonObject;
+    recordHash: string;
+    sourceFile: string;
+}
+
+/** Read one ordered page of OpenCode messages after the supplied cursor. */
+export async function readOpenCodeMessages(
+    db: DbAdapter,
+    lastTime: number,
+    lastId: string,
+    limit: number,
+): Promise<OpenCodeMessageRow[]> {
+    return db.queryAll<OpenCodeMessageRow>(
+        `SELECT m.id, m.session_id, m.time_created, m.data, s.directory
+         FROM message m
+         JOIN session s ON s.id = m.session_id
+         WHERE m.time_created > ? OR (m.time_created = ? AND m.id > ?)
+         ORDER BY m.time_created, m.id
+         LIMIT ?`,
+        lastTime,
+        lastTime,
+        lastId,
+        limit,
+    );
+}
+
+/** Read all parts belonging to the supplied OpenCode message IDs. */
+export async function readOpenCodeParts(db: DbAdapter, messageIds: readonly string[]): Promise<OpenCodePartRow[]> {
+    if (messageIds.length === 0) return [];
+    return db.queryAll<OpenCodePartRow>(
+        `SELECT id, message_id, time_created, data
+         FROM part
+         WHERE message_id IN (${messageIds.map(() => '?').join(', ')})
+         ORDER BY time_created, id`,
+        ...messageIds,
+    );
+}
+
+/** Load existing OpenCode ledger entries grouped by source message ID. */
+export async function readOpenCodeExistingEntries(db: DbAdapter): Promise<Map<string, OpenCodeExistingEntry[]>> {
+    const rows = await db.queryAll<OpenCodeExistingEntry & { source_file: string }>(
+        'SELECT source_file, record_hash, target_table FROM history_import_ledger WHERE source = ?',
+        OPENCODE_SOURCE,
+    );
+    const bySourceFile = new Map<string, OpenCodeExistingEntry[]>();
+    for (const row of rows) {
+        const entries = bySourceFile.get(row.source_file) ?? [];
+        entries.push({ record_hash: row.record_hash, target_table: row.target_table });
+        bySourceFile.set(row.source_file, entries);
+    }
+    return bySourceFile;
+}
+
+/** Build deletion operations for records superseded by a forced import. */
+export function openCodeDeleteOperations(entries: readonly OpenCodeExistingEntry[]): DbBatchOp[] {
+    return entries.flatMap((entry) => [
+        {
+            sql: `DELETE FROM ${targetTableFor(entry.target_table)} WHERE record_hash = ?`,
+            params: [entry.record_hash],
+        },
+        {
+            sql: 'DELETE FROM history_import_ledger WHERE record_hash = ?',
+            params: [entry.record_hash],
+        },
+    ]);
+}
+
+/** Build batched history, ledger, and checkpoint writes for OpenCode entries. */
+export function openCodeBulkWriteOperations(
+    entries: readonly OpenCodeQueuedEntry[],
+    checkpointFiles: readonly string[],
+    now: ImportOptions['now'],
+): DbBatchOp[] {
+    const importedAt = timestamp(now);
+    const operations: DbBatchOp[] = [];
+    for (const table of ['history_message', 'history_tool_call'] as const) {
+        const tableEntries = entries.filter((entry) => entry.targetTable === table);
+        for (let offset = 0; offset < tableEntries.length; offset += 100) {
+            const chunk = tableEntries.slice(offset, offset + 100);
+            const columns = TYPED_TABLE_COLUMNS[table] ?? [];
+            operations.push({
+                sql: `WITH input(record_hash, payload_json, imported_at) AS (
+                    VALUES ${chunk.map(() => '(?, ?, ?)').join(', ')}
+                )
+                INSERT INTO ${table} (${columns.join(', ')})
+                SELECT ${columns
+                    .map((column) =>
+                        column === 'record_hash'
+                            ? 'record_hash'
+                            : column === 'imported_at'
+                              ? 'imported_at'
+                              : `json_extract(payload_json, '$.${column}')`,
+                    )
+                    .join(', ')}
+                FROM input
+                WHERE true
+                ON CONFLICT(record_hash) DO NOTHING`,
+                params: chunk.flatMap((entry) => [entry.recordHash, JSON.stringify(entry.record), importedAt]),
+            });
+        }
+    }
+    for (let offset = 0; offset < entries.length; offset += 200) {
+        const chunk = entries.slice(offset, offset + 200);
+        operations.push({
+            sql: `INSERT INTO history_import_ledger
+                (record_hash, source, source_file, source_line, split_index, target_table, imported_at)
+                VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ')}`,
+            params: chunk.flatMap((entry) => [
+                entry.recordHash,
+                OPENCODE_SOURCE,
+                entry.sourceFile,
+                1,
+                entry.splitIndex,
+                entry.targetTable,
+                importedAt,
+            ]),
+        });
+    }
+    for (let offset = 0; offset < checkpointFiles.length; offset += 200) {
+        const chunk = checkpointFiles.slice(offset, offset + 200);
+        operations.push({
+            sql: `INSERT INTO history_import_checkpoint (source, source_file, last_imported_line, updated_at)
+                VALUES ${chunk.map(() => '(?, ?, ?, ?)').join(', ')}
+                ON CONFLICT(source, source_file) DO UPDATE SET
+                    last_imported_line = excluded.last_imported_line,
+                    updated_at = excluded.updated_at`,
+            params: chunk.flatMap((sourceFile) => [OPENCODE_SOURCE, sourceFile, 1, importedAt]),
+        });
+    }
+    return operations;
 }
 
 export type { CheckpointRow };

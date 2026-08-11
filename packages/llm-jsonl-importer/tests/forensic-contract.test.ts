@@ -176,13 +176,13 @@ describe('R1 per-entry targetTable fan-out', () => {
     });
 
     test('entry omitting targetTable falls back to definition targetTable via custom bare objects', async () => {
-        // Existing one-to-one gemini path still lands in history_etl_gemini (R1 legacy).
+        // A one-to-one generic source still lands in its definition target table.
         const file = await fixtureFile([
             JSON.stringify({ id: 'g1', timestamp: '2026-08-07T00:00:00.000Z', content: 'hello' }),
         ]);
-        const result = await runJsonlImport('gemini', { db, files: [file], mode: 'full', now: fixedNow });
+        const result = await runJsonlImport('antigravity', { db, files: [file], mode: 'full', now: fixedNow });
         expect(result.importedRecords).toBe(1);
-        const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_gemini');
+        const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_antigravity');
         expect(rows).toHaveLength(1);
     });
 });
