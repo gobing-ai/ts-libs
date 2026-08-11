@@ -947,9 +947,134 @@ describe('runJsonlImport custom file patterns', () => {
 });
 
 /**
- * dryRun mode — records are validated and counted but never persisted and no
- * checkpoints are written.
+ * Full-mode reconciliation (task 0504 R1): a full run diffs the desired hash set against the
+ * persisted ledger and retires stale derived rows (target, tool, ledger, checkpoint) in one
+ * source-scoped batch. Dry-run reports the identical counts without mutation.
  */
+describe('runJsonlImport full-mode reconciliation (0504 R1)', () => {
+    test('retires stale rows on full write; dry-run previews the exact counts without mutation; second run is zero', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'a', timestamp: '2026-05-30T00:00:00.000Z', content: 'keep' }),
+            JSON.stringify({ id: 'b', timestamp: '2026-05-30T00:00:00.000Z', content: 'stale' }),
+        ]);
+
+        const first = await runJsonlImport('antigravity', { db, files: [file], mode: 'full', now: fixedNow });
+        expect(first.importedRecords).toBe(2);
+        expect(first.reconciliation).toEqual({ staleTargetRows: 0, staleLedgerRows: 0, staleCheckpointRows: 0 });
+
+        // Record `b` is no longer produced by the current source file.
+        await writeFile(
+            file,
+            `${JSON.stringify({ id: 'a', timestamp: '2026-05-30T00:00:00.000Z', content: 'keep' })}\n`,
+        );
+
+        // Dry-run previews the deletion counts without touching the database.
+        const dryRun = await runJsonlImport('antigravity', {
+            db,
+            files: [file],
+            mode: 'full',
+            dryRun: true,
+            now: fixedNow,
+        });
+        expect(dryRun.reconciliation).toEqual({ staleTargetRows: 1, staleLedgerRows: 1, staleCheckpointRows: 0 });
+        expect(await db.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_import_ledger')).toEqual({
+            count: 2,
+        });
+
+        // Full write applies the same diff in one source-scoped batch.
+        const write = await runJsonlImport('antigravity', { db, files: [file], mode: 'full', now: fixedNow });
+        expect(write.reconciliation).toEqual({ staleTargetRows: 1, staleLedgerRows: 1, staleCheckpointRows: 0 });
+        const ledger = await db.queryAll<{ record_hash: string }>(
+            'SELECT record_hash FROM history_import_ledger ORDER BY record_hash',
+        );
+        expect(ledger).toHaveLength(1);
+        const etl = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_antigravity');
+        expect(etl).toHaveLength(1);
+        expect(etl[0]?.payload_json).toContain('keep');
+        expect(etl[0]?.payload_json).not.toContain('stale');
+
+        // A second full run reports zero changes.
+        const second = await runJsonlImport('antigravity', { db, files: [file], mode: 'full', now: fixedNow });
+        expect(second.importedRecords).toBe(0);
+        expect(second.reconciliation).toEqual({ staleTargetRows: 0, staleLedgerRows: 0, staleCheckpointRows: 0 });
+    });
+
+    test('deletes checkpoints for source files no longer discovered', async () => {
+        const first = await fixtureFile([
+            JSON.stringify({ id: 'gone', timestamp: '2026-05-30T00:00:00.000Z', content: 'vanished file' }),
+        ]);
+        const second = await fixtureFile([
+            JSON.stringify({ id: 'current', timestamp: '2026-05-30T00:00:00.000Z', content: 'current file' }),
+        ]);
+
+        await runJsonlImport('antigravity', { db, files: [first], mode: 'incremental', now: fixedNow });
+
+        const result = await runJsonlImport('antigravity', { db, files: [second], mode: 'full', now: fixedNow });
+        expect(result.reconciliation).toEqual({ staleTargetRows: 1, staleLedgerRows: 1, staleCheckpointRows: 1 });
+
+        const checkpoints = await db.queryAll<{ source_file: string }>(
+            'SELECT source_file FROM history_import_checkpoint',
+        );
+        expect(checkpoints).toEqual([{ source_file: second }]);
+        const ledgerRows = await db.queryAll<{ source_file: string }>('SELECT source_file FROM history_import_ledger');
+        expect(ledgerRows).toEqual([{ source_file: second }]);
+    });
+
+    test('does not report reconciliation outside full mode', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'inc', timestamp: '2026-05-30T00:00:00.000Z', content: 'incremental' }),
+        ]);
+        const result = await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental', now: fixedNow });
+        expect(result.reconciliation).toBeUndefined();
+    });
+});
+
+/**
+ * Atomic per-record validation (task 0504 R2): a schema-invalid split rejects the WHOLE line,
+ * so no partially accepted rows (or orphaned tool-call rows with a dangling message_hash) can
+ * be left behind by one bad split in a multi-split record.
+ */
+describe('runJsonlImport atomic validation (0504 R2)', () => {
+    test('a schema-invalid split rejects the entire line — nothing from it is persisted', async () => {
+        const source: SourceDefinition = {
+            source: 'atomic',
+            displayName: 'Atomic',
+            defaultRoots: ['.atomic'],
+            filePatterns: ['*.jsonl'],
+            targetTable: 'history_etl_atomic',
+            splitConfig: { mode: 'one-to-many', field: 'messages' },
+            fieldMap: {
+                id: 'source_record_id',
+                content: 'content',
+                role: 'role',
+            },
+            fieldTransforms: {},
+            schema: z.object({
+                source_record_id: z.string().min(1),
+                content: z.string().min(1),
+                role: z.string().optional(),
+            }),
+        };
+        const file = await fixtureFile([
+            JSON.stringify({
+                id: 'm1',
+                messages: [
+                    { role: 'user', content: 'valid sibling' },
+                    { role: 'user' }, // missing `content` → schema-invalid
+                ],
+            }),
+        ]);
+
+        const result = await runJsonlImport(source, { db, files: [file], mode: 'full', now: fixedNow });
+
+        expect(result.importedRecords).toBe(0);
+        expect(result.validationErrors).toHaveLength(1);
+        expect(result.validationErrors[0]?.sourceLine).toBe(1);
+        // Nothing persisted: the valid sibling was rejected together with the invalid split.
+        expect(await db.queryAll('SELECT record_hash FROM history_import_ledger')).toEqual([]);
+        expect(await db.queryAll('SELECT record_hash FROM history_etl_atomic')).toEqual([]);
+    });
+});
 describe('runJsonlImport dryRun mode', () => {
     test('counts records without persisting or checkpointing', async () => {
         const file = await fixtureFile([

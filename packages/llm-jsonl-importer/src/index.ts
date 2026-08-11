@@ -20,6 +20,7 @@ export type {
     ImportResult,
     JsonObject,
     LlmJsonlSource,
+    ReconcileSummary,
     RedactionRule,
     SourceDefinition,
     SplitConfig,

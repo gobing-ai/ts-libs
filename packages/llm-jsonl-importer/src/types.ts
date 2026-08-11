@@ -101,6 +101,21 @@ export interface ImportIssue {
     readonly reason: string;
 }
 
+/**
+ * Source-scoped full-mode reconciliation outcome (task 0504 R1). Computed by diffing the
+ * current source's desired record hashes against the persisted ledger; rows no longer
+ * reproduced by current source data or mapper output are stale and are removed in one
+ * source-scoped batch (dry-run reports the same counts without mutating the database).
+ */
+export interface ReconcileSummary {
+    /** Rows deleted from typed/ETL target tables (history_message / history_tool_call / history_etl_*). */
+    readonly staleTargetRows: number;
+    /** Rows deleted from `history_import_ledger`. */
+    readonly staleLedgerRows: number;
+    /** Checkpoint rows deleted for source files no longer discovered. */
+    readonly staleCheckpointRows: number;
+}
+
 /** Summary produced by the importer control function. */
 export interface ImportResult {
     /** Source identifier — the built-in name or custom definition name that produced this result. */
@@ -114,4 +129,9 @@ export interface ImportResult {
     readonly parseErrors: readonly ImportIssue[];
     readonly validationErrors: readonly ImportIssue[];
     readonly checkpointUpdates: number;
+    /**
+     * Full-mode reconciliation counts (only set when `mode === 'full'`). A second full run
+     * reports zero stale rows once the database matches the current source (task 0504 R1).
+     */
+    readonly reconciliation?: ReconcileSummary;
 }

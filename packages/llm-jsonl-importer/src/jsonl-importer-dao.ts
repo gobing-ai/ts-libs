@@ -2,7 +2,7 @@ import type { DbAdapter, DbBatchOp } from '@gobing-ai/ts-db';
 import { HistoryImportError } from './errors';
 import { HISTORY_IMPORT_SCHEMA_SQL } from './schema-sql';
 import { VALID_TABLE_NAME } from './sources';
-import type { ImportOptions, JsonObject, SourceDefinition } from './types';
+import type { ImportOptions, JsonObject, ReconcileSummary, SourceDefinition } from './types';
 
 interface CheckpointRow {
     readonly last_imported_line: number;
@@ -369,6 +369,71 @@ function resolveWithFallback(
     }
 }
 
+/**
+ * Reconcile a source's persisted derived rows against the desired set produced by a full
+ * import (task 0504 R1). Rows whose `record_hash` is no longer reproduced by current source
+ * data or mapper output are stale: their target rows (typed contract tables — including tool
+ * calls — and ETL tables), ledger rows, and checkpoints for vanished source files are removed
+ * in ONE source-scoped batch (atomic). Dry-run returns the exact same counts without mutating
+ * the database, so `--dry-run` is a safe preview and a second full write reports zero changes.
+ *
+ * Deletes are keyed by `record_hash` (PK) and checkpoint `(source, source_file)` (PK) — never
+ * by an unindexed ledger predicate — so reconciliation cost scales with the stale count, not
+ * with ledger size.
+ */
+async function reconcileFullImport(
+    db: ImportOptions['db'],
+    source: string,
+    desiredHashes: ReadonlySet<string>,
+    discoveredFiles: readonly string[],
+    dryRun: boolean,
+): Promise<ReconcileSummary> {
+    const ledgerRows = await db.queryAll<{ record_hash: string; target_table: string }>(
+        'SELECT record_hash, target_table FROM history_import_ledger WHERE source = ?',
+        source,
+    );
+    const stale: { record_hash: string; target_table: string }[] = [];
+    for (const row of ledgerRows) {
+        if (!desiredHashes.has(row.record_hash)) stale.push(row);
+    }
+
+    const checkpointRows = await db.queryAll<{ source_file: string }>(
+        'SELECT source_file FROM history_import_checkpoint WHERE source = ?',
+        source,
+    );
+    const discovered = new Set(discoveredFiles);
+    const staleCheckpoints = checkpointRows
+        .map((row) => row.source_file)
+        .filter((sourceFile) => !discovered.has(sourceFile));
+
+    const summary: ReconcileSummary = {
+        staleTargetRows: stale.length,
+        staleLedgerRows: stale.length,
+        staleCheckpointRows: staleCheckpoints.length,
+    };
+    if (dryRun || (stale.length === 0 && staleCheckpoints.length === 0)) return summary;
+
+    const operations: DbBatchOp[] = [];
+    for (const row of stale) {
+        operations.push({
+            sql: `DELETE FROM ${targetTableFor(row.target_table)} WHERE record_hash = ?`,
+            params: [row.record_hash],
+        });
+        operations.push({
+            sql: 'DELETE FROM history_import_ledger WHERE record_hash = ?',
+            params: [row.record_hash],
+        });
+    }
+    for (const sourceFile of staleCheckpoints) {
+        operations.push({
+            sql: 'DELETE FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
+            params: [source, sourceFile],
+        });
+    }
+    await db.batch(operations);
+    return summary;
+}
+
 const OPENCODE_SOURCE = 'opencode';
 
 /** OpenCode message row projected from its SQLite store. */
@@ -538,6 +603,7 @@ export {
     insertRecord,
     ledgerExists,
     readCheckpoint,
+    reconcileFullImport,
     resetCheckpoints,
     targetTableFor,
     timestamp,

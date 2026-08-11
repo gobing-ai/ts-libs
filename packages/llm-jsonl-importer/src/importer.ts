@@ -14,13 +14,22 @@ import {
     insertRecord,
     ledgerExists,
     readCheckpoint,
+    reconcileFullImport,
     resetCheckpoints,
     targetTableFor,
     writeCheckpoint,
 } from './jsonl-importer-dao';
 import { redactRecord } from './redaction';
 import { resolveSourceDefinition } from './sources';
-import type { ImportIssue, ImportOptions, ImportResult, JsonObject, SourceDefinition, TransformContext } from './types';
+import type {
+    ImportIssue,
+    ImportOptions,
+    ImportResult,
+    JsonObject,
+    ReconcileSummary,
+    SourceDefinition,
+    TransformContext,
+} from './types';
 
 interface SplitRecord {
     readonly targetTable: string;
@@ -55,6 +64,9 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     let skippedDuplicates = 0;
     let unknownRecords = 0;
     let checkpointUpdates = 0;
+    // Full-mode desired set (R1, task 0504): every record hash the current source produces.
+    // ReconcileFullImport diffs this against the persisted ledger to retire stale rows.
+    const desiredHashes = new Set<string>();
 
     for (const file of files) {
         const checkpoint = mode === 'incremental' ? await readCheckpoint(options.db, resolvedSource, file) : 0;
@@ -75,6 +87,10 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                 splitIndex: 0,
             });
             let lineSucceeded = false;
+            // Atomic per-record acceptance (R2, task 0504): a schema-invalid split rejects the
+            // WHOLE line, so no partially accepted rows (or orphaned tool-call rows with a
+            // dangling message_hash) can be left behind by one bad split.
+            let lineRejected = false;
 
             // First pass: normalize, validate, redact, compute recordHash for every entry.
             interface PreparedEntry {
@@ -100,6 +116,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                         sourceLine: lineNumber,
                         reason: parsed.error.issues.map((issue) => issue.message).join('; '),
                     });
+                    lineRejected = true;
                     continue;
                 }
 
@@ -112,12 +129,17 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                     splitIndex,
                     record: redacted,
                 });
+                desiredHashes.add(recordHash);
                 if (await ledgerExists(options.db, recordHash)) {
                     skippedDuplicates += 1;
                     continue;
                 }
                 prepared.push({ split, splitIndex, normalized: redacted, recordHash });
             }
+
+            // A rejected line is reported (validationErrors above) but never persisted — no
+            // second pass, no checkpoint advance, no partial rows from this record.
+            if (lineRejected) continue;
 
             // Second pass: resolve _messageSplitIndex → message_hash, then insert.
             const recordHashBySplitIndex = new Map(prepared.map((e) => [e.splitIndex, e.recordHash] as const));
@@ -167,6 +189,20 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
         }
     }
 
+    // Full-mode reconciliation (R1, task 0504): diff the desired hash set against the
+    // persisted ledger and retire stale derived rows (target, tool, ledger, checkpoint) in
+    // one source-scoped batch. Dry-run computes the identical counts without mutation.
+    let reconciliation: ReconcileSummary | undefined;
+    if (mode === 'full') {
+        reconciliation = await reconcileFullImport(
+            options.db,
+            resolvedSource,
+            desiredHashes,
+            files,
+            options.dryRun ?? false,
+        );
+    }
+
     return {
         source: resolvedSource,
         mode,
@@ -178,6 +214,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
         parseErrors,
         validationErrors,
         checkpointUpdates,
+        reconciliation,
     };
 }
 

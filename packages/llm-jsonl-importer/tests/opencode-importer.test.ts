@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
-import { runOpenCodeImport } from '../src';
+import { applyHistoryImportSchema, runOpenCodeImport } from '../src';
 
 const temporaryDirectories: string[] = [];
 
@@ -127,6 +127,221 @@ describe('runOpenCodeImport', () => {
             expect(result.scannedFiles).toBe(0);
             expect(result.importedRecords).toBe(0);
         } finally {
+            target.close();
+        }
+    });
+
+    test('R3 — persistence cost scales with write chunks, not existing ledger rows (0504)', async () => {
+        const source = await sourceDatabase();
+        const target = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        try {
+            await applyHistoryImportSchema(target);
+            await source.db.run('INSERT INTO session (id, directory) VALUES (?, ?)', 'session-r3', '/work/project');
+            for (let i = 1; i <= 2; i += 1) {
+                await source.db.run(
+                    'INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)',
+                    `message-r3-${i}`,
+                    'session-r3',
+                    1_700_000_000_000 + i,
+                    JSON.stringify({
+                        role: 'assistant',
+                        time: { created: 1_700_000_000_000 + i },
+                        modelID: 'gpt-5',
+                        tokens: { input: 1, output: 1 },
+                    }),
+                );
+                await source.db.run(
+                    'INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (?, ?, ?, ?, ?)',
+                    `part-r3-${i}`,
+                    `message-r3-${i}`,
+                    'session-r3',
+                    1_700_000_000_001 + i,
+                    JSON.stringify({ type: 'text', text: `done ${i}` }),
+                );
+            }
+            // Seed 10,000 UNRELATED ledger rows (a different source). A per-new-message
+            // full-ledger scan or an unindexed (source, source_file) ledger delete would
+            // execute ~10,000 statements here; the importer must stay O(chunks).
+            for (let i = 0; i < 10_000; i += 1) {
+                await target.run(
+                    'INSERT INTO history_import_ledger (record_hash, source, source_file, source_line, split_index, target_table, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    `unrelated-${i}`,
+                    'pi',
+                    'unrelated.jsonl',
+                    1,
+                    0,
+                    'history_etl_pi',
+                    '2026-01-01T00:00:00Z',
+                );
+            }
+
+            let statements = 0;
+            const executedSql: string[] = [];
+            const counting: DbAdapter = {
+                db: target.db,
+                exec: (sql) => {
+                    statements += 1;
+                    executedSql.push(sql);
+                    return target.exec(sql);
+                },
+                run: (sql, ...params) => {
+                    statements += 1;
+                    executedSql.push(sql);
+                    return target.run(sql, ...params);
+                },
+                queryFirst: <T>(sql: string, ...params: unknown[]) => {
+                    statements += 1;
+                    executedSql.push(sql);
+                    return target.queryFirst<T>(sql, ...params);
+                },
+                queryAll: <T>(sql: string, ...params: unknown[]) => {
+                    statements += 1;
+                    executedSql.push(sql);
+                    return target.queryAll<T>(sql, ...params);
+                },
+                close: () => target.close(),
+                batch: async (ops) => {
+                    statements += ops.length;
+                    for (const op of ops) executedSql.push(op.sql);
+                    await target.batch(ops);
+                },
+            };
+
+            const result = await runOpenCodeImport({ db: counting, sourceDatabase: source.path, mode: 'full' });
+
+            expect(result.importedRecords).toBe(2); // 2 messages × 1 text-part entry each
+            // Bounded: schema setup + 3 reads + a handful of batched writes. With 10,000
+            // unrelated ledger rows, any per-record scan would blow well past this.
+            expect(statements).toBeLessThan(100);
+            // No new-message operation may delete ledger rows by an unindexed
+            // (source, source_file) predicate — deletes are keyed by record_hash (PK) only.
+            for (const sql of executedSql) {
+                expect(sql).not.toMatch(/DELETE FROM history_import_ledger\s+WHERE source/);
+                expect(sql).not.toMatch(/DELETE FROM history_import_ledger\s+WHERE source_file/);
+            }
+        } finally {
+            source.db.close();
+            target.close();
+        }
+    });
+
+    test('R1 — full mode sweeps ledger and checkpoint rows for messages deleted from the store (0504)', async () => {
+        const source = await sourceDatabase();
+        const target = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        try {
+            await source.db.run('INSERT INTO session (id, directory) VALUES (?, ?)', 'session-r1', '/work/project');
+            await source.db.run(
+                'INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)',
+                'message-r1',
+                'session-r1',
+                1_700_000_000_000,
+                JSON.stringify({
+                    role: 'assistant',
+                    time: { created: 1_700_000_000_000 },
+                    modelID: 'gpt-5',
+                    tokens: { input: 1, output: 1 },
+                }),
+            );
+            await source.db.run(
+                'INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (?, ?, ?, ?, ?)',
+                'part-r1',
+                'message-r1',
+                'session-r1',
+                1_700_000_000_001,
+                JSON.stringify({ type: 'text', text: 'swept' }),
+            );
+
+            const first = await runOpenCodeImport({ db: target, sourceDatabase: source.path, mode: 'full' });
+            expect(first.importedRecords).toBe(1);
+            expect(first.reconciliation).toEqual({ staleTargetRows: 0, staleLedgerRows: 0, staleCheckpointRows: 0 });
+
+            // The message vanishes from the store — full mode must retire its derived rows.
+            await source.db.run('DELETE FROM message WHERE id = ?', 'message-r1');
+
+            const second = await runOpenCodeImport({ db: target, sourceDatabase: source.path, mode: 'full' });
+            expect(second.reconciliation).toEqual({ staleTargetRows: 1, staleLedgerRows: 1, staleCheckpointRows: 1 });
+            expect(await target.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_message')).toEqual(
+                { count: 0 },
+            );
+            expect(
+                await target.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_import_ledger'),
+            ).toEqual({ count: 0 });
+            expect(
+                await target.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_import_checkpoint'),
+            ).toEqual({ count: 0 });
+
+            // A second full run reports zero changes.
+            const third = await runOpenCodeImport({ db: target, sourceDatabase: source.path, mode: 'full' });
+            expect(third.reconciliation).toEqual({ staleTargetRows: 0, staleLedgerRows: 0, staleCheckpointRows: 0 });
+        } finally {
+            source.db.close();
+            target.close();
+        }
+    });
+
+    test('R1 — counts mapper-drifted messages as stale (exact dry-run and write counts)', async () => {
+        const source = await sourceDatabase();
+        const target = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        try {
+            await source.db.run('INSERT INTO session (id, directory) VALUES (?, ?)', 'session-drift', '/work/project');
+            await source.db.run(
+                'INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)',
+                'message-drift',
+                'session-drift',
+                1_700_000_000_000,
+                JSON.stringify({
+                    role: 'assistant',
+                    time: { created: 1_700_000_000_000 },
+                    modelID: 'gpt-5',
+                    tokens: { input: 1, output: 1 },
+                }),
+            );
+
+            const first = await runOpenCodeImport({ db: target, sourceDatabase: source.path, mode: 'full' });
+            expect(first.importedRecords).toBe(1);
+            expect(first.reconciliation).toEqual({ staleTargetRows: 0, staleLedgerRows: 0, staleCheckpointRows: 0 });
+
+            // Mapper drift: the same source file now produces a different record hash.
+            await source.db.run(
+                'UPDATE message SET data = ? WHERE id = ?',
+                JSON.stringify({
+                    role: 'assistant',
+                    time: { created: 1_700_000_000_000 },
+                    modelID: 'gpt-5',
+                    tokens: { input: 2, output: 1 },
+                }),
+                'message-drift',
+            );
+
+            // Dry-run reports the exact stale-row count without mutating the database.
+            const dryRun = await runOpenCodeImport({
+                db: target,
+                sourceDatabase: source.path,
+                mode: 'full',
+                dryRun: true,
+            });
+            expect(dryRun.reconciliation).toEqual({ staleTargetRows: 1, staleLedgerRows: 1, staleCheckpointRows: 0 });
+            expect(dryRun.importedRecords).toBe(1);
+            expect(await target.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_message')).toEqual(
+                { count: 1 },
+            );
+
+            // Write applies the same diff: old row deleted, new row inserted.
+            const write = await runOpenCodeImport({ db: target, sourceDatabase: source.path, mode: 'full' });
+            expect(write.reconciliation).toEqual({ staleTargetRows: 1, staleLedgerRows: 1, staleCheckpointRows: 0 });
+            expect(write.importedRecords).toBe(1);
+            expect(await target.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_message')).toEqual(
+                { count: 1 },
+            );
+            expect(
+                await target.queryFirst<{ count: number }>('SELECT COUNT(*) AS count FROM history_import_ledger'),
+            ).toEqual({ count: 1 });
+
+            // A second full run reports zero changes.
+            const second = await runOpenCodeImport({ db: target, sourceDatabase: source.path, mode: 'full' });
+            expect(second.reconciliation).toEqual({ staleTargetRows: 0, staleLedgerRows: 0, staleCheckpointRows: 0 });
+        } finally {
+            source.db.close();
             target.close();
         }
     });

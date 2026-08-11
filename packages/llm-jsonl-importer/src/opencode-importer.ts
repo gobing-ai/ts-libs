@@ -19,7 +19,7 @@ import {
     readOpenCodeParts,
 } from './jsonl-importer-dao';
 import { redactRecord } from './redaction';
-import type { ImportIssue, ImportMode, ImportResult, JsonObject, RedactionRule } from './types';
+import type { ImportIssue, ImportMode, ImportResult, JsonObject, ReconcileSummary, RedactionRule } from './types';
 
 const SOURCE = 'opencode';
 const PAGE_SIZE = 250;
@@ -63,7 +63,20 @@ export async function runOpenCodeImport(options: OpenCodeImportOptions): Promise
     let lastTime = -1;
     let lastId = '';
     const existingBySourceFile = await readOpenCodeExistingEntries(options.db);
+    // Source files still present in the OpenCode store this pass (R1, task 0504). Files with
+    // no valid role produce no entries and are deliberately NOT marked seen, so their old
+    // derived rows are swept as no-longer-reproduced in full mode.
+    const seenSourceFiles = new Set<string>();
     const operations: DbBatchOp[] = [];
+    // Full-mode reconciliation counters (R1, task 0504): stale rows from BOTH sources —
+    // per-file hash-diff deletes (changed messages) and the vanished-file sweep below. Dry-run
+    // counts the identical totals the write would delete, so `--dry-run` is an exact preview.
+    // Declared here (outside `try`) because the result is returned after `finally` closes the
+    // source database.
+    let staleTargetRows = 0;
+    let staleLedgerRows = 0;
+    let staleCheckpointRows = 0;
+    let reconciliation: ReconcileSummary | undefined;
 
     try {
         while (true) {
@@ -91,6 +104,7 @@ export async function runOpenCodeImport(options: OpenCodeImportOptions): Promise
                     validationErrors.push({ sourceFile, sourceLine: 1, reason: 'OpenCode message has no valid role' });
                     continue;
                 }
+                seenSourceFiles.add(sourceFile);
 
                 const existing = existingBySourceFile.get(sourceFile) ?? [];
                 if (sameHashes(existing, entries)) {
@@ -98,6 +112,12 @@ export async function runOpenCodeImport(options: OpenCodeImportOptions): Promise
                     continue;
                 }
 
+                if (mode === 'full') {
+                    // Per-file mapper drift: the old derived rows for this source file are
+                    // stale and are deleted before the new entries are written.
+                    staleTargetRows += existing.length;
+                    staleLedgerRows += existing.length;
+                }
                 if (!options.dryRun) {
                     operations.push(...openCodeDeleteOperations(existing));
                     for (const entry of entries) {
@@ -122,6 +142,25 @@ export async function runOpenCodeImport(options: OpenCodeImportOptions): Promise
             lastTime = tail.time_created;
             lastId = tail.id;
         }
+        // Full-mode reconciliation (R1, task 0504): messages deleted from the OpenCode store
+        // leave stale derived rows behind. Sweep ledger/target rows and checkpoints for source
+        // files never seen this pass, merged into the SAME source-scoped batch as the writes.
+        if (mode === 'full') {
+            for (const [sourceFile, entries] of existingBySourceFile) {
+                if (seenSourceFiles.has(sourceFile)) continue;
+                staleLedgerRows += entries.length;
+                staleTargetRows += entries.length;
+                staleCheckpointRows += 1;
+                if (!options.dryRun) {
+                    operations.push(...openCodeDeleteOperations(entries));
+                    operations.push({
+                        sql: 'DELETE FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
+                        params: [SOURCE, sourceFile],
+                    });
+                }
+            }
+            reconciliation = { staleTargetRows, staleLedgerRows, staleCheckpointRows };
+        }
         if (operations.length > 0) await options.db.batch(operations);
     } finally {
         sourceDb.close();
@@ -138,6 +177,7 @@ export async function runOpenCodeImport(options: OpenCodeImportOptions): Promise
         parseErrors,
         validationErrors,
         checkpointUpdates,
+        reconciliation,
     };
 }
 
