@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { spawnSync } from 'node:child_process';
 import {
+    branchPushArgs,
     createAggregateReleaseTag,
     createReleaseTag,
     isAlreadyPublishedError,
@@ -9,6 +10,7 @@ import {
     parseReleaseTag,
     selectPackagesForPublish,
     sortPackagesByDependencyOrder,
+    tagPushArgs,
 } from '../lib/release';
 import type { WorkspacePackage } from '../lib/workspace';
 import { findWorkspacePackages } from '../lib/workspace';
@@ -198,5 +200,31 @@ describe('sortPackagesByDependencyOrder', () => {
         ];
 
         await expect(sortPackagesByDependencyOrder(packages)).rejects.toThrow('internal package dependency cycle');
+    });
+});
+
+describe('release command git push args', () => {
+    test('branch push disables followTags even when user git config enables it', () => {
+        expect(branchPushArgs('main')).toEqual([
+            '-c',
+            'push.followTags=false',
+            'push',
+            '--no-follow-tags',
+            'origin',
+            'main',
+        ]);
+    });
+
+    test('tag push uses explicit source and destination refs one tag at a time', () => {
+        expect(tagPushArgs('@gobing-ai/ts-utils-v0.1.6')).toEqual([
+            '-c',
+            'push.followTags=false',
+            'push',
+            'origin',
+            'refs/tags/@gobing-ai/ts-utils-v0.1.6:refs/tags/@gobing-ai/ts-utils-v0.1.6',
+        ]);
+        expect(tagPushArgs('@gobing-ai/ts-libs-v0.1.6')).toContain(
+            'refs/tags/@gobing-ai/ts-libs-v0.1.6:refs/tags/@gobing-ai/ts-libs-v0.1.6',
+        );
     });
 });

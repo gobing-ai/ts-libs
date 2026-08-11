@@ -54,10 +54,23 @@ done
 
 ### Verify
 
+`bump-ver <version> --push` now **proves the Publish run exists before returning** (task 0510 R4):
+after pushing the aggregate tag it polls `gh run list --workflow=publish.yml` (3 attempts, 5s apart)
+for a run whose head branch matches `@gobing-ai/ts-libs-v<version>`. If no push-triggered run appears,
+it dispatches `publish.yml` once at the same tag ref (`gh workflow run publish.yml --ref <tag>`) and
+confirms the dispatched run, then reports the run ID/URL. It never deletes, moves, or re-pushes a
+tag — the workflow is idempotent, so dispatch of the immutable tag ref is the safe recovery for a
+missed push event.
+
 ```bash
+# bump-ver --push already verified the run and printed its ID/URL; a manual check is optional:
 gh run list --workflow=publish.yml --limit 5   # expect one event=push Publish run
 npm view @gobing-ai/ts-utils version           # expect 0.1.5
 ```
+
+If `bump-ver` exits with "No Publish workflow run found", a dispatch was attempted but the run was
+not yet visible in the Actions API. Check the Actions tab; the run may be queued. Tags are never
+mutated, so re-running `bump-ver` after cleanup is unnecessary — the workflow is idempotent.
 
 ### Fixing a mistake
 
@@ -160,7 +173,7 @@ From now on this package releases with the others via `bun run bump-ver <version
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Tag pushed, no Publish run | Tag's commit not reachable from `main` (branch wasn't pushed first), or tags were pushed together | Push `main` first, then tags one at a time (`bump-ver --push` does both) |
+| Tag pushed, no Publish run | Tag's commit not reachable from `main` (branch wasn't pushed first), or tags were pushed together | Push `main` first, then tags one at a time (`bump-ver --push` does both). If the run is still missing, `bump-ver --push` auto-recovers by dispatching `publish.yml` at the aggregate tag ref once (task 0510 R4) — no tag deletion/re-push needed |
 | Per-package tag pushed, no Publish run | Expected — per-package tags are traceability tags only | Check for the aggregate `@gobing-ai/ts-libs-v<version>` tag run |
 | Publish run skips everything | Version already on npm | Bump to a new version — npm versions are immutable |
 | Publish run fails with tag/version mismatch | The workflow checked out a commit whose manifest version does not match the tag | Recreate the tag on the correct release commit, or use a new version if npm already has the old one |
