@@ -28,6 +28,72 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - None.
 
+## [0.4.27] — 2026-08-11
+
+### Added
+
+- **Release toolchain — `bump-ver --push` GitHub Actions Publish verification:** `bump-ver --push` now verifies that pushing the aggregate release tag triggered a corresponding `publish.yml` workflow run before completing. Performs bounded lookups (`gh run list`) for a matching run; if a push event is missed, it recovers by dispatching a single `workflow_dispatch` run at the same immutable tag ref. Reports the run ID and URL or fails loudly on error.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
+## [0.4.26] — 2026-08-11
+
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer` — OMP envelope normalization:** normalized current OpenCode/OMP message envelopes, flat `toolCall` blocks, and filename-based session keys into canonical contract records.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
+## [0.4.25] — 2026-08-10
+
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer` — Full-mode reconciliation & atomic validation:** added `reconcileFullImport` for single-batch source-scoped stale row sweeps, OpenCode full mode reconciliation, and line-atomic validation so schema-invalid splits reject the whole line without leaving orphaned rows behind.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
 ## [0.4.24] — 2026-08-10
 
 ### Added
