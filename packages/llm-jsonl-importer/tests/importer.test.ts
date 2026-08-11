@@ -285,6 +285,53 @@ describe('runJsonlImport', () => {
         expect(rows.map((r) => r.source_line)).toEqual([1, 2, 3]);
     });
 
+    test('omp force-file import maps the current message envelope with filename session key (0507)', async () => {
+        const file = await namedFixtureFile('omp-sess-key', [
+            JSON.stringify({
+                type: 'message',
+                id: 'evt-1',
+                timestamp: '2026-08-07T00:00:00.000Z',
+                message: {
+                    role: 'assistant',
+                    model: 'claude-x',
+                    duration: 900,
+                    content: [
+                        { type: 'text', text: 'sanitized reply' },
+                        { type: 'toolCall', id: 'tc-1', name: 'Bash', arguments: { cmd: 'echo ok' } },
+                    ],
+                },
+            }),
+            JSON.stringify({
+                type: 'message',
+                id: 'evt-2',
+                timestamp: '2026-08-07T00:00:00.001Z',
+                message: { role: 'toolResult', content: [{ type: 'toolResult', toolCallId: 'tc-1' }] },
+            }),
+        ]);
+
+        const result = await runJsonlImport('omp', { db, files: [file], mode: 'force-file', now: fixedNow });
+
+        expect(result.importedRecords).toBe(3); // 2 messages + 1 tool call
+        const messages = await db.queryAll<{
+            session_id: string;
+            seq: number;
+            role: string;
+            duration_ms: number | null;
+        }>('SELECT session_id, seq, role, duration_ms FROM history_message ORDER BY seq');
+        expect(messages).toEqual([
+            { session_id: 'omp-sess-key', seq: 1, role: 'assistant', duration_ms: 900 },
+            { session_id: 'omp-sess-key', seq: 2, role: 'toolresult', duration_ms: null },
+        ]);
+        const tools = await db.queryAll<{ session_id: string; seq: number; tool_name: string; args_digest: string }>(
+            'SELECT session_id, seq, tool_name, args_digest FROM history_tool_call',
+        );
+        expect(tools).toHaveLength(1);
+        expect(tools[0]?.session_id).toBe('omp-sess-key');
+        expect(tools[0]?.seq).toBe(1);
+        expect(tools[0]?.tool_name).toBe('Bash');
+        expect(tools[0]?.args_digest.length).toBeGreaterThan(0);
+    });
+
     test('streaming a multi-MB file processes all records without loading entire file into memory (ADR-021)', async () => {
         // Generate ~5MB of JSONL: 25000 records × ~200 bytes each
         const recordCount = 25_000;
@@ -336,6 +383,14 @@ async function fixtureFile(lines: readonly string[]): Promise<string> {
     await writeFile(file, `${lines.join('\n')}\n`);
     // Return the realpath so test assertions match the importer's normalized
     // source_file (macOS resolves /var → /private/var via realpath at discovery).
+    return realpath(file);
+}
+
+/** Write a temp JSONL with a caller-chosen filename stem (OMP session key derives from it). */
+async function namedFixtureFile(stem: string, lines: readonly string[]): Promise<string> {
+    const directory = await mkdtemp(join(tmpdir(), 'llm-jsonl-importer-'));
+    const file = join(directory, `${stem}.jsonl`);
+    await writeFile(file, `${lines.join('\n')}\n`);
     return realpath(file);
 }
 

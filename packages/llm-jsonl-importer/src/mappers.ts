@@ -64,7 +64,7 @@ function detectProvenance(cwd?: string): 'ambient' | 'spur-run' {
 }
 
 /** Compute args_digest: sha256 of stable-jsonified, key-sorted, redacted args. */
-function argsDigest(args: unknown): string {
+export function argsDigest(args: unknown): string {
     const redacted = redactArgs(args);
     return sha256(redacted);
 }
@@ -284,26 +284,44 @@ export function piSplit(raw: unknown): readonly SplitEntry[] {
 // ---------------------------------------------------------------------------
 
 /** Map an OMP JSONL record into one or more ETL split entries. */
-export function ompSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
+export function ompSplit(raw: Record<string, unknown>, context?: TransformContext): readonly SplitEntry[] {
+    // Current OMP files are top-level event envelopes: `{type: "message", id, timestamp, parentId,
+    // message: {role, content, model, usage, cost, duration, ...}}`. The unique top-level `id` is
+    // an event id, never a session id; the session key and sequence come from the source file
+    // (context) when available. The legacy direct shape keeps role/type/content at the top level.
+    const msg = raw.message as Record<string, unknown> | undefined;
     const recordType = String(raw.type ?? '');
+    const sessionId = sessionIdFromContext(context, raw);
+    const seq = context?.sourceLine ?? (typeof raw.seq === 'number' ? raw.seq : 0);
+    const ts = s(raw.ts, raw.timestamp, raw.createdAt) ?? new Date(0).toISOString();
+
+    // Meta lifecycle/custom records — including the current `custom.*` events and non-message
+    // lifecycle types — collapse to one meta row keyed by the source session, never the unique
+    // event id, and never a guessed role.
     if (
         recordType === 'title' ||
         recordType === 'title_change' ||
         recordType === 'service_tier_change' ||
         recordType === 'ttsr_injection' ||
         recordType === 'session_init' ||
-        recordType === 'compaction'
+        recordType === 'session' ||
+        recordType === 'model_change' ||
+        recordType === 'thinking_level_change' ||
+        recordType === 'compaction' ||
+        recordType === 'custom' ||
+        recordType === 'custom_message' ||
+        recordType.startsWith('custom.')
     ) {
         return [
             {
                 targetTable: 'history_message',
                 record: {
-                    session_id: s(raw.id, o(raw.session).id) ?? 'unknown',
-                    seq: typeof raw.seq === 'number' ? raw.seq : 0,
+                    session_id: sessionId,
+                    seq,
                     role: 'meta',
                     record_type: recordType,
                     disposition: 'meta',
-                    ts: s(raw.ts, raw.timestamp) ?? new Date(0).toISOString(),
+                    ts,
                     provenance: 'ambient',
                 },
             },
@@ -311,21 +329,18 @@ export function ompSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
     }
 
     const entries: SplitEntry[] = [];
-    const sessionId = s(raw.id, o(raw.session).id) ?? 'unknown';
-    const seq = typeof raw.seq === 'number' ? raw.seq : 0;
-    const ts = s(raw.ts, raw.timestamp, raw.createdAt) ?? new Date(0).toISOString();
-    const role = mapRole(raw.type ?? raw.role);
-    const model = s(raw.model, o(raw.message).model);
+    const role = mapRole(msg?.role ?? raw.type ?? raw.role);
+    const model = s(raw.model, o(msg).model);
     const cwd = s(raw.cwd, raw.dir);
-
-    const msg = raw.message as Record<string, unknown> | undefined;
-    const usage = msg?.usage as Record<string, unknown> | undefined;
+    const usage = (msg?.usage ?? raw.usage) as Record<string, unknown> | undefined;
     const inputTokens = (usage?.input ?? usage?.input_tokens ?? undefined) as number | undefined;
     const outputTokens = (usage?.output ?? usage?.output_tokens ?? undefined) as number | undefined;
     const cacheRead = (usage?.cacheRead ?? usage?.cache_read_tokens ?? undefined) as number | undefined;
     const cacheWrite = (usage?.cacheWrite ?? usage?.cache_write_tokens ?? undefined) as number | undefined;
     const costObj = (msg?.cost ?? raw.cost) as Record<string, unknown> | undefined;
     const costUsd = typeof costObj?.total === 'number' ? costObj.total : computeCost(inputTokens, outputTokens, model);
+    const contentBlocks = msg?.content ?? raw.content;
+    const durationMs = typeof msg?.duration === 'number' && Number.isFinite(msg.duration) ? msg.duration : undefined;
 
     const messageSplitIndex = entries.length;
 
@@ -338,44 +353,57 @@ export function ompSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
             record_type: recordType,
             disposition: 'keep',
             ts,
-            duration_ms: undefined,
+            duration_ms: durationMs,
             model: model ?? null,
             input_tokens: inputTokens ?? null,
             output_tokens: outputTokens ?? null,
             cache_read_tokens: cacheRead ?? null,
             cache_write_tokens: cacheWrite ?? null,
             cost_usd: costUsd ?? null,
-            content_text: s(raw.content, raw.text, msg?.content) ?? null,
+            content_text: extractContentText(contentBlocks) ?? s(raw.content, raw.text, msg?.content) ?? null,
             cwd: cwd ?? null,
             provenance: detectProvenance(cwd),
         },
     });
 
-    if (Array.isArray(raw.content) && role === 'assistant') {
-        for (const block of raw.content as Record<string, unknown>[]) {
-            if (block?.toolCall) {
-                const tc = block.toolCall as Record<string, unknown>;
-                entries.push({
-                    targetTable: 'history_tool_call',
-                    record: {
-                        _messageSplitIndex: messageSplitIndex,
-                        session_id: sessionId,
-                        seq,
-                        tool_name: String(tc.name ?? ''),
-                        args_digest: argsDigest(tc.input ?? tc.arguments),
-                        status: 'ok',
-                        started_at: undefined,
-                        completed_at: undefined,
-                        duration_ms: undefined,
-                        result_bytes: undefined,
-                        error_text: undefined,
-                    },
-                });
-            }
+    if (Array.isArray(contentBlocks) && role === 'assistant') {
+        for (const block of contentBlocks as Record<string, unknown>[]) {
+            const call = normalizeOmpToolCall(block);
+            if (call === null) continue;
+            entries.push({
+                targetTable: 'history_tool_call',
+                record: {
+                    _messageSplitIndex: messageSplitIndex,
+                    session_id: sessionId,
+                    seq,
+                    tool_name: String(call.name ?? ''),
+                    args_digest: argsDigest(call.input ?? call.arguments),
+                    status: 'ok',
+                    started_at: undefined,
+                    completed_at: undefined,
+                    duration_ms: undefined,
+                    result_bytes: undefined,
+                    error_text: undefined,
+                },
+            });
         }
     }
 
     return entries;
+}
+
+/**
+ * Normalize an OMP assistant content block to a tool-call object, or null when the block is not a
+ * call. Supports both the legacy nested `{toolCall: {...}}` block and the current flat
+ * `{type: "toolCall", id, name, arguments}` block. Exactly one history_tool_call row is emitted
+ * per call block.
+ */
+function normalizeOmpToolCall(block: Record<string, unknown>): Record<string, unknown> | null {
+    if (typeof block !== 'object' || block === null) return null;
+    const nested = o(block.toolCall);
+    if (Object.keys(nested).length > 0) return nested;
+    if (block.type === 'toolCall') return block;
+    return null;
 }
 
 // ---------------------------------------------------------------------------

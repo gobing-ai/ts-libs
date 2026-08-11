@@ -3,6 +3,7 @@ import {
     AGY_FIELD_MAP,
     AGY_SCHEMA,
     agySplit,
+    argsDigest,
     CLAUDE_FIELD_MAP,
     CLAUDE_SCHEMA,
     CODEX_FIELD_MAP,
@@ -424,6 +425,82 @@ describe('ompSplit', () => {
             cost: { total: 0.005 },
         });
         expect(entries[0]?.record.cost_usd).toBe(0.005);
+    });
+
+    test('current envelope: type=message reads role/content/model/usage/cost/duration from raw.message', () => {
+        const context = { source: 'omp', sourceFile: '/sessions/sess-a.jsonl', sourceLine: 7, splitIndex: 0 };
+        const entries = ompSplit(
+            {
+                type: 'message',
+                id: 'event-1',
+                timestamp: '2026-08-07T00:00:00.000Z',
+                message: {
+                    role: 'assistant',
+                    model: 'claude-x',
+                    duration: 1250,
+                    content: [
+                        { type: 'text', text: 'working' },
+                        { type: 'toolCall', id: 'tc-1', name: 'Bash', arguments: { cmd: 'ls' } },
+                    ],
+                    usage: { input: 30, output: 15, cacheRead: 5, cacheWrite: 3 },
+                    cost: { total: 0.005 },
+                },
+            },
+            context,
+        );
+        expect(entries).toHaveLength(2);
+        const message = entries[0];
+        const tool = entries[1];
+        // Session key + sequence come from the source file, never the unique event id.
+        expect(message?.targetTable).toBe('history_message');
+        expect(message?.record.session_id).toBe('sess-a');
+        expect(message?.record.seq).toBe(7);
+        expect(message?.record.role).toBe('assistant');
+        expect(message?.record.model).toBe('claude-x');
+        expect(message?.record.duration_ms).toBe(1250);
+        expect(message?.record.input_tokens).toBe(30);
+        expect(message?.record.output_tokens).toBe(15);
+        expect(message?.record.cache_read_tokens).toBe(5);
+        expect(message?.record.cache_write_tokens).toBe(3);
+        expect(message?.record.cost_usd).toBe(0.005);
+        expect(message?.record.content_text).toBe('working');
+        // Exactly one tool-call row for the flat toolCall block.
+        expect(tool?.targetTable).toBe('history_tool_call');
+        expect(tool?.record.session_id).toBe('sess-a');
+        expect(tool?.record.seq).toBe(7);
+        expect(tool?.record.tool_name).toBe('Bash');
+        expect(tool?.record.args_digest).toBe(argsDigest({ cmd: 'ls' }));
+    });
+
+    test('current envelope: toolResult role comes from raw.message.role', () => {
+        const context = { source: 'omp', sourceFile: '/sessions/sess-b.jsonl', sourceLine: 3, splitIndex: 0 };
+        const entries = ompSplit(
+            {
+                type: 'message',
+                id: 'event-2',
+                timestamp: '2026-08-07T00:00:00.000Z',
+                message: { role: 'toolResult', content: [{ type: 'toolResult', toolCallId: 'tc-1' }] },
+            },
+            context,
+        );
+        expect(entries).toHaveLength(1);
+        expect(entries[0]?.record.role).toBe('toolresult');
+        expect(entries[0]?.record.session_id).toBe('sess-b');
+        expect(entries[0]?.record.seq).toBe(3);
+    });
+
+    test('current envelope: custom.* events collapse to one meta row with the filename session key', () => {
+        const context = { source: 'omp', sourceFile: '/sessions/sess-c.jsonl', sourceLine: 9, splitIndex: 0 };
+        const entries = ompSplit(
+            { type: 'custom.tool_execution_start', id: 'event-3', timestamp: '2026-08-07T00:00:00.000Z' },
+            context,
+        );
+        expect(entries).toHaveLength(1);
+        expect(entries[0]?.record.role).toBe('meta');
+        expect(entries[0]?.record.record_type).toBe('custom.tool_execution_start');
+        expect(entries[0]?.record.disposition).toBe('meta');
+        expect(entries[0]?.record.session_id).toBe('sess-c');
+        expect(entries[0]?.record.seq).toBe(9);
     });
 });
 
