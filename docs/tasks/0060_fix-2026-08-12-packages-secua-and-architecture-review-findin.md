@@ -3,7 +3,7 @@ template: standard
 schema_version: 1
 name: "Fix 2026-08-12 packages SECUA and architecture review findings"
 description: ""
-status: wip
+status: testing
 type: task
 profile: standard
 feature_id: null
@@ -13,7 +13,7 @@ tags: []
 dependencies: []
 ac_numbering: task-local
 created_at: "2026-08-12T18:30:12.815Z"
-updated_at: "2026-08-12T18:39:33.318Z"
+updated_at: "2026-08-12T19:09:09.354Z"
 ---
 
 ## 0060. Fix 2026-08-12 packages SECUA and architecture review findings
@@ -640,122 +640,137 @@ Work as one WBS. Commit per package group (conventional `fix:` / `docs:`). Do no
 
 15. **Stop.** Do not take drive-by refactors. If a MUST item is blocked, mark it UNMET in Testing and stop — do not `.skip` tests to go green.
 ### Solution
-Planned change-map (implementation not started). Citations are the current defect anchors the implementer will edit; replace this body with the *actual* post-change `file:line` once the code lands.
+**Implemented 2026-08-12 (task 0060).** All 12 MUST items + R13–R15 shipped; R16/R17 deferred with follow-ups. Deferrals recorded below.
 
-**Planned edits**
+**Edits**
 
-| File | Package | Planned change |
-|------|---------|----------------|
-| `packages/utils/src/object.ts:52` | ts-utils | Guard `deFlattenKeys` segments |
-| `packages/utils/tests/object.test.ts:36` | ts-utils | `__proto__` regression |
-| `packages/runtime/src/schema-validation.ts:345` | ts-runtime | Dual-gate `allowRemote` + `fetch` |
-| `packages/runtime/tests/schema-validation.test.ts:59` | ts-runtime | Flip fetch-alone test |
-| `packages/runtime/README.md:264` | ts-runtime | Remote-schema docs |
-| `packages/runtime/src/fs.ts:51` | ts-runtime | `walkDir` visit-set + confinement |
-| `packages/runtime/src/process-executor.ts:363` | ts-runtime | `runStreaming` env merge + `envMode` |
-| `packages/runtime/tests/process-executor.test.ts:262` | ts-runtime | Streaming twin of 0056 |
-| `packages/dual-workflow-engine/src/persistence.ts:177` | dual-workflow | Use `ActionRedactor` |
-| `packages/dual-workflow-engine/src/persistence.ts:244` | dual-workflow | Atomic `reseedRun` |
-| `packages/dual-workflow-engine/src/action-step.ts:88` | dual-workflow | Pass redactor |
-| `packages/dual-workflow-engine/src/host.ts:160` | dual-workflow | Shell result shape |
-| `packages/dual-workflow-engine/src/service.ts:168` | dual-workflow | Resume `effectiveVars` (do not break) |
-| `packages/infra/src/scheduler/node.ts:16` | ts-infra | Throw on unsupported cron |
-| `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:160` | importer | Per-adapter / no global table cache |
-| `packages/llm-jsonl-importer/src/importer.ts:133` | importer | Chunked lookup + `db.batch` |
-| `packages/db/src/inbox-message-dao.ts:121` | ts-db | Paged `drainPending` |
-| `packages/db/src/index.ts:2` | ts-db | Drop `D1Adapter` value export |
-| `packages/ai-runner/src/message-store.ts:26` | ts-ai-runner | Port `limit` |
-| `packages/ai-runner/src/team-orchestrator.ts:1` | ts-ai-runner | Drain loop |
-| `packages/rule-engine/src/config/extensions.ts:110` | rule-engine | Delete path smash |
-| `packages/dual-workflow-engine/src/extensions.ts:82` | dual-workflow | Delete path smash |
-| `docs/00_ADR.md:62` | docs | ADR-005 barrel addendum (C1) |
+| File | Package | Change |
+|------|---------|--------|
+| `packages/utils/src/object.ts:58` | ts-utils | `deFlattenKeys` skips `__proto__`/`constructor`/`prototype` segments (R1) |
+| `packages/utils/tests/object.test.ts:64` | ts-utils | `__proto__.polluted` + `constructor.prototype` regression |
+| `packages/runtime/src/schema-validation.ts:346` | ts-runtime | Dual-gate `allowRemote` + `fetch` in `readSchema` (R2); `parseJsonContent` helper at :88 |
+| `packages/runtime/tests/schema-validation.test.ts:59` | ts-runtime | Dual-gate matrix incl. fetch-alone rejection |
+| `packages/runtime/README.md:264` | ts-runtime | Remote-schema docs — no phantom built-in fetch |
+| `packages/runtime/src/fs.ts:51` | ts-runtime | `walkDir` visited-realpath + start-root confinement (R3); `readJsonFile` try/catch |
+| `packages/runtime/tests/fs.test.ts:110` | ts-runtime | Cycle / escape / in-root symlink tests |
+| `packages/runtime/src/process-executor.ts:183,363` | ts-runtime | `envMode` merge default; `resolveChildEnv` (R5) |
+| `packages/runtime/tests/process-executor.test.ts:290` | ts-runtime | `runStreaming` merge + replace sentinel tests |
+| `packages/dual-workflow-engine/src/persistence.ts:177,244,355,20` | dual-workflow | `applyRedactor`/`defaultActionRedactor`; both `reseedRun` via `commitTransition` (R4/R6) |
+| `packages/dual-workflow-engine/src/action-step.ts:88` | dual-workflow | Pass `action.kind` + `options.redactor ?? default` to `saveActionFinalize` |
+| `packages/dual-workflow-engine/src/types.ts:185,299` | dual-workflow | `WorkflowRunOptions.redactor`; `saveActionFinalize` kind param |
+| `packages/dual-workflow-engine/tests/persistence.test.ts:110,191,265` | dual-workflow | Redaction + atomic-reseed regressions |
+| `packages/infra/src/scheduler/node.ts:15,75` | ts-infra | `parseInterval` throws `RangeError`; `register` validates (R7) |
+| `packages/infra/tests/scheduler/node.test.ts:95` | ts-infra | Unsupported-cron throws; supported cadences schedule |
+| `packages/infra/README.md:316` | ts-infra | Cron support matrix documented |
+| `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:160,177,214,232,251` | importer | Removed `_ensuredTables`; `recordInsertOp`/`ledgerInsertOp`/`checkpointUpsertOp`/`ledgerExistingHashes` (R8/R9) |
+| `packages/llm-jsonl-importer/src/importer.ts:133` | importer | Chunked ledger lookup (≤200) + per-line `db.batch` incl. checkpoint |
+| `packages/llm-jsonl-importer/tests/jsonl-importer-dao.test.ts:107,146` | importer | Per-adapter custom table test |
+| `packages/llm-jsonl-importer/tests/importer.test.ts:84,104` | importer | Batch-path test; mid-batch recovery test |
+| `packages/db/src/inbox-message-dao.ts:121` | ts-db | `drainPending(toId, { limit = 100 })` paged claim (R10) |
+| `packages/db/tests/inbox-message-dao.test.ts:57` | ts-db | 150-row paging + limit validation |
+| `packages/ai-runner/src/message-store.ts:28` | ts-ai-runner | `drainPending` options param |
+| `packages/ai-runner/src/team-orchestrator.ts:158` | ts-ai-runner | Drain loop until short page |
+| `packages/db/src/index.ts:2` | ts-db | Dropped `D1Adapter` value export (R11) |
+| `packages/db/tests/index.test.ts:9` | ts-db | Barrel no longer exports D1Adapter; no static `adapters/d1` import |
+| `docs/00_ADR.md:69` | docs | ADR-005 addendum — barrel must not statically export adapter classes |
+| `packages/rule-engine/src/config/extensions.ts:19,70,110` | rule-engine | `ExtensionRef` = authored `path` + `baseDir`; no smash (R12) |
+| `packages/rule-engine/tests/config/extensions.test.ts` | rule-engine | Authored-path assertions |
+| `packages/dual-workflow-engine/src/extensions.ts:30,90` | dual-workflow | Same ref-shape change; no smash |
+| `packages/dual-workflow-engine/tests/extensions.test.ts:435` | dual-workflow | Traversal moved into authored `path` |
+| `packages/llm-jsonl-importer/src/redaction.ts:18` | importer | `xai-` / `AKIA` / `Bearer` patterns (R13) |
+| `packages/ai-runner/src/agents/auth-shims.ts:137` | ts-ai-runner | Credential-shape Gemini auth (R14) |
+| `packages/rule-engine/src/evaluators/file-discovery.ts:59,105` | rule-engine | `MAX_SCANNED_FILE_BYTES` 2 MiB skip (R15) |
+| `CHANGELOG.md` | docs | Unreleased: F1/F2/F5/F7 Fixed, F3/F4 Security, C1/C2 Breaking |
 
-**Deferrals:** none yet. MAY items R16/R17 decided at the end of the run.
+**Deferrals (MAY — follow-up tasks to be spawned, WBS not yet assigned; 0061 is a separate meta task)**
+
+- **R16** (importer ETL DDL owner): static `HISTORY_IMPORT_SCHEMA_SQL` still owns the built-in `history_etl_*` CREATEs; moving all `history_etl_*` DDL to `ensureTargetTables`/`ETL_TABLE_DDL` is a DDL-ownership refactor with its own review surface. Follow-up: *importer ETL DDL single-owner (R16)*.
+- **R17** (async `getGitContext` default): making `getGitContext` async and defaulting to `ProcessExecutor` over `new BunSyncProcessExecutor()` is a breaking API change with in-tree + external caller updates. Follow-up: *getGitContext async ProcessExecutor default (R17, ADR-023 A2)*.
+
+**No new dependencies; no ADR superseded (ADR-005 addendum only).**
 ### Testing
-Not yet run. The implementing agent replaces this body after `bun run spur-check` / `bun run build`.
-
-Coverage: N/A (task not implemented yet; no new runtime paths landed this write).
+All gates run 2026-08-12 after implementation. `bun run spur-check` exit 0 (1945 tests, 0 fail, both rule presets `--fail-on warning` clean); `bun run build` exit 0 for all 8 packages. No skipped tests; no `biome-ignore` added.
 
 **Per-Requirement Traceability**
 
 | Req | Status | Evidence |
 | --- | --- | --- |
-| R1 | UNMET | pending |
-| R2 | UNMET | pending |
-| R3 | UNMET | pending |
-| R4 | UNMET | pending |
-| R5 | UNMET | pending |
-| R6 | UNMET | pending |
-| R7 | UNMET | pending |
-| R8 | UNMET | pending |
-| R9 | UNMET | pending |
-| R10 | UNMET | pending |
-| R11 | UNMET | pending |
-| R12 | UNMET | pending |
-| R13 | UNMET | pending |
-| R14 | UNMET | pending |
-| R15 | UNMET | pending |
-| R16 | UNMET | pending (MAY) |
-| R17 | UNMET | pending (MAY) |
-| R18 | UNMET | `bun run spur-check` / `bun run build` not yet run |
+| R1 | MET | `bun test packages/utils/tests/object.test.ts` — `deFlattenKeys does not pollute Object.prototype via __proto__ / constructor segments` |
+| R2 | MET | `bun test packages/runtime/tests/schema-validation.test.ts` — dual-gate matrix (none / allowRemote-only / fetch-only all throw; both succeed) |
+| R3 | MET | `bun test packages/runtime/tests/fs.test.ts` — cycle, escape, in-root symlink tests |
+| R4 | MET | `bun test packages/dual-workflow-engine/tests/persistence.test.ts` — redacts shell stdout/stderr; custom redactor invoked |
+| R5 | MET | `bun test packages/runtime/tests/process-executor.test.ts` — runStreaming merge + envMode replace sentinel tests |
+| R6 | MET | `bun test packages/dual-workflow-engine/tests/persistence.test.ts` — reseed preserves `effectiveVars.__hitlAnswer`, single `db.batch` (spied) |
+| R7 | MET | `bun test packages/infra/tests/scheduler/node.test.ts` — `0 3 * * *` throws RangeError; `* * * * *` / `*/5 * * * *` / `60000` schedule |
+| R8 | MET | `bun test packages/llm-jsonl-importer/tests/jsonl-importer-dao.test.ts` — custom table created per adapter across two DBs |
+| R9 | MET | `bun test packages/llm-jsonl-importer/tests/importer.test.ts` — record+ledger+checkpoint through `db.batch` (no `run()` insert seam); mid-batch failure recovery |
+| R10 | MET | `bun test packages/db/tests/inbox-message-dao.test.ts` — 150 rows drain 100 + 50; limit validation; orchestrator loop drains fully (ai-runner suite) |
+| R11 | MET | `bun test packages/db/tests/index.test.ts` — barrel has no D1Adapter; no static `adapters/d1` import; factory path unchanged |
+| R12 | MET | `bun test packages/rule-engine/tests/config/extensions.test.ts packages/dual-workflow-engine/tests/extensions.test.ts` — authored `./exts/...` preserved; `..` in path rejected; realPath confinement tests still pass |
+| R13 | MET | `bun test packages/llm-jsonl-importer/tests/redaction.test.ts` — xai-/AKIA/Bearer replaced; sk-/assignment/email still match |
+| R14 | MET | `bun test packages/ai-runner/tests/agents/auth-shims.test.ts` — empty apiKey / UI banner / bare token → unauthenticated; apiKey / tokens.access_token → authenticated |
+| R15 | MET | `bun test packages/rule-engine/tests/evaluators/file-discovery.test.ts` — >2 MiB file skipped, small file unchanged |
+| R16 | DEFERRED | N/A — follow-up *importer ETL DDL single-owner (R16)* (WBS to assign) |
+| R17 | DEFERRED | N/A — follow-up *getGitContext async ProcessExecutor default (R17)* (WBS to assign) |
+| R18 | MET | `bun run spur-check` exit 0; `bun run build` exit 0; CHANGELOG + ADR-005 addendum for public-contract changes |
 
 **Acceptance Criteria Verification**
 
-| AC | Status | Evidence Type | Evidence |
-| --- | --- | --- | --- |
-| R1 — deFlattenKeys does not pollute Object.prototype | UNMET | test | pending |
-| R2 — remote schema fetch is dual-gated | UNMET | test | pending |
-| R3 — walkDir is cycle-safe and root-confined | UNMET | test | pending |
-| R4 — shell action results are redacted before persist | UNMET | test | pending |
-| R5 — run and runStreaming share env merge | UNMET | test | pending |
-| R6 — reseed is atomic and preserves effectiveVars | UNMET | test | pending |
-| R7 — unsupported cron does not schedule | UNMET | test | pending |
-| R8 — importer table cache is per adapter | UNMET | test | pending |
-| R9 — import lookups and writes are batched | UNMET | test | pending |
-| R10 — inbox drain is paged | UNMET | test | pending |
-| R11 — ts-db main barrel does not load D1Adapter | UNMET | test | pending |
-| R12 — engines pass authored relative paths to the shared loader | UNMET | test | pending |
-| R16 — importer ETL tables are created via one DDL owner | UNMET | n/a | pending MAY |
-| R17 — getGitContext no longer defaults to BunSyncProcessExecutor | UNMET | n/a | pending MAY |
-| R18 — process and quality gates | UNMET | command | pending |
+| AC | Status | Evidence |
+| --- | --- | --- |
+| R1 — no Object.prototype pollution | MET | regression test in `packages/utils/tests/object.test.ts` |
+| R2 — remote fetch dual-gated | MET | flipped fetch-alone test + matrix in `schema-validation.test.ts` |
+| R3 — walkDir cycle-safe & confined | MET | 3 new fs tests |
+| R4 — shell results redacted | MET | `result_json` contains `[redacted]`, not `sk-abc`; custom redactor spy |
+| R5 — run/runStreaming env merge | MET | merge + replace sentinel tests via `sh -c` |
+| R6 — atomic reseed keeps vars | MET | batch spy + `effectiveVars.__hitlAnswer` survives |
+| R7 — unsupported cron throws | MET | RangeError at register; supported cadences intact |
+| R8 — per-adapter table ensure | MET | two-adapter custom-table test |
+| R9 — chunked lookup + batch write | MET | batch-call spy; ≤200 IN chunks; mid-batch crash test |
+| R10 — paged drain | MET | 100/50 paging + orchestrator drain loop |
+| R11 — no D1Adapter in barrel | MET | `'D1Adapter' in db === false` + source static-import guard |
+| R12 — authored paths to shared loader | MET | ref.path/baseDir assertions end-to-end |
+| R16 | DEFERRED | follow-up named, WBS to assign |
+| R17 | DEFERRED | follow-up named, WBS to assign |
+| R18 — gates | MET | spur-check + build exit 0 |
 
-**Commands the implementer must paste (exit 0):**
+**Commands (all exit 0):**
 
-- `bun test packages/utils/tests/object.test.ts`
-- `bun test packages/runtime/tests/schema-validation.test.ts packages/runtime/tests/fs.test.ts packages/runtime/tests/process-executor.test.ts`
-- `bun test packages/dual-workflow-engine/tests/`
-- `bun test packages/infra/tests/scheduler-node.test.ts`
-- `bun test packages/llm-jsonl-importer/tests/`
-- `bun test packages/db/tests/inbox-message-dao.test.ts packages/ai-runner/tests/team-orchestrator.test.ts`
-- `bun run spur-check`
-- `bun run build`
+```bash
+bun test packages/utils/tests/object.test.ts
+bun test packages/runtime/tests/schema-validation.test.ts packages/runtime/tests/fs.test.ts packages/runtime/tests/process-executor.test.ts
+bun test packages/dual-workflow-engine/tests/
+bun test packages/infra/tests/scheduler/node.test.ts
+bun test packages/llm-jsonl-importer/tests/
+bun test packages/db/tests/inbox-message-dao.test.ts packages/ai-runner/tests/team-orchestrator.test.ts
+bun run spur-check
+bun run build
+```
 ### Review
-Source review: `/sp-dev-review packages --focus all` (2026-08-12). Path mode. `--fix` was a deprecated no-op. Verdict: PARTIAL (0 blockers, 12 majors).
+Source review: `/sp-dev-review packages --focus all` (2026-08-12). Path mode. Verdict: PARTIAL (0 blockers, 12 majors). All rows dispositioned below — implementer verdict as of 2026-08-12 post-implementation.
 
 | Priority | Finding | File:Line | Disposition |
 | --- | --- | --- | --- |
 | P1 | No blocker-severity finding in this review | `docs/00_ADR.md:1` | N/A — none raised |
-| P2 | F1 `deFlattenKeys` prototype-pollutes on `__proto__.*` | `packages/utils/src/object.ts:52` | OPEN — R1 |
-| P2 | F2 documented `allowRemote` SSRF gate is never read | `packages/runtime/src/schema-validation.ts:345` | OPEN — R2 |
-| P2 | F3 `walkDir` follows symlink cycles / can escape start root | `packages/runtime/src/fs.ts:51` | OPEN — R3 |
-| P2 | F4 `ActionRedactor` unused; shell stdout persisted raw | `packages/dual-workflow-engine/src/persistence.ts:177` | OPEN — R4 |
-| P2 | F5 `runStreaming` replaces env; `run()` merges | `packages/runtime/src/process-executor.ts:363` | OPEN — R5 |
-| P2 | F6 `reseedRun` not atomic and wipes `effectiveVars` | `packages/dual-workflow-engine/src/persistence.ts:244` | OPEN — R6 |
-| P2 | F7 unsupported cron still fires every 60s | `packages/infra/src/scheduler/node.ts:37` | OPEN — R7 |
-| P2 | F8 `_ensuredTables` is process-global | `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:160` | OPEN — R8 |
-| P2 | F9 N+1 ledgerExists + non-atomic record/ledger writes | `packages/llm-jsonl-importer/src/importer.ts:133` | OPEN — R9 |
-| P2 | F10 `drainPending` claims the entire inbox | `packages/db/src/inbox-message-dao.ts:121` | OPEN — R10 |
-| P2 | C1 main `ts-db` barrel value-exports `D1Adapter` | `packages/db/src/index.ts:2` | OPEN — R11 |
-| P2 | C2 both engines smash abs paths into the shared loader | `packages/rule-engine/src/config/extensions.ts:110` | OPEN — R12 |
-| P3 | M1 redaction misses `xai-` / `AKIA` / `Bearer` | `packages/llm-jsonl-importer/src/redaction.ts:4` | OPEN — R13 |
-| P3 | M2 Gemini auth is a loose `/auth\|token\|key/i` substring | `packages/ai-runner/src/agents/auth-shims.ts:138` | OPEN — R14 |
-| P3 | M3 `scanFiles` buffers every matching file body | `packages/rule-engine/src/evaluators/file-discovery.ts:97` | OPEN — R15 |
-| P4 | A1 importer table/DDL locality (0030 re-eval) | `packages/llm-jsonl-importer/src/schema-sql.ts:1` | OPEN — R16 MAY |
-| P4 | A2 `BunSyncProcessExecutor` still git default (0030 / ADR-023 A2) | `packages/ai-runner/src/identity.ts:67` | OPEN — R17 MAY |
+| P2 | F1 `deFlattenKeys` prototype-pollutes on `__proto__.*` | `packages/utils/src/object.ts:58` | FIXED — R1 (skip guard + regression) |
+| P2 | F2 documented `allowRemote` SSRF gate is never read | `packages/runtime/src/schema-validation.ts:346` | FIXED — R2 (dual gate + README) |
+| P2 | F3 `walkDir` follows symlink cycles / can escape start root | `packages/runtime/src/fs.ts:51` | FIXED — R3 (visited-realpath + confinement) |
+| P2 | F4 `ActionRedactor` unused; shell stdout persisted raw | `packages/dual-workflow-engine/src/persistence.ts:177` | FIXED — R4 (default + caller redactor) |
+| P2 | F5 `runStreaming` replaces env; `run()` merges | `packages/runtime/src/process-executor.ts:363` | FIXED — R5 (envMode merge default) |
+| P2 | F6 `reseedRun` not atomic and wipes `effectiveVars` | `packages/dual-workflow-engine/src/persistence.ts:252` | FIXED — R6 (commitTransition + var merge) |
+| P2 | F7 unsupported cron still fires every 60s | `packages/infra/src/scheduler/node.ts:37` | FIXED — R7 (RangeError at register) |
+| P2 | F8 `_ensuredTables` is process-global | `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:160` | FIXED — R8 (idempotent per-adapter DDL) |
+| P2 | F9 N+1 ledgerExists + non-atomic record/ledger writes | `packages/llm-jsonl-importer/src/importer.ts:133` | FIXED — R9 (chunked IN + db.batch) |
+| P2 | F10 `drainPending` claims the entire inbox | `packages/db/src/inbox-message-dao.ts:121` | FIXED — R10 (paged default 100) |
+| P2 | C1 main `ts-db` barrel value-exports `D1Adapter` | `packages/db/src/index.ts:2` | FIXED — R11 (ADR-005 addendum + subpath-only) |
+| P2 | C2 both engines smash abs paths into the shared loader | `packages/rule-engine/src/config/extensions.ts:110` | FIXED — R12 (authored path + baseDir) |
+| P3 | M1 redaction misses `xai-` / `AKIA` / `Bearer` | `packages/llm-jsonl-importer/src/redaction.ts:18` | FIXED — R13 |
+| P3 | M2 Gemini auth is a loose `/auth\|token\|key/i` substring | `packages/ai-runner/src/agents/auth-shims.ts:137` | FIXED — R14 (credential-shape) |
+| P3 | M3 `scanFiles` buffers every matching file body | `packages/rule-engine/src/evaluators/file-discovery.ts:59` | FIXED — R15 (2 MiB cap) |
+| P4 | A1 importer table/DDL locality (0030 re-eval) | `packages/llm-jsonl-importer/src/schema-sql.ts:21` | DEFERRED — R16 → follow-up (WBS to assign) |
+| P4 | A2 `BunSyncProcessExecutor` still git default (0030 / ADR-023 A2) | `packages/ai-runner/src/identity.ts:70` | DEFERRED — R17 → follow-up (WBS to assign) |
 
-**Prior 0030:** `Bun.which` in identity.ts is still gone (do not re-file). Sync git default and importer table locality remain → P4 rows. Rule-engine path smash now also exists in workflow → P2 C2.
-
-**Implementer:** change Disposition to FIXED or DEFERRED as you land each row. Do not delete this table.
+**Prior 0030:** `Bun.which` in identity.ts is still gone (not re-filed). Sync git default (R17) and importer table locality (R16) remain as P4 follow-ups (WBS to assign).
 ### References
 - Review source: `/sp-dev-review packages --focus all` (2026-08-12, path mode, `--agent` default inline)
 - Prior related tasks: `0030` (packages review), `0032` (ts-infra SECU; cron warn added), `0041` (ADR-020/021/022), `0042`–`0045` (ADR-023 A1–A4), `0056` (`run()` env merge)
@@ -782,6 +797,7 @@ Source review: `/sp-dev-review packages --focus all` (2026-08-12). Path mode. `-
 ### History
 - 2026-08-12T18:34:08.563Z backlog → todo (system)
 - 2026-08-12T18:39:33.318Z todo → wip (system)
+- 2026-08-12T19:08:30.498Z wip → testing (system)
 ### Notes
 **For the next coding agent — read this first.**
 

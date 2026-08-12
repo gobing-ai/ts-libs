@@ -18,15 +18,20 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Fixed
 
-- None.
+- **`ProcessExecutor.runStreaming` no longer replaces the parent environment:** a partial `env` now merges with the parent (matching `run()`, execa `extendEnv: true` semantics). The old replace behaviour is opt-in via `envMode: 'replace'` on `ProcessOptions` / `PipeProcessOptions` (task 0060 F5).
+- **Unsupported cron expressions now fail loud instead of misfiring every 60s:** `NodeSchedulerAdapter.register`/`parseInterval` throws a `RangeError` for anything other than a positive millisecond number, `* * * * *`, or `*/N * * * *` — a real 5-field expression like `0 3 * * *` can no longer silently run at the wrong cadence (task 0060 F7).
+- **Remote `$schema` fetch is dual-gated:** `readSchema` refuses unless BOTH `allowRemote: true` and an explicit `fetch` are supplied — `allowRemote` alone no longer implies a (nonexistent) built-in fetch, and `fetch` alone is not an opt-in (task 0060 F2).
+- **`deFlattenKeys` no longer pollutes `Object.prototype`:** `__proto__` / `constructor` / `prototype` key segments are skipped (task 0060 F1).
 
 ### Security
 
-- No security fixes in this section.
+- **Shell action results are redacted before persistence:** `workflow.run` action rows scrub `stdout`/`stderr` by default via a new `WorkflowRunOptions.redactor` hook (task 0060 F4).
+- **`walkDir` is cycle-safe and root-confined:** directory symlink cycles and symlinks escaping the start root are skipped; in-root directory symlinks are still traversed (task 0060 F3).
 
 ### Breaking Changes
 
-- None.
+- **`@gobing-ai/ts-db` main barrel no longer value-exports `D1Adapter`** — import it from `@gobing-ai/ts-db/d1` or use `createDbAdapter({ driver: 'd1' })` (ADR-005 addendum, task 0060 C1).
+- **Rule-engine and workflow `ExtensionRef` shapes changed** from an absolute `absPath` to the authored relative `path` + declaring `baseDir`; the shared loader now validates the authored path directly (task 0060 C2).
 
 ## [0.4.29] — 2026-08-12
 

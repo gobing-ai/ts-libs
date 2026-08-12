@@ -67,6 +67,17 @@ transitive source closure).
 helpers behind `@gobing-ai/ts-db/schema`, ADR-007); **no package other than `ts-db` may import
 `drizzle-orm`**, enforced by the `db-boundaries` spur rule. `drizzle-zod`/`zod` are optional peers.
 
+### ADR-005 Addendum — Main Barrel Does Not Statically Export Adapter Classes (2026-08-12, task 0060 C1)
+
+**Status:** Accepted
+
+The main barrel `@gobing-ai/ts-db` must not statically value-export adapter implementation classes.
+`D1Adapter` pulls in `drizzle-orm/d1` at import time, so `import { D1Adapter } from '@gobing-ai/ts-db'`
+loaded the Cloudflare D1 dialect in every consumer even when they never touched D1. Adapter classes live
+on their dedicated subpaths only: `D1Adapter` is exported from `@gobing-ai/ts-db/d1`. Consumers use
+`createDbAdapter({ driver: 'd1', binding })` (which dynamic-imports the adapter) or the subpath.
+`InternalDb` stays a type-only / `@internal` re-export.
+
 ---
 
 ## ADR-006: Quality Gates Are Enforced, Not Advisory
