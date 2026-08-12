@@ -28,6 +28,28 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - None.
 
+## [0.4.28] — 2026-08-12
+
+### Added
+
+- None.
+
+### Changed
+
+- **Documentation & Architecture — Monorepo Constitution & Export Surfaces:** integrated project constitution (`docs/99_PROJECT_CONSTITUTION.md`), frontmatter metadata contracts across `docs/00_ADR.md` through `docs/05_FEATURES.md`, package export surfaces index (`docs/design/package-exports.md`), and updated subpath documentation for `@gobing-ai/ts-db/schema` and `@gobing-ai/ts-runtime`.
+
+### Fixed
+
+- **Release toolchain — Test mock isolation & output leaks:** eliminated top-level `mock.module()` pollution in `release-commands.test.ts` by adding injectable parameter seams (`deps`/`options`) on release commands, and added customizable `log` parameter seam to suppress stdout leaks during `bun test`. Encapsulated raw `history_import_checkpoint` SQL deletion under `jsonl-importer-dao.ts`.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- None.
+
 ## [0.4.27] — 2026-08-11
 
 ### Added
