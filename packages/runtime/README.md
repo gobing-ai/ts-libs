@@ -21,7 +21,8 @@ and Cloudflare Workers through a factory pattern that auto-detects the runtime.
 | Context | `RuntimeContext` | service locator | service locator |
 | Path utilities | `SEP`, `basenamePath`, `dirnamePath`, `joinPath`, `resolvePath`, `relativePath`, … | runtime-portable (zero `node:*`) | runtime-portable (zero `node:*`) |
 | Schema validation | `loadStructuredConfig` | JSON-Schema + YAML | JSON-Schema + YAML |
-| Plugin core (`./plugin`) | `CapabilityRegistry`, `loadExtensionModules` | trust-gated module loading | — |
+| Extension core (`./extension`) | `CapabilityRegistry`, `loadExtensionModules` | trust-gated module loading | — |
+| Bun SQLite boundary (`./bun-sqlite`) | `Database` re-export | `bun:sqlite` | unavailable |
 | Tracing | `SpanContext` | `{ traceId, spanId }` | `{ traceId, spanId }` |
 
 ## Architecture
