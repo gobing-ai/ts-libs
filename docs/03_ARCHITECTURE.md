@@ -3,7 +3,7 @@ name: Architecture
 doc: 03_ARCHITECTURE
 owns: HOW — module boundaries, data flow, runtime model, invariants, rationale-in-depth
 authority: derived
-version: 1.0.0
+version: 1.1.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
 updated_at: 2026-08-12
@@ -67,7 +67,7 @@ adapters. Runtime-specific wiring lives behind explicit subpaths:
 | `./job-queue-db`           | DB-backed job queue + consumer (depends on `@gobing-ai/ts-db`)    |
 | `./otel-node`              | `initNodeTelemetry` / `shutdownNodeTelemetry` for OTLP export     |
 | `./scheduler-node`         | `NodeSchedulerAdapter` (interval-based)                           |
-| `./scheduler-cloudflare`   | `CloudflareSchedulerAdapter` (Durable Object alarm)               |
+| `./scheduler-cloudflare`   | `CloudflareSchedulerAdapter` (Workers Cron Trigger)                |
 
 ### Application bootstrap — lifecycle
 

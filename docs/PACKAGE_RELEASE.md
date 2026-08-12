@@ -82,9 +82,11 @@ bun run drop-tags 0.1.5 --remote   # delete local + remote tags for 0.1.5
 
 > Note: deleting a git tag does **not** unpublish from npm — npm versions are immutable. If a version was already published, bump to the next one rather than reusing it.
 
-### Bumping a dependency's major version
+### Bumping the lockstep major version
 
-Internal deps use caret ranges (e.g. `"@gobing-ai/ts-runtime": "^0.1.0"`). A minor/patch bump of a dependency needs **no change** in its dependents. A **major** bump does — widen the range in the dependent's `package.json` (e.g. `^0.1.0` → `^1.0.0`) before releasing.
+Internal deps stay `workspace:*` in source for every release, including majors. `bump-ver` updates all
+package versions together; publishing substitutes each workspace range with `^<new-version>`. Never
+hand-edit internal dependency ranges.
 
 ---
 
@@ -179,5 +181,5 @@ From now on this package releases with the others via `bun run bump-ver <version
 | Publish run fails with tag/version mismatch | The workflow checked out a commit whose manifest version does not match the tag | Recreate the tag on the correct release commit, or use a new version if npm already has the old one |
 | Publish run shows "already published" skip | Normal for a retried run or a version already present on npm | None if npm has the expected version |
 | `npm publish` fails with auth error in CI | Trusted Publisher not configured / field mismatch | Re-check the table in step 3 (workflow filename = `publish.yml`, env blank) |
-| Consumer install conflict after release | Internal dep range too tight | Widen the caret range in the dependent and release it |
+| Consumer install conflict after release | Consumer mixes different lockstep releases | Align all `@gobing-ai/ts-*` packages to the same released version |
 | `bump-ver` aborts "already published on npm" | The target version exists on npm | Use a higher version |
