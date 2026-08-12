@@ -58,4 +58,20 @@ describe('flattenKeys / deFlattenKeys', () => {
     test('deFlattenKeys keeps a non-JSON leaf as its raw string', () => {
         expect(deFlattenKeys({ 'db.url': 'postgres://x' })).toEqual({ db: { url: 'postgres://x' } });
     });
+
+    test('deFlattenKeys does not pollute Object.prototype via `__proto__` / `constructor` segments', () => {
+        // Live-repro 2026-08-12 (task 0060 F1): `current['__proto__']` returns Object.prototype
+        // (isPlainObject true), so the walker kept navigating and the final assign created an
+        // own property on Object.prototype. Hostile segments must be skipped entirely.
+        deFlattenKeys({ '__proto__.polluted': '"pwned"' });
+        expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+        expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false);
+
+        // `constructor` / `prototype` pivots (e.g. obj.constructor.prototype.x) are equally
+        // forbidden even when the leaf is a plain value.
+        const out = deFlattenKeys({ 'constructor.prototype.isAdmin': 'true', safe: '"ok"' });
+        expect(out).toEqual({ safe: 'ok' });
+        expect(({} as { isAdmin?: unknown }).isAdmin).toBeUndefined();
+        expect(Object.hasOwn(Object.prototype, 'isAdmin')).toBe(false);
+    });
 });

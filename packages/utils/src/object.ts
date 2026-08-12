@@ -53,6 +53,12 @@ export function deFlattenKeys(entries: Record<string, string>): Record<string, u
     const result: Record<string, unknown> = {};
     for (const [key, rawValue] of Object.entries(entries)) {
         const parts = key.split('.');
+        // Prototype-pollution guard: navigating `current['__proto__']` resolves to
+        // `Object.prototype` (isPlainObject true), so a later assign would land on the global
+        // prototype; `constructor`/`prototype` segments let hostile input pivot through
+        // `Function.prototype`. Skipping (symmetric with deepMerge) makes deflate of hostile
+        // input a no-op rather than a throw callers must catch.
+        if (parts.some((part) => part === '__proto__' || part === 'constructor' || part === 'prototype')) continue;
         let current = result;
         for (const part of parts.slice(0, -1)) {
             if (!isPlainObject(current[part])) current[part] = {};
