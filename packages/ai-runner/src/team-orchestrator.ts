@@ -156,15 +156,21 @@ export class TeamOrchestrator {
     }
 
     private async flushInbox(process: TeamAgentProcess, failLabel: string): Promise<boolean> {
-        const messages = await this.inbox.drainPending(process.agentId);
+        // Drain in pages (default 100 per drainPending — task 0060 F10) until a short page,
+        // so a backed-up inbox is fully flushed without one giant claim.
         let ok = true;
-        for (const message of messages) {
-            const result = await process.send(formatMessage(message));
-            if (result.ok) await this.inbox.markDelivered(message.id);
-            else {
-                ok = false;
-                await this.inbox.markFailed(message.id, failLabel);
+        for (;;) {
+            const messages = await this.inbox.drainPending(process.agentId);
+            if (messages.length === 0) break;
+            for (const message of messages) {
+                const result = await process.send(formatMessage(message));
+                if (result.ok) await this.inbox.markDelivered(message.id);
+                else {
+                    ok = false;
+                    await this.inbox.markFailed(message.id, failLabel);
+                }
             }
+            if (messages.length < 100) break;
         }
         return ok;
     }

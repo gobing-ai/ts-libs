@@ -141,9 +141,40 @@ describe('isAuthenticated (tri-state)', () => {
 
     test('gemini with a credential-bearing settings.json is authenticated', async () => {
         const runner = makeRunner(() => ({ stdout: 'gemini 1.0.0' }));
-        const fs = new FakeFileSystem().set('/home/.gemini/settings.json', '{"token":"live"}');
+        const fs = new FakeFileSystem().set('/home/.gemini/settings.json', '{"apiKey":"live"}');
         const state = await isAuthenticated('gemini', ctx(runner, { fs, env: { HOME: '/home' } }));
         expect(state).toBe<AuthState>('authenticated');
+    });
+
+    test('gemini with a nested OAuth tokens.access_token is authenticated', async () => {
+        const runner = makeRunner(() => ({ stdout: 'gemini 1.0.0' }));
+        const fs = new FakeFileSystem().set(
+            '/home/.gemini/settings.json',
+            '{"tokens":{"access_token":"live","expires_in":3600}}',
+        );
+        const state = await isAuthenticated('gemini', ctx(runner, { fs, env: { HOME: '/home' } }));
+        expect(state).toBe<AuthState>('authenticated');
+    });
+
+    test('gemini does not treat an empty key or UI banner as authenticated (0060 R14)', async () => {
+        const runner = makeRunner(() => ({ stdout: 'gemini 1.0.0' }));
+        // Empty apiKey and a UI-only flag must NOT match — the old /auth|token|key/i
+        // substring heuristic marked both as authenticated.
+        const emptyKey = new FakeFileSystem().set('/home/.gemini/settings.json', '{"theme":"dark","apiKey":""}');
+        expect(await isAuthenticated('gemini', ctx(runner, { fs: emptyKey, env: { HOME: '/home' } }))).toBe<AuthState>(
+            'unauthenticated',
+        );
+
+        const bannerOnly = new FakeFileSystem().set('/home/.gemini/settings.json', '{"ui":{"showAuthBanner":true}}');
+        expect(
+            await isAuthenticated('gemini', ctx(runner, { fs: bannerOnly, env: { HOME: '/home' } })),
+        ).toBe<AuthState>('unauthenticated');
+
+        // A non-credential bare token key is not a Gemini credential shape either.
+        const bareToken = new FakeFileSystem().set('/home/.gemini/settings.json', '{"token":"live"}');
+        expect(await isAuthenticated('gemini', ctx(runner, { fs: bareToken, env: { HOME: '/home' } }))).toBe<AuthState>(
+            'unauthenticated',
+        );
     });
 
     test('gemini with prefs-only settings.json is unauthenticated', async () => {

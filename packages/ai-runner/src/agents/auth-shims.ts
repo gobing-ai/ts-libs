@@ -136,13 +136,32 @@ async function checkGrokAuth(
 }
 
 async function geminiSettingsContainCredentials(fs: FileSystem, home: string): Promise<AuthState> {
+    let content: string;
     try {
-        const content = await fs.readFile(joinPath(home, '.gemini', 'settings.json'));
-        return /auth|token|key/i.test(content) ? 'authenticated' : 'unauthenticated';
+        content = await fs.readFile(joinPath(home, '.gemini', 'settings.json'));
     } catch {
         // Missing or unreadable settings — auth state genuinely unknown.
         return 'unknown';
     }
+    // Credential-shaped fields only (task 0060 R14): a loose /auth|token|key/i substring
+    // match would mark a UI banner flag ({"ui":{"showAuthBanner":true}}) or an empty
+    // apiKey as authenticated.
+    let settings: unknown;
+    try {
+        settings = JSON.parse(content);
+    } catch {
+        return 'unauthenticated'; // Not JSON — no usable credentials.
+    }
+    if (typeof settings !== 'object' || settings === null) return 'unauthenticated';
+    const record = settings as Record<string, unknown>;
+    if (typeof record.apiKey === 'string' && record.apiKey.length > 0) return 'authenticated';
+    if (typeof record.accessToken === 'string' && record.accessToken.length > 0) return 'authenticated';
+    const tokens = record.tokens;
+    if (tokens !== null && typeof tokens === 'object') {
+        const accessToken = (tokens as Record<string, unknown>).access_token;
+        if (typeof accessToken === 'string' && accessToken.length > 0) return 'authenticated';
+    }
+    return 'unauthenticated';
 }
 
 async function probeAuthOutput(runner: AiRunner, agent: AgentName, timeout: number): Promise<AuthState> {

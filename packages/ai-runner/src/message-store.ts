@@ -25,7 +25,7 @@ export interface DrainedMessage {
  */
 export interface MessageStore {
     enqueue(fromId: string | null, toId: string, body: string, inReplyTo?: string): Promise<string>;
-    drainPending(toId: string): Promise<DrainedMessage[]>;
+    drainPending(toId: string, options?: { limit?: number }): Promise<DrainedMessage[]>;
     markDelivered(msgId: string): Promise<void>;
     markFailed(msgId: string, error: string): Promise<void>;
 }

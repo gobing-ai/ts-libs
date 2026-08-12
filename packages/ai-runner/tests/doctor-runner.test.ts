@@ -257,7 +257,7 @@ describe('DoctorRunner', () => {
         await fs.writeFile(joinPath(prefsOnlyHome, '.gemini', 'settings.json'), '{"theme":"dark"}');
         const tokenHome = await createTempHome('gemini-token');
         await fs.ensureDir(joinPath(tokenHome, '.gemini'));
-        await fs.writeFile(joinPath(tokenHome, '.gemini', 'settings.json'), '{"token":"live"}');
+        await fs.writeFile(joinPath(tokenHome, '.gemini', 'settings.json'), '{"apiKey":"live"}');
         const executor = new FakeExecutor(() => ({ stdout: 'gemini 1.0.0' }));
         const runner = new AiRunner({ processExecutor: executor });
 
