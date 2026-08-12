@@ -17,10 +17,23 @@ describe('infra events', () => {
         bus.on('db.connected', () => seen.push('db:connected'));
         bus.on('api.request.error', (d) => seen.push(`api:${d.method}:${d.status ?? 0}`));
 
-        await bus.emit('queue.job.failed', { jobId: 'j1', type: 'ORDER', error: 'boom', attempt: 3, maxRetries: 3 });
-        await bus.emit('scheduler.job.executed', { name: 'nightly', durationMs: 42 });
+        await bus.emit('queue.job.failed', {
+            jobId: 'j1',
+            type: 'ORDER',
+            error: 'boom',
+            attempt: 3,
+            maxRetries: 3,
+            severity: 'error',
+        });
+        await bus.emit('scheduler.job.executed', { name: 'nightly', durationMs: 42, severity: 'info' });
         await bus.emit('db.connected');
-        await bus.emit('api.request.error', { url: '/x', method: 'GET', status: 500, error: 'fail' });
+        await bus.emit('api.request.error', {
+            url: '/x',
+            method: 'GET',
+            status: 500,
+            error: 'fail',
+            severity: 'error',
+        });
 
         expect(seen).toEqual(['failed:j1:3', 'sched:nightly:42', 'db:connected', 'api:GET:500']);
     });
@@ -31,14 +44,14 @@ describe('infra events', () => {
         bus.on('queue.stats', (s) => {
             captured = s;
         });
-        await bus.emit('queue.stats', { pending: 2, processing: 1, completed: 10, failed: 0 });
+        await bus.emit('queue.stats', { pending: 2, processing: 1, completed: 10, failed: 0, severity: 'info' });
         expect(captured?.pending).toBe(2);
     });
 
     test('consumer lifecycle events carry config and drain detail (R5)', async () => {
         const bus = new EventBus<InfraEvents>();
-        let started: { pollInterval: unknown } | undefined;
-        let stopped: { drained: unknown } | undefined;
+        let started: { pollInterval: unknown; severity?: string } | undefined;
+        let stopped: { drained: unknown; severity?: string } | undefined;
         bus.on('queue.consumer.started', (d) => {
             started = d;
         });
@@ -52,17 +65,21 @@ describe('infra events', () => {
             batchSize: 10,
             maxConcurrency: 5,
             visibilityTimeout: 30_000,
+            severity: 'info',
         });
         await bus.emit('queue.consumer.stopped', {
             stoppedAt: Date.now(),
             drainTimeoutMs: 30_000,
             inFlightAtStop: 0,
             drained: true,
+            severity: 'info',
         });
 
         expect(started).toBeDefined();
         expect(started?.pollInterval).toBe(1000);
+        expect(started?.severity).toBe('info');
         expect(stopped).toBeDefined();
         expect(stopped?.drained).toBe(true);
+        expect(stopped?.severity).toBe('info');
     });
 });

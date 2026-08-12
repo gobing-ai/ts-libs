@@ -61,7 +61,7 @@ export class DBJobQueue<T = unknown> implements JobQueue<T> {
  * fields only when supplied. Shared by single and batch enqueue so both emit one shape.
  */
 function enqueuedDetail(jobId: string, type: string, options: EnqueueOptions | undefined): QueueJobEnqueuedDetail {
-    const detail: QueueJobEnqueuedDetail = { jobId, type, enqueuedAt: Date.now() };
+    const detail: QueueJobEnqueuedDetail = { jobId, type, enqueuedAt: Date.now(), severity: 'info' };
     if (options && options.maxRetries !== undefined) detail.maxRetries = options.maxRetries;
     if (options && options.delay !== undefined) detail.delayMs = options.delay;
     if (options && options.ttlMs !== undefined) detail.ttlMs = options.ttlMs;
@@ -112,6 +112,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
             batchSize: this.batchSize,
             maxConcurrency: this.maxConcurrency,
             visibilityTimeout: this.visibilityTimeout,
+            severity: 'info',
         });
     }
 
@@ -139,11 +140,13 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
             await sleep(10);
         }
         if (wasRunning) {
+            const drained = this.inFlight === 0;
             const detail: QueueConsumerStoppedDetail = {
                 stoppedAt: Date.now(),
                 drainTimeoutMs: this.drainTimeoutMs,
                 inFlightAtStop: this.inFlight,
-                drained: this.inFlight === 0,
+                drained,
+                severity: drained ? 'info' : 'warning',
             };
             await this.events?.emit('queue.consumer.stopped', detail);
         }
@@ -244,6 +247,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
                     type: job.type,
                     durationMs: Number.isFinite(durationMs) ? durationMs : 0,
                     attempt: job.attempts,
+                    severity: 'info',
                 };
                 await this.events?.emit('queue.job.completed', completed);
             } catch (error) {
@@ -271,6 +275,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
                 attempt: attempts,
                 maxRetries: job.maxRetries,
                 durationMs,
+                severity: 'error',
             };
             await this.events?.emit('queue.job.failed', failed);
             return;
@@ -286,6 +291,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
             maxRetries: job.maxRetries,
             nextRetryAt,
             error: message,
+            severity: 'warning',
         };
         await this.events?.emit('queue.job.retrying', retrying);
     }

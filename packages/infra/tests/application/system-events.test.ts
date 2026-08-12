@@ -25,6 +25,7 @@ describe('System Events — application file observer', () => {
             url: '/x',
             method: 'GET',
             error: 'boom',
+            severity: 'error',
         });
 
         expect(app.config.events.fileObserver).toBe(true);
@@ -47,6 +48,7 @@ describe('System Events — application file observer', () => {
             url: '/y',
             method: 'POST',
             error: 'fail',
+            severity: 'error',
         });
 
         expect(app.config.events.fileObserver).toBe(false);

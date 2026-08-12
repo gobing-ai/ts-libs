@@ -165,6 +165,7 @@ export class RunLifecycle {
                     runId: lifecycle.runId,
                     dryRun: options.dryRun ?? false,
                     externalKey: extKey,
+                    severity: 'info',
                 });
                 return await loop(lifecycle);
             },
@@ -217,6 +218,7 @@ export class RunLifecycle {
             runId: this.runId,
             node: stateOrNodeId,
             transitionsTaken,
+            severity: 'info',
         });
     }
 
@@ -251,6 +253,7 @@ export class RunLifecycle {
             to,
             trigger,
             externalKey: this.externalKey,
+            severity: 'info',
         });
     }
     async recordTransition(from: string, to: string, trigger: string | null): Promise<void> {
@@ -267,6 +270,7 @@ export class RunLifecycle {
             to,
             trigger,
             externalKey: this.externalKey,
+            severity: 'info',
         });
     }
 
@@ -281,6 +285,7 @@ export class RunLifecycle {
             finalState,
             transitionsTaken,
             externalKey: this.externalKey,
+            severity: 'info',
         });
         return this.result('done', finalState, transitionsTaken);
     }
@@ -295,6 +300,7 @@ export class RunLifecycle {
             finalState,
             reason,
             externalKey: this.externalKey,
+            severity: 'error',
         });
         this.logger.warn('workflow run failed', { finalState, transitionsTaken, reason });
         return this.result('failed', finalState, transitionsTaken, reason);
@@ -320,6 +326,7 @@ export class RunLifecycle {
             node: stateOrNodeId,
             transitionsTaken,
             externalKey: this.externalKey,
+            severity: 'warning',
         });
         return this.result('paused', stateOrNodeId, transitionsTaken);
     }
@@ -327,13 +334,23 @@ export class RunLifecycle {
     /** Emit the resumed event (called by WorkflowService after re-creating a lifecycle for resume). */
     emitResumed(node: string): void {
         addSpanEvent('workflow.run.resumed', { runId: this.runId, node });
-        void this.events?.emit('workflow.run.resumed', { runId: this.runId, node, externalKey: this.externalKey });
+        void this.events?.emit('workflow.run.resumed', {
+            runId: this.runId,
+            node,
+            externalKey: this.externalKey,
+            severity: 'info',
+        });
     }
 
     /** Emit action-level observability before a host action is invoked. */
     actionStart(stateOrNodeId: string, kind: string): void {
         addSpanEvent('workflow.action.start', { runId: this.runId, node: stateOrNodeId, kind });
-        void this.events?.emit('workflow.action.start', { runId: this.runId, node: stateOrNodeId, kind });
+        void this.events?.emit('workflow.action.start', {
+            runId: this.runId,
+            node: stateOrNodeId,
+            kind,
+            severity: 'info',
+        });
     }
 
     /** Emit action-level observability after a host action settles. */
@@ -345,6 +362,7 @@ export class RunLifecycle {
             kind,
             durationMs,
             ok,
+            severity: ok ? 'info' : 'error',
         });
     }
 
@@ -361,6 +379,7 @@ export class RunLifecycle {
             node: stateOrNodeId,
             transitionsTaken,
             ...(error === undefined ? {} : { error }),
+            severity: 'warning',
         });
         this.logger.warn('action failed (continuing)', { node: stateOrNodeId, transitionsTaken, error });
     }
@@ -374,17 +393,23 @@ export class RunLifecycle {
             kind,
             passed,
             externalKey: this.externalKey,
+            severity: passed ? 'info' : 'warning',
         });
     }
 
     /** Emit when an interactive HITL prompt is presented. */
     hitlAsk(node: string, kind: string, message: string): void {
-        void this.events?.emit('workflow.hitl.ask', { runId: this.runId, node, kind, message });
+        void this.events?.emit('workflow.hitl.ask', { runId: this.runId, node, kind, message, severity: 'info' });
     }
 
     /** Emit when an interactive HITL prompt resolves. */
     hitlResponse(node: string, ok: boolean): void {
-        void this.events?.emit('workflow.hitl.response', { runId: this.runId, node, ok });
+        void this.events?.emit('workflow.hitl.response', {
+            runId: this.runId,
+            node,
+            ok,
+            severity: ok ? 'info' : 'warning',
+        });
     }
 
     private result(

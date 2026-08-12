@@ -165,7 +165,7 @@ describe('State-machine resume', () => {
 
     test('resume after restart emits externalKey from persisted run', async () => {
         const events = new EventBus<WorkflowEngineEvents>();
-        const resumedEvents: Array<{ runId: string; node: string; externalKey?: string }> = [];
+        const resumedEvents: Array<{ runId: string; node: string; externalKey?: string; severity: string }> = [];
         void events.on('workflow.run.resumed', (data) => resumedEvents.push(data));
 
         const persistence = new MemoryWorkflowPersistenceAdapter();
@@ -179,7 +179,9 @@ describe('State-machine resume', () => {
 
         await new WorkflowService(host, persistence).resumeRun(wf, 'resume-key', { events });
 
-        expect(resumedEvents).toEqual([{ runId: 'resume-key', node: 'review', externalKey: 'entity/resume' }]);
+        expect(resumedEvents).toEqual([
+            { runId: 'resume-key', node: 'review', externalKey: 'entity/resume', severity: 'info' },
+        ]);
     });
 
     test('resume on non-paused run throws WorkflowResumeError', async () => {

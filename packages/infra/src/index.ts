@@ -29,6 +29,7 @@ export type {
     ApiRequestErrorDetail,
     DbConnectionErrorDetail,
     DbEvents,
+    EventSeverity,
     InfraEvents,
     QueueConsumerStartedDetail,
     QueueConsumerStoppedDetail,
@@ -40,6 +41,7 @@ export type {
     QueueJobRetryingDetail,
     SchedulerEvents,
     SchedulerJobExecutedDetail,
+    WithEventSeverity,
 } from './events';
 
 export type {

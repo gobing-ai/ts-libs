@@ -1,3 +1,5 @@
+import type { EventSeverity } from '@gobing-ai/ts-infra';
+
 /** Typed event map for workflow-engine run observability. All events prefixed `workflow.`. */
 export type WorkflowEngineEvents = {
     /** Emitted when a run begins (inside the span). */
@@ -7,6 +9,7 @@ export type WorkflowEngineEvents = {
         runId: string;
         dryRun: boolean;
         externalKey?: string;
+        severity: EventSeverity;
     }) => void;
     /** Emitted when a run completes successfully. */
     'workflow.run.done': (data: {
@@ -14,11 +17,23 @@ export type WorkflowEngineEvents = {
         finalState: string;
         transitionsTaken: number;
         externalKey?: string;
+        severity: EventSeverity;
     }) => void;
     /** Emitted when a run fails. */
-    'workflow.run.failed': (data: { runId: string; finalState: string; reason: string; externalKey?: string }) => void;
+    'workflow.run.failed': (data: {
+        runId: string;
+        finalState: string;
+        reason: string;
+        externalKey?: string;
+        severity: EventSeverity;
+    }) => void;
     /** Emitted when entering a state or node. */
-    'workflow.node.enter': (data: { runId: string; node: string; transitionsTaken: number }) => void;
+    'workflow.node.enter': (data: {
+        runId: string;
+        node: string;
+        transitionsTaken: number;
+        severity: EventSeverity;
+    }) => void;
     /** Emitted on a state/node transition. */
     'workflow.node.transition': (data: {
         runId: string;
@@ -26,9 +41,10 @@ export type WorkflowEngineEvents = {
         to: string;
         trigger: string | null;
         externalKey?: string;
+        severity: EventSeverity;
     }) => void;
     /** Emitted when an action starts executing. */
-    'workflow.action.start': (data: { runId: string; node: string; kind: string }) => void;
+    'workflow.action.start': (data: { runId: string; node: string; kind: string; severity: EventSeverity }) => void;
     /** Emitted when an action finishes executing (success or failure). */
     'workflow.action.done': (data: {
         runId: string;
@@ -36,6 +52,7 @@ export type WorkflowEngineEvents = {
         kind: string;
         durationMs: number;
         ok: boolean;
+        severity: EventSeverity;
     }) => void;
     /** Emitted when a non-fatal action failure is continued past (onError: 'continue'). */
     'workflow.action.failed_continue': (data: {
@@ -43,11 +60,12 @@ export type WorkflowEngineEvents = {
         node: string;
         transitionsTaken: number;
         error?: string;
+        severity: EventSeverity;
     }) => void;
     /** Emitted by the builtin `event.emit` action for custom user-defined events. */
-    'workflow.custom': (data: { name: string; payload: Record<string, unknown> }) => void;
+    'workflow.custom': (data: { name: string; payload: Record<string, unknown>; severity: EventSeverity }) => void;
     /** Emitted by the builtin `note` action for workflow-visible annotations. */
-    'workflow.hitl.note': (data: { runId: string; node: string; message: string }) => void;
+    'workflow.hitl.note': (data: { runId: string; node: string; message: string; severity: EventSeverity }) => void;
     /** Emitted when a guard condition is evaluated. Fires for every guard, including rejected ones. */
     'workflow.guard.evaluated': (data: {
         runId: string;
@@ -56,17 +74,25 @@ export type WorkflowEngineEvents = {
         kind: string;
         passed: boolean;
         externalKey?: string;
+        severity: EventSeverity;
     }) => void;
     /** Emitted when an interactive HITL prompt is presented and the engine waits for input. */
-    'workflow.hitl.ask': (data: { runId: string; node: string; kind: string; message: string }) => void;
+    'workflow.hitl.ask': (data: {
+        runId: string;
+        node: string;
+        kind: string;
+        message: string;
+        severity: EventSeverity;
+    }) => void;
     /** Emitted when an interactive HITL prompt receives a response. */
-    'workflow.hitl.response': (data: { runId: string; node: string; ok: boolean }) => void;
+    'workflow.hitl.response': (data: { runId: string; node: string; ok: boolean; severity: EventSeverity }) => void;
     /** Emitted when a run's state is force-set via reseed (consumer-side authority reconciliation). */
     'workflow.run.reseeded': (data: {
         runId: string;
         fromState: string;
         toState: string;
         externalKey?: string;
+        severity: EventSeverity;
     }) => void;
     /** Emitted when an external transition request is allowed and committed. */
     'workflow.transition.requested': (data: {
@@ -75,6 +101,7 @@ export type WorkflowEngineEvents = {
         to: string;
         trigger: string | null;
         externalKey?: string;
+        severity: EventSeverity;
     }) => void;
     /** Emitted when an external transition request is denied. */
     'workflow.transition.denied': (data: {
@@ -83,6 +110,7 @@ export type WorkflowEngineEvents = {
         to: string;
         reason: string;
         externalKey?: string;
+        severity: EventSeverity;
     }) => void;
     /** Emitted when a run pauses at a declared pause point. */
     'workflow.run.paused': (data: {
@@ -90,7 +118,13 @@ export type WorkflowEngineEvents = {
         node: string;
         transitionsTaken: number;
         externalKey?: string;
+        severity: EventSeverity;
     }) => void;
     /** Emitted when a paused run is resumed. */
-    'workflow.run.resumed': (data: { runId: string; node: string; externalKey?: string }) => void;
+    'workflow.run.resumed': (data: {
+        runId: string;
+        node: string;
+        externalKey?: string;
+        severity: EventSeverity;
+    }) => void;
 };

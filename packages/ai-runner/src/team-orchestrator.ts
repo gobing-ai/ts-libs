@@ -84,6 +84,7 @@ export class TeamOrchestrator {
             agentId: spec.id,
             agentType: spec.type,
             pid: process.getPid(),
+            severity: 'info',
         });
         return process;
     }
@@ -93,7 +94,12 @@ export class TeamOrchestrator {
         if (process === undefined) return;
         await process.stop();
         this.running.delete(id);
-        void this.events.emit('agent.stopped', { agentId: id, exitCode: process.getExitCode() });
+        const exitCode = process.getExitCode();
+        void this.events.emit('agent.stopped', {
+            agentId: id,
+            exitCode,
+            severity: exitCode === 0 || exitCode === null ? 'info' : 'warning',
+        });
     }
 
     async restartAgent(id: string): Promise<TeamAgentProcess> {
@@ -105,7 +111,7 @@ export class TeamOrchestrator {
         const msgId = await this.inbox.enqueue(fromId, toId, body, inReplyTo);
         const process = this.running.get(toId);
         const ok = process !== undefined ? await this.flushInbox(process, 'live stdin injection failed') : false;
-        void this.events.emit('agent.message.sent', { agentId: toId, ok });
+        void this.events.emit('agent.message.sent', { agentId: toId, ok, severity: ok ? 'info' : 'warning' });
         return msgId;
     }
 

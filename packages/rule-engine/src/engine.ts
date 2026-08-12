@@ -141,7 +141,11 @@ export class RuleEngine {
             async () => {
                 this.logger.info('rule run started', { enabled: enabledRules.length, total: rules.length });
                 addSpanEvent('rule.run.start', { rules: enabledRules.length, total: rules.length });
-                void this.events?.emit('rule.run.start', { rules: enabledRules.length, total: rules.length });
+                void this.events?.emit('rule.run.start', {
+                    rules: enabledRules.length,
+                    total: rules.length,
+                    severity: 'info',
+                });
 
                 const findings: ConstraintFinding[] = [];
                 const fixes: Fix[] = [];
@@ -164,7 +168,12 @@ export class RuleEngine {
                     const evalStartMs = Date.now();
                     this.logger.debug('eval start', { ruleId: rule.id, index, total: enabledRules.length });
                     addSpanEvent('rule.eval.start', { ruleId: rule.id, index, total: enabledRules.length });
-                    void this.events?.emit('rule.eval.start', { ruleId: rule.id, index, total: enabledRules.length });
+                    void this.events?.emit('rule.eval.start', {
+                        ruleId: rule.id,
+                        index,
+                        total: enabledRules.length,
+                        severity: 'info',
+                    });
 
                     let ruleFindings: ConstraintFinding[] = [];
                     let ruleEvalFixes: Fix[] = [];
@@ -184,7 +193,11 @@ export class RuleEngine {
                             }),
                         ];
                         addSpanEvent('rule.eval.error', { ruleId: rule.id, error: evalError });
-                        void this.events?.emit('rule.eval.error', { ruleId: rule.id, error: evalError });
+                        void this.events?.emit('rule.eval.error', {
+                            ruleId: rule.id,
+                            error: evalError,
+                            severity: 'error',
+                        });
                     }
 
                     const durationMs = Date.now() - evalStartMs;
@@ -198,6 +211,7 @@ export class RuleEngine {
                         findings: ruleFindings.length,
                         durationMs,
                         details: ruleFindings,
+                        severity: 'info',
                     });
 
                     // Persist eval completion.
@@ -262,6 +276,7 @@ export class RuleEngine {
                     findings: findings.length,
                     durationMs: runDurationMs,
                     stoppedEarly: stoppedEarlyLocal,
+                    severity: 'info',
                 });
 
                 // Finalize the run row.

@@ -4,6 +4,7 @@ export * from './const';
 export * from './cursor';
 export * from './date';
 export * from './errors';
+export * from './event-severity';
 export * from './object';
 export * from './origin';
 export * from './output';

@@ -48,6 +48,7 @@ describe('attachFileObserver', () => {
             asyncCount: 0,
             emitDurationMs: 5,
             errors: 0,
+            severity: 'info',
             detail: { timestamp: 123 },
         });
 
@@ -72,6 +73,7 @@ describe('attachFileObserver', () => {
             asyncCount: 0,
             emitDurationMs: 2,
             errors: 0,
+            severity: 'info',
         });
 
         expect((w.lines('/logs/x.jsonl')[0] as Record<string, unknown>).payload).toBeUndefined();
@@ -104,6 +106,7 @@ describe('attachFileObserver', () => {
             asyncCount: 0,
             emitDurationMs: 1,
             errors: 0,
+            severity: 'info',
         });
 
         await Promise.resolve();
@@ -127,7 +130,7 @@ describe('attachFileObserver', () => {
             },
         });
 
-        void bus.emit('bus.emit.noop', { event: 'ignored' });
+        void bus.emit('bus.emit.noop', { event: 'ignored', severity: 'info' });
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(calls).toEqual(['ensure']);
     });
@@ -141,7 +144,7 @@ describe('attachFileObserver', () => {
             },
         });
 
-        void bus.emit('bus.emit.noop', { event: 'ignored' });
+        void bus.emit('bus.emit.noop', { event: 'ignored', severity: 'info' });
         await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -150,9 +153,19 @@ describe('attachFileObserver', () => {
         const bus = createLifecycleBus();
         attachFileObserver(bus, '/f.jsonl', w);
 
-        void bus.emit('bus.emit.noop', { event: 'no.listeners' });
-        void bus.emit('bus.handler.error', { event: 'queue.job.failed', mode: 'sync', error: 'timeout' });
-        void bus.emit('bus.handler.async.enqueued', { event: 'order.created', jobId: 'job_abc', handlerCount: 2 });
+        void bus.emit('bus.emit.noop', { event: 'no.listeners', severity: 'info' });
+        void bus.emit('bus.handler.error', {
+            event: 'queue.job.failed',
+            mode: 'sync',
+            error: 'timeout',
+            severity: 'error',
+        });
+        void bus.emit('bus.handler.async.enqueued', {
+            event: 'order.created',
+            jobId: 'job_abc',
+            handlerCount: 2,
+            severity: 'info',
+        });
 
         const lines = w.lines('/f.jsonl') as Record<string, unknown>[];
         expect(lines.map((l) => l.lifecycle)).toEqual([
@@ -169,9 +182,23 @@ describe('attachFileObserver', () => {
         const bus = createLifecycleBus();
         attachFileObserver(bus, '/f.jsonl', w);
 
-        void bus.emit('bus.emit.done', { event: 'e1', syncCount: 1, asyncCount: 0, emitDurationMs: 1, errors: 0 });
-        void bus.emit('bus.handler.error', { event: 'e1', mode: 'async', error: 'fail' });
-        void bus.emit('bus.emit.done', { event: 'e2', syncCount: 2, asyncCount: 1, emitDurationMs: 3, errors: 0 });
+        void bus.emit('bus.emit.done', {
+            event: 'e1',
+            syncCount: 1,
+            asyncCount: 0,
+            emitDurationMs: 1,
+            errors: 0,
+            severity: 'info',
+        });
+        void bus.emit('bus.handler.error', { event: 'e1', mode: 'async', error: 'fail', severity: 'error' });
+        void bus.emit('bus.emit.done', {
+            event: 'e2',
+            syncCount: 2,
+            asyncCount: 1,
+            emitDurationMs: 3,
+            errors: 0,
+            severity: 'info',
+        });
 
         const events = (w.lines('/f.jsonl') as Record<string, unknown>[]).map((l) => l.event);
         expect(events).toEqual(['e1', 'e1', 'e2']);
@@ -184,7 +211,14 @@ describe('attachFileObserver', () => {
         attachLogObserver(bus);
         attachTelemetryObserver(bus);
 
-        void bus.emit('bus.emit.done', { event: 'e', syncCount: 1, asyncCount: 0, emitDurationMs: 1, errors: 0 });
+        void bus.emit('bus.emit.done', {
+            event: 'e',
+            syncCount: 1,
+            asyncCount: 0,
+            emitDurationMs: 1,
+            errors: 0,
+            severity: 'info',
+        });
         expect(w.lines('/combined.jsonl')).toHaveLength(1);
     });
 });

@@ -17,11 +17,25 @@ describe('default observers', () => {
         attachTelemetryObserver(bus);
 
         expect(() => {
-            void bus.emit('bus.emit.done', { event: 'e', syncCount: 1, asyncCount: 0, emitDurationMs: 1, errors: 0 });
-            void bus.emit('bus.emit.done', { event: 'e', syncCount: 1, asyncCount: 0, emitDurationMs: 1, errors: 2 });
-            void bus.emit('bus.emit.noop', { event: 'e' });
-            void bus.emit('bus.handler.error', { event: 'e', mode: 'sync', error: 'x' });
-            void bus.emit('bus.handler.async.enqueued', { event: 'e', jobId: 'j', handlerCount: 1 });
+            void bus.emit('bus.emit.done', {
+                event: 'e',
+                syncCount: 1,
+                asyncCount: 0,
+                emitDurationMs: 1,
+                errors: 0,
+                severity: 'info',
+            });
+            void bus.emit('bus.emit.done', {
+                event: 'e',
+                syncCount: 1,
+                asyncCount: 0,
+                emitDurationMs: 1,
+                errors: 2,
+                severity: 'warning',
+            });
+            void bus.emit('bus.emit.noop', { event: 'e', severity: 'info' });
+            void bus.emit('bus.handler.error', { event: 'e', mode: 'sync', error: 'x', severity: 'error' });
+            void bus.emit('bus.handler.async.enqueued', { event: 'e', jobId: 'j', handlerCount: 1, severity: 'info' });
         }).not.toThrow();
     });
 
@@ -29,7 +43,14 @@ describe('default observers', () => {
         const bus = createLifecycleBus();
         expect(() => attachDefaultObservers(bus)).not.toThrow();
         expect(() => {
-            void bus.emit('bus.emit.done', { event: 'e', syncCount: 0, asyncCount: 0, emitDurationMs: 0, errors: 0 });
+            void bus.emit('bus.emit.done', {
+                event: 'e',
+                syncCount: 0,
+                asyncCount: 0,
+                emitDurationMs: 0,
+                errors: 0,
+                severity: 'info',
+            });
         }).not.toThrow();
     });
 

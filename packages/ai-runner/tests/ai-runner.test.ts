@@ -325,6 +325,7 @@ describe('AiRunner correlation environment (task 0056 R1/R4/R6/R7)', () => {
             agent: 'codex',
             operation: 'prompt',
             label: 'ai-runner.codex.prompt',
+            severity: 'info',
         });
     });
 });

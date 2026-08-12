@@ -112,7 +112,8 @@ describe('APIClient', () => {
 
         expect(result).toEqual({ id: 1, name: 'updated' });
         const calls = mockFetch.mock.calls as unknown[][];
-        expect((calls[0]?.[1] as { method: string }).method).toBe('PUT');
+        const init = calls[0]?.[1] as { method: string };
+        expect(init.method).toBe('PUT');
     });
 
     test('patch makes PATCH request', async () => {
@@ -123,7 +124,8 @@ describe('APIClient', () => {
 
         expect(result).toEqual({ id: 1, name: 'patched' });
         const calls = mockFetch.mock.calls as unknown[][];
-        expect((calls[0]?.[1] as { method: string }).method).toBe('PATCH');
+        const init = calls[0]?.[1] as { method: string };
+        expect(init.method).toBe('PATCH');
     });
 
     test('delete makes DELETE request', async () => {
@@ -133,7 +135,8 @@ describe('APIClient', () => {
         await client.delete('/users/1');
 
         const calls = mockFetch.mock.calls as unknown[][];
-        expect((calls[0]?.[1] as { method: string }).method).toBe('DELETE');
+        const init = calls[0]?.[1] as { method: string };
+        expect(init.method).toBe('DELETE');
     });
 
     test('throws APIError on non-2xx response', async () => {
@@ -158,7 +161,7 @@ describe('APIClient', () => {
             text: async () => 'upstream secret: sk-sensitive-value',
         });
 
-        const emitted: Array<{ url: string; method: string; error: string; status?: number }> = [];
+        const emitted: Array<{ url: string; method: string; error: string; status?: number; severity: string }> = [];
         const events = new EventBus<ApiClientEvents>();
         events.on('api.request.error', (detail) => emitted.push(detail));
         const client = createClient({
@@ -175,6 +178,7 @@ describe('APIClient', () => {
                 method: 'GET',
                 error: 'HTTP 500',
                 status: 500,
+                severity: 'error',
             },
         ]);
     });
@@ -220,7 +224,8 @@ describe('APIClient', () => {
         await client.get('/data', { headers: { 'X-Custom': 'value' } });
 
         const calls = mockFetch.mock.calls as unknown[][];
-        const headers = (calls[0]?.[1] as { headers: Record<string, string> }).headers;
+        const init = calls[0]?.[1] as { headers: Record<string, string> };
+        const headers = init.headers;
         expect(headers.Authorization).toBe('Bearer token');
         expect(headers['X-Custom']).toBe('value');
         expect(headers['Content-Type']).toBe('application/json');
@@ -233,7 +238,8 @@ describe('APIClient', () => {
         await client.get('/test');
 
         const calls = mockFetch.mock.calls as unknown[][];
-        expect((calls[0]?.[1] as { body: unknown }).body).toBeUndefined();
+        const init = calls[0]?.[1] as { body: unknown };
+        expect(init.body).toBeUndefined();
     });
 
     test('timeout defaults to 30 seconds', async () => {

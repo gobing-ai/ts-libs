@@ -18,12 +18,15 @@
  * app event map.
  */
 
+import type { EventSeverity, WithEventSeverity } from '@gobing-ai/ts-utils';
 import type { QueueStats } from './job-queue/types';
+
+export type { EventSeverity, WithEventSeverity };
 
 // ── Detail payloads ────────────────────────────────────────────────────────
 
 /** Payload for `db.connection.error`. */
-export interface DbConnectionErrorDetail {
+export interface DbConnectionErrorDetail extends WithEventSeverity {
     /** Error message. */
     error: string;
     /** Adapter type (e.g. 'sqlite', 'd1'). */
@@ -39,7 +42,7 @@ export interface QueueJobRef {
 }
 
 /** Payload for `queue.job.enqueued` — a new job was added to the queue. */
-export interface QueueJobEnqueuedDetail extends QueueJobRef {
+export interface QueueJobEnqueuedDetail extends QueueJobRef, WithEventSeverity {
     /** Epoch ms when the job was enqueued. */
     enqueuedAt: number;
     /** Max retry count from `EnqueueOptions.maxRetries`, when supplied. */
@@ -51,7 +54,7 @@ export interface QueueJobEnqueuedDetail extends QueueJobRef {
 }
 
 /** Payload for `queue.consumer.started` — the polling loop began. */
-export interface QueueConsumerStartedDetail {
+export interface QueueConsumerStartedDetail extends WithEventSeverity {
     /** Epoch ms when the consumer was started. */
     startedAt: number;
     /** Polling interval in ms. */
@@ -65,7 +68,7 @@ export interface QueueConsumerStartedDetail {
 }
 
 /** Payload for `queue.consumer.stopped` — the polling loop was halted. */
-export interface QueueConsumerStoppedDetail {
+export interface QueueConsumerStoppedDetail extends WithEventSeverity {
     /** Epoch ms when `stop()` was called. */
     stoppedAt: number;
     /** Drain deadline in ms applied to in-flight handlers at stop time. */
@@ -77,7 +80,7 @@ export interface QueueConsumerStoppedDetail {
 }
 
 /** Payload for `queue.job.completed` — a job ran to success. */
-export interface QueueJobCompletedDetail extends QueueJobRef {
+export interface QueueJobCompletedDetail extends QueueJobRef, WithEventSeverity {
     /** Handler wall-clock duration in ms. */
     durationMs: number;
     /** Attempts counter on the job row at success (0 on the first successful run). */
@@ -85,7 +88,7 @@ export interface QueueJobCompletedDetail extends QueueJobRef {
 }
 
 /** Payload for `queue.job.failed` — a job exhausted retries. */
-export interface QueueJobFailedDetail extends QueueJobRef {
+export interface QueueJobFailedDetail extends QueueJobRef, WithEventSeverity {
     /** Error message from the final attempt. */
     error: string;
     /** 1-based attempt number of the failure. */
@@ -97,7 +100,7 @@ export interface QueueJobFailedDetail extends QueueJobRef {
 }
 
 /** Payload for `queue.job.retrying` — a job will be retried after backoff. */
-export interface QueueJobRetryingDetail extends QueueJobRef {
+export interface QueueJobRetryingDetail extends QueueJobRef, WithEventSeverity {
     /** 1-based attempt number of the failure that triggers this retry. */
     attempt: number;
     /** Maximum retry count configured for the job. */
@@ -109,7 +112,7 @@ export interface QueueJobRetryingDetail extends QueueJobRef {
 }
 
 /** Payload for `scheduler.job.executed`. */
-export interface SchedulerJobExecutedDetail {
+export interface SchedulerJobExecutedDetail extends WithEventSeverity {
     /** Job name. */
     name: string;
     /** Wall-clock duration in milliseconds. */
@@ -119,7 +122,7 @@ export interface SchedulerJobExecutedDetail {
 }
 
 /** Payload for `api.request.error`. */
-export interface ApiRequestErrorDetail {
+export interface ApiRequestErrorDetail extends WithEventSeverity {
     url: string;
     method: string;
     /** HTTP status code, if a response was received. */
@@ -152,7 +155,7 @@ export type QueueEvents = {
     /** A job will be retried after backoff. */
     'queue.job.retrying': (detail: QueueJobRetryingDetail) => void;
     /** Queue depth snapshot emitted on a poll cycle. */
-    'queue.stats': (detail: QueueStats) => void;
+    'queue.stats': (detail: QueueStats & WithEventSeverity) => void;
 };
 
 /** Scheduler events emitted by scheduler adapters and the handler wrapper. */

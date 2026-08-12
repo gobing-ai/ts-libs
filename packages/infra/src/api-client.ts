@@ -176,6 +176,7 @@ export class APIClient {
             method,
             ...(status !== undefined ? { status } : {}),
             error,
+            severity: 'error',
         });
     }
 

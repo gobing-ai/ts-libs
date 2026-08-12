@@ -264,7 +264,7 @@ describe('createDefaultWorkflowEngineHost', () => {
     });
 
     test('event.emit emits workflow.custom with name and payload via context.events', async () => {
-        const emitted: Array<{ name: string; payload: Record<string, unknown> }> = [];
+        const emitted: Array<{ name: string; payload: Record<string, unknown>; severity: string }> = [];
         const events = new EventBus<WorkflowEngineEvents>();
         events.on('workflow.custom', (data) => emitted.push(data));
 
@@ -284,7 +284,7 @@ describe('createDefaultWorkflowEngineHost', () => {
         expect(result.data).toEqual({ name: 'checkpoint', payload: { task: 'build' } });
         // The event may have been emitted async (void); give microtask queue a tick.
         await new Promise((resolve) => setTimeout(resolve, 10));
-        expect(emitted).toEqual([{ name: 'checkpoint', payload: { task: 'build' } }]);
+        expect(emitted).toEqual([{ name: 'checkpoint', payload: { task: 'build' }, severity: 'info' }]);
     });
 
     test('event.emit returns failure when name is missing', async () => {
@@ -335,7 +335,7 @@ describe('createDefaultWorkflowEngineHost', () => {
     });
 
     test('note emits workflow.hitl.note event while staying a no-op success', async () => {
-        const notes: Array<{ runId: string; node: string; message: string }> = [];
+        const notes: Array<{ runId: string; node: string; message: string; severity: string }> = [];
         const events = new EventBus<WorkflowEngineEvents>();
         events.on('workflow.hitl.note', (data) => notes.push(data));
 
@@ -354,7 +354,7 @@ describe('createDefaultWorkflowEngineHost', () => {
         expect(result.ok).toBe(true);
         expect(result.data).toEqual({ message: 'hello world' });
         await new Promise((resolve) => setTimeout(resolve, 10));
-        expect(notes).toEqual([{ runId: 'r1', node: 'checkpoint-1', message: 'hello world' }]);
+        expect(notes).toEqual([{ runId: 'r1', node: 'checkpoint-1', message: 'hello world', severity: 'info' }]);
     });
 
     test('note still works without EventBus in context (backward-compatible)', async () => {

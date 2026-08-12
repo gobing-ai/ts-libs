@@ -47,7 +47,7 @@ describe('toScheduledAction', () => {
 describe('QueueStatsAction', () => {
     test('queries the DAO and emits queue.stats on the bus', async () => {
         const bus = new EventBus<QueueEvents>();
-        let emitted: { pending: number } | undefined;
+        let emitted: { pending: number; severity: string } | undefined;
         bus.on('queue.stats', (s) => {
             emitted = s;
         });
@@ -56,7 +56,7 @@ describe('QueueStatsAction', () => {
         const action = new QueueStatsAction(async () => ({ getStats: async () => stats }), bus);
         await action.execute();
 
-        expect(emitted).toEqual(stats);
+        expect(emitted).toEqual({ ...stats, severity: 'info' });
     });
 });
 

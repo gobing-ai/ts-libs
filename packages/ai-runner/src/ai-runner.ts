@@ -212,6 +212,7 @@ export class AiRunner {
             operation,
             label,
             ...(options.correlation !== undefined ? { correlation: options.correlation } : {}),
+            severity: 'info',
         });
         const correlationEnv = options.correlation === undefined ? undefined : buildCorrelationEnv(options.correlation);
         const result: ProcessResult = await this.processExecutor.run({
@@ -241,6 +242,7 @@ export class AiRunner {
             ...(result.signal !== undefined ? { signal: result.signal } : {}),
             durationMs: result.durationMs,
             ...(options.correlation !== undefined ? { correlation: options.correlation } : {}),
+            severity: result.exitCode === 0 || result.exitCode === null ? 'info' : 'error',
         });
         return {
             exitCode: result.exitCode,

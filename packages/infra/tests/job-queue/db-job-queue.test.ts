@@ -263,8 +263,10 @@ describe('DBQueueConsumer', () => {
 
         const bus = new EventBus<QueueEvents>();
         let drained: boolean | undefined;
+        let stopSeverity: string | undefined;
         bus.on('queue.consumer.stopped', (d) => {
             drained = d.drained;
+            stopSeverity = d.severity;
         });
 
         let release: () => void = () => {};
@@ -290,6 +292,7 @@ describe('DBQueueConsumer', () => {
 
         expect(elapsed).toBeLessThan(2_000); // bounded by drainTimeoutMs, not by the handler
         expect(drained).toBe(false); // and honestly reported as an incomplete drain
+        expect(stopSeverity).toBe('warning');
 
         release(); // let the stuck cycle finish so it does not outlive the test
         await Bun.sleep(10);
@@ -384,6 +387,7 @@ describe('DBQueueConsumer', () => {
                   batchSize: number;
                   maxConcurrency: number;
                   visibilityTimeout: number;
+                  severity: 'info' | 'warning' | 'error';
               }
             | undefined;
         bus.on('queue.consumer.started', (d) => {
@@ -406,12 +410,19 @@ describe('DBQueueConsumer', () => {
         expect(started?.batchSize).toBe(10);
         expect(started?.maxConcurrency).toBe(5);
         expect(started?.visibilityTimeout).toBe(30_000);
+        expect(started?.severity).toBe('info');
     });
 
     test('R1b — queue.consumer.stopped carries drain outcome', async () => {
         const bus = new EventBus<QueueEvents>();
         let stopped:
-            | { stoppedAt: number; drainTimeoutMs: number; inFlightAtStop: number; drained: boolean }
+            | {
+                  stoppedAt: number;
+                  drainTimeoutMs: number;
+                  inFlightAtStop: number;
+                  drained: boolean;
+                  severity: 'info' | 'warning' | 'error';
+              }
             | undefined;
         bus.on('queue.consumer.stopped', (d) => {
             stopped = d;
@@ -429,6 +440,7 @@ describe('DBQueueConsumer', () => {
         expect(stopped?.drainTimeoutMs).toBe(5_000);
         expect(stopped?.inFlightAtStop).toBe(0);
         expect(stopped?.drained).toBe(true);
+        expect(stopped?.severity).toBe('info');
     });
 
     test('R2 — enqueue enriches detail with correlators and omits payload', async () => {

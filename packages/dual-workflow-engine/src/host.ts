@@ -123,6 +123,7 @@ export class NoteActionRunner implements ActionRunner {
             runId: context.runId,
             node: context.stateOrNodeId,
             message,
+            severity: 'info',
         });
         return { ok: true, data: { message } };
     }
@@ -136,7 +137,7 @@ export class EventEmitActionRunner implements ActionRunner {
         const name = String(options.name ?? '');
         if (!name) return { ok: false, error: 'event.emit requires a non-empty "name" option' };
         const payload = (options.payload as Record<string, unknown>) ?? {};
-        void context?.events?.emit('workflow.custom', { name, payload });
+        void context?.events?.emit('workflow.custom', { name, payload, severity: 'info' });
         return { ok: true, data: { name, payload } };
     }
 }

@@ -107,6 +107,13 @@ export interface ProcessResult {
 /** Reason a process completion event was emitted. */
 export type ProcessExitReason = 'exit' | 'signal' | 'timeout' | 'error';
 
+function processEventSeverity(reason: ProcessExitReason, exitCode: number | null): ProcessEventDetail['severity'] {
+    if (reason === 'error') return 'error';
+    if (reason === 'timeout') return 'warning';
+    if (exitCode !== null && exitCode !== 0) return 'warning';
+    return 'info';
+}
+
 /** Payload emitted for process execution observability. */
 export interface ProcessEventDetail {
     command: string;
@@ -118,6 +125,8 @@ export interface ProcessEventDetail {
     timestamp: string;
     label?: string;
     error?: string;
+    /** Producer-owned observability severity. */
+    severity: 'info' | 'warning' | 'error';
 }
 
 /** Zero-dependency structural event sink for process observability. */
@@ -249,6 +258,7 @@ export class NodeProcessExecutor implements ProcessExecutor {
             durationMs: 0,
             reason: 'exit',
             timestamp: startedIso,
+            severity: 'info',
             ...(options.label !== undefined ? { label: options.label } : {}),
         });
 
@@ -341,6 +351,7 @@ export class NodeProcessExecutor implements ProcessExecutor {
                 durationMs: 0,
                 reason: 'exit',
                 timestamp: startedIso,
+                severity: 'info',
                 ...(options.label !== undefined ? { label: options.label } : {}),
             });
             const subprocess = Bun.spawn({
@@ -372,6 +383,7 @@ export class NodeProcessExecutor implements ProcessExecutor {
                 durationMs: 0,
                 reason: 'error',
                 timestamp: new Date().toISOString(),
+                severity: processEventSeverity('error', null),
                 ...(options.label !== undefined ? { label: options.label } : {}),
                 error: errorMessage(error),
             });
@@ -437,6 +449,7 @@ export class NodeProcessExecutor implements ProcessExecutor {
             durationMs: result.durationMs,
             reason,
             timestamp: new Date().toISOString(),
+            severity: processEventSeverity(reason, result.exitCode),
             ...(options.label !== undefined ? { label: options.label } : {}),
             ...(error !== undefined ? { error: errorMessage(error) } : {}),
         });
@@ -479,6 +492,7 @@ class ObservedPipeProcess implements PipeProcess {
                 durationMs: Date.now() - context.startedAt,
                 reason: this.killedWith !== undefined ? 'signal' : 'exit',
                 timestamp: new Date().toISOString(),
+                severity: processEventSeverity(this.killedWith !== undefined ? 'signal' : 'exit', exitCode),
                 ...(context.label !== undefined ? { label: context.label } : {}),
             });
             return exitCode;

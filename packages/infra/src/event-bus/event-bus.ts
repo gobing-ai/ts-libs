@@ -168,7 +168,15 @@ export class EventBus<TEvents extends EventMap> {
         getEventbusEmitsTotal().add(1, { event: eventName });
         if (errors > 0) getEventbusErrorsTotal().add(errors, { event: eventName });
 
-        this.publishEmitDone({ event: eventName, syncCount, asyncCount, emitDurationMs: durationMs, errors, detail });
+        this.publishEmitDone({
+            event: eventName,
+            syncCount,
+            asyncCount,
+            emitDurationMs: durationMs,
+            errors,
+            detail,
+            severity: errors > 0 ? 'warning' : 'info',
+        });
 
         if (syncCount === 0 && asyncCount === 0) {
             busLogger().debug('emit with zero handlers', { event: eventName });
@@ -279,7 +287,7 @@ export class EventBus<TEvents extends EventMap> {
     private publishEmitNoop(event: string): void {
         if (this.lifecycleBus) {
             try {
-                void this.lifecycleBus.emit('bus.emit.noop', { event });
+                void this.lifecycleBus.emit('bus.emit.noop', { event, severity: 'info' });
             } catch {
                 // Swallow.
             }
@@ -288,7 +296,7 @@ export class EventBus<TEvents extends EventMap> {
 
     private publishHandlerError(event: string, mode: 'sync' | 'async', error: string): void {
         if (this.lifecycleBus) {
-            const detail: HandlerErrorDetail = { event, mode, error };
+            const detail: HandlerErrorDetail = { event, mode, error, severity: 'error' };
             try {
                 void this.lifecycleBus.emit('bus.handler.error', detail);
             } catch {
@@ -299,7 +307,7 @@ export class EventBus<TEvents extends EventMap> {
 
     private publishAsyncEnqueued(event: string, jobId: string, handlerCount: number): void {
         if (this.lifecycleBus) {
-            const detail: AsyncEnqueuedDetail = { event, jobId, handlerCount };
+            const detail: AsyncEnqueuedDetail = { event, jobId, handlerCount, severity: 'info' };
             try {
                 void this.lifecycleBus.emit('bus.handler.async.enqueued', detail);
             } catch {

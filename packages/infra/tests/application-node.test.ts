@@ -111,7 +111,7 @@ bootstrap:
                 start() {},
             });
 
-            await app.events.emit('api.request.error', { url: '/x', method: 'GET', error: 'boom' });
+            await app.events.emit('api.request.error', { url: '/x', method: 'GET', error: 'boom', severity: 'error' });
             expect(app.config.events.fileObserver).toBe(false);
             expect(recorded).toEqual([]);
             await app.stop();

@@ -47,6 +47,7 @@ export function wrapScheduledHandler(
                     name,
                     durationMs,
                     ...(execError !== undefined ? { error: execError } : {}),
+                    severity: execError !== undefined ? 'error' : 'info',
                 });
             }
         });

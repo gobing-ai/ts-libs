@@ -128,7 +128,7 @@ describe('TeamOrchestrator', () => {
         orchestrator.on('agent.started', (event) => startedEvents.push(event));
         const teamProcess = await orchestrator.startAgent('coder');
         expect(teamProcess.getStatus()).toBe('running');
-        expect(startedEvents).toEqual([{ agentId: 'coder', agentType: 'codex', pid: null }]);
+        expect(startedEvents).toEqual([{ agentId: 'coder', agentType: 'codex', pid: null, severity: 'info' }]);
         expect(created[0]?.sent[0]).toContain('queued before start');
         expect(await dao.countPending('coder')).toBe(0);
 
@@ -151,7 +151,7 @@ describe('TeamOrchestrator', () => {
         await orchestrator.stopAgent('missing');
         await orchestrator.stopAll();
         expect(await orchestrator.getAgentStatus('coder')).toBe('stopped');
-        expect(stoppedEvents).toContainEqual({ agentId: 'coder', exitCode: null });
+        expect(stoppedEvents).toContainEqual({ agentId: 'coder', exitCode: null, severity: 'info' });
         expect(busEvents).toContain('started:coder:codex');
         expect(busEvents).toContain('stopped:coder:null');
         expect(busEvents).toContain('message:coder:true');

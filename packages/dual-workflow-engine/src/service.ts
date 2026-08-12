@@ -147,6 +147,7 @@ export class WorkflowService {
             fromState: result.fromState ?? '',
             toState: result.toState,
             externalKey: extKey,
+            severity: 'warning',
         });
     }
 
@@ -176,7 +177,12 @@ export class WorkflowService {
         const extKey = run.external_key ?? undefined;
         await this.persistence.finalizeRun(runId, 'running', '');
         const events = this.resolveEvents(mergedOptions.events);
-        void events?.emit('workflow.run.resumed', { runId, node: currentState, externalKey: extKey });
+        void events?.emit('workflow.run.resumed', {
+            runId,
+            node: currentState,
+            externalKey: extKey,
+            severity: 'info',
+        });
 
         // Resume through the appropriate driver, starting from the paused state (skip on-enter).
         if (workflow.kind === 'transition-flow') {
@@ -305,6 +311,7 @@ export class WorkflowService {
             to: toState,
             trigger,
             externalKey: extKey,
+            severity: 'info',
         });
         return { allowed: true, fromState: currentState, toState };
     }
@@ -328,6 +335,7 @@ export class WorkflowService {
             to,
             reason: denial.reason,
             externalKey,
+            severity: 'error',
         });
         return { allowed: false, ...denial };
     }

@@ -110,7 +110,7 @@ export class QueueStatsAction implements SchedulerAction {
         const dao = await this.daoProvider();
         const stats = await dao.getStats();
         logger.info('Queue stats snapshot', { action: this.name, ...stats });
-        await this.systemBus?.emit('queue.stats', stats);
+        await this.systemBus?.emit('queue.stats', { ...stats, severity: 'info' });
     }
 }
 
