@@ -3,7 +3,7 @@ template: standard
 schema_version: 1
 name: "Fix 2026-08-12 packages SECUA and architecture review findings"
 description: ""
-status: testing
+status: done
 type: task
 profile: standard
 feature_id: null
@@ -13,7 +13,7 @@ tags: []
 dependencies: []
 ac_numbering: task-local
 created_at: "2026-08-12T18:30:12.815Z"
-updated_at: "2026-08-12T19:09:09.354Z"
+updated_at: "2026-08-12T19:10:36.434Z"
 ---
 
 ## 0060. Fix 2026-08-12 packages SECUA and architecture review findings
@@ -798,6 +798,7 @@ Source review: `/sp-dev-review packages --focus all` (2026-08-12). Path mode. Ve
 - 2026-08-12T18:34:08.563Z backlog → todo (system)
 - 2026-08-12T18:39:33.318Z todo → wip (system)
 - 2026-08-12T19:08:30.498Z wip → testing (system)
+- 2026-08-12T19:10:36.434Z testing → done (system)
 ### Notes
 **For the next coding agent — read this first.**
 
