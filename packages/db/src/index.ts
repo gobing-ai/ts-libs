@@ -1,5 +1,4 @@
 export { createDbAdapter, type DbAdapter, type DbAdapterConfig, type DbBatchOp, type InternalDb } from './adapter';
-export { D1Adapter } from './adapters/d1';
 export { BaseDao, type TxHandle } from './base-dao';
 
 export { type EmbeddedMigration, embeddedMigrations } from './embedded-migrations';

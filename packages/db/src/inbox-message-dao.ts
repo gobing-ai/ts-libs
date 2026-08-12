@@ -118,7 +118,13 @@ export class InboxMessageDao extends EntityDao<typeof inboxMessages, typeof inbo
         return id;
     }
 
-    async drainPending(toId: string): Promise<InboxMessage[]> {
+    async drainPending(toId: string, options?: { limit?: number }): Promise<InboxMessage[]> {
+        // A backed-up inbox is claimed in pages of at most `limit` (default 100) so one
+        // recipient's queue cannot be monopolised by a single drain (task 0060 F10).
+        const limit = options?.limit ?? 100;
+        if (!Number.isInteger(limit) || limit <= 0) {
+            throw new RangeError(`drainPending limit must be a positive integer; received ${limit}`);
+        }
         const now = this.now();
         const rows = (await (this.db as UpdateReturningDb)
             .update(inboxMessages)
@@ -134,6 +140,7 @@ export class InboxMessageDao extends EntityDao<typeof inboxMessages, typeof inbo
                     WHERE to_id = ${toId}
                       AND status = 'queued'
                     ORDER BY created_at
+                    LIMIT ${limit}
                 )
                 AND ${inboxMessages.status} = 'queued'`,
             )

@@ -57,6 +57,28 @@ describe('InboxMessageDao', () => {
         expect(await dao.countPending('reviewer')).toBe(1);
     });
 
+    test('drainPending claims a backed-up inbox in pages (0060 F10)', async () => {
+        for (let i = 0; i < 150; i++) {
+            await dao.enqueue('planner', 'coder', `msg-${i}`);
+        }
+
+        const firstPage = await dao.drainPending('coder');
+        expect(firstPage).toHaveLength(100);
+        expect(await dao.countPending('coder')).toBe(50);
+
+        const secondPage = await dao.drainPending('coder');
+        expect(secondPage).toHaveLength(50);
+        expect(await dao.countPending('coder')).toBe(0);
+
+        // Custom limit is honored and validated.
+        const more = await dao.enqueue('a', 'b', 'x');
+        await dao.enqueue('a', 'b', 'y', more);
+        expect(await dao.drainPending('b', { limit: 1 })).toHaveLength(1);
+        expect(await dao.drainPending('b', { limit: 1 })).toHaveLength(1);
+        await expect(dao.drainPending('b', { limit: 0 })).rejects.toThrow(RangeError);
+        await expect(dao.drainPending('b', { limit: -3 })).rejects.toThrow(RangeError);
+    });
+
     test('markDelivered and markFailed update lifecycle columns', async () => {
         const deliveredId = await dao.enqueue('planner', 'coder', 'done?');
         await dao.markDelivered(deliveredId);
