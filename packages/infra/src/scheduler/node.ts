@@ -22,12 +22,17 @@ function parseInterval(cron: string): number {
         if (num > 0) return num;
     } else {
         const parts = trimmed.split(/\s+/);
-        if (parts.length === 5 && parts[0] === '*') {
-            return 60_000; // every minute
+        // Only the documented 5-field forms are every-N-minutes: "* * * * *" and
+        // "*/N * * * *". A first-field wildcard alone ("* 3 * * *") is real cron
+        // and must not silently fire every 60s (task 0060 F7).
+        const restWild =
+            parts.length === 5 && parts[1] === '*' && parts[2] === '*' && parts[3] === '*' && parts[4] === '*';
+        if (restWild && parts[0] === '*') {
+            return 60_000;
         }
 
-        // */N pattern
-        const match = parts[0]?.match(/^\*\/(\d+)$/);
+        const nField = restWild ? parts[0] : parts.length === 1 ? parts[0] : undefined;
+        const match = nField?.match(/^\*\/(\d+)$/);
         if (match && Number(match[1]) > 0) {
             return Number(match[1]) * 60_000;
         }

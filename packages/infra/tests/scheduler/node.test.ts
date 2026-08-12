@@ -94,6 +94,9 @@ describe('NodeSchedulerAdapter', () => {
         // every 60 seconds at the wrong cadence.
         expect(() => s.register('0 3 * * *', async () => {})).toThrow(RangeError);
         expect(() => s.register('0 3 * * *', async () => {})).toThrow(/Unsupported cron/);
+        // First-field wildcard with a constrained later field is still real cron, not "* * * * *".
+        expect(() => s.register('* 3 * * *', async () => {})).toThrow(RangeError);
+        expect(() => s.register('*/5 3 * * *', async () => {})).toThrow(/Unsupported cron/);
         // No timer is created for the rejected entry.
         await expect(s.start()).resolves.toBeUndefined();
     });
