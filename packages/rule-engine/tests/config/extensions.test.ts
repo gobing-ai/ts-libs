@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { collectExtensions, loadExtensionsIntoHost } from '../../src/config/extensions';
 import { loadPreset, loadPresetRules, loadRuleFile } from '../../src/config/loader';
 import { RuleEngineHost } from '../../src/host/rule-engine-host';
@@ -29,8 +30,10 @@ describe('collectExtensions', () => {
             formatters: ['fmt.ts'],
         });
         expect(refs).toHaveLength(3);
-        expect(refs.find((r) => r.kind === 'evaluators')?.absPath).toBe('/presets/eval.ts');
-        expect(refs.find((r) => r.kind === 'resolvers')?.absPath).toBe('/presets/res.ts');
+        expect(refs.find((r) => r.kind === 'evaluators')?.path).toBe('./eval.ts');
+        expect(refs.find((r) => r.kind === 'evaluators')?.baseDir).toBe('/presets');
+        expect(refs.find((r) => r.kind === 'resolvers')?.path).toBe('res.ts');
+        expect(refs.find((r) => r.kind === 'resolvers')?.baseDir).toBe('/presets');
     });
 
     test('returns no refs when extensions is undefined', () => {
@@ -50,7 +53,9 @@ describe('loadExtensionsIntoHost', () => {
 
     test('imports and registers a module-exported capability when allowed', async () => {
         const host = new RuleEngineHost();
-        const refs = [{ kind: 'resolvers' as const, presetName: 'p', absPath: '/extensions/custom-resolver.ts' }];
+        const refs = [
+            { kind: 'resolvers' as const, sourceName: 'p', path: 'custom-resolver.ts', baseDir: '/extensions' },
+        ];
         await loadExtensionsIntoHost(host, refs, {
             allowExtensions: true,
             moduleLoader: async () => ({
@@ -62,7 +67,7 @@ describe('loadExtensionsIntoHost', () => {
     });
 
     test('throws when a module lacks a string name', async () => {
-        const refs = [{ kind: 'resolvers' as const, presetName: 'p', absPath: '/extensions/bad.ts' }];
+        const refs = [{ kind: 'resolvers' as const, sourceName: 'p', path: 'bad.ts', baseDir: '/extensions' }];
         await expect(
             loadExtensionsIntoHost(new RuleEngineHost(), refs, {
                 allowExtensions: true,
@@ -73,7 +78,10 @@ describe('loadExtensionsIntoHost', () => {
 
     test('default module loader imports extension modules', async () => {
         const host = new RuleEngineHost();
-        const refs = [{ kind: 'resolvers' as const, presetName: 'p', absPath: import.meta.url }];
+        const selfPath = fileURLToPath(import.meta.url);
+        const refs = [
+            { kind: 'resolvers' as const, sourceName: 'p', path: basename(selfPath), baseDir: dirname(selfPath) },
+        ];
 
         await loadExtensionsIntoHost(host, refs, { allowExtensions: true });
 
@@ -81,7 +89,7 @@ describe('loadExtensionsIntoHost', () => {
     });
 
     test('loads fixer extensions into host.fixers registry', async () => {
-        const refs = [{ kind: 'fixers' as const, presetName: 'p', absPath: '/extensions/fixer.ts' }];
+        const refs = [{ kind: 'fixers' as const, sourceName: 'p', path: 'fixer.ts', baseDir: '/extensions' }];
         const host = new RuleEngineHost();
         const fakeProvider = {
             name: 'custom-fixer',
@@ -99,7 +107,7 @@ describe('loadExtensionsIntoHost', () => {
 
     test('warns when an extension overrides an existing capability', async () => {
         const warnings: string[] = [];
-        const refs = [{ kind: 'resolvers' as const, presetName: 'p', absPath: '/extensions/resolver.ts' }];
+        const refs = [{ kind: 'resolvers' as const, sourceName: 'p', path: 'resolver.ts', baseDir: '/extensions' }];
         const host = new RuleEngineHost();
         host.resolvers.register(
             'typescript',
@@ -117,7 +125,7 @@ describe('loadExtensionsIntoHost', () => {
     });
 
     test('throws for fixer refs when allowExtensions is false', async () => {
-        const refs = [{ kind: 'fixers' as const, presetName: 'p', absPath: '/extensions/fixer.ts' }];
+        const refs = [{ kind: 'fixers' as const, sourceName: 'p', path: 'fixer.ts', baseDir: '/extensions' }];
         await expect(
             loadExtensionsIntoHost(new RuleEngineHost(), refs, {
                 allowExtensions: false,
@@ -128,7 +136,7 @@ describe('loadExtensionsIntoHost', () => {
 
     test('warns when a fixer extension overrides a builtin', async () => {
         const warnings: string[] = [];
-        const refs = [{ kind: 'fixers' as const, presetName: 'p', absPath: '/extensions/fixer.ts' }];
+        const refs = [{ kind: 'fixers' as const, sourceName: 'p', path: 'fixer.ts', baseDir: '/extensions' }];
         const host = new RuleEngineHost();
         // Simulate a builtin fixer registration (as registerBuiltinFixers does)
         host.fixers.register('regex', { createFixes: async () => [] }, 'builtin');
@@ -187,10 +195,8 @@ describe('loadPreset extensions', () => {
 
         expect(loaded.rules.map((rule) => rule.id)).toEqual(['q']);
         expect(loaded.extensions.map((ref) => ref.kind)).toEqual(['resolvers', 'evaluators']);
-        expect(loaded.extensions.map((ref) => ref.absPath)).toEqual([
-            join(root, 'top-resolver.ts'),
-            join(root, 'nested-evaluator.ts'),
-        ]);
+        // Authored relative paths are preserved end-to-end (task 0060 C2) — no abs smash.
+        expect(loaded.extensions.map((ref) => ref.path)).toEqual(['./top-resolver.ts', './nested-evaluator.ts']);
     });
 
     test('loadPresetRules preserves the existing rules-only API', async () => {
@@ -241,7 +247,8 @@ describe('loadRuleFile extensions', () => {
         // A rule file now behaves like a preset: rules + extensions, identical shape.
         expect(loaded.rules.map((rule) => rule.id)).toEqual(['r']);
         expect(loaded.extensions.map((ref) => ref.kind)).toEqual(['evaluators']);
-        expect(loaded.extensions[0]?.absPath).toBe(join(dir, 'custom-evaluator.ts'));
+        expect(loaded.extensions[0]?.path).toBe('./custom-evaluator.ts');
+        expect(loaded.extensions[0]?.baseDir).toBe(dir);
     });
 
     test('rule-file extensions flow through the same allowExtensions trust gate', async () => {

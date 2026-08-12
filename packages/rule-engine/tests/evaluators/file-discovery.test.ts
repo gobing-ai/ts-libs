@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { relativeParent, scanFiles } from '../../src/evaluators/file-discovery';
@@ -76,5 +76,22 @@ describe('scanFiles', () => {
         const scanned = await scanFiles({ workdir: dir, matchMode: 'glob' });
         const files = scanned.map((s) => s.file).sort();
         expect(files).toEqual(['src/app.ts', 'src/doc.md', 'vendor/lib.js']);
+    });
+
+    test('skips files larger than the documented size cap without buffering them (0060 R15)', async () => {
+        const dir = join(tmpdir(), `ts-libs-scanfiles-cap-${Date.now()}`);
+        await mkdir(dir, { recursive: true });
+        try {
+            await writeFile(join(dir, 'small.ts'), 'export const ok = 1;');
+            // > 2 MiB — must be skipped, not loaded into memory.
+            await writeFile(join(dir, 'huge.ts'), 'x'.repeat(2_000_001));
+
+            const scanned = await scanFiles({ workdir: dir, include: ['.ts'], matchMode: 'loose' });
+            const files = scanned.map((s) => s.file).sort();
+            expect(files).toEqual(['small.ts']);
+            expect(scanned[0]?.content).toBe('export const ok = 1;');
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
     });
 });

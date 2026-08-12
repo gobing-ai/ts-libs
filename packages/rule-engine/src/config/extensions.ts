@@ -1,12 +1,5 @@
 import type { Logger } from '@gobing-ai/ts-infra';
-import {
-    basenamePath,
-    createNodeFileSystem,
-    dirnamePath,
-    fileUrlToPath,
-    normalizeSeparators,
-    resolvePath,
-} from '@gobing-ai/ts-runtime';
+import { createNodeFileSystem } from '@gobing-ai/ts-runtime';
 import type {
     ExtensionRef as SharedExtensionRef,
     LoadExtensionsOptions as SharedLoadExtensionsOptions,
@@ -16,14 +9,22 @@ import type { RuleEngineHost } from '../host/rule-engine-host';
 /** A capability kind a preset extension can contribute. */
 export type ExtensionKind = 'resolvers' | 'evaluators' | 'fixers' | 'formatters';
 
-/** A single extension module reference, resolved to an absolute path. */
+/**
+ * A single extension module reference: the authored relative path plus the
+ * declaring directory (task 0060 C2). Keeping the authored string means the
+ * shared loader's `assertRelativeExtensionPath` sees the real declaration — a
+ * `..` segment or absolute path is rejected there, not after a basename smash
+ * has already stripped it.
+ */
 export interface ExtensionRef {
     /** Capability registry the module registers into. */
     readonly kind: ExtensionKind;
-    /** Absolute path to the module to import. */
-    readonly absPath: string;
+    /** Relative path as authored (e.g. `./exts/foo.ts`). */
+    readonly path: string;
+    /** Absolute directory the authored `path` is resolved against. */
+    readonly baseDir: string;
     /** Name of the preset that declared this extension (for diagnostics). */
-    readonly presetName: string;
+    readonly sourceName: string;
 }
 
 /** Options controlling preset-extension loading. */
@@ -61,9 +62,11 @@ const HOST_REGISTRY_BY_KIND: Record<ExtensionKind, 'resolvers' | 'evaluators' | 
 /**
  * Collect extension refs declared by a preset's or rule file's `extensions` block.
  *
- * Paths are resolved relative to the declaring file's directory. Use the returned
- * refs with {@link loadExtensionsIntoHost}. Rule files and presets are treated
- * identically — both flow through the same trust gate at load time.
+ * Paths are kept **as authored** and paired with the declaring file's directory as
+ * `baseDir` — no eager resolution, so the shared loader's traversal guard sees the
+ * real declaration (task 0060 C2). Use the returned refs with
+ * {@link loadExtensionsIntoHost}. Rule files and presets are treated identically —
+ * both flow through the same trust gate at load time.
  */
 export function collectExtensions(
     sourceName: string,
@@ -74,7 +77,7 @@ export function collectExtensions(
     const refs: ExtensionRef[] = [];
     for (const kind of ['resolvers', 'evaluators', 'fixers', 'formatters'] as ExtensionKind[]) {
         for (const path of extensions[kind] ?? []) {
-            refs.push({ kind, presetName: sourceName, absPath: resolvePath(sourceDir, path) });
+            refs.push({ kind, sourceName, path, baseDir: sourceDir });
         }
     }
     return refs;
@@ -103,37 +106,15 @@ export async function loadExtensionsIntoHost(
 ): Promise<void> {
     if (refs.length === 0) return;
 
-    // Normalize file:// URLs to file paths so dirname/basename produce valid
-    // path components that isAbsolute() accepts (e.g. import.meta.url in tests).
-    const toFilePath = (p: string): string => (p.startsWith('file://') ? fileUrlToPath(p) : p);
-
-    // Defense-in-depth: pre-validate `..` traversal in caller-supplied absPath
-    // before the basename adaptation strips it.  The shared loader's
-    // assertRelativeExtensionPath also runs on the derived (basename) path.
-    for (const ref of refs) {
-        // Split on normalized separators: fileUrlToPath returns forward slashes on
-        // every platform, so a platform SEP split would miss segments on Windows.
-        const segments = normalizeSeparators(toFilePath(ref.absPath)).split('/');
-        if (segments.includes('..')) {
-            throw new Error(
-                `extension path "${ref.absPath}" declared by "${ref.presetName}" must not contain ".." traversal`,
-            );
-        }
-    }
-
-    // Adapt rule-engine ExtensionRef → shared ExtensionRef so the generic loader
-    // governs every import.  The shared loader resolves (baseDir, path) →
-    // absPath internally; we supply dirname/basename so the resolved path
-    // reconstructs the caller's original absPath.
-    const sharedRefs: SharedExtensionRef<ExtensionKind>[] = refs.map((ref) => {
-        const fp = toFilePath(ref.absPath);
-        return {
-            kind: ref.kind,
-            path: `./${basenamePath(fp)}`,
-            baseDir: dirnamePath(fp),
-            sourceName: ref.presetName,
-        };
-    });
+    // Map 1:1 onto the shared ref shape — no dirname/basename smash, so the shared
+    // loader's assertRelativeExtensionPath + realPath confinement govern the authored
+    // path exactly as declared (task 0060 C2).
+    const sharedRefs: SharedExtensionRef<ExtensionKind>[] = refs.map((ref) => ({
+        kind: ref.kind,
+        path: ref.path,
+        baseDir: ref.baseDir,
+        sourceName: ref.sourceName,
+    }));
 
     const moduleLoader = options.moduleLoader ?? defaultModuleLoader;
     // Real import policy gets real confinement by default (ADR-022 addendum): a

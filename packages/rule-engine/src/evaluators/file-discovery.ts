@@ -60,6 +60,13 @@ export interface ScannedFile {
     readonly content: string;
 }
 
+/**
+ * Per-file byte cap for {@link scanFiles} (task 0060 R15). Larger files are skipped
+ * with no content buffer so a single oversized artifact cannot balloon memory while
+ * a rule corpus is assembled; evaluators still see every smaller file unchanged.
+ */
+const MAX_SCANNED_FILE_BYTES = 2_000_000;
+
 /** How `scanFiles` matches `include` / `exclude` against discovered paths. */
 export type ScanMatchMode = 'loose' | 'glob';
 
@@ -102,6 +109,9 @@ export async function scanFiles(options: ScanFilesOptions): Promise<ScannedFile[
             : await discoverFilesByGlob(options.workdir, options.include, options.exclude, fs);
     const scanned: ScannedFile[] = [];
     for (const file of files) {
+        // Skip oversized files instead of buffering them (task 0060 R15).
+        const stat = await fs.stat(resolvePath(options.workdir, file));
+        if (stat !== null && stat.size > MAX_SCANNED_FILE_BYTES) continue;
         scanned.push({ file, content: await readWorkdirFile(options.workdir, file, fs) });
     }
     return scanned;
