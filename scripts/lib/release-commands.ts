@@ -19,6 +19,8 @@ export interface BumpVersionOptions {
     push: boolean;
     findWorkspacePackages?: typeof findWorkspacePackages;
     npmViewVersion?: typeof npmViewVersion;
+    /** Regenerate `bun.lock` after manifest bumps so the committed lockfile matches. */
+    regenerateLockfile?: (spawn: Spawn) => void;
     log?: (message: string) => void;
 }
 
@@ -172,6 +174,14 @@ export async function bumpVersion(
         log(`  ${manifest.name}: ${previous} -> ${version}`);
     }
     log(`\nBumped ${packages.length} manifests to ${version}.`);
+
+    // Regenerate bun.lock so the committed lockfile matches the bumped
+    // manifests. Without this, every release ships a stale lockfile and
+    // `bun install --frozen-lockfile` in CI drifts from package.json
+    // (root cause of the 0.4.29 publish build failure).
+    const refreshLockfile = options.regenerateLockfile ?? defaultRegenerateLockfile;
+    refreshLockfile(spawn);
+    log('Regenerated bun.lock.');
 
     const manifestPaths = packages.map((pkg) => (pkg.dir === '.' ? 'package.json' : `${pkg.dir}/package.json`));
     const optional = ['CHANGELOG.md', 'bun.lock'].filter((path) => Bun.file(`${repoRoot}${path}`).size > 0);
@@ -379,5 +389,13 @@ function mustGit(args: string[], label: string, spawn: Spawn = spawnSync): void 
     const result = git(args, spawn);
     if (!result.ok) {
         throw new Error(`\n${label} failed:\n${result.stderr || result.stdout}`);
+    }
+}
+
+/** Default lockfile regenerator: `bun install --lockfile-only` (no node_modules write). */
+export function defaultRegenerateLockfile(spawn: Spawn = spawnSync): void {
+    const result = runCommand('bun', ['install', '--lockfile-only'], { cwd: repoRoot }, spawn);
+    if (!result.ok) {
+        throw new Error(`\nbun install --lockfile-only failed:\n${result.stderr || result.stdout}`);
     }
 }

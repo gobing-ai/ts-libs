@@ -25,7 +25,13 @@ function fixtureDeps() {
     };
 }
 
-import { bumpVersion, dropTags, ensurePublishWorkflowRun, publishPackages } from '../lib/release-commands';
+import {
+    bumpVersion,
+    defaultRegenerateLockfile,
+    dropTags,
+    ensurePublishWorkflowRun,
+    publishPackages,
+} from '../lib/release-commands';
 
 const VERSION = '0.1.6';
 const AGG_TAG = `${releaseConfig.aggregatePackageName}${releaseConfig.tagVersionSeparator}${VERSION}`;
@@ -289,6 +295,9 @@ function bumpOpts(push = false) {
         push,
         findWorkspacePackages: async () => fixture.packages,
         npmViewVersion: () => npmAlreadyPublished,
+        // The fake spawn has no `bun install` route; the lockfile regenerator
+        // is a real subprocess in production but a no-op under test.
+        regenerateLockfile: () => {},
         log: noopLog,
     };
 }
@@ -392,6 +401,33 @@ describe('bumpVersion', () => {
         const ghCalls = calls.filter((c) => c.startsWith('gh'));
         expect(ghCalls).toHaveLength(1);
         expect(ghCalls[0]).toContain('run list');
+    });
+});
+
+// ── defaultRegenerateLockfile ───────────────────────────────────────────────
+
+describe('defaultRegenerateLockfile', () => {
+    test('runs `bun install --lockfile-only` and is silent on success', () => {
+        const calls: string[] = [];
+        const spawn = ((cmd: string, args: string[]) => {
+            calls.push([cmd, ...args].join(' '));
+            return { status: 0, stdout: '', stderr: '', pid: 1, signal: null, output: [] };
+        }) as Spawn;
+        expect(() => defaultRegenerateLockfile(spawn)).not.toThrow();
+        expect(calls).toEqual([`bun install --lockfile-only`]);
+    });
+
+    test('throws loudly when bun install fails, surfacing stderr', () => {
+        const spawn = (() => ({
+            status: 1,
+            stdout: '',
+            stderr: 'resolution failed',
+            pid: 1,
+            signal: null,
+            output: [],
+        })) as Spawn;
+        expect(() => defaultRegenerateLockfile(spawn)).toThrow('bun install --lockfile-only failed');
+        expect(() => defaultRegenerateLockfile(spawn)).toThrow('resolution failed');
     });
 });
 
