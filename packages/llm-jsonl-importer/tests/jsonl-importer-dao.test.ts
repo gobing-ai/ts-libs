@@ -309,3 +309,21 @@ describe('normalizeSourceFilePaths', () => {
         expect(secondLedger).toEqual(firstLedger);
     });
 });
+
+describe('applyHistoryImportSchema — built-in ETL table materialization (R2)', () => {
+    test('creates every built-in history_etl_* table incl. grok/omp/agy, not only the old static seven', async () => {
+        // Fresh :memory: adapter; beforeEach already applied schema for the shared `db`,
+        // so use an independent adapter to prove applyHistoryImportSchema alone is sufficient.
+        const fresh = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        await applyHistoryImportSchema(fresh);
+
+        for (const table of ['history_etl_pi', 'history_etl_grok', 'history_etl_omp', 'history_etl_agy']) {
+            const rows = await fresh.queryAll<{ c: number }>(`SELECT COUNT(*) AS c FROM ${table}`);
+            expect(rows[0]?.c).toBe(0);
+        }
+
+        // Typed contract tables still come from the static SQL.
+        const typedMsg = await fresh.queryAll<{ c: number }>(`SELECT COUNT(*) AS c FROM history_message`);
+        expect(typedMsg[0]?.c).toBe(0);
+    });
+});

@@ -145,7 +145,8 @@ Downstream consumers should treat `source_file`, `source_line`, and `split_index
 
 Beyond the built-in source keys, `runJsonlImport()` accepts a fully-specified `SourceDefinition`
 for any custom agent history format. Unknown strings throw `HistoryImportError`; custom definitions
-are validated before any I/O (target-table names must match `VALID_TABLE_NAME` = `/^history_etl_[a-z_]+$/`,
+are validated before any I/O (target-table names must match `VALID_TABLE_NAME` = `/^history_[a-z_]+$/`,
+covering `history_etl_*` blob tables and the typed `history_message` / `history_tool_call` tables,
 and required fields must be present).
 
 ```ts

@@ -220,6 +220,26 @@ describe('R6 unknown capture + stable field shape', () => {
         expect(stableFieldShape({ Foo: 1, bar: 2 })).toBe('bar+foo');
     });
 
+    test('agy USER_INPUT imports on a fresh schema without no such table (0061 R3)', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({
+                type: 'USER_INPUT',
+                step_index: 1,
+                created_at: '2026-08-07T00:00:00.000Z',
+                content: 'user said hello',
+            }),
+        ]);
+        const result = await runJsonlImport('agy', { db, files: [file], mode: 'full', now: fixedNow });
+        expect(result.importedRecords).toBe(1);
+        const rows = await db.queryAll<{ role: string; content_text: string }>(
+            'SELECT role, content_text FROM history_message',
+        );
+        expect(rows).toEqual([{ role: 'user', content_text: 'user said hello' }]);
+        // Blob table is materialized by applyHistoryImportSchema even when this row is typed.
+        const etl = await db.queryAll<{ c: number }>('SELECT COUNT(*) AS c FROM history_etl_agy');
+        expect(etl[0]?.c).toBe(0);
+    });
+
     test('grok record with no type discriminator is unknown and counted', async () => {
         const file = await fixtureFile([JSON.stringify({ timestamp: 1784274007, foo: 'bar', baz: 1 })]);
         const result = await runJsonlImport('grok', { db, files: [file], mode: 'full', now: fixedNow });

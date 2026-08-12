@@ -1,4 +1,12 @@
-/** DDL string that creates the history import checkpoint, ledger, and per-source ETL tables. */
+/**
+ * DDL string that creates the history import checkpoint, ledger, and typed contract tables.
+ *
+ * WHY: per-source `history_etl_*` blob tables are no longer hard-coded here. They are created
+ * dynamically by {@link ensureTargetTables} / {@link ETL_TABLE_DDL} looping every entry of
+ * {@link SOURCE_DEFINITIONS}, so adding a new built-in source needs no edit to this file. This
+ * single-owner rule closes the R16 drift where `omp` / `grok` / `agy` existed only via import-time
+ * DDL while the seven other sources were duplicated in the static string.
+ */
 export const HISTORY_IMPORT_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS history_import_checkpoint (
     source TEXT NOT NULL,
@@ -15,69 +23,6 @@ CREATE TABLE IF NOT EXISTS history_import_ledger (
     source_line INTEGER NOT NULL,
     split_index INTEGER NOT NULL,
     target_table TEXT NOT NULL,
-    imported_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS history_etl_pi (
-    record_hash TEXT PRIMARY KEY,
-    source_file TEXT NOT NULL,
-    source_line INTEGER NOT NULL,
-    split_index INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
-    imported_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS history_etl_claude (
-    record_hash TEXT PRIMARY KEY,
-    source_file TEXT NOT NULL,
-    source_line INTEGER NOT NULL,
-    split_index INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
-    imported_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS history_etl_codex (
-    record_hash TEXT PRIMARY KEY,
-    source_file TEXT NOT NULL,
-    source_line INTEGER NOT NULL,
-    split_index INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
-    imported_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS history_etl_gemini (
-    record_hash TEXT PRIMARY KEY,
-    source_file TEXT NOT NULL,
-    source_line INTEGER NOT NULL,
-    split_index INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
-    imported_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS history_etl_opencode (
-    record_hash TEXT PRIMARY KEY,
-    source_file TEXT NOT NULL,
-    source_line INTEGER NOT NULL,
-    split_index INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
-    imported_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS history_etl_antigravity (
-    record_hash TEXT PRIMARY KEY,
-    source_file TEXT NOT NULL,
-    source_line INTEGER NOT NULL,
-    split_index INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
-    imported_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS history_etl_openclaw (
-    record_hash TEXT PRIMARY KEY,
-    source_file TEXT NOT NULL,
-    source_line INTEGER NOT NULL,
-    split_index INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
     imported_at TEXT NOT NULL
 );
 

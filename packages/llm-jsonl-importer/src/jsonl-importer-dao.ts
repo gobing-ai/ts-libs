@@ -1,7 +1,7 @@
 import type { DbAdapter, DbBatchOp } from '@gobing-ai/ts-db';
 import { HistoryImportError } from './errors';
 import { HISTORY_IMPORT_SCHEMA_SQL } from './schema-sql';
-import { VALID_TABLE_NAME } from './sources';
+import { SOURCE_DEFINITIONS, VALID_TABLE_NAME } from './sources';
 import type { ImportOptions, JsonObject, ReconcileSummary, SourceDefinition } from './types';
 
 interface CheckpointRow {
@@ -81,7 +81,15 @@ function ETL_TABLE_DDL(table: string): string {
 );`;
 }
 
-/** Apply importer-owned schema to the target database. */
+/**
+ * Apply importer-owned schema to the target database.
+ *
+ * Creates the checkpoint, ledger, and typed contract tables from the static SQL, then materializes
+ * every built-in `history_etl_*` table by looping {@link SOURCE_DEFINITIONS} through
+ * {@link ensureTargetTables}. This keeps the migration contract "schema applied ⇒ all built-in ETL
+ * tables exist" for callers who apply the schema and then raw-insert without a prior import.
+ * Adding a new built-in source to {@link SOURCE_DEFINITIONS} is now the only edit needed.
+ */
 export async function applyHistoryImportSchema(db: ImportOptions['db']): Promise<void> {
     for (const statement of HISTORY_IMPORT_SCHEMA_SQL.split(';')) {
         const sql = statement.trim();
@@ -89,18 +97,22 @@ export async function applyHistoryImportSchema(db: ImportOptions['db']): Promise
             await db.exec(sql);
         }
     }
+    for (const definition of Object.values(SOURCE_DEFINITIONS)) {
+        await ensureTargetTables(db, definition);
+    }
 }
 
 /**
  * Ensure the ETL table(s) for a source definition exist.
  *
- * WHY: the static {@link HISTORY_IMPORT_SCHEMA_SQL} only creates the built-in
- * `history_etl_*` tables and the typed contract tables. Custom source definitions
- * (and built-in definitions with a `splitConfig.targetTable` override) need their
- * target table(s) created on demand. The table name is already gated by
+ * WHY: the static {@link HISTORY_IMPORT_SCHEMA_SQL} creates only the checkpoint, ledger, and
+ * typed contract tables. Every `history_etl_*` blob table — built-in and custom — is created here
+ * (and by {@link applyHistoryImportSchema} looping {@link SOURCE_DEFINITIONS}). Built-in definitions
+ * with a `splitConfig.targetTable` override also need their target table(s) created on demand. The
+ * table name is already gated by
  * {@link VALID_TABLE_NAME} in {@link validateSourceDefinition} / {@link targetTableFor},
- * so it is safe to interpolate into DDL. `CREATE TABLE IF NOT EXISTS` makes this
- * idempotent for built-in tables that the static schema already created.
+ * so it is safe to interpolate into DDL. `CREATE TABLE IF NOT EXISTS` is
+ * idempotent, so apply-then-import and a second apply are both safe.
  */
 async function ensureTargetTables(db: ImportOptions['db'], definition: SourceDefinition): Promise<void> {
     const tables = new Set<string>([targetTableFor(definition.targetTable)]);
