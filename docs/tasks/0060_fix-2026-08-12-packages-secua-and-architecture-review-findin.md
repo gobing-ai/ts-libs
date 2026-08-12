@@ -13,7 +13,7 @@ tags: []
 dependencies: []
 ac_numbering: task-local
 created_at: "2026-08-12T18:30:12.815Z"
-updated_at: "2026-08-12T19:10:36.434Z"
+updated_at: "2026-08-12T21:21:39.444Z"
 ---
 
 ## 0060. Fix 2026-08-12 packages SECUA and architecture review findings
@@ -682,70 +682,91 @@ Work as one WBS. Commit per package group (conventional `fix:` / `docs:`). Do no
 | `packages/rule-engine/src/evaluators/file-discovery.ts:59,105` | rule-engine | `MAX_SCANNED_FILE_BYTES` 2 MiB skip (R15) |
 | `CHANGELOG.md` | docs | Unreleased: F1/F2/F5/F7 Fixed, F3/F4 Security, C1/C2 Breaking |
 
-**Deferrals (MAY — follow-up tasks to be spawned, WBS not yet assigned; 0061 is a separate meta task)**
+**Deferrals (MAY)** — follow-up is task **0061** (repurposed as the R16/R17 implement-ready leftover; not the vacated session-bottleneck write-up).
 
-- **R16** (importer ETL DDL owner): static `HISTORY_IMPORT_SCHEMA_SQL` still owns the built-in `history_etl_*` CREATEs; moving all `history_etl_*` DDL to `ensureTargetTables`/`ETL_TABLE_DDL` is a DDL-ownership refactor with its own review surface. Follow-up: *importer ETL DDL single-owner (R16)*.
-- **R17** (async `getGitContext` default): making `getGitContext` async and defaulting to `ProcessExecutor` over `new BunSyncProcessExecutor()` is a breaking API change with in-tree + external caller updates. Follow-up: *getGitContext async ProcessExecutor default (R17, ADR-023 A2)*.
+- **R16** (importer ETL DDL owner): static `HISTORY_IMPORT_SCHEMA_SQL` still owns the built-in `history_etl_*` CREATEs. Follow-up: **0061**.
+- **R17** (async `getGitContext` default): `getGitContext` still defaults to `BunSyncProcessExecutor`. Follow-up: **0061**.
 
 **No new dependencies; no ADR superseded (ADR-005 addendum only).**
+
+**Close-out (2026-08-12, post-verify leftovers).** Tightened F7 `parseInterval` so a 5-field expression is every-minute only when fields 2–5 are `*` (`* 3 * * *` and `*/5 3 * * *` now throw). Test: `packages/infra/tests/scheduler/node.test.ts` unsupported-cron case. R16/R17 remain deferred on this WBS and are implemented on **0061**.
 ### Testing
-All gates run 2026-08-12 after implementation. `bun run spur-check` exit 0 (1945 tests, 0 fail, both rule presets `--fail-on warning` clean); `bun run build` exit 0 for all 8 packages. No skipped tests; no `biome-ignore` added.
+Independent re-verify 2026-08-12 (`/sp-dev-verify 0060 --auto --next --force --focus all --fix all`). Status was already `done`; `--force` re-audited. `--fix all` found no UNMET/PARTIAL core items to repair (R16/R17 are MAY deferrals already recorded on 0061). `--next: no-op - task already terminal (done)`.
+
+Working-tree note: uncommitted 0061 WIP implements R16/R17 on importer + `getGitContext`. Those edits are **not** claimed as 0060 delivery. 0060 Solution still names the MAY deferral; AC R16/R17 stay N/A.
+
+Coverage: 99.42% functions / 99.22% lines (`bun run spur-check` this run; 1949 tests, 0 fail).
 
 **Per-Requirement Traceability**
 
 | Req | Status | Evidence |
 | --- | --- | --- |
-| R1 | MET | `bun test packages/utils/tests/object.test.ts` — `deFlattenKeys does not pollute Object.prototype via __proto__ / constructor segments` |
-| R2 | MET | `bun test packages/runtime/tests/schema-validation.test.ts` — dual-gate matrix (none / allowRemote-only / fetch-only all throw; both succeed) |
-| R3 | MET | `bun test packages/runtime/tests/fs.test.ts` — cycle, escape, in-root symlink tests |
-| R4 | MET | `bun test packages/dual-workflow-engine/tests/persistence.test.ts` — redacts shell stdout/stderr; custom redactor invoked |
-| R5 | MET | `bun test packages/runtime/tests/process-executor.test.ts` — runStreaming merge + envMode replace sentinel tests |
-| R6 | MET | `bun test packages/dual-workflow-engine/tests/persistence.test.ts` — reseed preserves `effectiveVars.__hitlAnswer`, single `db.batch` (spied) |
-| R7 | MET | `bun test packages/infra/tests/scheduler/node.test.ts` — `0 3 * * *` throws RangeError; `* * * * *` / `*/5 * * * *` / `60000` schedule |
-| R8 | MET | `bun test packages/llm-jsonl-importer/tests/jsonl-importer-dao.test.ts` — custom table created per adapter across two DBs |
-| R9 | MET | `bun test packages/llm-jsonl-importer/tests/importer.test.ts` — record+ledger+checkpoint through `db.batch` (no `run()` insert seam); mid-batch failure recovery |
-| R10 | MET | `bun test packages/db/tests/inbox-message-dao.test.ts` — 150 rows drain 100 + 50; limit validation; orchestrator loop drains fully (ai-runner suite) |
-| R11 | MET | `bun test packages/db/tests/index.test.ts` — barrel has no D1Adapter; no static `adapters/d1` import; factory path unchanged |
-| R12 | MET | `bun test packages/rule-engine/tests/config/extensions.test.ts packages/dual-workflow-engine/tests/extensions.test.ts` — authored `./exts/...` preserved; `..` in path rejected; realPath confinement tests still pass |
-| R13 | MET | `bun test packages/llm-jsonl-importer/tests/redaction.test.ts` — xai-/AKIA/Bearer replaced; sk-/assignment/email still match |
-| R14 | MET | `bun test packages/ai-runner/tests/agents/auth-shims.test.ts` — empty apiKey / UI banner / bare token → unauthenticated; apiKey / tokens.access_token → authenticated |
-| R15 | MET | `bun test packages/rule-engine/tests/evaluators/file-discovery.test.ts` — >2 MiB file skipped, small file unchanged |
-| R16 | DEFERRED | N/A — follow-up *importer ETL DDL single-owner (R16)* (WBS to assign) |
-| R17 | DEFERRED | N/A — follow-up *getGitContext async ProcessExecutor default (R17)* (WBS to assign) |
-| R18 | MET | `bun run spur-check` exit 0; `bun run build` exit 0; CHANGELOG + ADR-005 addendum for public-contract changes |
+| R1 | MET | `packages/utils/src/object.ts:61` skips `__proto__`/`constructor`/`prototype`; `packages/utils/tests/object.test.ts:62-76` pass this run (8/0) |
+| R2 | MET | `packages/runtime/src/schema-validation.ts:360-363` dual-gates `allowRemote === true` and `fetch`; README `packages/runtime/README.md:264`; `packages/runtime/tests/schema-validation.test.ts:58-85` pass this run |
+| R3 | MET | `packages/runtime/src/fs.ts:64-101` visit-set + start-root confinement, in-root dir symlinks still walked; `packages/runtime/tests/fs.test.ts:114-150` cycle/escape/in-root cases pass this run |
+| R4 | MET | `packages/dual-workflow-engine/src/persistence.ts:30-47,225` applies redactor; `packages/dual-workflow-engine/src/action-step.ts:90-98` passes `defaultActionRedactor`; persistence.test.ts F4 cases pass this run |
+| R5 | MET | `packages/runtime/src/process-executor.ts:58,186-196,394` merge default + `envMode: 'replace'`; `packages/runtime/tests/process-executor.test.ts:300-323` merge/replace cases pass this run |
+| R6 | MET | `packages/dual-workflow-engine/src/persistence.ts:277-287` `commitTransition` + prior `effectiveVars` spread (memory twin `:466-474`); persistence.test.ts F6 pass this run |
+| R7 | MET | `packages/infra/src/scheduler/node.ts:39-41` throws `RangeError`; `packages/infra/tests/scheduler/node.test.ts:91-123` unsupported-cron + supported cadences pass this run |
+| R8 | MET | no `_ensuredTables` in `packages/llm-jsonl-importer/src`; `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:286-289` per-insert `CREATE TABLE IF NOT EXISTS`; jsonl-importer-dao.test.ts F8 pass this run |
+| R9 | MET | `ledgerExistingHashes` chunks of 200 (`packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:261-272`); record+ledger+checkpoint in one `db.batch` (`packages/llm-jsonl-importer/src/importer.ts:141-207`); importer.test.ts F9 cases pass this run |
+| R10 | MET | `packages/db/src/inbox-message-dao.ts:121-143` paged `LIMIT`; `packages/ai-runner/src/message-store.ts:28`; `packages/ai-runner/src/team-orchestrator.ts:158-174` drain loop; inbox-message-dao.test.ts F10 pass this run |
+| R11 | MET | `packages/db/src/index.ts:1-2` has no `D1Adapter` value export; ADR-005 addendum `docs/00_ADR.md:70-79`; `packages/db/tests/index.test.ts` C1 pass this run |
+| R12 | MET | `packages/rule-engine/src/config/extensions.ts:71-83,112-117` authored `path`+`baseDir`; `packages/dual-workflow-engine/src/extensions.ts:86-91` same; extensions tests pass this run |
+| R13 | MET | `packages/llm-jsonl-importer/src/redaction.ts:20-34` xai/AKIA/Bearer; redaction.test.ts R13 pass this run |
+| R14 | MET | `packages/ai-runner/src/agents/auth-shims.ts:146-164` credential-shaped Gemini fields; auth-shims.test.ts R14 cases pass this run |
+| R15 | MET | `packages/rule-engine/src/evaluators/file-discovery.ts:68,112-114` 2 MiB skip; file-discovery.test.ts R15 pass this run |
+| R16 | MET | MAY: deferred in Solution to follow-up **0061** (allowed by R16 text). HEAD `9b0842a` still has static `history_etl_*` CREATE in `packages/llm-jsonl-importer/src/schema-sql.ts:21`. Uncommitted 0061 WIP is not 0060 evidence. |
+| R17 | MET | MAY: deferred in Solution to follow-up **0061** (allowed by R17 text). HEAD `9b0842a` still defaults `getGitContext` to `new BunSyncProcessExecutor()` (`packages/ai-runner/src/identity.ts:68-70`). Uncommitted 0061 WIP is not 0060 evidence. |
+| R18 | MET | `bun run spur-check` exit 0 this run (1949 pass / 0 fail; 48+2 rules); `bun run build` exit 0 this run (8 packages); CHANGELOG Unreleased + `docs/00_ADR.md:70` |
 
 **Acceptance Criteria Verification**
 
-| AC | Status | Evidence |
-| --- | --- | --- |
-| R1 — no Object.prototype pollution | MET | regression test in `packages/utils/tests/object.test.ts` |
-| R2 — remote fetch dual-gated | MET | flipped fetch-alone test + matrix in `schema-validation.test.ts` |
-| R3 — walkDir cycle-safe & confined | MET | 3 new fs tests |
-| R4 — shell results redacted | MET | `result_json` contains `[redacted]`, not `sk-abc`; custom redactor spy |
-| R5 — run/runStreaming env merge | MET | merge + replace sentinel tests via `sh -c` |
-| R6 — atomic reseed keeps vars | MET | batch spy + `effectiveVars.__hitlAnswer` survives |
-| R7 — unsupported cron throws | MET | RangeError at register; supported cadences intact |
-| R8 — per-adapter table ensure | MET | two-adapter custom-table test |
-| R9 — chunked lookup + batch write | MET | batch-call spy; ≤200 IN chunks; mid-batch crash test |
-| R10 — paged drain | MET | 100/50 paging + orchestrator drain loop |
-| R11 — no D1Adapter in barrel | MET | `'D1Adapter' in db === false` + source static-import guard |
-| R12 — authored paths to shared loader | MET | ref.path/baseDir assertions end-to-end |
-| R16 | DEFERRED | follow-up named, WBS to assign |
-| R17 | DEFERRED | follow-up named, WBS to assign |
-| R18 — gates | MET | spur-check + build exit 0 |
+| AC | Status | Evidence Type | Evidence |
+| --- | --- | --- | --- |
+| Scenario: R1 — deFlattenKeys does not pollute Object.prototype | MET | test | `packages/utils/tests/object.test.ts:62-76` 8 pass / 0 fail this run; `packages/utils/src/object.ts:61` |
+| Scenario: R2 — remote schema fetch is dual-gated | MET | test | `packages/runtime/tests/schema-validation.test.ts:58-85` pass this run; `packages/runtime/src/schema-validation.ts:360` |
+| Scenario: R3 — walkDir is cycle-safe and root-confined | MET | test | `packages/runtime/tests/fs.test.ts:114-150` F3 cycle/escape/in-root pass this run; `packages/runtime/src/fs.ts:64-101` |
+| Scenario: R4 — shell action results are redacted before persist | MET | test | `packages/dual-workflow-engine/tests/persistence.test.ts:106-148` F4 pass this run; `packages/dual-workflow-engine/src/persistence.ts:30-38,225` |
+| Scenario: R5 — run and runStreaming share env merge | MET | test | `packages/runtime/tests/process-executor.test.ts:275-323` merge + replace pass this run; `packages/runtime/src/process-executor.ts:186-196` |
+| Scenario: R6 — reseed is atomic and preserves effectiveVars | MET | test | persistence.test.ts F6 pass this run; `packages/dual-workflow-engine/src/persistence.ts:277-287` |
+| Scenario: R7 — unsupported cron does not schedule | MET | test | `packages/infra/tests/scheduler/node.test.ts:91-123` 8 pass this run; `packages/infra/src/scheduler/node.ts:39-41` |
+| Scenario: R8 — importer table cache is per adapter | MET | test | jsonl-importer-dao.test.ts F8 pass this run; no src `_ensuredTables` |
+| Scenario: R9 — import lookups and writes are batched | MET | test | `packages/llm-jsonl-importer/tests/importer.test.ts:99` F9 batch + mid-batch pass this run; `packages/llm-jsonl-importer/src/importer.ts:141-207` |
+| Scenario: R10 — inbox drain is paged | MET | test | `packages/db/tests/inbox-message-dao.test.ts:60-79` F10 pass this run; `packages/db/src/inbox-message-dao.ts:121-143` |
+| Scenario: R11 — ts-db main barrel does not load D1Adapter | MET | test | `packages/db/tests/index.test.ts` C1 pass this run; `packages/db/src/index.ts:1-2` |
+| Scenario: R12 — engines pass authored relative paths to the shared loader | MET | test | rule-engine + dual-workflow extensions tests pass this run; `packages/rule-engine/src/config/extensions.ts:112-117` |
+| Scenario: R13 — default redaction covers xai, AKIA, Bearer JWT | MET | test | redaction.test.ts R13 pass this run; `packages/llm-jsonl-importer/src/redaction.ts:20-34` |
+| Scenario: R14 — Gemini auth is not a loose substring match | MET | test | auth-shims.test.ts R14 cases pass this run; `packages/ai-runner/src/agents/auth-shims.ts:146-164` |
+| Scenario: R15 — scanFiles does not buffer unbounded file bodies | MET | test | file-discovery.test.ts R15 pass this run; `packages/rule-engine/src/evaluators/file-discovery.ts:68,112-114` |
+| Scenario: R16 — importer ETL tables are created via one DDL owner | N/A | n/a | MAY deferred to task 0061 (Solution + AC “when deferred → N/A”). Working-tree 0061 WIP not attributed to 0060. |
+| Scenario: R17 — getGitContext no longer defaults to BunSyncProcessExecutor | N/A | n/a | MAY deferred to task 0061 (Solution + AC “when deferred → N/A”). Working-tree 0061 WIP not attributed to 0060. |
+| Scenario: R18 — process and quality gates | MET | command | `bun run spur-check` exit 0 (1949 pass / 0 fail); `bun run build` exit 0 this run |
 
-**Commands (all exit 0):**
+**Commands this verify (all exit 0):**
 
-```bash
-bun test packages/utils/tests/object.test.ts
-bun test packages/runtime/tests/schema-validation.test.ts packages/runtime/tests/fs.test.ts packages/runtime/tests/process-executor.test.ts
-bun test packages/dual-workflow-engine/tests/
-bun test packages/infra/tests/scheduler/node.test.ts
-bun test packages/llm-jsonl-importer/tests/
-bun test packages/db/tests/inbox-message-dao.test.ts packages/ai-runner/tests/team-orchestrator.test.ts
-bun run spur-check
-bun run build
 ```
+# Targeted (per-package, no root coverage threshold)
+(cd packages/utils && bun test tests/object.test.ts) → 8 pass / 0 fail
+(cd packages/runtime && bun test tests/schema-validation.test.ts tests/fs.test.ts tests/process-executor.test.ts) → 49 pass / 0 fail
+(cd packages/dual-workflow-engine && bun test tests/persistence.test.ts tests/extensions.test.ts) → 70 pass / 0 fail
+(cd packages/infra && bun test tests/scheduler/node.test.ts) → 8 pass / 0 fail
+(cd packages/llm-jsonl-importer && bun test tests/jsonl-importer-dao.test.ts tests/importer.test.ts tests/redaction.test.ts tests/schema-sql.test.ts) → 68 pass / 0 fail
+(cd packages/db && bun test tests/inbox-message-dao.test.ts tests/index.test.ts) → 19 pass / 0 fail
+(cd packages/ai-runner && bun test tests/agents/auth-shims.test.ts tests/team-orchestrator.test.ts tests/identity.test.ts) → 26 pass / 0 fail
+(cd packages/rule-engine && bun test tests/config/extensions.test.ts tests/evaluators/file-discovery.test.ts) → 29 pass / 0 fail
+# 277 targeted pass / 0 fail
+
+bun run spur-check → exit 0, 1949 pass / 0 fail, 48+2 rules pass, 99.42% funcs / 99.22% lines
+bun run build → exit 0 all 8 packages
+spur task check 0060 --strict-core → pass: true
+```
+
+**Design conformance:** MUST design claims (F1–F10, C1–C2, R13–R15, R18) DONE. R16/R17 NOT DONE with Solution deferral to 0061 → CHANGED, PASS-acceptable.
+
+**SECUA (focus all):** no P1–P3. P4 residual: R16/R17 owned by **0061** (implemented). `LIMIT ${limit}` in drainPending is interpolated after positive-integer validation (`packages/db/src/inbox-message-dao.ts:125-127`). F7 leftover closed: 5-field cron must have fields 2–5 `*` (`packages/infra/src/scheduler/node.ts:25-36`); `* 3 * * *` now throws.
+
+**Fix-pass artifacts:** none (no UNMET/PARTIAL core to repair). Verdict written to `.spur/run/0060-verdict.json` and `.spur/run/0060-verify-answer.txt` after this section.
 ### Review
 Source review: `/sp-dev-review packages --focus all` (2026-08-12). Path mode. Verdict: PARTIAL (0 blockers, 12 majors). All rows dispositioned below — implementer verdict as of 2026-08-12 post-implementation.
 
@@ -767,10 +788,10 @@ Source review: `/sp-dev-review packages --focus all` (2026-08-12). Path mode. Ve
 | P3 | M1 redaction misses `xai-` / `AKIA` / `Bearer` | `packages/llm-jsonl-importer/src/redaction.ts:18` | FIXED — R13 |
 | P3 | M2 Gemini auth is a loose `/auth\|token\|key/i` substring | `packages/ai-runner/src/agents/auth-shims.ts:137` | FIXED — R14 (credential-shape) |
 | P3 | M3 `scanFiles` buffers every matching file body | `packages/rule-engine/src/evaluators/file-discovery.ts:59` | FIXED — R15 (2 MiB cap) |
-| P4 | A1 importer table/DDL locality (0030 re-eval) | `packages/llm-jsonl-importer/src/schema-sql.ts:21` | DEFERRED — R16 → follow-up (WBS to assign) |
-| P4 | A2 `BunSyncProcessExecutor` still git default (0030 / ADR-023 A2) | `packages/ai-runner/src/identity.ts:70` | DEFERRED — R17 → follow-up (WBS to assign) |
+| P4 | A1 importer table/DDL locality (0030 re-eval) | `packages/llm-jsonl-importer/src/schema-sql.ts:21` | DEFERRED — R16 → **0061** |
+| P4 | A2 `BunSyncProcessExecutor` still git default (0030 / ADR-023 A2) | `packages/ai-runner/src/identity.ts:70` | DEFERRED — R17 → **0061** |
 
-**Prior 0030:** `Bun.which` in identity.ts is still gone (not re-filed). Sync git default (R17) and importer table locality (R16) remain as P4 follow-ups (WBS to assign).
+**Prior 0030:** `Bun.which` in identity.ts is still gone (not re-filed). Sync git default (R17) and importer table locality (R16) remain as P4 follow-ups on **0061**.
 ### References
 - Review source: `/sp-dev-review packages --focus all` (2026-08-12, path mode, `--agent` default inline)
 - Prior related tasks: `0030` (packages review), `0032` (ts-infra SECU; cron warn added), `0041` (ADR-020/021/022), `0042`–`0045` (ADR-023 A1–A4), `0056` (`run()` env merge)

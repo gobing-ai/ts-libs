@@ -345,6 +345,16 @@ implementation in task 0041): (A1) injectable `RuntimePaths` seam for cwd/home p
 ai-runner-owned `MessageStore` interface that `InboxMessageDao` satisfies structurally, loosening ts-db
 coupling consistent with the ts-db-as-optional-peer direction (task 0040).
 
+**Addendum (2026-08-12, task 0061).** The A2 leftover — `getGitContext` in `@gobing-ai/ts-ai-runner`
+still default-constructing the deprecated `BunSyncProcessExecutor` — is **closed**. `getGitContext` is
+now async (`Promise<string | null>`) and defaults to `nodeBunFactory.createProcessExecutor()`. A
+deprecated `getGitContextSync` keeps the old sync semantics for one release. `BunSyncProcessExecutor`
+remains a published (deprecated) `@gobing-ai/ts-runtime` export for other out-of-repo sync callers; only
+this package stopped default-constructing it. R16 (importer ETL table/DDL locality) also landed in the
+same task: `HISTORY_IMPORT_SCHEMA_SQL` no longer hard-codes any `history_etl_*` CREATE; every built-in
+ETL table is created solely by `ETL_TABLE_DDL` / `ensureTargetTables` looping `SOURCE_DEFINITIONS`, so
+adding a built-in source no longer requires editing the static SQL.
+
 ---
 
 ## ADR-024: SchedulerAdapter.stop() Drains In-Flight Ticks
