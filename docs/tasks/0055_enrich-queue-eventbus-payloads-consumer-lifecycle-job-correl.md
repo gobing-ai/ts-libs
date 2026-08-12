@@ -6,13 +6,13 @@ description: ""
 status: done
 type: task
 profile: standard
-feature_id: B
+feature_id: D1
 parent_wbs: null
 priority: P1
 tags: []
 dependencies: []
 created_at: 2026-07-30T05:14:49.527Z
-updated_at: "2026-07-31T16:32:53.051Z"
+updated_at: "2026-08-12T14:48:09.792Z"
 ---
 
 ## 0055. Enrich queue.* EventBus payloads (consumer lifecycle + job correlators) for System Events observability
@@ -436,7 +436,7 @@ Changing `queue.consumer.started` / `queue.consumer.stopped` from `() => void` t
 `(detail) => void` is a TypeScript minor break for typed subscribers; runtime JS listeners
 that ignore arguments keep working. Recorded in CHANGELOG Breaking Changes.
 ### References
-- Feature **B** — `docs/features/B_restore-system-events-observability-coverage.md`
+- Feature **D1** — `docs/features/D1_restore-system-events-observability-coverage.md`
 - Task **0049** — diagnosis of missing System Events prefixes (done)
 - Task **0050** — lifecycleBus + attachFileObserver wiring (done)
 - Producer code:

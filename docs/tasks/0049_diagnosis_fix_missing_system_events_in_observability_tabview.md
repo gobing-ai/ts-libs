@@ -4,11 +4,11 @@ schema_version: 1
 name: Diagnosis & fix plan for missing System Events in Observability module
 status: done
 type: task
-feature_id: B
+feature_id: D1
 priority: P1
 tags: [observability,system-events,event-bus,infra,ai-runner,rule-engine,dual-workflow-engine,diagnostic]
 created_at: 2026-07-12T17:00:00.000Z
-updated_at: 2026-07-13T05:11:49.310Z
+updated_at: "2026-08-12T14:40:55.498Z"
 ---
 
 ## 0049. Diagnosis & fix plan for missing System Events in Observability module

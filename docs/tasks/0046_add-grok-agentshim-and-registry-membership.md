@@ -4,11 +4,11 @@ schema_version: 1
 name: Add grok AgentShim and registry membership
 status: done
 type: task
-feature_id: A
+feature_id: A1
 priority: P1
 tags: [ai-runner,grok,shim]
 created_at: 2026-07-12T07:32:35.011Z
-updated_at: 2026-07-12T16:17:04.190Z
+updated_at: "2026-08-12T14:40:50.744Z"
 ---
 
 ## 0046. Add grok AgentShim and registry membership

@@ -4,11 +4,11 @@ schema_version: 1
 name: Document grok as a supported coding agent
 status: done
 type: task
-feature_id: A
+feature_id: A1
 priority: P2
 tags: [ai-runner,grok,docs]
 created_at: 2026-07-12T07:32:35.014Z
-updated_at: 2026-07-12T16:18:38.418Z
+updated_at: "2026-08-12T14:40:50.744Z"
 ---
 
 ## 0048. Document grok as a supported coding agent

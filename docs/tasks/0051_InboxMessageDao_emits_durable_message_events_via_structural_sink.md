@@ -4,12 +4,12 @@ schema_version: 1
 name: InboxMessageDao emits durable message.* events via a structural sink (message.* in System Events)
 status: done
 type: task
-feature_id: B
+feature_id: D1
 priority: P2
 tags: [observability,message,ts-db,ai-runner,events,structural-sink]
 dependencies: ["0049","0050"]
 created_at: 2026-07-12T17:45:00.000Z
-updated_at: 2026-07-13T05:11:52.013Z
+updated_at: "2026-08-12T14:40:55.498Z"
 ---
 
 ## 0051. InboxMessageDao emits durable message.* events via a structural sink

@@ -6,13 +6,13 @@ description: ""
 status: done
 type: task
 profile: standard
-feature_id: B
+feature_id: D1
 parent_wbs: null
 priority: P2
 tags: []
 dependencies: []
 created_at: 2026-07-13T03:54:37.571Z
-updated_at: 2026-07-13T16:41:11.518Z
+updated_at: "2026-08-12T14:40:55.498Z"
 ---
 
 ## 0053. Add lifecycle-bus-propagation architecture rule

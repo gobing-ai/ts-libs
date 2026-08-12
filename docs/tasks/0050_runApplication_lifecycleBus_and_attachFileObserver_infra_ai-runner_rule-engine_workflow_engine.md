@@ -4,12 +4,12 @@ schema_version: 1
 name: Wire lifecycleBus + attachFileObserver across ts-infra application bootstrap, ai-runner, rule-engine, dual-workflow-engine (fixes agent.* / api.* / bus.* / rule.* / workflow.* / process.* in System Events)
 status: done
 type: task
-feature_id: B
+feature_id: D1
 priority: P1
 tags: [observability,system-events,event-bus,infra,ai-runner,rule-engine,dual-workflow-engine,lifecycle-bus,file-observer]
 dependencies: ["0049"]
 created_at: 2026-07-12T17:30:00.000Z
-updated_at: 2026-07-13T05:11:50.592Z
+updated_at: "2026-08-12T14:40:55.498Z"
 ---
 
 ## 0050. Wire lifecycleBus + attachFileObserver in runApplication and propagate across all consumer-facing EventBus constructors

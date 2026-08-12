@@ -4,11 +4,11 @@ schema_version: 1
 name: Grok auth probe and detector/doctor coverage
 status: done
 type: task
-feature_id: A
+feature_id: A1
 priority: P1
 tags: [ai-runner,grok,auth,doctor]
 created_at: 2026-07-12T07:32:35.014Z
-updated_at: 2026-07-12T16:18:01.244Z
+updated_at: "2026-08-12T14:40:50.744Z"
 ---
 
 ## 0047. Grok auth probe and detector/doctor coverage

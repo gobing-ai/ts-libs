@@ -6,13 +6,13 @@ description: ""
 status: cancelled
 type: task
 profile: standard
-feature_id: A
+feature_id: D1
 parent_wbs: null
 priority: P2
 tags: [meta]
 dependencies: []
 created_at: 2026-07-12T23:56:02.754Z
-updated_at: 2026-07-13T00:13:18.181Z
+updated_at: "2026-08-12T14:40:55.498Z"
 ---
 
 ## 0052. Record feature.* / task.* event-map ownership deferral (consumer app owns)
