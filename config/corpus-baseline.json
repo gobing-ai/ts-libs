@@ -1,0 +1,558 @@
+{
+    "note": "Accepted legacy corpus findings. This is a two-sided policy baseline: new findings and entries that no longer reproduce both fail the gate. Each entry records historical debt, not compliance.",
+    "entries": [
+        {
+            "kind": "task",
+            "id": "0001",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0001",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0002",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0002",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0003",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0003",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0004",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0004",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0006",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0006",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0007",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0007",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0008",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0008",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0009",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0009",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0010",
+            "code": "L2.missing-required-section",
+            "reason": "Terminal task authored under the former status/section matrix. Adding a historical section now would invent evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0010",
+            "code": "L3.requirements-empty",
+            "reason": "Historical task 0010 bypassed the current requirements gate. Preserved as explicit debt rather than inventing requirements after completion.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0010",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0011",
+            "code": "L2.missing-required-section",
+            "reason": "Terminal task authored under the former status/section matrix. Adding a historical section now would invent evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0011",
+            "code": "L3.required-section-placeholder",
+            "reason": "Legacy completion record retains a placeholder required section. Reconstructing it now would fabricate historical evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0012",
+            "code": "L1.schema-validation",
+            "reason": "Legacy pre-schema task metadata lacks schema_version, name, and updated_at. The migration dry-run cannot normalize it without inventing a name.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0013",
+            "code": "L1.schema-validation",
+            "reason": "Legacy pre-schema task metadata lacks schema_version, name, and updated_at. The migration dry-run cannot normalize it without inventing a name.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0014",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0015",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0016",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0016",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0017",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0017",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0018",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0018",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0019",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0019",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0020",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0020",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0021",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0021",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0022",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0023",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0023",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0024",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0025",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0025",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0026",
+            "code": "L2.missing-required-section",
+            "reason": "Terminal task authored under the former status/section matrix. Adding a historical section now would invent evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0026",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0026",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0027",
+            "code": "L3.required-section-placeholder",
+            "reason": "Legacy completion record retains a placeholder required section. Reconstructing it now would fabricate historical evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0027",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0027",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0028",
+            "code": "L3.required-section-placeholder",
+            "reason": "Legacy completion record retains a placeholder required section. Reconstructing it now would fabricate historical evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0028",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0028",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0029",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0029",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0030",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0030",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0031",
+            "code": "L3.required-section-placeholder",
+            "reason": "Legacy completion record retains a placeholder required section. Reconstructing it now would fabricate historical evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0031",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0031",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0032",
+            "code": "L3.required-section-placeholder",
+            "reason": "Legacy completion record retains a placeholder required section. Reconstructing it now would fabricate historical evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0032",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0033",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0033",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0034",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0034",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0035",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0035",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0036",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0036",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0037",
+            "code": "L2.missing-required-section",
+            "reason": "Terminal task authored under the former status/section matrix. Adding a historical section now would invent evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0037",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0038",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0038",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0039",
+            "code": "L3.solution-file-line",
+            "reason": "Legacy solution predates file:line citation enforcement. Adding anchors now would invent historical implementation evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0040",
+            "code": "L2.missing-required-section",
+            "reason": "Terminal task authored under the former status/section matrix. Adding a historical section now would invent evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0041",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0043",
+            "code": "L2.missing-required-section",
+            "reason": "Terminal task authored under the former status/section matrix. Adding a historical section now would invent evidence.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0043",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        },
+        {
+            "kind": "task",
+            "id": "0045",
+            "code": "L3.review-priority-table",
+            "reason": "Legacy review predates the P1-P4 priority-table format. Reformatting it now would fabricate a contemporaneous review.",
+            "since": "2026-08-12"
+        }
+    ]
+}

@@ -2,11 +2,11 @@
 schema_version: 1
 id: "A"
 name: "Add Grok coding agent to ts-ai-runner"
-status: active
+status: done
 priority: P1
 tags: []
 created_at: "2026-07-12T07:10:49.110Z"
-updated_at: "2026-07-12T07:32:39.288Z"
+updated_at: "2026-08-12T13:35:50.525Z"
 ---
 
 # A: Add Grok coding agent to ts-ai-runner
@@ -140,3 +140,5 @@ Default branch: `/plugin-command` (no Claude `:` or Codex `$` dialect observed a
 - `packages/ai-runner/README.md` — supported agents list
 ## History
 - 2026-07-12T07:32:39.288Z backlog → active (system)
+- 2026-08-12T13:35:50.390Z active → verifying (system)
+- 2026-08-12T13:35:50.525Z verifying → done (system)

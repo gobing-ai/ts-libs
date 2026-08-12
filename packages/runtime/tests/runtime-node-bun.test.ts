@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { _resetNodeFileSystem, nodeBunFactory } from '../src/runtime-node-bun';
 
 const PROJECT_ROOT = nodeBunFactory.createFileSystem().getProjectRoot();
 const CONFIG_DIR = join(PROJECT_ROOT, 'config');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.yaml');
+const UNRELATED_CONFIG_FILE = join(CONFIG_DIR, 'runtime-node-bun-unrelated.json');
 const TEMP_CONFIG = join(PROJECT_ROOT, 'temp-test-config.yaml');
 
 _resetNodeFileSystem(); // start clean
@@ -24,7 +25,7 @@ function cleanupConfig(): void {
         /* ok */
     }
     try {
-        rmSync(CONFIG_DIR, { force: true, recursive: true });
+        rmdirSync(CONFIG_DIR);
     } catch {
         /* ok */
     }
@@ -107,6 +108,17 @@ describe('nodeBunFactory', () => {
         beforeEach(() => {
             delete process.env.CONFIG_PATH;
             _resetNodeFileSystem();
+        });
+
+        test('cleanup preserves unrelated config files', () => {
+            try {
+                writeConfig('{}', UNRELATED_CONFIG_FILE);
+                cleanupConfig();
+                expect(existsSync(UNRELATED_CONFIG_FILE)).toBe(true);
+            } finally {
+                rmSync(UNRELATED_CONFIG_FILE, { force: true });
+                cleanupConfig();
+            }
         });
 
         test('returns defaults when no config file exists', async () => {

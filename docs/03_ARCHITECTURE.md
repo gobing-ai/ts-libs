@@ -1,10 +1,33 @@
-## ARCHITECTURE.md
+---
+name: Architecture
+doc: 03_ARCHITECTURE
+owns: HOW — module boundaries, data flow, runtime model, invariants, rationale-in-depth
+authority: derived
+version: 1.0.0
+derived_from: [00_ADR, 01_PRD]
+owner: Robin Min
+updated_at: 2026-08-12
+read_before: cross-package, seam, or schema work
+edit_rules: 99 §6.4
+sync: [T1]
+---
+
+# Architecture
 
 ## ai-runner
 
+`@gobing-ai/ts-ai-runner` owns coding-agent shims, installation and health detection, prompt execution,
+message storage, and team orchestration over `ts-runtime` process abstractions.
+
 ## db
 
+`@gobing-ai/ts-db` is the drizzle-free persistence facade: typed adapters and DAOs on the main export,
+with schema construction and migrations isolated behind explicit subpaths.
+
 ## dual-workflow-engine
+
+`@gobing-ai/ts-dual-workflow-engine` combines state-machine transitions with action-flow execution,
+persistence seams, lifecycle events, and resumable run state.
 
 ## infra
 
@@ -76,7 +99,13 @@ the bootstrap never closes them. `stop()` is idempotent.
 | `loadAll` fail-fast, start/stop/unload fail-soft  | Load is precondition validation (must abort); start/stop is best-effort   |
 ## llm-jsonl-importer
 
+`@gobing-ai/ts-llm-jsonl-importer` provides source-neutral JSONL ingestion, mapping, redaction, hashing,
+and persistence for LLM-agent history exports.
+
 ## rule-engine
+
+`@gobing-ai/ts-rule-engine` owns constraint schemas, configuration loading, rule evaluation, fixers,
+formatters, and host/persistence extension seams.
 
 ## runtime
 
@@ -96,3 +125,6 @@ path utilities, and optional process inventory.
 - Not durable across restarts; retention capped (default 1000). Cloudflare has no process execution.
 
 ## utils
+
+`@gobing-ai/ts-utils` is the zero-dependency base layer for errors, output, API responses, cursors,
+dates, origins, access roles, and object helpers.

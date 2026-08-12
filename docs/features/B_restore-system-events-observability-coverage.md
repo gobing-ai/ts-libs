@@ -2,11 +2,11 @@
 schema_version: 1
 id: "B"
 name: "Restore System Events observability coverage"
-status: active
+status: done
 priority: P2
 tags: []
 created_at: "2026-07-13T05:06:45.677Z"
-updated_at: "2026-07-30T05:18:29.892Z"
+updated_at: "2026-08-12T13:35:50.784Z"
 ---
 
 # B: Restore System Events observability coverage
@@ -173,10 +173,13 @@ Feature: Restore System Events observability coverage
 | 0049 | Diagnosis & fix plan for missing System Events in Observability module | done |
 | 0050 | Wire lifecycleBus + attachFileObserver across ts-infra application bootstrap, ai-runner, rule-engine, dual-workflow-engine (fixes agent.* / api.* / bus.* / rule.* / workflow.* / process.* in System Events) | done |
 | 0051 | InboxMessageDao emits durable message.* events via a structural sink (message.* in System Events) | done |
-| 0053 | Add lifecycle-bus-propagation architecture rule | todo |
+| 0053 | Add lifecycle-bus-propagation architecture rule | done |
+| 0055 | Enrich queue.* EventBus payloads (consumer lifecycle + job correlators) for System Events observability | done |
 <!-- END AUTO-GENERATED -->
 
 ## Notes
 
 ## History
 - 2026-07-13T05:07:26.741Z backlog → active (system)
+- 2026-08-12T13:35:50.661Z active → verifying (system)
+- 2026-08-12T13:35:50.784Z verifying → done (system)

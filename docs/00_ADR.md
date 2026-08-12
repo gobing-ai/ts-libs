@@ -1,18 +1,20 @@
+---
+name: Architecture Decision Records
+doc: 00_ADR
+owns: WHY — which cross-cutting decision was made, and the one-line reason
+authority: authoritative
+version: 1.0.0
+owner: Robin Min
+updated_at: 2026-08-12
+read_before: any structural change
+edit_rules: 99 §6.1
+sync: [T1, T2]
+---
+
 # 00 ADR — ts-libs
 
-**Status:** Authoritative
-**Last Updated:** 2026-07-10
-**Owner:** Robin Min
-
-Single source of truth for the architecture & release decisions that define this monorepo. When another
-document or a code change conflicts with an entry here, this file wins — surface the conflict and resolve
-it. New cross-cutting decisions are appended as `ADR-NNN`.
-
-## Mandatory Rules for all ADRs
-- This file records each architecture & release decision in **one or two sentences**, not a detailed
-  explanation. Precise and concise tone is the key. Architecture details belong in
-  `docs/03_ARCHITECTURE.md` by package.
-- Keep the same format.
+Architecture and release decisions for this monorepo. New cross-cutting decisions are appended as
+`ADR-NNN`; maintenance follows `docs/99_PROJECT_CONSTITUTION.md` §6.1.
 
 ---
 

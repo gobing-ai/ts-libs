@@ -29,7 +29,12 @@ Never introduce a new runtime, package manager, linter, or formatter.
 | File | What it governs |
 |------|-----------------|
 | `docs/00_ADR.md` | **Authoritative** architecture & release decisions. Read before any non-trivial change to the workspace graph, dependency strategy, the release/publish flow, the ts-db facade, or cross-package boundaries. A change that contradicts an ADR requires updating the ADR first (new dated entry). |
-| `docs/03_ARCHITECTURE.md` | simplified architecture overview for each package |
+| `docs/01_PRD.md` | **Authoritative on scope** — product vision, users, committed/deferred/out-of-scope capabilities. |
+| `docs/02_ROADMAP.md` | Derived phase sequencing and exit criteria. |
+| `docs/03_ARCHITECTURE.md` | Derived architecture overview for each package; ADRs win on decisions. |
+| `docs/04_DESIGN.md` | Derived non-UI surface shapes and `docs/design/` index; currently links each package's maintained API documentation. |
+| `docs/05_FEATURES.md` | Derived feature summary over the `spur feature`-owned satellites and generated index. |
+| `docs/99_PROJECT_CONSTITUTION.md` | **Authoritative on process** — read before editing numbered docs; owns the doc map, sync triggers, and edit rules. |
 | `packages/<package>/README.md` | As a library collection project, we use package README.md to document the package's purpose and usage. |
 | `docs/PACKAGE_RELEASE.md` | How releases work (lockstep versioning, OIDC Trusted Publishing, new-package bootstrap). |
 
