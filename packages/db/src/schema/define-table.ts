@@ -15,11 +15,8 @@ import { generateCreateTableSql } from './ddl';
  * time they are read — so a consumer that only needs the table pays nothing
  * extra.
  *
- * `defineTable`, `insertSchema`, `selectSchema`, and `createTableSql` require
- * the optional peers `zod` and `drizzle-zod`. Consumers that never validate and
- * don't need generated DDL can use `createDbAdapter` + raw `sqliteTable` +
- * column helpers without installing those peers. Import from
- * `@gobing-ai/ts-db/schema` to opt in.
+ * The `/schema` subpath requires the optional peers `zod` and `drizzle-zod`.
+ * Consumers using only the main facade do not need them.
  */
 export interface DefinedTable<TTable> {
     /** The underlying drizzle table — pass to DAOs, migrations, queries. */
@@ -37,7 +34,7 @@ export interface DefinedTable<TTable> {
  *
  * @example
  * ```ts
- * import { defineTable } from '@gobing-ai/ts-db/schema';
+ * import { defineTable, standardColumns, text } from '@gobing-ai/ts-db/schema';
  *
  * export const users = defineTable('users', {
  *     id: text('id').primaryKey(),

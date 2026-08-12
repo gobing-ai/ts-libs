@@ -6,7 +6,9 @@ A **drizzle-free database facade**: typed DAOs over Bun SQLite / Cloudflare D1, 
 
 ## Overview
 
-Application code imports only `@gobing-ai/ts-db` — never `drizzle-orm`. drizzle is an internal implementation detail, which keeps the storage engine swappable and the query surface small and auditable. Two tiers, your choice:
+Data-access code imports the main `@gobing-ai/ts-db` facade; schema definitions import
+`@gobing-ai/ts-db/schema`. Consumer code never imports `drizzle-orm` directly, which keeps the
+storage engine swappable and the query surface small and auditable. Two tiers, your choice:
 
 - **Structured tier** (`EntityDao`) — typed `create`/`createMany`/`upsert`/`findById`/`findBy`/`update`/`delete`/`list`/`listByCursor`/`count`, filtered by a small predicate spec (`{ col, op, value }`).
 - **Raw tier** (`BaseDao`) — `query`/`one`/`tx` for table-agnostic access; ETL/analytics/reporting DAOs extend this directly.
@@ -16,15 +18,15 @@ Application code imports only `@gobing-ai/ts-db` — never `drizzle-orm`. drizzl
 |-----------|---------|
 | `createDbAdapter` / `DbAdapter` | Construction + lifecycle + string-SQL escape + atomic batch; exposes an internal typed db to the DAO layer only |
 | `BunSqliteAdapter` | Bun SQLite implementation with statement caching and WAL pragmas (`@gobing-ai/ts-db/bun-sqlite`) |
-| `D1Adapter` | Cloudflare D1 implementation (no `@cloudflare/workers-types` dependency) |
+| `D1Adapter` | Cloudflare D1 implementation (`@gobing-ai/ts-db/d1`; no `@cloudflare/workers-types` dependency) |
 | `BaseDao` | Raw tier — `query`/`one`/`tx`, drizzle-free signatures |
 | `EntityDao` | Structured CRUD — predicate filters, soft delete, RETURNING, batch, upsert, cursor pagination, composite PK |
-| `defineTable` | Single source of truth — one table → drizzle table + derived zod insert/select schemas (optional peers) |
+| `defineTable` | Single source of truth — one table → drizzle table + derived zod insert/select schemas (`@gobing-ai/ts-db/schema`; optional peers) |
 | `Predicate` / `ListSpec` / `OrderTerm` | The drizzle-free query vocabulary |
 | `QueueJobDao` | Job queue persistence — `enqueue`, `claimReady`, `markCompleted`, `failExpiredJobs` |
 | `InboxMessageDao` | Durable inter-agent message persistence (`@gobing-ai/ts-db/inbox`) |
 | `applyMigrations` | Drizzle migration runner (file-based + embedded fallback) |
-| `schema` helpers | `standardColumns`, `appendOnlyColumns`, soft-delete columns |
+| `schema` helpers | `standardColumns`, `appendOnlyColumns`, soft-delete columns (`@gobing-ai/ts-db/schema`) |
 | `SpanContext` | Re-exported from `@gobing-ai/ts-runtime` for telemetry |
 
 ### Optional peers (validation)
@@ -187,18 +189,18 @@ await adapter.batch([
 ```
 ### EntityDao — CRUD with soft delete
 
-Define a Drizzle table, extend `EntityDao`, get full CRUD for free:
+Define a table through the schema subpath, extend `EntityDao`, get full CRUD for free:
 
 ```ts
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
-import { EntityDao, standardColumns } from '@gobing-ai/ts-db';
+import { type DbAdapter, EntityDao } from '@gobing-ai/ts-db';
+import { defineTable, standardColumns, text } from '@gobing-ai/ts-db/schema';
 
-const users = sqliteTable('users', {
+const users = defineTable('users', {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
     email: text('email').notNull(),
     ...standardColumns,
-});
+}).table;
 
 class UsersDao extends EntityDao<typeof users, typeof users.id> {
     constructor(adapter: DbAdapter) {
@@ -347,22 +349,28 @@ await applyMigrations(adapter);
 ### Schema helpers
 
 ```ts
-import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import { standardColumns, standardColumnsWithSoftDelete, queueJobs, inboxMessages } from '@gobing-ai/ts-db';
+import {
+    defineTable,
+    inboxMessages,
+    queueJobs,
+    standardColumns,
+    standardColumnsWithSoftDelete,
+    text,
+} from '@gobing-ai/ts-db/schema';
 
 // Standard columns (createdAt, updatedAt)
-const docs = sqliteTable('docs', {
+const docs = defineTable('docs', {
     id: text('id').primaryKey(),
     title: text('title').notNull(),
     ...standardColumns,
-});
+}).table;
 
 // With soft delete (adds inUsed column)
-const projects = sqliteTable('projects', {
+const projects = defineTable('projects', {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
     ...standardColumnsWithSoftDelete,
-});
+}).table;
 
 // queue_jobs table is pre-built for use with QueueJobDao
 
@@ -382,15 +390,14 @@ bun add -D drizzle-kit
 
 ```ts
 // src/schema.ts
-import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import { standardColumns } from '@gobing-ai/ts-db';
+import { defineTable, standardColumns, text } from '@gobing-ai/ts-db/schema';
 
-export const todos = sqliteTable('todos', {
+export const todos = defineTable('todos', {
     id: text('id').primaryKey(),
     title: text('title').notNull(),
     done: text('done').notNull().default('0'),
     ...standardColumns,
-});
+}).table;
 ```
 
 ### Create a DAO
