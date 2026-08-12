@@ -1,4 +1,5 @@
 import type { WorkflowEngineHost } from './host';
+import { defaultActionRedactor } from './persistence';
 import type { RunLifecycle } from './run-lifecycle';
 import { runtimeBuiltins, type WorkflowMode } from './run-lifecycle';
 import type { ActionDef, ActionResult, OnErrorPolicy, WorkflowPersistenceAdapter, WorkflowRunOptions } from './types';
@@ -91,7 +92,9 @@ export async function runActionStep(
                 result?.ok !== false ? 'done' : 'failed',
                 durationMs,
                 result?.ok ?? false,
+                action.kind,
                 result,
+                deps.options.redactor ?? defaultActionRedactor,
             )
             .catch(() => undefined);
     }

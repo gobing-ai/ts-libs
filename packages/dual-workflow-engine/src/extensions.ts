@@ -1,5 +1,4 @@
 import type { Logger } from '@gobing-ai/ts-infra';
-import { basenamePath, dirnamePath, SEP } from '@gobing-ai/ts-runtime';
 import type { ExtensionRef, LoadExtensionsOptions } from '@gobing-ai/ts-runtime/extension';
 import { loadExtensionModules } from '@gobing-ai/ts-runtime/extension';
 import { WorkflowValidationError } from './errors';
@@ -21,15 +20,17 @@ export type WorkflowExtensionKind = 'actions' | 'guards';
 /**
  * A single workflow extension module reference.
  *
- * The caller provides a pre-resolved absolute path; the loader adapts it to the
- * shared `ExtensionRef` format before delegating to the generic core so the
- * trust guard always governs the module that gets imported.
+ * The caller supplies the authored relative path plus the declaring directory; the
+ * shared loader resolves `(baseDir, path)` and applies its traversal + symlink
+ * guards to the authored string exactly as declared (task 0060 C2).
  */
 export interface WorkflowExtensionRef {
     /** Target capability registry. */
     readonly kind: WorkflowExtensionKind;
-    /** Absolute path to the module to import. */
-    readonly absPath: string;
+    /** Relative path as authored (e.g. `./exts/foo.ts`). */
+    readonly path: string;
+    /** Absolute directory the authored `path` is resolved against. */
+    readonly baseDir: string;
     /** Name of the config declaring this extension (for diagnostics). */
     readonly sourceName: string;
 }
@@ -79,28 +80,13 @@ export async function loadWorkflowExtensionsIntoHost(
 ): Promise<void> {
     if (refs.length === 0) return;
 
-    // Enforce relative-path guard before adapting to the shared format.
-    // The shared loader's assertRelativeExtensionPath applies to the derived
-    // (basename) path, which is always clean — this pre-check catches `..`
-    // traversal in the caller-supplied absPath before basename strips it (R6).
-    for (const ref of refs) {
-        const segments = ref.absPath.split(SEP);
-        if (segments.includes('..')) {
-            throw new Error(
-                `extension path "${ref.absPath}" declared by "${ref.sourceName}" must not contain ".." traversal`,
-            );
-        }
-    }
-
-    // Adapt WorkflowExtensionRef → shared ExtensionRef so the generic loader
-    // governs every import.  The shared loader resolves (baseDir, path) ->
-    // absPath internally; we supply dirname/basename so the resolved path
-    // reconstructs the caller's original absPath.  assertRelativeExtensionPath
-    // is satisfied because basenamePath() is always a simple filename.
+    // Map 1:1 onto the shared ref shape — no dirname/basename smash, so the shared
+    // loader's assertRelativeExtensionPath + realPath confinement govern the authored
+    // path exactly as declared (task 0060 C2).
     const sharedRefs: ExtensionRef<WorkflowExtensionKind>[] = refs.map((ref) => ({
         kind: ref.kind,
-        path: `./${basenamePath(ref.absPath)}`,
-        baseDir: dirnamePath(ref.absPath),
+        path: ref.path,
+        baseDir: ref.baseDir,
         sourceName: ref.sourceName,
     }));
 

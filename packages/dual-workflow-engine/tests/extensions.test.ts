@@ -25,7 +25,9 @@ describe('loadWorkflowExtensionsIntoHost trust gate', () => {
 
     test('throws when extensions are present but allowExtensions is not true (default)', async () => {
         const host = createDefaultWorkflowEngineHost();
-        const refs: WorkflowExtensionRef[] = [{ kind: 'actions', absPath: '/x/custom.ts', sourceName: 'test' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'actions', path: 'custom.ts', baseDir: '/x', sourceName: 'test' },
+        ];
         await expect(
             loadWorkflowExtensionsIntoHost(host, refs, {
                 ...defaultOptions(),
@@ -36,7 +38,7 @@ describe('loadWorkflowExtensionsIntoHost trust gate', () => {
 
     test('throws when allowExtensions is explicitly false', async () => {
         const host = createDefaultWorkflowEngineHost();
-        const refs: WorkflowExtensionRef[] = [{ kind: 'guards', absPath: '/x/custom.ts', sourceName: 'test' }];
+        const refs: WorkflowExtensionRef[] = [{ kind: 'guards', path: 'custom.ts', baseDir: '/x', sourceName: 'test' }];
         await expect(
             loadWorkflowExtensionsIntoHost(host, refs, {
                 ...defaultOptions(),
@@ -47,7 +49,9 @@ describe('loadWorkflowExtensionsIntoHost trust gate', () => {
 
     test('throws before moduleLoader is called when gate is disabled', async () => {
         const host = createDefaultWorkflowEngineHost();
-        const refs: WorkflowExtensionRef[] = [{ kind: 'actions', absPath: '/x/custom.ts', sourceName: 'test' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'actions', path: 'custom.ts', baseDir: '/x', sourceName: 'test' },
+        ];
         let called = false;
         await expect(
             loadWorkflowExtensionsIntoHost(host, refs, {
@@ -73,7 +77,9 @@ describe('loadWorkflowExtensionsIntoHost action registration', () => {
             },
         };
 
-        const refs: WorkflowExtensionRef[] = [{ kind: 'actions', absPath: '/ext/greet.ts', sourceName: 'greet-ext' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'actions', path: 'greet.ts', baseDir: '/ext', sourceName: 'greet-ext' },
+        ];
         await loadWorkflowExtensionsIntoHost(host, refs, {
             allowExtensions: true,
             moduleLoader: async () => ({
@@ -115,7 +121,9 @@ describe('loadWorkflowExtensionsIntoHost action registration', () => {
             },
         };
 
-        const refs: WorkflowExtensionRef[] = [{ kind: 'actions', absPath: '/ext/multi.ts', sourceName: 'multi-ext' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'actions', path: 'multi.ts', baseDir: '/ext', sourceName: 'multi-ext' },
+        ];
         await loadWorkflowExtensionsIntoHost(host, refs, {
             allowExtensions: true,
             moduleLoader: async () => ({
@@ -140,7 +148,9 @@ describe('loadWorkflowExtensionsIntoHost guard registration', () => {
             },
         };
 
-        const refs: WorkflowExtensionRef[] = [{ kind: 'guards', absPath: '/ext/guard.ts', sourceName: 'is-even-ext' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'guards', path: 'guard.ts', baseDir: '/ext', sourceName: 'is-even-ext' },
+        ];
         await loadWorkflowExtensionsIntoHost(host, refs, {
             allowExtensions: true,
             moduleLoader: async () => ({
@@ -179,7 +189,9 @@ describe('loadWorkflowExtensionsIntoHost guard registration', () => {
 describe('loadWorkflowExtensionsIntoHost export validation', () => {
     test('throws when module lacks a string name (shared loader check)', async () => {
         const host = new WorkflowEngineHost();
-        const refs: WorkflowExtensionRef[] = [{ kind: 'actions', absPath: '/ext/bad.ts', sourceName: 'bad-ext' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'actions', path: 'bad.ts', baseDir: '/ext', sourceName: 'bad-ext' },
+        ];
         await expect(
             loadWorkflowExtensionsIntoHost(host, refs, {
                 allowExtensions: true,
@@ -190,7 +202,9 @@ describe('loadWorkflowExtensionsIntoHost export validation', () => {
 
     test('throws when actions ref points to module without actions[]', async () => {
         const host = new WorkflowEngineHost();
-        const refs: WorkflowExtensionRef[] = [{ kind: 'actions', absPath: '/ext/no-actions.ts', sourceName: 'no-act' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'actions', path: 'no-actions.ts', baseDir: '/ext', sourceName: 'no-act' },
+        ];
         await expect(
             loadWorkflowExtensionsIntoHost(host, refs, {
                 allowExtensions: true,
@@ -213,7 +227,9 @@ describe('loadWorkflowExtensionsIntoHost export validation', () => {
 
     test('throws when guards ref points to module without guards[]', async () => {
         const host = new WorkflowEngineHost();
-        const refs: WorkflowExtensionRef[] = [{ kind: 'guards', absPath: '/ext/no-guards.ts', sourceName: 'no-grd' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'guards', path: 'no-guards.ts', baseDir: '/ext', sourceName: 'no-grd' },
+        ];
         await expect(
             loadWorkflowExtensionsIntoHost(host, refs, {
                 allowExtensions: true,
@@ -249,7 +265,9 @@ describe('loadWorkflowExtensionsIntoHost export validation', () => {
             },
         };
 
-        const refs: WorkflowExtensionRef[] = [{ kind: 'actions', absPath: '/ext/dual.ts', sourceName: 'dual-ext' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'actions', path: 'dual.ts', baseDir: '/ext', sourceName: 'dual-ext' },
+        ];
         await loadWorkflowExtensionsIntoHost(host, refs, {
             allowExtensions: true,
             moduleLoader: async () => ({
@@ -280,7 +298,9 @@ describe('loadWorkflowExtensionsIntoHost export validation', () => {
             },
         };
 
-        const refs: WorkflowExtensionRef[] = [{ kind: 'guards', absPath: '/ext/dual.ts', sourceName: 'dual-ext' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'guards', path: 'dual.ts', baseDir: '/ext', sourceName: 'dual-ext' },
+        ];
         await loadWorkflowExtensionsIntoHost(host, refs, {
             allowExtensions: true,
             moduleLoader: async () => ({
@@ -302,7 +322,7 @@ describe('loadWorkflowExtensionsIntoHost override warnings', () => {
         const warnings: string[] = [];
         const host = createDefaultWorkflowEngineHost();
         const refs: WorkflowExtensionRef[] = [
-            { kind: 'actions', absPath: '/ext/override.ts', sourceName: 'override-ext' },
+            { kind: 'actions', path: 'override.ts', baseDir: '/ext', sourceName: 'override-ext' },
         ];
         await loadWorkflowExtensionsIntoHost(host, refs, {
             allowExtensions: true,
@@ -330,7 +350,7 @@ describe('loadWorkflowExtensionsIntoHost override warnings', () => {
         const warnings: string[] = [];
         const host = createDefaultWorkflowEngineHost();
         const refs: WorkflowExtensionRef[] = [
-            { kind: 'guards', absPath: '/ext/override.ts', sourceName: 'override-ext' },
+            { kind: 'guards', path: 'override.ts', baseDir: '/ext', sourceName: 'override-ext' },
         ];
         await loadWorkflowExtensionsIntoHost(host, refs, {
             allowExtensions: true,
@@ -357,7 +377,9 @@ describe('loadWorkflowExtensionsIntoHost override warnings', () => {
     test('does not warn when extension adds a new (non-override) capability', async () => {
         const warnings: string[] = [];
         const host = createDefaultWorkflowEngineHost();
-        const refs: WorkflowExtensionRef[] = [{ kind: 'actions', absPath: '/ext/new.ts', sourceName: 'new-ext' }];
+        const refs: WorkflowExtensionRef[] = [
+            { kind: 'actions', path: 'new.ts', baseDir: '/ext', sourceName: 'new-ext' },
+        ];
         await loadWorkflowExtensionsIntoHost(host, refs, {
             allowExtensions: true,
             logger: { warn: (msg) => warnings.push(msg) },
@@ -385,7 +407,7 @@ describe('loadWorkflowExtensionsIntoHost override warnings', () => {
 
         await loadWorkflowExtensionsIntoHost(
             host,
-            [{ kind: 'actions', absPath: '/ext/first.ts', sourceName: 'first-ext' }],
+            [{ kind: 'actions', path: 'first.ts', baseDir: '/ext', sourceName: 'first-ext' }],
             {
                 allowExtensions: true,
                 moduleLoader: async () => ({
@@ -407,7 +429,7 @@ describe('loadWorkflowExtensionsIntoHost override warnings', () => {
         // Second extension overrides 'x' — origin is 'extension', not 'builtin', so no warning.
         await loadWorkflowExtensionsIntoHost(
             host,
-            [{ kind: 'actions', absPath: '/ext/second.ts', sourceName: 'second-ext' }],
+            [{ kind: 'actions', path: 'second.ts', baseDir: '/ext', sourceName: 'second-ext' }],
             {
                 allowExtensions: true,
                 logger: { warn: (msg) => warnings.push(msg) },
@@ -432,10 +454,10 @@ describe('loadWorkflowExtensionsIntoHost override warnings', () => {
 });
 
 describe('loadWorkflowExtensionsIntoHost path traversal guard', () => {
-    test('rejects absPath containing .. traversal (R6 pre-check)', async () => {
+    test('rejects an authored path containing .. traversal', async () => {
         const host = new WorkflowEngineHost();
         const refs: WorkflowExtensionRef[] = [
-            { kind: 'actions', absPath: '/ext/../escape.ts', sourceName: 'escape-ext' },
+            { kind: 'actions', path: '../escape.ts', baseDir: '/ext', sourceName: 'escape-ext' },
         ];
         await expect(
             loadWorkflowExtensionsIntoHost(host, refs, {
@@ -448,7 +470,7 @@ describe('loadWorkflowExtensionsIntoHost path traversal guard', () => {
     test('rejects .. traversal in deep paths', async () => {
         const host = new WorkflowEngineHost();
         const refs: WorkflowExtensionRef[] = [
-            { kind: 'actions', absPath: '/a/b/../../../etc/passwd.ts', sourceName: 'bad' },
+            { kind: 'actions', path: 'a/../../passwd.ts', baseDir: '/ext', sourceName: 'bad' },
         ];
         await expect(
             loadWorkflowExtensionsIntoHost(host, refs, {

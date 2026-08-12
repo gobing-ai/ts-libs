@@ -178,6 +178,13 @@ export interface WorkflowRunOptions {
     readonly events?: EventBus<WorkflowEngineEvents>;
     /** Run-level error policy override. Lowest precedence; action-level wins. */
     readonly onError?: OnErrorPolicy;
+    /**
+     * Optional result redaction hook applied before an action row is finalized.
+     * When omitted, the built-in default scrubs shell stdout/stderr so raw command
+     * output never lands in the audit table. Callers that need raw output in
+     * `action_runs.result_json` must supply their own redactor (task 0060 F4).
+     */
+    readonly redactor?: ActionRedactor;
     /** Validate the definition and walk the transition graph without executing actions. */
     readonly dryRun?: boolean;
     /** Optional caller-supplied external key, unique per workflow definition. */
@@ -287,12 +294,13 @@ export interface WorkflowPersistenceAdapter {
      * persistence implementations ignore it (mirror-only — no new column, no alter, no redaction).
      */
     saveActionStart(runId: string, node: string, kind: string, options?: Record<string, unknown>): Promise<string>;
-    /** Finalize an action row with duration, ok, result. */
+    /** Finalize an action row with duration, ok, result. `kind` names the action for the redactor. */
     saveActionFinalize(
         actionId: string,
         status: WorkflowStatus,
         durationMs: number,
         ok: boolean,
+        kind: string,
         result?: unknown,
         redactor?: ActionRedactor,
     ): Promise<void>;

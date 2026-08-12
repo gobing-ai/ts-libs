@@ -17,6 +17,36 @@ export async function applyWorkflowEngineSchema(db: DbAdapter): Promise<void> {
     }
 }
 
+/** Narrow to a non-array object record. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Default result redactor (task 0060 F4): shell action results keep `ok`/`exitCode`
+ * but drop raw `stdout`/`stderr`, which may carry secrets, from the persisted row.
+ * Non-shell results pass through unchanged.
+ */
+export function defaultActionRedactor(kind: string, payload: Record<string, unknown>): Record<string, unknown> {
+    if (kind !== 'shell') return payload;
+    const data = isRecord(payload.data) ? { ...payload.data } : payload.data;
+    if (isRecord(data)) {
+        if ('stdout' in data) data.stdout = '[redacted]';
+        if ('stderr' in data) data.stderr = '[redacted]';
+    }
+    return { ...payload, data };
+}
+
+/** Apply the caller redactor, or the built-in default when none is supplied. */
+export function applyRedactor(
+    redactor: ActionRedactor | undefined,
+    kind: string,
+    result: unknown,
+): Record<string, unknown> {
+    const payload = isRecord(result) ? result : { value: result };
+    return redactor !== undefined ? redactor(kind, payload) : defaultActionRedactor(kind, payload);
+}
+
 /** SQLite/D1-compatible workflow persistence adapter backed by ts-db. */
 export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter {
     /** Memoized schema-ensure; the DDL runs at most once per adapter instance. */
@@ -180,8 +210,9 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         status: WorkflowStatus,
         durationMs: number,
         ok: boolean,
+        kind: string,
         result?: unknown,
-        _redactor?: ActionRedactor,
+        redactor?: ActionRedactor,
     ): Promise<void> {
         const now = Date.now();
         await this.db.run(
@@ -191,7 +222,7 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
             status,
             durationMs,
             ok ? 1 : 0,
-            result !== undefined ? JSON.stringify(result) : null,
+            result !== undefined ? JSON.stringify(applyRedactor(redactor, kind, result)) : null,
             new Date(now).toISOString(),
             now,
             actionId,
@@ -241,16 +272,18 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         return { ...record };
     }
 
-    /** Force-set the current state of a run (reseed). */
+    /** Force-set the current state of a run (reseed). Atomic: snapshot + `__reseed__` transition
+     *  commit in one `db.batch`, and the previous snapshot's `effectiveVars` survive (task 0060 F6). */
     async reseedRun(runId: string, newState: string): Promise<WorkflowReseedResult> {
-        const now = Date.now();
         await this.ensureSchema();
-        const previous = await this.db.queryFirst<{ state: string }>(
-            'SELECT state FROM workflow_states WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
-            runId,
-        );
-        await this.saveWorkflowState(runId, newState, { reseeded: true, reseededAt: new Date(now).toISOString() });
-        await this.saveTransition(runId, previous?.state ?? '', newState, '__reseed__');
+        const previous = await this.loadLatestStateSnapshot(runId);
+        const now = Date.now();
+        const data = {
+            ...(previous?.data ?? {}),
+            reseeded: true,
+            reseededAt: new Date(now).toISOString(),
+        };
+        await this.commitTransition(runId, previous?.state ?? '', newState, '__reseed__', newState, data);
         return { fromState: previous?.state ?? null, toState: newState };
     }
 
@@ -357,15 +390,16 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
         status: WorkflowStatus,
         durationMs: number,
         ok: boolean,
+        kind: string,
         result?: unknown,
-        _redactor?: ActionRedactor,
+        redactor?: ActionRedactor,
     ): Promise<void> {
         const row = this.actionRuns.find((a) => a.id === actionId);
         if (row === undefined) return;
         row.status = status;
         row.durationMs = durationMs;
         row.ok = ok ? 1 : 0;
-        row.resultJson = result !== undefined ? JSON.stringify(result) : null;
+        row.resultJson = result !== undefined ? JSON.stringify(applyRedactor(redactor, kind, result)) : null;
     }
 
     /** Save one phase/state execution record. */
@@ -430,9 +464,13 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
 
     /** Force-set the current state of a run (reseed). */
     async reseedRun(runId: string, newState: string): Promise<WorkflowReseedResult> {
-        const previous = this.states.findLast((state) => state.runId === runId);
-        await this.saveWorkflowState(runId, newState, { reseeded: true, reseededAt: new Date().toISOString() });
-        await this.saveTransition(runId, previous?.state ?? '', newState, '__reseed__');
+        const previous = await this.loadLatestStateSnapshot(runId);
+        const data = {
+            ...(previous?.data ?? {}),
+            reseeded: true,
+            reseededAt: new Date().toISOString(),
+        };
+        await this.commitTransition(runId, previous?.state ?? '', newState, '__reseed__', newState, data);
         return { fromState: previous?.state ?? null, toState: newState };
     }
 

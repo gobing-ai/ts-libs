@@ -13,6 +13,16 @@ import type { WorkflowRunRecord } from '../src/types';
 // test below); the lint gate warns on unused imports.
 void WORKFLOW_ENGINE_SCHEMA_SQL;
 
+/** Parse a stored JSON column for assertions; malformed/missing values degrade to null. */
+function parseStoredJson(raw: string | null | undefined): unknown {
+    if (raw === null || raw === undefined) return null;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
 function makeRecord(overrides: Partial<WorkflowRunRecord> = {}): WorkflowRunRecord {
     return {
         id: 'run-1',
@@ -93,6 +103,86 @@ describe('DbWorkflowPersistenceAdapter — with real in-memory DB', () => {
         expect(loaded?.status).toBe('running');
     });
 
+    test('saveActionFinalize redacts shell stdout/stderr from result_json by default (0060 F4)', async () => {
+        await adapter.createRun(makeRecord({ id: 'r-redact' }));
+        const actionId = await adapter.saveActionStart('r-redact', 'run', 'shell');
+
+        await adapter.saveActionFinalize(actionId, 'done', 12, true, 'shell', {
+            ok: true,
+            data: { stdout: 'sk-abc-secret-token', stderr: '', exitCode: 0 },
+        });
+
+        const rows = await db.queryAll<{ result_json: string | null }>(
+            'SELECT result_json FROM action_runs WHERE id = ?',
+            actionId,
+        );
+        const persisted = rows[0]?.result_json;
+        expect(persisted).not.toContain('sk-abc-secret-token');
+        expect(persisted).toContain('[redacted]');
+        expect(persisted).toContain('exitCode');
+        expect(persisted).toContain('"ok":true');
+    });
+
+    test('saveActionFinalize invokes a caller-supplied redactor (0060 F4)', async () => {
+        await adapter.createRun(makeRecord({ id: 'r-redact-custom' }));
+        const actionId = await adapter.saveActionStart('r-redact-custom', 'run', 'shell');
+        let invoked: { kind: string; payload: Record<string, unknown> } | undefined;
+
+        await adapter.saveActionFinalize(
+            actionId,
+            'done',
+            12,
+            true,
+            'shell',
+            { ok: true, data: { stdout: 'raw-output', exitCode: 0 } },
+            (kind, payload) => {
+                invoked = { kind, payload };
+                return { ok: true, data: { stdout: 'scrubbed', exitCode: 0 } };
+            },
+        );
+
+        expect(invoked?.kind).toBe('shell');
+        const rows = await db.queryAll<{ result_json: string | null }>(
+            'SELECT result_json FROM action_runs WHERE id = ?',
+            actionId,
+        );
+        expect(rows[0]?.result_json).toContain('scrubbed');
+        expect(rows[0]?.result_json).not.toContain('raw-output');
+    });
+
+    test('reseedRun preserves previous effectiveVars and commits atomically (0060 F6)', async () => {
+        await adapter.createRun(makeRecord({ id: 'r-reseed' }));
+        await adapter.saveWorkflowState('r-reseed', 'waiting', {
+            effectiveVars: { __hitlAnswer: 'yes', keep: 'me' },
+        });
+
+        const batchCalls: { sql: string; params: readonly unknown[] }[][] = [];
+        const realBatch = db.batch.bind(db);
+        const spiedDb = new Proxy(db, {
+            get(target, prop) {
+                if (prop === 'batch') {
+                    return async (ops: { sql: string; params: readonly unknown[] }[]) => {
+                        batchCalls.push(ops);
+                        return realBatch(ops);
+                    };
+                }
+                return Reflect.get(target, prop);
+            },
+        });
+        const spiedAdapter = new DbWorkflowPersistenceAdapter(spiedDb);
+
+        await spiedAdapter.reseedRun('r-reseed', 'reviewing');
+
+        // One atomic batch — no split saveWorkflowState + saveTransition window.
+        expect(batchCalls).toHaveLength(1);
+        const snapshot = await spiedAdapter.loadLatestStateSnapshot('r-reseed');
+        expect(snapshot?.state).toBe('reviewing');
+        const snapshotData = snapshot?.data ?? {};
+        const effectiveVars = snapshotData.effectiveVars as Record<string, unknown> | undefined;
+        expect(effectiveVars?.__hitlAnswer).toBe('yes');
+        expect(snapshotData).toMatchObject({ reseeded: true });
+    });
+
     test('throws RunCollisionError on duplicate run id', async () => {
         await adapter.createRun(makeRecord({ id: 'dup' }));
         await expect(adapter.createRun(makeRecord({ id: 'dup' }))).rejects.toThrow(RunCollisionError);
@@ -165,7 +255,7 @@ describe('DbWorkflowPersistenceAdapter — with real in-memory DB', () => {
         );
         expect(rows).toHaveLength(1);
         expect(rows[0]?.state).toBe('processing');
-        expect(JSON.parse(rows[0]?.data_json as string)).toEqual({ count: 3, items: ['a', 'b'] });
+        expect(parseStoredJson(rows[0]?.data_json)).toEqual({ count: 3, items: ['a', 'b'] });
     });
 
     test('saveActionStart initializes a running action and returns an id', async () => {
@@ -213,7 +303,7 @@ describe('DbWorkflowPersistenceAdapter — with real in-memory DB', () => {
         await adapter.createRun(makeRecord({ id: 'r6' }));
         const actionId = await adapter.saveActionStart('r6', 'calc', 'compute');
 
-        await adapter.saveActionFinalize(actionId, 'done', 42, true, { output: 99 });
+        await adapter.saveActionFinalize(actionId, 'done', 42, true, 'compute', { output: 99 });
 
         const rows = await db.queryAll<{
             status: string;
@@ -224,14 +314,14 @@ describe('DbWorkflowPersistenceAdapter — with real in-memory DB', () => {
         expect(rows[0]?.status).toBe('done');
         expect(rows[0]?.duration_ms).toBe(42);
         expect(rows[0]?.ok).toBe(1);
-        expect(JSON.parse(rows[0]?.result_json as string)).toEqual({ output: 99 });
+        expect(parseStoredJson(rows[0]?.result_json)).toEqual({ output: 99 });
     });
 
     test('saveActionFinalize sets ok=0 for failed actions', async () => {
         await adapter.createRun(makeRecord({ id: 'r7' }));
         const actionId = await adapter.saveActionStart('r7', 'step', 'transform');
 
-        await adapter.saveActionFinalize(actionId, 'failed', 10, false);
+        await adapter.saveActionFinalize(actionId, 'failed', 10, false, 'transform');
 
         const rows = await db.queryAll<{ ok: number; status: string }>(
             'SELECT ok, status FROM action_runs WHERE id = ?',
@@ -245,7 +335,7 @@ describe('DbWorkflowPersistenceAdapter — with real in-memory DB', () => {
         await adapter.createRun(makeRecord({ id: 'r8' }));
         const actionId = await adapter.saveActionStart('r8', 'nop', 'noop');
 
-        await adapter.saveActionFinalize(actionId, 'done', 5, true);
+        await adapter.saveActionFinalize(actionId, 'done', 5, true, 'noop');
 
         const rows = await db.queryAll<{ result_json: string | null }>(
             'SELECT result_json FROM action_runs WHERE id = ?',
@@ -439,7 +529,7 @@ describe('DbWorkflowPersistenceAdapter.commitTransition — atomic batch (ADR-02
         );
         expect(stateRows).toHaveLength(1);
         expect(stateRows[0]?.state).toBe('b');
-        expect(JSON.parse(stateRows[0]?.data_json as string)).toEqual({ transitionsTaken: 1 });
+        expect(parseStoredJson(stateRows[0]?.data_json)).toEqual({ transitionsTaken: 1 });
 
         const phaseRows = await db.queryAll<{ phase: string; status: string }>(
             'SELECT phase, status FROM phase_runs WHERE run_id = ?',
@@ -656,7 +746,7 @@ describe('MemoryWorkflowPersistenceAdapter', () => {
     test('saveActionStart and saveActionFinalize with ok=false', async () => {
         const adapter = new MemoryWorkflowPersistenceAdapter();
         const actionId = await adapter.saveActionStart('r1', 'step', 'compute');
-        await adapter.saveActionFinalize(actionId, 'failed', 500, false, undefined);
+        await adapter.saveActionFinalize(actionId, 'failed', 500, false, 'compute', undefined);
 
         const row = adapter.actionRuns.find((a) => a.id === actionId);
         expect(row).toBeDefined();
@@ -668,7 +758,7 @@ describe('MemoryWorkflowPersistenceAdapter', () => {
 
     test('saveActionFinalize is noop for unknown action id', async () => {
         const adapter = new MemoryWorkflowPersistenceAdapter();
-        await adapter.saveActionFinalize('ghost', 'done', 1, true, {});
+        await adapter.saveActionFinalize('ghost', 'done', 1, true, 'compute', {});
 
         // No error thrown, no rows added
         expect(adapter.actionRuns).toHaveLength(0);
