@@ -3,7 +3,7 @@ template: meta
 schema_version: 1
 name: "Fix packages-review session bottlenecks: skill path drift, dual-pass waste, L3 first-write"
 description: ""
-status: todo
+status: done
 type: meta
 profile: standard
 feature_id: null
@@ -13,7 +13,7 @@ tags: ["meta"]
 dependencies: ["0060"]
 ac_numbering: task-local
 created_at: "2026-08-12T18:41:45.051Z"
-updated_at: "2026-08-12T19:35:54.214Z"
+updated_at: "2026-08-12T21:21:39.707Z"
 ---
 
 ## 0061. Fix packages-review session bottlenecks: skill path drift, dual-pass waste, L3 first-write
@@ -185,64 +185,88 @@ export function getGitContextSync(
 8. Fill Solution (`file:line`), Testing (MET + pasted exits), Review dispositions FIXED.
 9. Stop. Do not take drive-by refactors.
 ### Solution
-Not implemented. Planned anchors (replace with post-change `file:line` after the patch):
+Implemented 0060 leftovers R16 + R17 (two surgical package changes; no new packages, no harness/skill edits).
 
 | Change | Evidence |
 | --- | --- |
-| Remove static `history_etl_*` CREATE blocks | `packages/llm-jsonl-importer/src/schema-sql.ts:21` |
-| `applyHistoryImportSchema` loops `SOURCE_DEFINITIONS` | `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:85` |
-| `ETL_TABLE_DDL` remains the only ETL CREATE text | `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:73` |
-| Built-in sources including grok/omp/agy | `packages/llm-jsonl-importer/src/sources.ts:175` |
-| Source union includes the three missing static tables | `packages/llm-jsonl-importer/src/types.ts:6` |
-| Async `getGitContext` + default ProcessExecutor | `packages/ai-runner/src/identity.ts:68` |
-| Identity tests still assume sync | `packages/ai-runner/tests/identity.test.ts:63` |
-| README sync example | `packages/ai-runner/README.md:290` |
-| ADR-023 A2 leftover | `docs/00_ADR.md:337` |
+| Removed every static `history_etl_*` CREATE block (R1) | `packages/llm-jsonl-importer/src/schema-sql.ts:1` (module comment) — `rg "history_etl_" schema-sql.ts` returns only the docstring WHY line, no CREATE |
+| Static SQL keeps checkpoint, ledger, typed contract tables | `packages/llm-jsonl-importer/src/schema-sql.ts:17` (checkpoint), `:25` (ledger), `:33` (history_message), `:65` (history_tool_call) |
+| `applyHistoryImportSchema` loops `SOURCE_DEFINITIONS` → `ensureTargetTables` (R2) | `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:93` (fn), `:100-101` (the loop) |
+| `ETL_TABLE_DDL` remains the only ETL CREATE text | `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:60` (`ETL_TABLE_DDL`) |
+| `ensureTargetTables` now single-owner for all built-in ETL tables; comment updated | `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:106` (docstring), `:117` (fn) |
+| Built-in source registry (10 sources incl. grok/omp/agy) | `packages/llm-jsonl-importer/src/sources.ts:158` (`SOURCE_DEFINITIONS`) |
+| Async `getGitContext` + default `ProcessExecutor` (R4) | `packages/ai-runner/src/identity.ts:80` (fn), `:82` (default `nodeBunFactory.createProcessExecutor()`), `:110` (async `runGit`) |
+| Deprecated sync escape hatch `getGitContextSync` (R5) | `packages/ai-runner/src/identity.ts:100`, `@deprecated` JSDoc `:96`, sync `runGitSync` `:122` |
+| Identity tests cover async default + fake `run` + deprecated sync | `packages/ai-runner/tests/identity.test.ts:50` (async), `:88` (fake-run test), `:95` (sync helper test) |
+| README uses `await getGitContext` (R5/R6) | `packages/ai-runner/README.md:290` |
+| Importer README table list is accurate (no static-SQL-creates-ETL claim) | `packages/llm-jsonl-importer/README.md:128` |
+| ADR-023 dated addendum closes A2 leftover + records R16 | `docs/00_ADR.md:348` |
+| CHANGELOG: R16 fix entry | `CHANGELOG.md:21` |
+| CHANGELOG: R17 BREAKING CHANGE entry | `CHANGELOG.md:34` |
+
+**Close-out (2026-08-12, post-verify leftovers).**
+- `ensureTargetTables` WHY no longer claims the static schema created ETL tables (`packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:114-115`).
+- `getGitContextSync` success path covered (`packages/ai-runner/tests/identity.test.ts` sync-success case).
+- `runJsonlImport('agy', …)` on a fresh schema (`packages/llm-jsonl-importer/tests/forensic-contract.test.ts` R3 agy case).
+- Importer README `VALID_TABLE_NAME` regex corrected to `/^history_[a-z_]+$/` (`packages/llm-jsonl-importer/README.md:148`).
 ### Testing
-Coverage: N/A (not implemented yet).
+Independent re-verify 2026-08-12 (`/sp-dev-verify 0061 --auto --next --force --focus all --fix all`). Status was already `done`; `--force` re-audited. Implementation is still uncommitted working-tree (plus this task file). `--fix all` found no UNMET/PARTIAL core items. `--next: no-op - task already terminal (done)`.
+
+Coverage: 99.42% functions / 99.22% lines (`bun run spur-check` this run; 1949 tests, 0 fail).
 
 **Per-Requirement Traceability**
 
 | Req | Status | Evidence |
 | --- | --- | --- |
-| R1 | UNMET | pending |
-| R2 | UNMET | pending |
-| R3 | UNMET | pending |
-| R4 | UNMET | pending |
-| R5 | UNMET | pending |
-| R6 | UNMET | pending |
-| R7 | UNMET | pending |
+| R1 | MET | `packages/llm-jsonl-importer/src/schema-sql.ts:11-85` has checkpoint/ledger/`history_message`/`history_tool_call` + indexes; no `CREATE TABLE … history_etl_`. `packages/llm-jsonl-importer/tests/schema-sql.test.ts:18-21` pass this run |
+| R2 | MET | `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:73-81` `ETL_TABLE_DDL`; `:100-101` loops `SOURCE_DEFINITIONS` → `ensureTargetTables`; `:117-126` typed-table skip. `packages/llm-jsonl-importer/tests/jsonl-importer-dao.test.ts:313-328` SELECT empty `history_etl_pi`/`grok`/`omp`/`agy` on fresh adapter pass this run |
+| R3 | MET | Fresh-DB imports this run: antigravity/opencode/openclaw/omp/pi/claude/codex (`packages/llm-jsonl-importer/tests/importer.test.ts`); grok (`packages/llm-jsonl-importer/tests/forensic-contract.test.ts:223-228`). `history_etl_agy` exists after apply (R2 test). Typed tables from static SQL (`schema-sql.ts:29,56`; forensic-contract typed-schema tests pass) |
+| R4 | MET | `packages/ai-runner/src/identity.ts:80-83` async + `nodeBunFactory.createProcessExecutor()` default; `:114-117` `executor.run`. `packages/ai-runner/tests/identity.test.ts:51-66` null on fail; `:83-102` fake `run` → `branch: main`; `:69-81` default path (no `BunSync` construct) pass this run |
+| R5 | MET | `packages/ai-runner/src/identity.ts:97-102` `@deprecated` `getGitContextSync` + `BunSyncProcessExecutor` default. `packages/ai-runner/tests/identity.test.ts:105-118` sync null. README `packages/ai-runner/README.md:290` `await getGitContext` |
+| R6 | MET | `CHANGELOG.md:21` R16 fix; `CHANGELOG.md:34` R17 BREAKING; `docs/00_ADR.md:348-356` ADR-023 addendum closes A2 leftover; importer README `packages/llm-jsonl-importer/README.md:124-132` does not claim static SQL creates every `history_etl_*` |
+| R7 | MET | `bun run spur-check` exit 0 this run (1949 pass / 0 fail; 48+2 rules); `bun run build` exit 0 this run (8 packages). No `.skip`, no new `biome-ignore` |
 
 **Acceptance Criteria Verification**
 
 | AC | Status | Evidence Type | Evidence |
 | --- | --- | --- | --- |
-| R1 — static schema has no history_etl_* CREATE | UNMET | test | pending |
-| R2 — applyHistoryImportSchema still materializes every built-in ETL table | UNMET | test | pending |
-| R3 — built-in ETL sources still import on a fresh DB | UNMET | test | pending |
-| R4 — getGitContext is async ProcessExecutor | UNMET | test | pending |
-| R5 — deprecated sync helper remains | UNMET | test | pending |
-| R6 — docs and ADR | UNMET | static-ref | pending |
-| R7 — gates | UNMET | command | pending |
+| Scenario: R1 — static schema has no history_etl_* CREATE | MET | test | `packages/llm-jsonl-importer/tests/schema-sql.test.ts:18-21` 23 pass / 0 fail this run (dao+schema files) |
+| Scenario: R2 — applyHistoryImportSchema still materializes every built-in ETL table | MET | test | `packages/llm-jsonl-importer/tests/jsonl-importer-dao.test.ts:313-328` pass this run; `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:100-101` |
+| Scenario: R3 — built-in ETL sources still import on a fresh DB | MET | test | importer.test.ts + forensic-contract.test.ts 58 pass this run; typed tables from `packages/llm-jsonl-importer/src/schema-sql.ts:29,56` |
+| Scenario: R4 — getGitContext is async ProcessExecutor | MET | test | `packages/ai-runner/tests/identity.test.ts:51-102` 7 pass this run; `packages/ai-runner/src/identity.ts:80-83` |
+| Scenario: R5 — deprecated sync helper remains | MET | test | `packages/ai-runner/tests/identity.test.ts:105-118`; `@deprecated` at `packages/ai-runner/src/identity.ts:97`; README `:290` |
+| [docs-only] Scenario: R6 — docs and ADR | MET | static-ref | `CHANGELOG.md:21,34`; `docs/00_ADR.md:348-356`; `packages/llm-jsonl-importer/README.md:124-132`; `packages/ai-runner/README.md:290` |
+| Scenario: R7 — gates | MET | command | `bun run spur-check` exit 0; `bun run build` exit 0 this run |
 
-**Commands the implementer must paste (exit 0):**
+**Commands this verify (all exit 0):**
 
-```bash
-bun test packages/llm-jsonl-importer/tests/schema-sql.test.ts packages/llm-jsonl-importer/tests/jsonl-importer-dao.test.ts
-bun test packages/ai-runner/tests/identity.test.ts
-bun run spur-check
-bun run build
 ```
+(cd packages/llm-jsonl-importer && bun test tests/schema-sql.test.ts tests/jsonl-importer-dao.test.ts)
+  → 23 pass / 0 fail
+(cd packages/llm-jsonl-importer && bun test tests/importer.test.ts tests/forensic-contract.test.ts)
+  → 58 pass / 0 fail
+(cd packages/ai-runner && bun test tests/identity.test.ts)
+  → 7 pass / 0 fail
+bun run spur-check → exit 0, 1949 pass / 0 fail, 48+2 rules, 99.42% funcs / 99.22% lines
+bun run build → exit 0 all 8 packages
+```
+
+**Design conformance:** R16 steps 1–5 DONE (static ETL CREATE removed; apply loops `SOURCE_DEFINITIONS`; `ETL_TABLE_DDL` only CREATE text; comments updated; tests added). R17 async + deprecated sync hatch DONE. `ensureTargetTables` still exported (`packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:681`). ADR-023 addendum + CHANGELOG breaking/fix DONE.
+
+**SECUA (focus all):** no P1–P3. Post-verify leftovers closed (sync-success test, ensureTargetTables comment, agy import, README regex). Remaining P4: frontmatter `name` still the vacated session-bottleneck title (CLI cannot rename; Q&A keeps it for WBS stability).
+
+**Fix-pass artifacts:** Testing rewrite only — expanded three short `file:line` citations to repo-relative paths so `L4.stale-line-anchor` cleared (no source change). Verdict written to `.spur/run/0061-verdict.json` and `.spur/run/0061-verify-answer.txt`.
 ### Review
-Review of this follow-up spec (2026-08-12). Prior 0061 body that targeted session hooks and `~/.agents/` skill paths is vacated.
+Self-review of the implemented R16/R17 patch (2026-08-12, task 0061). Inline stage provenance: stages implement/test/review executed inline in session `msqhr3cu-61gqt8gt` (inline pipeline driver, `--agent inline`).
 
 | Priority | Finding | File:Line | Disposition |
 | --- | --- | --- | --- |
-| P1 | No blocker in this leftover pair | `docs/00_ADR.md:337` | N/A |
-| P2 | R16 static SQL omits omp/grok/agy ETL tables | `packages/llm-jsonl-importer/src/schema-sql.ts:21` | OPEN — implement R1–R3 |
-| P2 | R17 getGitContext still defaults to BunSyncProcessExecutor | `packages/ai-runner/src/identity.ts:70` | OPEN — implement R4–R5 |
-| P3 | applyHistoryImportSchema must keep migrate-then-insert working | `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:85` | OPEN — Design loop |
-| P4 | Previous 0061 subject (session bottlenecks) was the wrong task | `docs/tasks/0060_fix-2026-08-12-packages-secua-and-architecture-review-findin.md:685` | FIXED in this rewrite |
+| P1 | R16 regression risk: migrate-then-insert callers | `packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:100` | FIXED — `applyHistoryImportSchema` loops `SOURCE_DEFINITIONS` so all built-in ETL tables exist after schema apply; covered by `jsonl-importer-dao.test.ts:314` |
+| P1 | R17 breaking: every in-tree `getGitContext` caller must `await` | `packages/ai-runner/src/identity.ts:80` | FIXED — only caller was `identity.test.ts`; rewritten to async. No production orchestrator path calls it (confirmed by `rg getGitContext`) |
+| P2 | R16 drift could recur if a future source is added only to `SOURCE_DEFINITIONS` | `packages/llm-jsonl-importer/src/sources.ts:158` | FIXED by construction — `SOURCE_DEFINITIONS` is now the single owner; `schema-sql.ts` has no `history_etl_*` CREATE to drift |
+| P2 | `getGitContextSync` left as a footgun | `packages/ai-runner/src/identity.ts:100` | ACCEPTED — required by R5 for one-release sync-caller compatibility; `@deprecated` JSDoc + test |
+| P3 | `nodeBunFactory` import extends ai-runner's runtime surface | `packages/ai-runner/src/identity.ts:1` | ACCEPTED — already a `workspace:*` dependency; factory is the ADR-023 A2 canonical default |
+| P4 | Prior 0061 body (session hooks / `~/.agents/` skill paths) vacated | task frontmatter `name` | KNOWN — name kept for WBS stability; Background section documents the vacation. Not in scope. |
 ### References
 - Parent / predecessor: task `0060` (done). Testing rows R16/R17 were DEFERRED with “WBS to assign”; this WBS is that assignment.
 - 0060 Design MAY / R16–R17 text; 0060 Solution deferral paragraphs.
@@ -260,6 +284,9 @@ Review of this follow-up spec (2026-08-12). Prior 0061 body that targeted sessio
 - Process SSOT if harness work appears later: `/Users/robin/xprojects/spur-new` (not `~/.agents/`).
 ### History
 - 2026-08-12T18:42:55.709Z backlog → todo (system)
+- 2026-08-12T19:39:03.350Z todo → wip (system)
+- 2026-08-12T19:44:54.591Z wip → testing (system)
+- 2026-08-12T19:45:00.412Z testing → done (system)
 ### Notes
 **For the next coding agent**
 
