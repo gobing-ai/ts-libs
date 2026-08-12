@@ -28,6 +28,28 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - None.
 
+## [0.4.29] — 2026-08-12
+
+### Added
+
+- **Observability — Event Severity:** introduced `EventSeverity` (`'info' | 'warning' | 'error'`) and the `WithEventSeverity` mixin in `@gobing-ai/ts-utils`, then stamped a producer-owned severity on every observability event across the workspace: `@gobing-ai/ts-infra` (event-bus lifecycle `bus.emit.done`/`bus.emit.noop`/`bus.handler.error`/`bus.handler.async.enqueued`, api-client request errors, db job-queue lifecycle, scheduler `queue.stats`), `@gobing-ai/ts-ai-runner` (agent started/stopped/message.sent), `@gobing-ai/ts-dual-workflow-engine` (run/node/action/hitl/resume/deny events) and `@gobing-ai/ts-rule-engine` (rule run/eval events) — so consumers can filter or route events by importance.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Security
+
+- No security fixes in this section.
+
+### Breaking Changes
+
+- **Event payloads now require `severity`:** event detail interfaces across the affected packages (e.g. `ApiRequestErrorDetail`, `EmitDoneDetail`, `QueueJobFailedDetail`, and the workflow/agent/rule event payloads) gain a required `severity: EventSeverity` field; code constructing these payloads must supply it.
+
 ## [0.4.28] — 2026-08-12
 
 ### Added
