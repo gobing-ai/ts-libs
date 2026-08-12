@@ -1,4 +1,9 @@
-import { BunSyncProcessExecutor, type SyncProcessExecutor } from '@gobing-ai/ts-runtime';
+import {
+    BunSyncProcessExecutor,
+    nodeBunFactory,
+    type ProcessExecutor,
+    type SyncProcessExecutor,
+} from '@gobing-ai/ts-runtime';
 
 /** Context used to construct the identity preamble injected into agent prompts. */
 export interface IdentityContext {
@@ -64,22 +69,55 @@ export function buildIdentityPreamble(ctx: IdentityContext): string {
     return `${sections.join('\n\n')}\n`;
 }
 
-/** Query git for the current branch name and dirty file count in `workspacePath`. Returns a pre-formatted "Git context" block, or `null` if git is unavailable or the directory is not a repo. */
-export function getGitContext(
+/**
+ * Query git for the current branch name and dirty file count in `workspacePath`.
+ *
+ * Returns a pre-formatted "Git context" block, or `null` if git is unavailable or the directory is
+ * not a repo. Uses the canonical async {@link ProcessExecutor} (defaulting to
+ * `nodeBunFactory.createProcessExecutor()`) per ADR-023 A2 — never the deprecated
+ * {@link BunSyncProcessExecutor}.
+ */
+export async function getGitContext(
     workspacePath: string,
-    executor: SyncProcessExecutor = new BunSyncProcessExecutor(),
-): string | null {
-    const branch = runGit(executor, ['-C', workspacePath, 'branch', '--show-current']);
+    executor: ProcessExecutor = nodeBunFactory.createProcessExecutor(),
+): Promise<string | null> {
+    const branch = await runGit(executor, ['-C', workspacePath, 'branch', '--show-current']);
     if (branch === null || branch === '') return null;
 
-    const status = runGit(executor, ['-C', workspacePath, 'status', '--porcelain']);
+    const status = await runGit(executor, ['-C', workspacePath, 'status', '--porcelain']);
     const dirtyCount = status === null || status === '' ? 0 : status.split('\n').filter(Boolean).length;
     return ['Git context:', `branch: ${branch}`, `dirty: ${dirtyCount === 0 ? 'false' : `${dirtyCount} files`}`].join(
         '\n',
     );
 }
 
-function runGit(executor: SyncProcessExecutor, args: string[]): string | null {
+/**
+ * Query git for the current branch name and dirty file count synchronously.
+ *
+ * @deprecated Use the async {@link getGitContext} instead. Kept for one release for sync callers.
+ * Defaults to the deprecated {@link BunSyncProcessExecutor}; new code must not rely on it.
+ */
+export function getGitContextSync(
+    workspacePath: string,
+    executor: SyncProcessExecutor = new BunSyncProcessExecutor(),
+): string | null {
+    const branch = runGitSync(executor, ['-C', workspacePath, 'branch', '--show-current']);
+    if (branch === null || branch === '') return null;
+
+    const status = runGitSync(executor, ['-C', workspacePath, 'status', '--porcelain']);
+    const dirtyCount = status === null || status === '' ? 0 : status.split('\n').filter(Boolean).length;
+    return ['Git context:', `branch: ${branch}`, `dirty: ${dirtyCount === 0 ? 'false' : `${dirtyCount} files`}`].join(
+        '\n',
+    );
+}
+
+async function runGit(executor: ProcessExecutor, args: string[]): Promise<string | null> {
+    const result = await executor.run({ command: 'git', args, rejectOnError: false, forceBuffered: true });
+    if (result.exitCode !== 0) return null;
+    return result.stdout.trim();
+}
+
+function runGitSync(executor: SyncProcessExecutor, args: string[]): string | null {
     const result = executor.runSync({ command: 'git', args, rejectOnError: false, forceBuffered: true });
     if (result.exitCode !== 0) return null;
     return result.stdout.trim();

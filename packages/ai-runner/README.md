@@ -287,9 +287,13 @@ Use `getGitContext()` to auto-detect the current branch and dirty state:
 ```ts
 import { getGitContext } from '@gobing-ai/ts-ai-runner';
 
-const gitBlock = getGitContext('/workspace/spur');
+const gitBlock = await getGitContext('/workspace/spur');
 // "Git context:\nbranch: feat/team-mode\ndirty: 3 files"
 ```
+
+> `getGitContext` is async (returns `Promise<string | null>`) and defaults to the canonical
+> `ProcessExecutor` from `@gobing-ai/ts-runtime`. A deprecated sync escape hatch `getGitContextSync`
+> remains for one release for sync callers.
 
 ## Session Affinity (run-scoped sessions)
 
