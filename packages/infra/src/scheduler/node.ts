@@ -4,7 +4,6 @@
  */
 
 import { settleWithin } from '../internals/drain';
-import { getLogger } from '../logger';
 import {
     getSchedulerJobDuration,
     getSchedulerJobExecutedTotal,
@@ -34,10 +33,12 @@ function parseInterval(cron: string): number {
         }
     }
 
-    // Real cron field expressions ("0 3 * * *") are NOT supported — running
-    // them every minute silently would badly misfire, so warn on fallback.
-    getLogger('scheduler.node').warn('Unsupported cron expression — falling back to a 60s interval', { cron });
-    return 60_000;
+    // Real cron field expressions ("0 3 * * *") are NOT supported — silently running
+    // them every minute would badly misfire. 0032 made that a warn; task 0060 F7 makes
+    // it a hard error so an unsupported schedule can never fire at the wrong cadence.
+    throw new RangeError(
+        `Unsupported cron expression: "${cron}" — supported forms are a positive millisecond number, "* * * * *", or "*/N * * * *" with N > 0`,
+    );
 }
 
 interface ScheduledEntry {
@@ -81,6 +82,9 @@ export class NodeSchedulerAdapter implements SchedulerAdapter {
     }
 
     register(cron: string, action: ScheduledAction): void {
+        // Fail at registration time: an unsupported expression must never reach start(),
+        // where it would otherwise create a silently-wrong interval (task 0060 F7).
+        parseInterval(cron);
         this.entries.push({ cron, action });
         if (this.running) {
             const last = this.entries[this.entries.length - 1];

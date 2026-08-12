@@ -88,14 +88,38 @@ describe('NodeSchedulerAdapter', () => {
         expect(fired).toBeTrue();
     });
 
-    test('_onScheduledTick handles thrown errors', async () => {
+    test('unsupported cron expression throws at register time (0060 F7)', async () => {
         const s = new NodeSchedulerAdapter();
-        const entry: { cron: string; action: () => Promise<void> } = {
-            cron: '60000',
-            action: async () => {
-                throw new Error('fail');
-            },
-        };
-        await exposeScheduledTick(s)._onScheduledTick(entry);
+        // A real 5-field cron (minute/hour fields) must fail loud — never silently fire
+        // every 60 seconds at the wrong cadence.
+        expect(() => s.register('0 3 * * *', async () => {})).toThrow(RangeError);
+        expect(() => s.register('0 3 * * *', async () => {})).toThrow(/Unsupported cron/);
+        // No timer is created for the rejected entry.
+        await expect(s.start()).resolves.toBeUndefined();
+    });
+
+    test('supported cadences still schedule (0060 F7)', async () => {
+        const originalSetInterval = globalThis.setInterval;
+        const originalClearInterval = globalThis.clearInterval;
+        const timers: number[] = [];
+
+        globalThis.setInterval = ((_handler: Parameters<typeof setInterval>[0], timeout?: number) => {
+            timers.push(timeout ?? -1);
+            return timers.length as unknown as ReturnType<typeof setInterval>;
+        }) as typeof setInterval;
+        globalThis.clearInterval = (() => {}) as typeof clearInterval;
+
+        try {
+            const s = new NodeSchedulerAdapter();
+            s.register('* * * * *', async () => {});
+            s.register('*/5 * * * *', async () => {});
+            s.register('60000', async () => {});
+            await s.start();
+            await s.stop();
+            expect(timers).toEqual([60_000, 300_000, 60_000]);
+        } finally {
+            globalThis.setInterval = originalSetInterval;
+            globalThis.clearInterval = originalClearInterval;
+        }
     });
 });

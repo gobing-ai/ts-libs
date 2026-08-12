@@ -7,7 +7,7 @@ Infrastructure backbone — typed event bus, queue/scheduler contracts, adapter 
 `ts-infra` provides the subsystems that form the application backbone:
 
 | Subsystem | Module | Purpose |
-|-----------|--------|---------|
+| ----------- | -------- | --------- |
 | **Event Bus** | `event-bus/` | Typed pub/sub with sync + async dispatch, named async handlers, queue consumer bridge, lifecycle self-observability |
 | **Job Queue** | core + `/job-queue-db` | Queue interfaces in core; DB-backed enqueue/consume flow (`DBJobQueue`, `DBQueueConsumer`) via opt-in subpath; optional typed event emission |
 | **Scheduler** | core + scheduler subpaths | Scheduler contracts, registry, built-in actions, noop adapter in core; Node and Cloudflare adapters via opt-in subpaths |
@@ -326,6 +326,11 @@ export default {
 };
 ```
 
+**Cron support is deliberately minimal (task 0060 F7):** a positive millisecond number
+(`'60000'`), `'* * * * *'`, or `'*/N * * * *'` (N > 0). Any other expression — including a
+full 5-field cron like `'0 3 * * *'` — makes `register()` throw a `RangeError`; it never
+silently falls back to a 60s interval.
+
 ### API Client — typed HTTP with tracing
 
 ```ts
@@ -497,7 +502,6 @@ bun add @opentelemetry/sdk-trace-node @opentelemetry/sdk-metrics \
         @opentelemetry/exporter-metrics-otlp-http
 ```
 
-
 ### Application Bootstrap
 
 The application bootstrap API provides a deterministic lifecycle for wiring
@@ -606,6 +610,7 @@ billing:
 ```
 
 Config validators accept four shapes:
+
 - `{ safeParse(raw) → { success, data?, errors? } }` — Zod-compatible
 - `(raw) => TAppConfig` — bare function
 - `{ validate(raw) => TAppConfig }` — method form
@@ -640,6 +645,7 @@ await runCliApplication({
 ```
 
 Differences from `runNodeApplication`:
+
 - `start` returns `number | void` — the number becomes the exit code (void = 0)
 - On success, calls `app.stop('shutdown')` then `process.exit(code)`
 - On error, writes the message to stderr and exits 1 (after graceful teardown)
@@ -719,7 +725,7 @@ attached — land in the JSONL System Events log alongside the domain event itse
 **Six System Events prefixes and where they originate:**
 
 | Prefix | Source | Constructed when `events` is omitted |
-|--------|--------|---------------------------------------|
+| -------- | -------- | --------------------------------------- |
 | `bus.*` | `EventBus` lifecycle self-observability (the `lifecycleBus` itself) | always — `runApplication` creates it |
 | `api.*` | `APIClient` (`api.request.error`) | `new EventBus<ApiClientEvents>({ lifecycleBus })` (R5) |
 | `rule.*` | `RuleEngine` (rule-run structured observability) | `new EventBus<RuleEngineEvents>({ lifecycleBus })` (R2) |
@@ -788,6 +794,7 @@ The host forwards the optional teardown `reason` (a plain `string` on the core c
 `ApplicationStopReason` — `'manual' | 'signal' | 'error' | 'shutdown'` — at the app level)
 to every plugin's `onStop`/`onUnload`. Built-in service plugins use this for log context;
 the user-callback plugin delivers it to your `stop(app, reason)`.
+
 ```
 
 ### Graceful shutdown
