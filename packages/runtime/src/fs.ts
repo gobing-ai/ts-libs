@@ -27,12 +27,17 @@ export async function atomicWriteJson(
     await atomicWriteFile(path, `${JSON.stringify(value, null, 2)}\n`, fs);
 }
 
-/** Reads and parses a JSON file. */
+/** Reads and parses a JSON file. Throws with the file named when the content is not valid JSON. */
 export async function readJsonFile<T = unknown>(
     path: string,
     fs: CanonicalFileSystem = createNodeFileSystem(),
 ): Promise<T> {
-    return JSON.parse(await fs.readFile(path)) as T;
+    const content = await fs.readFile(path);
+    try {
+        return JSON.parse(content) as T;
+    } catch (error) {
+        throw new Error(`Failed to parse JSON file "${path}": ${(error as Error).message}`);
+    }
 }
 
 /** Writes a value as JSON with 2-space indentation and trailing newline. */
@@ -47,25 +52,57 @@ export async function writeJsonFile(
 /**
  * Recursively walks a directory, returning sorted paths to all files,
  * optionally excluding entries by name.
+ *
+ * Cycle-safe and root-confined (task 0060 F3): directory symlinks are tracked
+ * by their canonical real path, so a link back to an ancestor (or the start
+ * root itself) is walked once at most, and a link escaping the start root is
+ * skipped. In-root directory symlinks are still traversed — importer and
+ * rule-engine walk `$HOME/...` trees that are often symlinks into a dotfiles
+ * repo. When the filesystem has no `realPath` (in-memory / CF stubs), today's
+ * follow-`stat` behaviour is kept (no ambient capability).
  */
 export async function walkDir(
     path: string,
     fs: CanonicalFileSystem = createNodeFileSystem(),
     exclude?: Set<string>,
 ): Promise<string[]> {
-    const entries = (await fs.readDir(path)).sort();
+    const startReal = fs.realPath?.(path) ?? path;
+    const visited = new Set<string>([startReal]);
     const result: string[] = [];
+    await walkDirInto(path, fs, exclude, startReal, visited, result);
+    return result;
+}
+
+async function walkDirInto(
+    path: string,
+    fs: CanonicalFileSystem,
+    exclude: Set<string> | undefined,
+    startReal: string,
+    visited: Set<string>,
+    result: string[],
+): Promise<void> {
+    const entries = (await fs.readDir(path)).sort();
     for (const entry of entries) {
         if (exclude?.has(entry)) continue;
         const fullPath = joinPath(path, entry);
         const entryStat = await fs.stat(fullPath);
         if (entryStat?.isDirectory()) {
-            result.push(...(await walkDir(fullPath, fs, exclude)));
+            const entryReal = fs.realPath?.(fullPath) ?? fullPath;
+            if (visited.has(entryReal)) continue; // cycle or already-walked real dir
+            if (
+                fs.realPath !== undefined &&
+                entryReal !== startReal &&
+                !entryReal.startsWith(`${startReal}/`) &&
+                !entryReal.startsWith(`${startReal}\\`)
+            ) {
+                continue; // symlink escapes the start root
+            }
+            visited.add(entryReal);
+            await walkDirInto(fullPath, fs, exclude, startReal, visited, result);
         } else if (entryStat?.isFile()) {
             result.push(fullPath);
         }
     }
-    return result;
 }
 
 /**

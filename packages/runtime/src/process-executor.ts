@@ -1,5 +1,6 @@
 import { isatty } from 'node:tty';
 import { type Options as ExecaOptions, execa } from 'execa';
+import { getProcessEnv } from './config';
 import type { ProcessExecutionSource, ProcessRegistry } from './process-registry';
 import type { RuntimePaths } from './runtime-paths';
 
@@ -48,6 +49,13 @@ export interface ProcessOptions {
     args?: string[];
     cwd?: string;
     env?: Record<string, string>;
+    /**
+     * `'merge'` (default): a partial `env` extends the parent environment (execa
+     * `extendEnv: true` semantics). `'replace'`: the child gets exactly `env` and
+     * none of the parent variables. Task 0060 R5 unified the default to merge so
+     * `run` and `runStreaming` share one contract.
+     */
+    envMode?: 'merge' | 'replace';
     timeout?: number;
     maxOutput?: number;
     label?: string;
@@ -151,6 +159,12 @@ export interface PipeProcessOptions {
     args?: string[];
     cwd?: string;
     env?: Record<string, string>;
+    /**
+     * `'merge'` (default): a partial `env` extends the parent environment, matching
+     * {@link ProcessExecutor.run}. `'replace'`: the child gets exactly `env`.
+     * Previously `runStreaming` always replaced; task 0060 R5 made merge the default.
+     */
+    envMode?: 'merge' | 'replace';
     label?: string;
     /**
      * Registry metadata (spur#0264). Defaults: source `'other'` for streaming.
@@ -163,6 +177,23 @@ export interface PipeProcessOptions {
 
 /** Signal values accepted by subprocess kill. */
 type BunSubprocess = ReturnType<typeof Bun.spawn>;
+
+/**
+ * Resolve the child env per the unified contract (task 0060 R5): a partial env
+ * extends the parent environment unless `envMode: 'replace'` opts out. Parent
+ * values can be `undefined` (deleted keys) — Bun's env is string-only, so filter them.
+ */
+function resolveChildEnv(
+    env: Record<string, string>,
+    envMode: 'merge' | 'replace' | undefined,
+): Record<string, string> {
+    if (envMode === 'replace') return env;
+    const merged: Record<string, string> = {};
+    for (const [key, value] of Object.entries(getProcessEnv())) {
+        if (value !== undefined) merged[key] = value;
+    }
+    return { ...merged, ...env };
+}
 
 /** Signal values accepted by subprocess kill (e.g. 'SIGTERM', 'SIGKILL'). */
 export type ProcessSignal = Parameters<BunSubprocess['kill']>[0];
@@ -360,7 +391,7 @@ export class NodeProcessExecutor implements ProcessExecutor {
                 stdout: 'pipe',
                 stderr: 'pipe',
                 ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-                ...(options.env !== undefined ? { env: options.env } : {}),
+                ...(options.env !== undefined ? { env: resolveChildEnv(options.env, options.envMode) } : {}),
             });
             const pipe = new BunPipeProcess(subprocess);
             if (pipe.pid !== null) {

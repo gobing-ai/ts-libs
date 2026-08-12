@@ -20,6 +20,19 @@ function recordEvents(): { events: Array<{ event: string; detail: ProcessEventDe
     };
 }
 
+/** Drain a pipe process stdout stream into a UTF-8 string (empty when the stream is absent). */
+async function readStreamText(stream: ReadableStream<Uint8Array> | null): Promise<string> {
+    if (stream === null) return '';
+    let text = '';
+    const reader = stream.getReader();
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        text += new TextDecoder().decode(value);
+    }
+    return text;
+}
+
 function recordTracer(): { spans: string[]; tracer: TracerPort } {
     const spans: string[] = [];
     return {
@@ -280,6 +293,48 @@ describe('NodeProcessExecutor', () => {
             expect(result.stdout).toContain(`SENTINEL=parent-survives`);
             // Forwarded variable reaches the child.
             expect(result.stdout).toContain('FORWARDED=run-merge-1');
+        } finally {
+            delete process.env[sentinel];
+        }
+    });
+    test('runStreaming merges a partial env with process.env (envMode merge — task 0060 R5)', async () => {
+        // runStreaming used to hand env straight to Bun.spawn, which REPLACES the parent
+        // environment — stripping PATH/HOME/provider credentials from agent subprocesses.
+        // The unified contract now merges by default, exactly like run() (task 0056).
+        const sentinel = `RUNTIME_MERGE_SENTINEL_${Date.now()}`;
+        process.env[sentinel] = 'parent-survives';
+        try {
+            const proc = new NodeProcessExecutor().runStreaming({
+                command: 'sh',
+                args: ['-c', `echo "SENTINEL=${'$'}${sentinel}"; echo "FORWARDED=${'$'}{SPUR_RUN_ID}"`],
+                env: { SPUR_RUN_ID: 'run-stream-merge-1' },
+            });
+            const stdout = await readStreamText(proc.stdout);
+
+            expect(await proc.exited).toBe(0);
+            // Parent variable survives (merge, not replace).
+            expect(stdout).toContain('SENTINEL=parent-survives');
+            // Forwarded variable reaches the child.
+            expect(stdout).toContain('FORWARDED=run-stream-merge-1');
+        } finally {
+            delete process.env[sentinel];
+        }
+    });
+    test('runStreaming envMode replace drops the parent environment (task 0060 R5)', async () => {
+        const sentinel = `RUNTIME_REPLACE_SENTINEL_${Date.now()}`;
+        process.env[sentinel] = 'parent-survives';
+        try {
+            const proc = new NodeProcessExecutor().runStreaming({
+                command: 'sh',
+                args: ['-c', `echo "SENTINEL=${'$'}${sentinel}"; echo "MINIMAL=${'$'}{SPUR_RUN_ID}"`],
+                env: { SPUR_RUN_ID: 'run-stream-replace-1' },
+                envMode: 'replace',
+            });
+            const stdout = await readStreamText(proc.stdout);
+
+            expect(await proc.exited).toBe(0);
+            expect(stdout).not.toContain('SENTINEL=parent-survives');
+            expect(stdout).toContain('MINIMAL=run-stream-replace-1');
         } finally {
             delete process.env[sentinel];
         }

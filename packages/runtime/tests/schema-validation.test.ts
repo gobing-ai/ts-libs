@@ -65,7 +65,7 @@ describe('loadStructuredConfig', () => {
             'Refusing to fetch remote',
         );
 
-        // Pass an explicit fetch — no globalThis.fetch mutation needed.
+        // fetch alone is ALSO not enough — allowRemote is the explicit opt-in (task 0060 F2).
         const mockFetch = async (): Promise<Response> =>
             new Response(
                 JSON.stringify({
@@ -74,9 +74,14 @@ describe('loadStructuredConfig', () => {
                     properties: { $schema: { type: 'string' }, name: { type: 'string' } },
                 }),
             );
-        expect(await parseStructuredConfig(config, 'remote.yaml', { fetch: mockFetch })).toMatchObject({
-            name: 'demo',
-        });
+        await expect(parseStructuredConfig(config, 'remote.yaml', { fetch: mockFetch })).rejects.toThrow(
+            'Refusing to fetch remote',
+        );
+
+        // Only BOTH flags together fetch and validate.
+        expect(
+            await parseStructuredConfig(config, 'remote.yaml', { allowRemote: true, fetch: mockFetch }),
+        ).toMatchObject({ name: 'demo' });
     });
 
     test('resolves a bundled package-specifier schema ref through the module resolver', async () => {
@@ -122,6 +127,7 @@ describe('loadStructuredConfig', () => {
             '$schema: https://schemas.example/config.json\nname: demo\n',
             'remote.yaml',
             {
+                allowRemote: true,
                 fetch: async () =>
                     new Response(
                         JSON.stringify({
@@ -141,6 +147,7 @@ describe('loadStructuredConfig', () => {
 
         await expect(
             parseStructuredConfig('$schema: https://schemas.example/config.json\nname: demo\n', 'remote.yaml', {
+                allowRemote: true,
                 fetch: async () => new Response('missing', { status: 404 }),
             }),
         ).rejects.toThrow('HTTP 404');
@@ -149,6 +156,7 @@ describe('loadStructuredConfig', () => {
     test('rejects an oversized remote schema by Content-Length before reading the body', async () => {
         await expect(
             parseStructuredConfig('$schema: https://schemas.example/big.json\nname: demo\n', 'remote.yaml', {
+                allowRemote: true,
                 fetch: async () => new Response('{}', { headers: { 'content-length': String(6 * 1024 * 1024) } }),
             }),
         ).rejects.toThrow('exceeds the');
@@ -166,6 +174,7 @@ describe('loadStructuredConfig', () => {
 
         await expect(
             parseStructuredConfig('$schema: https://schemas.example/drip.json\nname: demo\n', 'remote.yaml', {
+                allowRemote: true,
                 fetch: async () => new Response(oversized),
             }),
         ).rejects.toThrow('exceeds the');

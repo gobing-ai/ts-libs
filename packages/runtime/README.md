@@ -261,16 +261,17 @@ the most secure and performant default:
 | ------- | --------- | ------------ | ------- |
 | **Package specifier** (recommended) | `$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"` | Resolved through `node_modules` via the module resolver, then read from disk | No network, no path guessing; survives hoisting/pnpm/monorepo layouts. Schemas ship in each package's `schemas/` (declared in `files`). **Quote the value** — YAML treats a leading `@` as reserved. |
 | Relative path | `$schema: ./schemas/rule-file.schema.json` | Resolved against the config file's directory | Fine for repo-local schemas; brittle if the config moves. |
-| Remote URL | `$schema: https://json-schema.org/.../rule-file.schema.json` | Fetched over HTTP(S) — **off by default** | SSRF/DoS surface for third-party configs. Opt in with `{ allowRemote: true }` (5s timeout) or supply your own `fetch`. |
+| Remote URL | `$schema: https://json-schema.org/.../rule-file.schema.json` | Fetched over HTTP(S) — **off by default** | SSRF/DoS surface for third-party configs. Opt in with **both** `{ allowRemote: true }` **and** a `fetch` implementation — there is no built-in fetch; the caller owns timeout/credentials. |
 
 ```ts
 // Bundled package schema (default path — no extra options needed):
 //   $schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"
 await loadStructuredConfig('rules.yaml');
 
-// Remote schema is refused unless explicitly enabled:
-await loadStructuredConfig('rules.yaml', { allowRemote: true });        // built-in fetch, time-bounded
-await loadStructuredConfig('rules.yaml', { fetch: myFetch });           // or inject your own
+// Remote schema is refused unless BOTH flags are present:
+await loadStructuredConfig('rules.yaml', { allowRemote: true, fetch: myFetch }); // caller-supplied fetch
+// { allowRemote: true } alone -> refused (no built-in fetch)
+// { fetch: myFetch } alone     -> refused (no explicit opt-in)
 ```
 
 > **Security:** remote schema fetching is disabled by default. Resolving a bundled schema from

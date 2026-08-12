@@ -76,11 +76,20 @@ export async function parseStructuredConfig(
     source: string,
     options: StructuredConfigLoadOptions = {},
 ): Promise<unknown> {
-    const parsed = source.endsWith('.json') ? JSON.parse(content) : parseYaml(content);
+    const parsed = source.endsWith('.json') ? parseJsonContent(content, source) : parseYaml(content);
     if (options.validateSchema !== false) {
         await validateDeclaredJsonSchema(parsed, source, options);
     }
     return parsed;
+}
+
+/** Strict JSON parse that rethrows with the offending source named; config parse failures stay fail-loud. */
+function parseJsonContent(content: string, source: string): unknown {
+    try {
+        return JSON.parse(content);
+    } catch (error) {
+        throw new StructuredConfigSchemaError(`Failed to parse JSON config "${source}": ${(error as Error).message}`);
+    }
 }
 
 /** Extracts the `$schema` reference from a parsed config object, resolves and fetches the schema, then validates. */
@@ -344,13 +353,16 @@ function splitPackageSpecifier(specifier: string): { pkg: string; subpath: strin
 
 async function readSchema(schemaLocation: string, options: StructuredConfigLoadOptions): Promise<string> {
     if (isRemoteRef(schemaLocation)) {
-        const fetchFn = options.fetch;
-        if (fetchFn === undefined) {
+        // Dual gate (task 0060 F2): remote fetch requires BOTH the explicit allowRemote opt-in
+        // AND an injected fetch implementation. `allowRemote` alone must not imply a built-in
+        // fetch (that path never existed and would be an unbounded SSRF/DoS surface); `fetch`
+        // alone must not silently enable network I/O the caller never authorised.
+        if (options.allowRemote !== true || options.fetch === undefined) {
             throw new StructuredConfigSchemaError(
-                `Refusing to fetch remote JSON schema "${schemaLocation}": pass a fetch implementation to opt in`,
+                `Refusing to fetch remote JSON schema "${schemaLocation}": pass both allowRemote: true and a fetch implementation to opt in`,
             );
         }
-        const response = await fetchFn(schemaLocation);
+        const response = await options.fetch(schemaLocation);
         if (!response.ok) {
             throw new StructuredConfigSchemaError(
                 `Failed to fetch JSON schema "${schemaLocation}": HTTP ${response.status}`,

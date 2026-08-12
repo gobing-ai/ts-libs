@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -109,6 +109,44 @@ describe('filesystem helpers', () => {
 
         const siblings = await fs.readDir(join(root, 'race'));
         expect(siblings.length).toBe(1);
+    });
+
+    test('walkDir does not loop on a directory symlink cycle (0060 F3)', async () => {
+        const root = await createTempDir();
+        await mkdir(join(root, 'dir'), { recursive: true });
+        await writeFile(join(root, 'dir', 'a.txt'), 'a');
+        await symlink(join(root, 'dir'), join(root, 'dir', 'loop'));
+
+        const fs = createNodeFileSystem(root);
+        const walked = await walkDir(root, fs);
+        expect(walked).toEqual([join(root, 'dir', 'a.txt')]);
+    });
+
+    test('walkDir does not descend through a symlink escaping the start root (0060 F3)', async () => {
+        const root = await createTempDir();
+        const outside = await createTempDir();
+        await mkdir(join(root, 'dir'), { recursive: true });
+        await writeFile(join(root, 'dir', 'a.txt'), 'a');
+        await writeFile(join(outside, 'secret.txt'), 's');
+        await symlink(outside, join(root, 'dir', 'out'));
+
+        const fs = createNodeFileSystem(root);
+        const walked = await walkDir(root, fs);
+        expect(walked).toEqual([join(root, 'dir', 'a.txt')]);
+        expect(walked.some((p) => p.includes('secret'))).toBe(false);
+    });
+
+    test('walkDir still traverses a directory symlink that stays inside the start root (0060 F3)', async () => {
+        const root = await createTempDir();
+        await mkdir(join(root, 'dir', 'nested'), { recursive: true });
+        await writeFile(join(root, 'dir', 'nested', 'file.txt'), 'f');
+        // link < nested alphabetically, so the symlink path is discovered first and the
+        // real dir is then deduped by its canonical path.
+        await symlink(join(root, 'dir', 'nested'), join(root, 'dir', 'link'));
+
+        const fs = createNodeFileSystem(root);
+        const walked = await walkDir(root, fs);
+        expect(walked).toEqual([join(root, 'dir', 'link', 'file.txt')]);
     });
 });
 
