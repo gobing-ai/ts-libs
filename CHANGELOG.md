@@ -18,22 +18,15 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Fixed
 
-- **`history_etl_*` DDL is single-owned (importer):** `HISTORY_IMPORT_SCHEMA_SQL` no longer hard-codes any `CREATE TABLE history_etl_*`; every built-in ETL table is created solely by `ETL_TABLE_DDL` / `ensureTargetTables` looping `SOURCE_DEFINITIONS`. Adding a new built-in source no longer requires editing the static SQL, and `omp`/`grok`/`agy` are no longer dependent on first-import DDL. `applyHistoryImportSchema` still materializes all built-in ETL tables, so migrate-then-insert callers are unaffected (task 0061 R16).
-- **`ProcessExecutor.runStreaming` no longer replaces the parent environment:** a partial `env` now merges with the parent (matching `run()`, execa `extendEnv: true` semantics). The old replace behaviour is opt-in via `envMode: 'replace'` on `ProcessOptions` / `PipeProcessOptions` (task 0060 F5).
-- **Unsupported cron expressions now fail loud instead of misfiring every 60s:** `NodeSchedulerAdapter.register`/`parseInterval` throws a `RangeError` for anything other than a positive millisecond number, `* * * * *`, or `*/N * * * *` — a real 5-field expression like `0 3 * * *` can no longer silently run at the wrong cadence (task 0060 F7).
-- **Remote `$schema` fetch is dual-gated:** `readSchema` refuses unless BOTH `allowRemote: true` and an explicit `fetch` are supplied — `allowRemote` alone no longer implies a (nonexistent) built-in fetch, and `fetch` alone is not an opt-in (task 0060 F2).
-- **`deFlattenKeys` no longer pollutes `Object.prototype`:** `__proto__` / `constructor` / `prototype` key segments are skipped (task 0060 F1).
+- None.
 
 ### Security
 
-- **Shell action results are redacted before persistence:** `workflow.run` action rows scrub `stdout`/`stderr` by default via a new `WorkflowRunOptions.redactor` hook (task 0060 F4).
-- **`walkDir` is cycle-safe and root-confined:** directory symlink cycles and symlinks escaping the start root are skipped; in-root directory symlinks are still traversed (task 0060 F3).
+- No security fixes in this section.
 
 ### Breaking Changes
 
-- **`getGitContext` is now async** (`@gobing-ai/ts-ai-runner`): it returns `Promise<string | null>` and defaults to the canonical `ProcessExecutor` (`nodeBunFactory.createProcessExecutor()`), not the deprecated `BunSyncProcessExecutor`. Callers must `await` it. A deprecated `getGitContextSync` keeps the old sync semantics for one release (ADR-023 A2 addendum, task 0061 R17).
-- **`@gobing-ai/ts-db` main barrel no longer value-exports `D1Adapter`** — import it from `@gobing-ai/ts-db/d1` or use `createDbAdapter({ driver: 'd1' })` (ADR-005 addendum, task 0060 C1).
-- **Rule-engine and workflow `ExtensionRef` shapes changed** from an absolute `absPath` to the authored relative `path` + declaring `baseDir`; the shared loader now validates the authored path directly (task 0060 C2).
+- None.
 
 ## [0.4.29] — 2026-08-12
 
@@ -43,19 +36,31 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Changed
 
-- None.
+- **Rule-engine & workflow `ExtensionRef` now carries the authored relative path:** `absPath` replaced by `path` + declaring `baseDir`; the shared loader validates the authored path directly, so extensions survive cwd/portability changes (task 0060 C2).
 
 ### Fixed
 
-- None.
+- **`history_etl_*` DDL is single-owned (importer):** `HISTORY_IMPORT_SCHEMA_SQL` no longer hard-codes any `CREATE TABLE history_etl_*`; every built-in ETL table is created solely by `ETL_TABLE_DDL` / `ensureTargetTables` looping `SOURCE_DEFINITIONS`. Adding a new built-in source no longer requires editing the static SQL, and `omp`/`grok`/`agy` are no longer dependent on first-import DDL. `applyHistoryImportSchema` still materializes all built-in ETL tables, so migrate-then-insert callers are unaffected (task 0061 R16).
+- **`ProcessExecutor.runStreaming` no longer replaces the parent environment:** a partial `env` now merges with the parent (matching `run()`, execa `extendEnv: true` semantics). The old replace behaviour is opt-in via `envMode: 'replace'` on `ProcessOptions` / `PipeProcessOptions` (task 0060 F5).
+- **Unsupported cron expressions now fail loud instead of misfiring every 60s:** `NodeSchedulerAdapter.register`/`parseInterval` throws a `RangeError` for anything other than a positive millisecond number, `* * * * *`, or `*/N * * * *` — a real 5-field expression like `0 3 * * *` can no longer silently run at the wrong cadence (task 0060 F7).
+- **Remote `$schema` fetch is dual-gated:** `readSchema` refuses unless BOTH `allowRemote: true` and an explicit `fetch` are supplied — `allowRemote` alone no longer implies a (nonexistent) built-in fetch, and `fetch` alone is not an opt-in (task 0060 F2).
+- **`deFlattenKeys` no longer pollutes `Object.prototype`:** `__proto__` / `constructor` / `prototype` key segments are skipped (task 0060 F1).
+- **Inbox & DB drain loops are paged:** `drainPending` (ts-db) and the ai-runner inbox drain no longer load an unbounded row set into memory; both iterate in bounded pages (task 0060 F10/R10/R11).
+- **JSONL importer batches writes and ensures tables per adapter:** per-adapter `ensureTargetTables` plus batched record/ledger writes prevent partial-import corruption and cut I/O round-trips (task 0060 F8/F9/R13).
+- **Rule-engine `scanFiles` buffering is capped and authored extension paths are passed through:** `MAX_SCANNED_FILE_BYTES` (2 MiB) skip prevents memory blowups on huge files; extension paths reach the loader unmutated (task 0060 R12/R15).
+- **Gemini auth tightened** in the ai-runner provider path (task 0060 R14).
 
 ### Security
 
-- No security fixes in this section.
+- **Shell action results are redacted before persistence:** `workflow.run` action rows scrub `stdout`/`stderr` by default via a new `WorkflowRunOptions.redactor` hook (task 0060 F4).
+- **`walkDir` is cycle-safe and root-confined:** directory symlink cycles and symlinks escaping the start root are skipped; in-root directory symlinks are still traversed (task 0060 F3).
+- **Workflow reseed is atomic:** a failed reseed can no longer leave half-rebuilt run/node/action state (task 0060 F6).
 
 ### Breaking Changes
 
 - **Event payloads now require `severity`:** event detail interfaces across the affected packages (e.g. `ApiRequestErrorDetail`, `EmitDoneDetail`, `QueueJobFailedDetail`, and the workflow/agent/rule event payloads) gain a required `severity: EventSeverity` field; code constructing these payloads must supply it.
+- **`getGitContext` is now async** (`@gobing-ai/ts-ai-runner`): it returns `Promise<string | null>` and defaults to the canonical `ProcessExecutor` (`nodeBunFactory.createProcessExecutor()`), not the deprecated `BunSyncProcessExecutor`. Callers must `await` it. A deprecated `getGitContextSync` keeps the old sync semantics for one release (ADR-023 A2 addendum, task 0061 R17).
+- **`@gobing-ai/ts-db` main barrel no longer value-exports `D1Adapter`** — import it from `@gobing-ai/ts-db/d1` or use `createDbAdapter({ driver: 'd1' })` (ADR-005 addendum, task 0060 C1).
 
 ## [0.4.28] — 2026-08-12
 
