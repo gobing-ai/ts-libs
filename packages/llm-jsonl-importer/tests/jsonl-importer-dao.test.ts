@@ -16,6 +16,16 @@ import {
 
 let db: DbAdapter;
 
+/** Parse a stored payload_json column for assertions; malformed values degrade to {}. */
+function parseStoredPayload(raw: string | null | undefined): Record<string, unknown> {
+    if (raw === null || raw === undefined) return {};
+    try {
+        return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+        return {};
+    }
+}
+
 beforeEach(async () => {
     db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
 });
@@ -128,7 +138,7 @@ describe('insertRecord', () => {
         const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_codex');
         expect(rows).toHaveLength(1);
         const row = rows[0] as { payload_json: string };
-        expect(JSON.parse(row.payload_json)).toEqual({ content: 'hello' });
+        expect(parseStoredPayload(row.payload_json)).toEqual({ content: 'hello' });
     });
 
     test('is idempotent on duplicate record_hash', async () => {
@@ -138,7 +148,29 @@ describe('insertRecord', () => {
         const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_codex');
         expect(rows).toHaveLength(1);
         const row = rows[0] as { payload_json: string };
-        expect(JSON.parse(row.payload_json)).toEqual({ content: 'a' });
+        expect(parseStoredPayload(row.payload_json)).toEqual({ content: 'a' });
+    });
+
+    test('custom ETL tables are created per adapter, not from a process-global cache (0060 F8)', async () => {
+        // Two independent :memory: databases in the same process. With the old
+        // `_ensuredTables` Set, adapter A's CREATE marked the table globally and adapter B
+        // skipped its own DDL → "no such table" on first insert. CREATE TABLE IF NOT EXISTS
+        // per adapter makes B self-sufficient.
+        const dbB = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        try {
+            await applyHistoryImportSchema(db);
+            await applyHistoryImportSchema(dbB);
+
+            await insertRecord(db, 'history_etl_custom', 'hash-a', '/tmp/a.jsonl', 1, 0, { id: 'a' }, undefined);
+            await expect(
+                insertRecord(dbB, 'history_etl_custom', 'hash-b', '/tmp/b.jsonl', 1, 0, { id: 'b' }, undefined),
+            ).resolves.toBeUndefined();
+
+            const rowsB = await dbB.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_custom');
+            expect(rowsB).toHaveLength(1);
+        } finally {
+            dbB.close();
+        }
     });
 });
 

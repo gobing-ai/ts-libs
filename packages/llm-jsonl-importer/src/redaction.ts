@@ -17,6 +17,21 @@ export const DEFAULT_REDACTION_RULES: readonly RedactionRule[] = [
         pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
         replacement: '[REDACTED:email]',
     },
+    {
+        name: 'xai-key',
+        pattern: /\bxai-[A-Za-z0-9_-]{12,}\b/g,
+        replacement: '[REDACTED:token]',
+    },
+    {
+        name: 'aws-access-key-id',
+        pattern: /\bAKIA[0-9A-Z]{16}\b/g,
+        replacement: '[REDACTED:aws-key]',
+    },
+    {
+        name: 'bearer-token',
+        pattern: /\bBearer\s+[A-Za-z0-9._\-=]+\b/g,
+        replacement: '[REDACTED:bearer]',
+    },
 ];
 
 /** Redact supported scalar and composite JSON values recursively. */

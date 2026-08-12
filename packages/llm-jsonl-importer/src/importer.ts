@@ -1,3 +1,4 @@
+import type { DbBatchOp } from '@gobing-ai/ts-db';
 import {
     ambientRuntimePaths,
     createNodeFileSystem,
@@ -9,15 +10,15 @@ import {
 import { sha256 } from './hash';
 import {
     applyHistoryImportSchema,
+    checkpointUpsertOp,
     ensureTargetTables,
-    insertLedger,
-    insertRecord,
-    ledgerExists,
+    ledgerExistingHashes,
+    ledgerInsertOp,
     readCheckpoint,
     reconcileFullImport,
+    recordInsertOp,
     resetCheckpoints,
     targetTableFor,
-    writeCheckpoint,
 } from './jsonl-importer-dao';
 import { redactRecord } from './redaction';
 import { resolveSourceDefinition } from './sources';
@@ -130,10 +131,6 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                     record: redacted,
                 });
                 desiredHashes.add(recordHash);
-                if (await ledgerExists(options.db, recordHash)) {
-                    skippedDuplicates += 1;
-                    continue;
-                }
                 prepared.push({ split, splitIndex, normalized: redacted, recordHash });
             }
 
@@ -141,9 +138,24 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             // second pass, no checkpoint advance, no partial rows from this record.
             if (lineRejected) continue;
 
-            // Second pass: resolve _messageSplitIndex → message_hash, then insert.
+            // Chunked ledger lookup (task 0060 F9): one `IN (...)` query per ≤200 hashes
+            // instead of a SELECT per record; duplicates are dropped before the write pass.
+            const existing = await ledgerExistingHashes(
+                options.db,
+                prepared.map((e) => e.recordHash),
+            );
+            const accepted = prepared.filter((entry) => {
+                if (existing.has(entry.recordHash)) {
+                    skippedDuplicates += 1;
+                    return false;
+                }
+                return true;
+            });
+
+            // Second pass: resolve _messageSplitIndex → message_hash, then batch.
             const recordHashBySplitIndex = new Map(prepared.map((e) => [e.splitIndex, e.recordHash] as const));
-            for (const entry of prepared) {
+            const ops: DbBatchOp[] = [];
+            for (const entry of accepted) {
                 const { split, splitIndex, normalized, recordHash } = entry;
                 if (normalized.disposition === 'unknown') {
                     unknownRecords += 1;
@@ -158,33 +170,42 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                     }
                 }
                 if (!options.dryRun) {
-                    await insertRecord(
-                        options.db,
-                        split.targetTable,
-                        recordHash,
-                        file,
-                        lineNumber,
-                        splitIndex,
-                        normalized,
-                        options.now,
+                    // Record row + ledger row join one batch op pair — a crash between the two
+                    // writes is impossible (task 0060 F9).
+                    ops.push(
+                        recordInsertOp(
+                            split.targetTable,
+                            recordHash,
+                            file,
+                            lineNumber,
+                            splitIndex,
+                            normalized,
+                            options.now,
+                        ),
                     );
-                    await insertLedger(
-                        options.db,
-                        recordHash,
-                        resolvedSource,
-                        file,
-                        lineNumber,
-                        splitIndex,
-                        split.targetTable,
-                        options.now,
+                    ops.push(
+                        ledgerInsertOp(
+                            recordHash,
+                            resolvedSource,
+                            file,
+                            lineNumber,
+                            splitIndex,
+                            split.targetTable,
+                            options.now,
+                        ),
                     );
                 }
                 importedRecords += 1;
             }
 
-            if (lineSucceeded && !options.dryRun) {
-                await writeCheckpoint(options.db, resolvedSource, file, lineNumber, options.now);
-                checkpointUpdates += 1;
+            if (!options.dryRun && lineSucceeded) {
+                // Checkpoint upsert joins the same batch so an accepted line can never be
+                // re-imported after a mid-batch crash.
+                ops.push(checkpointUpsertOp(resolvedSource, file, lineNumber, options.now));
+                if (ops.length > 0) {
+                    await options.db.batch(ops);
+                    checkpointUpdates += 1;
+                }
             }
         }
     }

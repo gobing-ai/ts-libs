@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { DEFAULT_REDACTION_RULES } from '../src/redaction';
+import { DEFAULT_REDACTION_RULES, redactValue } from '../src/redaction';
 
 describe('DEFAULT_REDACTION_RULES', () => {
     test('is a non-empty array of valid RedactionRule objects', () => {
@@ -25,6 +25,19 @@ describe('DEFAULT_REDACTION_RULES', () => {
         expect(names).toContain('api-key');
         expect(names).toContain('assignment-secret');
         expect(names).toContain('email');
+        expect(names).toContain('xai-key');
+        expect(names).toContain('aws-access-key-id');
+        expect(names).toContain('bearer-token');
+    });
+
+    test('redacts xai keys, AWS access key ids, and Bearer JWTs (0060 R13)', () => {
+        expect(redactValue('xai-abcdefghijklmnopqrstuv')).toContain('[REDACTED:token]');
+        expect(redactValue('AKIAIOSFODNN7EXAMPLE')).toContain('[REDACTED:aws-key]');
+        expect(redactValue('Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.aa.bb')).toContain('[REDACTED:bearer]');
+        // Existing sk- / assignment / email rules still match.
+        expect(redactValue('sk-abcdefghijklmnopqrstuv')).toContain('[REDACTED:token]');
+        expect(redactValue('api_key = supersecret-value')).toContain('[REDACTED:secret]');
+        expect(redactValue('reach robin@example.com now')).toContain('[REDACTED:email]');
     });
 
     test('patterns have global flag for replace-all behavior', () => {

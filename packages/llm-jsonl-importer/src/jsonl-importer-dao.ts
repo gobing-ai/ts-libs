@@ -157,10 +157,13 @@ async function ledgerExists(db: ImportOptions['db'], recordHash: string): Promis
     return row !== undefined && row !== null;
 }
 
-const _ensuredTables = new Set<string>();
-
-async function insertRecord(
-    db: ImportOptions['db'],
+/**
+ * INSERT op for one accepted record row (task 0060 F9). Pure builder so the
+ * per-record batch path and the single-write `insertRecord` can never drift.
+ * Typed tables validate unknown keys here; the caller must have ensured the
+ * target table exists (`ensureTargetTables` runs at import start).
+ */
+export function recordInsertOp(
     targetTable: string,
     recordHash: string,
     sourceFile: string,
@@ -168,7 +171,7 @@ async function insertRecord(
     splitIndex: number,
     payload: JsonObject,
     now: ImportOptions['now'],
-): Promise<void> {
+): DbBatchOp {
     const table = targetTableFor(targetTable);
     const typedColumns = TYPED_TABLE_COLUMNS[table];
     if (typedColumns !== undefined) {
@@ -189,34 +192,91 @@ async function insertRecord(
             const v = payload[col];
             return v === undefined ? null : v;
         });
-        if (!_ensuredTables.has(table)) {
-            // Typed tables are created by the static schema in applyHistoryImportSchema.
-            _ensuredTables.add(table);
-        }
-        await db.run(
-            `INSERT INTO ${table} (${typedColumns.join(', ')})
-             VALUES (${typedColumns.map(() => '?').join(', ')})
-             ON CONFLICT(record_hash) DO NOTHING`,
-            ...values,
-        );
-    } else {
-        // Generic ETL insert path: store as payload_json blob.
-        if (!_ensuredTables.has(table)) {
-            await db.exec(ETL_TABLE_DDL(table));
-            _ensuredTables.add(table);
-        }
-        await db.run(
-            `INSERT INTO ${table} (record_hash, source_file, source_line, split_index, payload_json, imported_at)
+        return {
+            sql: `INSERT INTO ${table} (${typedColumns.join(', ')})
+                 VALUES (${typedColumns.map(() => '?').join(', ')})
+                 ON CONFLICT(record_hash) DO NOTHING`,
+            params: values,
+        };
+    }
+    // Generic ETL insert path: store as payload_json blob.
+    return {
+        sql: `INSERT INTO ${table} (record_hash, source_file, source_line, split_index, payload_json, imported_at)
              VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(record_hash) DO NOTHING`,
-            recordHash,
-            sourceFile,
-            sourceLine,
-            splitIndex,
-            JSON.stringify(payload),
-            timestamp(now),
+        params: [recordHash, sourceFile, sourceLine, splitIndex, JSON.stringify(payload), timestamp(now)],
+    };
+}
+
+/** INSERT op for one ledger row (task 0060 F9). */
+export function ledgerInsertOp(
+    recordHash: string,
+    source: string,
+    sourceFile: string,
+    sourceLine: number,
+    splitIndex: number,
+    targetTable: string,
+    now: ImportOptions['now'],
+): DbBatchOp {
+    return {
+        sql: `INSERT INTO history_import_ledger (record_hash, source, source_file, source_line, split_index, target_table, imported_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        params: [recordHash, source, sourceFile, sourceLine, splitIndex, targetTable, timestamp(now)],
+    };
+}
+
+/** UPSERT op for one checkpoint row (task 0060 F9: checkpoint joins the record batch). */
+export function checkpointUpsertOp(
+    source: string,
+    sourceFile: string,
+    line: number,
+    now: ImportOptions['now'],
+): DbBatchOp {
+    return {
+        sql: `INSERT INTO history_import_checkpoint (source, source_file, last_imported_line, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(source, source_file) DO UPDATE SET
+                last_imported_line = excluded.last_imported_line,
+                updated_at = excluded.updated_at`,
+        params: [source, sourceFile, line, timestamp(now)],
+    };
+}
+
+/**
+ * Query which of the given hashes already exist in the ledger, in chunks of at
+ * most 200 per `IN (...)` (task 0060 F9 — replaces the per-record SELECT loop).
+ */
+export async function ledgerExistingHashes(db: ImportOptions['db'], hashes: readonly string[]): Promise<Set<string>> {
+    const existing = new Set<string>();
+    for (let i = 0; i < hashes.length; i += 200) {
+        const chunk = hashes.slice(i, i + 200);
+        const placeholders = chunk.map(() => '?').join(', ');
+        const rows = await db.queryAll<{ record_hash: string }>(
+            `SELECT record_hash FROM history_import_ledger WHERE record_hash IN (${placeholders})`,
+            ...chunk,
         );
+        for (const row of rows) existing.add(row.record_hash);
     }
+    return existing;
+}
+
+async function insertRecord(
+    db: ImportOptions['db'],
+    targetTable: string,
+    recordHash: string,
+    sourceFile: string,
+    sourceLine: number,
+    splitIndex: number,
+    payload: JsonObject,
+    now: ImportOptions['now'],
+): Promise<void> {
+    const op = recordInsertOp(targetTable, recordHash, sourceFile, sourceLine, splitIndex, payload, now);
+    if (TYPED_TABLE_COLUMNS[targetTableFor(targetTable)] === undefined) {
+        // Custom ETL tables are created on demand; `CREATE TABLE IF NOT EXISTS` is idempotent,
+        // so there is no process-global cache to go stale across adapter instances (task 0060 F8).
+        await db.exec(ETL_TABLE_DDL(targetTableFor(targetTable)));
+    }
+    await db.run(op.sql, ...op.params);
 }
 
 async function insertLedger(

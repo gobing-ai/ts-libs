@@ -9,6 +9,16 @@ import { HistoryImportError, runJsonlImport, type SourceDefinition, validateSour
 
 let db: DbAdapter;
 
+/** Parse a stored payload_json column for assertions; missing columns degrade to {}. */
+function parsePayloadJson(raw: string | null | undefined): Record<string, unknown> {
+    if (raw === null || raw === undefined) return {};
+    try {
+        return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+        return {};
+    }
+}
+
 beforeEach(async () => {
     db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
 });
@@ -86,18 +96,21 @@ describe('runJsonlImport', () => {
         expect(rows[0]?.count).toBe(1);
     });
 
-    test('recovers when ledger persistence fails after the ETL row is written', async () => {
+    test('writes record + ledger + checkpoint through db.batch, not per-record run() (0060 F9)', async () => {
         const file = await fixtureFile([
-            JSON.stringify({ id: 'recover', timestamp: '2026-05-30T00:00:00.000Z', content: 'recover' }),
+            JSON.stringify({ id: 'b1', timestamp: '2026-05-30T00:00:00.000Z', content: 'b1' }),
+            JSON.stringify({ id: 'b2', timestamp: '2026-05-30T00:00:00.000Z', content: 'b2' }),
+            JSON.stringify({ id: 'b3', timestamp: '2026-05-30T00:00:00.000Z', content: 'b3' }),
         ]);
-        let failLedgerInsert = true;
-        const faultingDb: DbAdapter = {
+        let batchCalls = 0;
+        const insertRunSql: string[] = [];
+        const spiedDb: DbAdapter = {
             db: db.db,
             exec: (sql) => db.exec(sql),
             run: (sql, ...params) => {
-                if (failLedgerInsert && sql.includes('INSERT INTO history_import_ledger')) {
-                    failLedgerInsert = false;
-                    throw new Error('injected ledger failure');
+                // Record/ledger inserts must never travel through the old per-record run() seam.
+                if (sql.includes('INSERT INTO history_etl') || sql.includes('INSERT INTO history_import_ledger')) {
+                    insertRunSql.push(sql);
                 }
                 return db.run(sql, ...params);
             },
@@ -105,6 +118,47 @@ describe('runJsonlImport', () => {
             queryAll: <T>(sql: string, ...params: unknown[]) => db.queryAll<T>(sql, ...params),
             close: () => db.close(),
             batch: async (ops) => {
+                batchCalls += 1;
+                const sqls = ops.map((op) => op.sql);
+                expect(sqls.join('\n')).toContain('INSERT INTO history_etl_antigravity');
+                expect(sqls.join('\n')).toContain('INSERT INTO history_import_ledger');
+                return db.batch(ops);
+            },
+        };
+
+        const result = await runJsonlImport('antigravity', { db: spiedDb, files: [file], mode: 'full', now: fixedNow });
+
+        expect(result.importedRecords).toBe(3);
+        expect(result.checkpointUpdates).toBe(3);
+        // Per-line batch (3 lines × (record + ledger + checkpoint)); record/ledger inserts never
+        // travel through the old run() seam (checkpoint reset in full mode is an unrelated run()).
+        expect(batchCalls).toBeGreaterThanOrEqual(3);
+        expect(insertRunSql).toEqual([]);
+    });
+
+    test('recovers when ledger persistence fails mid-batch (0060 F9 atomic record+ledger)', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'recover', timestamp: '2026-05-30T00:00:00.000Z', content: 'recover' }),
+        ]);
+        // The import path is db.batch (task 0060 F9) — the old per-record run() seam is gone.
+        // Inject the crash inside the batch to prove a mid-batch failure leaves no durable
+        // partial state and the retry converges.
+        let failBatch = true;
+        const faultingDb: DbAdapter = {
+            db: db.db,
+            exec: (sql) => db.exec(sql),
+            run: (sql, ...params) => db.run(sql, ...params),
+            queryFirst: <T>(sql: string, ...params: unknown[]) => db.queryFirst<T>(sql, ...params),
+            queryAll: <T>(sql: string, ...params: unknown[]) => db.queryAll<T>(sql, ...params),
+            close: () => db.close(),
+            batch: async (ops) => {
+                if (failBatch && ops.some((op) => op.sql.includes('INSERT INTO history_import_ledger'))) {
+                    failBatch = false;
+                    // Simulate a crash between the record row and the ledger insert.
+                    const first = ops[0];
+                    if (first !== undefined) await db.run(first.sql, ...first.params);
+                    throw new Error('injected ledger failure');
+                }
                 for (const op of ops) await db.run(op.sql, ...op.params);
             },
         };
@@ -917,7 +971,7 @@ describe('runJsonlImport one-to-many split mode', () => {
         const rows = await db.queryAll<{ payload_json: string }>(
             'SELECT payload_json FROM history_etl_many ORDER BY payload_json',
         );
-        expect(rows.map((r) => JSON.parse(r.payload_json).content)).toEqual(['first', 'second']);
+        expect(rows.map((r) => parsePayloadJson(r.payload_json).content)).toEqual(['first', 'second']);
     });
 
     test('falls back to a single record when the nested field is absent', async () => {
@@ -930,7 +984,7 @@ describe('runJsonlImport one-to-many split mode', () => {
         expect(result.importedRecords).toBe(1);
         const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_many');
         expect(rows).toHaveLength(1);
-        expect(JSON.parse(rows[0]?.payload_json ?? '{}').content).toBe('single');
+        expect(parsePayloadJson(rows[0]?.payload_json).content).toBe('single');
     });
 
     test('routes split records to the config targetTable override when provided', async () => {
@@ -951,7 +1005,7 @@ describe('runJsonlImport one-to-many split mode', () => {
         expect(result.importedRecords).toBe(1);
         const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_nested');
         expect(rows).toHaveLength(1);
-        expect(JSON.parse(rows[0]?.payload_json ?? '{}').source_record_id).toBe('m3');
+        expect(parsePayloadJson(rows[0]?.payload_json).source_record_id).toBe('m3');
     });
 
     test('filters out non-object entries in the nested array', async () => {
@@ -968,7 +1022,7 @@ describe('runJsonlImport one-to-many split mode', () => {
         expect(result.importedRecords).toBe(1);
         const rows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_many');
         expect(rows).toHaveLength(1);
-        expect(JSON.parse(rows[0]?.payload_json ?? '{}').content).toBe('valid');
+        expect(parsePayloadJson(rows[0]?.payload_json).content).toBe('valid');
     });
 });
 
