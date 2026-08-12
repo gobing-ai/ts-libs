@@ -1,15 +1,15 @@
 ---
 schema_version: 1
-id: "A"
+id: "A1"
 name: "Add Grok coding agent to ts-ai-runner"
 status: done
 priority: P1
 tags: []
 created_at: "2026-07-12T07:10:49.110Z"
-updated_at: "2026-08-12T13:35:50.525Z"
+updated_at: "2026-08-12T14:40:50.744Z"
 ---
 
-# A: Add Grok coding agent to ts-ai-runner
+# A1: Add Grok coding agent to ts-ai-runner
 
 ## Goal
 Register Grok Build CLI (`grok`) as a first-class coding agent in `@gobing-ai/ts-ai-runner` so detector, doctor, AiRunner prompt/help/version, and auth probing work the same way as for hermes/omp/claude.
@@ -94,7 +94,6 @@ Feature: Add Grok coding agent to ts-ai-runner
 | 0046 | Add grok AgentShim and registry membership | done |
 | 0047 | Grok auth probe and detector/doctor coverage | done |
 | 0048 | Document grok as a supported coding agent | done |
-| 0052 | Record feature.* / task.* event-map ownership deferral (consumer app owns) | cancelled |
 <!-- END AUTO-GENERATED -->
 
 ## Notes
@@ -142,3 +141,5 @@ Default branch: `/plugin-command` (no Claude `:` or Codex `$` dialect observed a
 - 2026-07-12T07:32:39.288Z backlog → active (system)
 - 2026-08-12T13:35:50.390Z active → verifying (system)
 - 2026-08-12T13:35:50.525Z verifying → done (system)
+- 2026-08-12T14:40:46.360Z moved A → D1 (system)
+- 2026-08-12T14:40:50.744Z moved D1 → A1 (system)

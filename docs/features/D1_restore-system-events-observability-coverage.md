@@ -1,15 +1,15 @@
 ---
 schema_version: 1
-id: "B"
+id: "D1"
 name: "Restore System Events observability coverage"
 status: done
 priority: P2
 tags: []
 created_at: "2026-07-13T05:06:45.677Z"
-updated_at: "2026-08-12T13:35:50.784Z"
+updated_at: "2026-08-12T14:40:55.498Z"
 ---
 
-# B: Restore System Events observability coverage
+# D1: Restore System Events observability coverage
 
 ## Goal
 Restore the System Events JSONL pipeline so every in-repository event source reaches the shared lifecycle bus without violating package boundaries, while recording consumer-owned event namespaces explicitly.
@@ -173,6 +173,7 @@ Feature: Restore System Events observability coverage
 | 0049 | Diagnosis & fix plan for missing System Events in Observability module | done |
 | 0050 | Wire lifecycleBus + attachFileObserver across ts-infra application bootstrap, ai-runner, rule-engine, dual-workflow-engine (fixes agent.* / api.* / bus.* / rule.* / workflow.* / process.* in System Events) | done |
 | 0051 | InboxMessageDao emits durable message.* events via a structural sink (message.* in System Events) | done |
+| 0052 | Record feature.* / task.* event-map ownership deferral (consumer app owns) | cancelled |
 | 0053 | Add lifecycle-bus-propagation architecture rule | done |
 | 0055 | Enrich queue.* EventBus payloads (consumer lifecycle + job correlators) for System Events observability | done |
 <!-- END AUTO-GENERATED -->
@@ -183,3 +184,4 @@ Feature: Restore System Events observability coverage
 - 2026-07-13T05:07:26.741Z backlog → active (system)
 - 2026-08-12T13:35:50.661Z active → verifying (system)
 - 2026-08-12T13:35:50.784Z verifying → done (system)
+- 2026-08-12T14:40:55.498Z moved B → D1 (system)
