@@ -49,7 +49,7 @@ The package exposes:
 |--------|---------|
 | `loadWorkflowDef()` / `loadWorkflowDefFromText()` | YAML/JSON workflow loading and validation |
 | `validateWorkflowDef()` | Semantic invariant checking beyond Zod schema |
-| `StateMachineWorkflowDefSchema` / `TransitionFlowWorkflowDefSchema` / `WorkflowDefSchema` | Zod schemas for workflow definition validation |
+| `StateMachineWorkflowDefSchema` / `TransitionFlowWorkflowDefSchema` / `WorkflowDefSchema` / `WorkflowExtensionsSchema` | Zod schemas for workflow definition validation |
 | `ActionDefSchema` / `GuardDefSchema` | Zod schemas for action and guard definitions |
 
 ### Extensions
@@ -57,7 +57,8 @@ The package exposes:
 | Export | Purpose |
 |--------|---------|
 | `loadWorkflowExtensionsIntoHost()` | Trust-gated extension module loading for actions and guards |
-| `WorkflowExtensionRef` / `LoadWorkflowExtensionsOptions` / `WorkflowExtensionKind` | Extension loading types |
+| `collectWorkflowExtensions()` | Map a YAML `extensions` block to `WorkflowExtensionRef[]` (no import) |
+| `WorkflowExtensions` / `WorkflowExtensionRef` / `LoadWorkflowExtensionsOptions` / `WorkflowExtensionKind` | Extension block and loading types |
 
 ### Runtime
 
@@ -706,7 +707,7 @@ const host = new WorkflowEngineHost();
 
 await loadWorkflowExtensionsIntoHost(
   host,
-  [{ kind: 'actions', absPath: '/path/to/my-extension.ts', sourceName: 'my-config' }],
+  [{ kind: 'actions', path: './exts/audit.ts', baseDir: '/project/workflows', sourceName: 'my-config' }],
   {
     allowExtensions: true,        // required — disabled by default
     moduleLoader: (absPath) => import(absPath),
@@ -716,12 +717,54 @@ await loadWorkflowExtensionsIntoHost(
 
 When a ref has `kind: 'actions'`, only the module's `actions[]` entries are registered; `guards[]` in the same module are ignored (and vice versa). Override warnings are emitted through an optional `logger.warn` callback when an extension replaces a built-in capability.
 
+### Declaring extensions in YAML
+
+Like rule presets, a workflow file can declare relative extension modules inline. Both dialects accept an optional top-level `extensions` block with `actions` and/or `guards` arrays; the paths are resolved against the declaring YAML's directory and must be relative (absolute paths and `..` traversal are rejected at parse time):
+
+```yaml
+# workflows/approval.yaml
+kind: state-machine
+name: approval
+extensions:
+  actions: ["./exts/audit.ts"]
+  guards: ["./exts/flag.ts"]
+initialState: draft
+terminalStates: [done]
+states:
+  - id: draft
+  - id: done
+transitions:
+  - from: draft
+    to: done
+    guard:
+      kind: feature-flag
+```
+
+```ts
+import {
+  collectWorkflowExtensions,
+  loadWorkflowDefFromText,
+  loadWorkflowExtensionsIntoHost,
+  WorkflowEngineHost,
+} from '@gobing-ai/ts-dual-workflow-engine';
+import { dirnamePath } from '@gobing-ai/ts-runtime';
+
+const def = loadWorkflowDefFromText(yamlText);
+const refs = collectWorkflowExtensions(def.name, dirnamePath(workflowPath), def.extensions);
+await loadWorkflowExtensionsIntoHost(host, refs, {
+  allowExtensions: true,
+  moduleLoader: (absPath) => import(absPath),
+});
+```
+
+`collectWorkflowExtensions` maps the block to `WorkflowExtensionRef[]` (kind order `actions` then `guards`) without importing or resolving anything; it is the workflow analog of rule-engine's `collectExtensions`.
+
 ### Security
 
 **Extension modules execute arbitrary code.** The trust gate is fail-closed:
 
 - `allowExtensions` defaults to `false`. When refs are present and loading is not explicitly allowed, the loader throws **before any import** — a declared extension is never silently dropped.
-- Extension paths are validated at load time; `..` traversal is rejected.
+- Extension paths are rejected at schema parse time (absolute paths and `..` traversal) and again at load time by `assertRelativeExtensionPath`.
 - The caller controls the `moduleLoader` function. Tests use a stub; production callers use `(absPath) => import(absPath)`. The loader itself has no ambient code-loading capability.
 
 ## Zod Schemas

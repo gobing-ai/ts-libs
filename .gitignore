@@ -104,4 +104,5 @@ vendors/
 /.spur/spur.*
 /.spur/run
 /.spur/context
+/.spur/memory/sessions/*-checkpoint.md
 /docs/dogfood/

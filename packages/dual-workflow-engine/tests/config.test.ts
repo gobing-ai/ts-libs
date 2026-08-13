@@ -184,6 +184,29 @@ transitions:
         expect(() => loadWorkflowDefFromText(wf)).toThrow();
     });
 
+    test('parses a YAML extensions block and carries the arrays unchanged', () => {
+        const wf = `name: w
+kind: state-machine
+extensions:
+  actions: ["./exts/audit.ts"]
+  guards: ["./exts/flag.ts"]
+initialState: a
+states:
+  - id: a
+  - id: b
+transitions:
+  - from: a
+    to: b
+`;
+        const def = loadWorkflowDefFromText(wf);
+        expect(def.extensions).toEqual({ actions: ['./exts/audit.ts'], guards: ['./exts/flag.ts'] });
+    });
+
+    test('rejects an absolute extension path at parse time', () => {
+        const wf = 'name: w\ninitialState: a\nextensions: {actions: ["/abs.ts"]}\nstates: [{id: a}]\ntransitions: []\n';
+        expect(() => loadWorkflowDefFromText(wf)).toThrow(/must be relative/);
+    });
+
     test('accepts an optional top-level version tag', () => {
         const wf = 'name: w\nversion: "2"\ninitialState: a\nstates: [{id: a}]\ntransitions: []\n';
         expect(loadWorkflowDefFromText(wf).version).toBe('2');

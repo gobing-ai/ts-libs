@@ -63,7 +63,8 @@
                     "guard": { "$ref": "#/$defs/guard" }
                 }
             }
-        }
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
     },
     "$defs": {
         "action": {
@@ -82,6 +83,27 @@
             "properties": {
                 "kind": { "type": "string", "minLength": 1 },
                 "options": { "type": "object", "additionalProperties": true }
+            }
+        },
+        "relativeExtensionPath": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Relative module path; absolute paths and '..' traversal are forbidden.",
+            "not": {
+                "anyOf": [
+                    { "pattern": "^[/\\\\]" },
+                    { "pattern": "^[A-Za-z]:[/\\\\]" },
+                    { "pattern": "(^|[/\\\\])\\.\\.([/\\\\]|$)" }
+                ]
+            }
+        },
+        "extensions": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Rule-style relative extension module paths (actions / guards).",
+            "properties": {
+                "actions": { "type": "array", "items": { "$ref": "#/$defs/relativeExtensionPath" } },
+                "guards": { "type": "array", "items": { "$ref": "#/$defs/relativeExtensionPath" } }
             }
         }
     }

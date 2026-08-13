@@ -5,6 +5,7 @@
     └── [done] **A1**: Add Grok coding agent to ts-ai-runner ([A1_add-grok-coding-agent-to-ts-ai-runner.md](./A1_add-grok-coding-agent-to-ts-ai-runner.md))
 [backlog] **B**: ts-db ([B_ts-db.md](./B_ts-db.md))
 [backlog] **C**: ts-dual-workflow-engine ([C_ts-dual-workflow-engine.md](./C_ts-dual-workflow-engine.md))
+    └── [done] **C1**: Workflow YAML rule-style extensions ([C1_workflow-yaml-rule-style-extensions.md](./C1_workflow-yaml-rule-style-extensions.md))
 [backlog] **D**: ts-infra ([D_ts-infra.md](./D_ts-infra.md))
     └── [done] **D1**: Restore System Events observability coverage ([D1_restore-system-events-observability-coverage.md](./D1_restore-system-events-observability-coverage.md))
 [backlog] **E**: ts-llm-jsonl-importer ([E_ts-llm-jsonl-importer.md](./E_ts-llm-jsonl-importer.md))

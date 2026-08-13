@@ -3,7 +3,7 @@ import type { ExtensionRef, LoadExtensionsOptions } from '@gobing-ai/ts-runtime/
 import { loadExtensionModules } from '@gobing-ai/ts-runtime/extension';
 import { WorkflowValidationError } from './errors';
 import type { WorkflowEngineHost } from './host';
-import type { ActionRunner, GuardRunner } from './types';
+import type { ActionRunner, GuardRunner, WorkflowExtensions } from './types';
 
 /** Minimal warning sink accepted for non-fatal extension diagnostics; a full {@link Logger} satisfies it. */
 export type WorkflowExtensionLogger = Pick<Logger, 'warn'>;
@@ -58,6 +58,30 @@ export interface LoadWorkflowExtensionsOptions {
      * `createNodeFileSystem().realPath` to enable symlink-escape rejection.
      */
     readonly realPath?: (absPath: string) => string;
+}
+
+/**
+ * Build `WorkflowExtensionRef[]` from a YAML `extensions` block without importing
+ * or resolving anything.
+ *
+ * Kind order is `actions` then `guards`. Paths are kept **as authored** (no
+ * basename smash, no `resolve(sourceDir, path)`) so the shared loader sees the
+ * real declaration — a `..` segment or absolute path is rejected there by
+ * `assertRelativeExtensionPath`, not after a rewrite here.
+ */
+export function collectWorkflowExtensions(
+    sourceName: string,
+    sourceDir: string,
+    extensions: WorkflowExtensions | undefined,
+): WorkflowExtensionRef[] {
+    if (extensions === undefined) return [];
+    const refs: WorkflowExtensionRef[] = [];
+    for (const kind of ['actions', 'guards'] as const) {
+        for (const path of extensions[kind] ?? []) {
+            refs.push({ kind, sourceName, path, baseDir: sourceDir });
+        }
+    }
+    return refs;
 }
 
 /**

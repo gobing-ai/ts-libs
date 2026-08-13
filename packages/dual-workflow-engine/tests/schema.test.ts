@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
     ActionDefSchema,
     GuardDefSchema,
     StateMachineWorkflowDefSchema,
     TransitionFlowWorkflowDefSchema,
     WorkflowDefSchema,
+    WorkflowExtensionsSchema,
 } from '../src/schema';
 
 describe('ActionDefSchema', () => {
@@ -238,5 +241,94 @@ describe('WorkflowDefSchema', () => {
     test('rejects invalid shape', () => {
         const result = WorkflowDefSchema.safeParse({ foo: 'bar' });
         expect(result.success).toBe(false);
+    });
+});
+
+describe('WorkflowExtensionsSchema', () => {
+    test('accepts actions and guards arrays', () => {
+        const result = WorkflowExtensionsSchema.safeParse({ actions: ['./exts/audit.ts'], guards: ['./exts/flag.ts'] });
+        expect(result.success).toBe(true);
+        expect(result.data).toEqual({ actions: ['./exts/audit.ts'], guards: ['./exts/flag.ts'] });
+    });
+
+    test('accepts an empty object', () => {
+        expect(WorkflowExtensionsSchema.safeParse({}).success).toBe(true);
+    });
+
+    test('rejects an unknown kind key', () => {
+        // rule-engine analog key; must fail, not be silently ignored
+        const result = WorkflowExtensionsSchema.safeParse({ evaluators: ['./x.ts'] });
+        expect(result.success).toBe(false);
+    });
+
+    test('rejects plugins kind', () => {
+        expect(WorkflowExtensionsSchema.safeParse({ plugins: ['./p.ts'] }).success).toBe(false);
+    });
+});
+
+describe.each(['state-machine', 'transition-flow'] as const)('%s dialect extensions', (dialect) => {
+    const schema = dialect === 'state-machine' ? StateMachineWorkflowDefSchema : TransitionFlowWorkflowDefSchema;
+    const base = (extensions: unknown) =>
+        dialect === 'state-machine'
+            ? {
+                  name: 'wf',
+                  initialState: 'a',
+                  states: [{ id: 'a' }, { id: 'b' }],
+                  transitions: [{ from: 'a', to: 'b' }],
+                  ...(extensions === undefined ? {} : { extensions }),
+              }
+            : {
+                  kind: 'transition-flow',
+                  name: 'wf',
+                  initialNode: 'x',
+                  nodes: [{ id: 'x' }, { id: 'y' }],
+                  edges: [{ from: 'x', to: 'y' }],
+                  ...(extensions === undefined ? {} : { extensions }),
+              };
+
+    test('accepts extensions.actions and extensions.guards unchanged', () => {
+        const result = schema.safeParse(base({ actions: ['./exts/audit.ts'], guards: ['./exts/flag.ts'] }));
+        expect(result.success).toBe(true);
+        expect(result.data?.extensions).toEqual({ actions: ['./exts/audit.ts'], guards: ['./exts/flag.ts'] });
+    });
+
+    test('a def with no extensions key still parses', () => {
+        expect(schema.safeParse(base(undefined)).success).toBe(true);
+    });
+
+    test('rejects an empty extension path', () => {
+        expect(schema.safeParse(base({ actions: [''] })).success).toBe(false);
+    });
+
+    test.each([
+        '/abs.ts',
+        '\\abs.ts',
+        'C:\\x.ts',
+        'C:/x.ts',
+        '../escape.ts',
+        'a/../../x.ts',
+    ])('rejects absolute or traversing path %s', (path) => {
+        expect(schema.safeParse(base({ actions: [path] })).success).toBe(false);
+    });
+
+    test('rejects unknown key inside extensions', () => {
+        expect(schema.safeParse(base({ evaluators: ['./x.ts'] })).success).toBe(false);
+    });
+
+    test('rejects unknown top-level keys even with extensions present', () => {
+        const def = base(undefined) as Record<string, unknown>;
+        def.extensions = { actions: ['./exts/audit.ts'] };
+        def.initial = 'a'; // old field name must still fail .strict() parse
+        expect(schema.safeParse(def).success).toBe(false);
+    });
+});
+
+describe('packaged JSON schemas declare extensions', () => {
+    test.each(['state-machine-workflow', 'transition-flow-workflow'])('%s', async (name) => {
+        const json = JSON.parse(await readFile(join(import.meta.dir, '..', 'schemas', `${name}.schema.json`), 'utf8'));
+        expect(json.properties.extensions).toBeDefined();
+        expect(json.$defs.relativeExtensionPath).toBeDefined();
+        expect(json.$defs.extensions.properties.actions.items.$ref).toBe('#/$defs/relativeExtensionPath');
+        expect(json.$defs.extensions.additionalProperties).toBe(false);
     });
 });

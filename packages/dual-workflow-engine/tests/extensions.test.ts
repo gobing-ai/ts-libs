@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
+    collectWorkflowExtensions,
     type LoadWorkflowExtensionsOptions,
     loadWorkflowExtensionsIntoHost,
     type WorkflowExtensionRef,
 } from '../src/extensions';
 import { createDefaultWorkflowEngineHost, WorkflowEngineHost } from '../src/host';
-import type { ActionRunner, GuardRunner } from '../src/types';
+import type { ActionRunner, GuardRunner, WorkflowExtensions } from '../src/types';
 
 function defaultOptions(overrides: Partial<LoadWorkflowExtensionsOptions> = {}): LoadWorkflowExtensionsOptions {
     return {
@@ -478,5 +479,52 @@ describe('loadWorkflowExtensionsIntoHost path traversal guard', () => {
                 moduleLoader: async () => ({}),
             }),
         ).rejects.toThrow('".." traversal');
+    });
+});
+
+describe('collectWorkflowExtensions', () => {
+    test('maps guards against the declaring directory', () => {
+        const refs = collectWorkflowExtensions('wf', '/proj', { guards: ['./exts/flag.ts'] });
+        expect(refs).toEqual([{ kind: 'guards', path: './exts/flag.ts', baseDir: '/proj', sourceName: 'wf' }]);
+    });
+
+    test('maps actions before guards (kind order)', () => {
+        const extensions: WorkflowExtensions = {
+            guards: ['./g1.ts', './g2.ts'],
+            actions: ['./a1.ts'],
+        };
+        const refs = collectWorkflowExtensions('wf', '/proj', extensions);
+        expect(refs.map((r) => r.kind)).toEqual(['actions', 'guards', 'guards']);
+        expect(refs.map((r) => r.path)).toEqual(['./a1.ts', './g1.ts', './g2.ts']);
+        expect(refs.every((r) => r.sourceName === 'wf' && r.baseDir === '/proj')).toBe(true);
+    });
+
+    test('undefined or empty arrays yield []', () => {
+        expect(collectWorkflowExtensions('wf', '/proj', undefined)).toEqual([]);
+        expect(collectWorkflowExtensions('wf', '/proj', {})).toEqual([]);
+        expect(collectWorkflowExtensions('wf', '/proj', { actions: [], guards: [] })).toEqual([]);
+    });
+
+    test('keeps authored paths untouched (no resolve, no basename smash)', () => {
+        const refs = collectWorkflowExtensions('wf', '/proj/sub', { actions: ['./a.ts', './deep/b.ts'] });
+        expect(refs.map((r) => r.path)).toEqual(['./a.ts', './deep/b.ts']);
+        expect(refs.every((r) => r.baseDir === '/proj/sub')).toBe(true);
+    });
+});
+
+describe('public entry exports (R5)', () => {
+    test('barrel exports the extensions surface', async () => {
+        const barrel = await import('../src/index');
+        expect(typeof barrel.collectWorkflowExtensions).toBe('function');
+        expect(barrel.WorkflowExtensionsSchema.safeParse({ actions: ['./a.ts'] }).success).toBe(true);
+        // Type-level: WorkflowDef carries optional extensions (checked by tsc)
+        const def: import('../src/types').WorkflowDef = {
+            name: 'wf',
+            initialState: 'a',
+            states: [{ id: 'a' }, { id: 'b' }],
+            transitions: [{ from: 'a', to: 'b' }],
+            extensions: { actions: ['./a.ts'], guards: ['./g.ts'] },
+        };
+        expect(def.extensions?.actions).toEqual(['./a.ts']);
     });
 });

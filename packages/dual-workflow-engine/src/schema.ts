@@ -1,3 +1,4 @@
+import { assertRelativeExtensionPath } from '@gobing-ai/ts-runtime/extension';
 import { z } from 'zod';
 
 /** Identifier names reserved for runtime template namespaces; not allowed as user vars. */
@@ -22,6 +23,38 @@ const VarsSchema = z.record(z.string(), z.string()).superRefine((vars, ctx) => {
 const EnvSchema = z.object({
     allow: z.array(z.string().regex(IDENTIFIER, 'env.allow entries must be valid identifiers')).optional(),
 });
+
+/**
+ * Extension module paths must be relative and must not escape the declaring
+ * directory. Mirrors rule-engine's private helper; the real guard is the shared
+ * `assertRelativeExtensionPath` (ADR-010) so schema-time and load-time
+ * validation share one source of truth.
+ */
+const relativeExtensionPath = z
+    .string()
+    .min(1)
+    .superRefine((value, ctx) => {
+        try {
+            assertRelativeExtensionPath(value);
+        } catch (error) {
+            ctx.addIssue({
+                code: 'custom',
+                message: error instanceof Error ? error.message : 'invalid extension path',
+            });
+        }
+    });
+
+/**
+ * Rule-style `extensions` block for workflow YAML: relative module paths for
+ * the two extension-loadable capability kinds. `.strict()` rejects unknown keys
+ * (e.g. `evaluators` or `plugins`).
+ */
+export const WorkflowExtensionsSchema = z
+    .object({
+        actions: z.array(relativeExtensionPath).optional(),
+        guards: z.array(relativeExtensionPath).optional(),
+    })
+    .strict();
 
 /** Zod schema for workflow action definitions. */
 export const ActionDefSchema = z.object({
@@ -75,6 +108,7 @@ export const StateMachineWorkflowDefSchema = z
                 })
                 .strict(),
         ),
+        extensions: WorkflowExtensionsSchema.optional(),
     })
     .strict();
 
@@ -115,6 +149,7 @@ export const TransitionFlowWorkflowDefSchema = z
                 })
                 .strict(),
         ),
+        extensions: WorkflowExtensionsSchema.optional(),
     })
     .strict();
 

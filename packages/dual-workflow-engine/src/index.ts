@@ -2,6 +2,7 @@ export { loadWorkflowDef, loadWorkflowDefFromText, validateWorkflowDef } from '.
 export { FSMError, RunCollisionError, WorkflowResumeError, WorkflowValidationError } from './errors';
 export type { WorkflowEngineEvents } from './events';
 export {
+    collectWorkflowExtensions,
     type LoadWorkflowExtensionsOptions,
     loadWorkflowExtensionsIntoHost,
     type WorkflowExtensionKind,
@@ -36,6 +37,7 @@ export {
     StateMachineWorkflowDefSchema,
     TransitionFlowWorkflowDefSchema,
     WorkflowDefSchema,
+    WorkflowExtensionsSchema,
 } from './schema';
 export { WORKFLOW_ENGINE_SCHEMA_SQL } from './schema-sql';
 export { WorkflowService } from './service';
@@ -66,6 +68,7 @@ export type {
     TransitionRequestResult,
     Vars,
     WorkflowDef,
+    WorkflowExtensions,
     WorkflowPersistenceAdapter,
     WorkflowRunOptions,
     WorkflowRunRecord,

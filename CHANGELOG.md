@@ -10,7 +10,11 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Added
 
-- None.
+- `@gobing-ai/ts-dual-workflow-engine`: workflow YAML accepts an optional rule-style
+  `extensions` block (`actions` / `guards` relative module paths) in both dialects;
+  `collectWorkflowExtensions` maps it to `WorkflowExtensionRef[]` (kind order
+  `actions` then `guards`) without importing or resolving paths. Not breaking —
+  defs without `extensions` still parse.
 
 ### Changed
 

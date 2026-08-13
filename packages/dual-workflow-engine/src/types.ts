@@ -29,6 +29,17 @@ export interface GuardDef {
     readonly options?: Record<string, unknown>;
 }
 
+/**
+ * Rule-style `extensions` block: relative module paths for the two
+ * extension-loadable capability kinds (`actions`, `guards`). Mirrors
+ * rule-engine's preset extensions; paths are resolved by the caller against
+ * the declaring YAML directory.
+ */
+export interface WorkflowExtensions {
+    readonly actions?: readonly string[];
+    readonly guards?: readonly string[];
+}
+
 /** One state in a state-machine workflow. */
 export interface StateDef {
     readonly id: string;
@@ -72,6 +83,7 @@ export interface StateMachineWorkflowDef {
     readonly env?: Env;
     readonly states: readonly StateDef[];
     readonly transitions: readonly TransitionDef[];
+    readonly extensions?: WorkflowExtensions;
 }
 
 /** Transition-flow node definition. */
@@ -111,6 +123,7 @@ export interface TransitionFlowWorkflowDef {
     readonly env?: Env;
     readonly nodes: readonly FlowNodeDef[];
     readonly edges: readonly FlowEdgeDef[];
+    readonly extensions?: WorkflowExtensions;
 }
 
 /** Discriminated workflow definition union. */
