@@ -39,36 +39,83 @@ export async function sortPackagesByDependencyOrder(packages: WorkspacePackage[]
     const publishable = packages.filter((pkg) => !pkg.private);
     const packageByName = new Map(packages.map((pkg) => [pkg.name, pkg]));
     const publishableByName = new Map(publishable.map((pkg) => [pkg.name, pkg]));
-    const visiting = new Set<string>();
-    const visited = new Set<string>();
-    const sorted: WorkspacePackage[] = [];
 
-    function visit(pkg: WorkspacePackage): void {
-        if (visited.has(pkg.name)) return;
-        if (visiting.has(pkg.name)) {
-            throw new Error(`internal package dependency cycle includes ${pkg.name}`);
+    /**
+     * DFS post-order over the given workspace edges; undefined on a cycle.
+     * Unrelated packages keep input order — they need no ordering.
+     */
+    const orderByEdges = (edgeSource: (pkg: WorkspacePackage) => string[]): WorkspacePackage[] | undefined => {
+        const visiting = new Set<string>();
+        const visited = new Set<string>();
+        const sorted: WorkspacePackage[] = [];
+        let cyclic: string | undefined;
+
+        const visit = (pkg: WorkspacePackage): void => {
+            if (cyclic !== undefined) return;
+            if (visited.has(pkg.name)) return;
+            if (visiting.has(pkg.name)) {
+                cyclic = pkg.name;
+                return;
+            }
+
+            visiting.add(pkg.name);
+            for (const dependencyName of edgeSource(pkg)) {
+                const dependency = packageByName.get(dependencyName);
+                if (dependency) visit(dependency);
+            }
+            visiting.delete(pkg.name);
+            visited.add(pkg.name);
+
+            if (publishableByName.has(pkg.name)) {
+                sorted.push(pkg);
+            }
+        };
+
+        for (const pkg of publishable) {
+            visit(pkg);
         }
+        return cyclic === undefined ? sorted : undefined;
+    };
 
-        visiting.add(pkg.name);
-
-        for (const dependencyName of Object.keys(pkg.dependencies)) {
-            const dependency = packageByName.get(dependencyName);
-            if (dependency) visit(dependency);
-        }
-
-        visiting.delete(pkg.name);
-        visited.add(pkg.name);
-
-        if (publishableByName.has(pkg.name)) {
-            sorted.push(pkg);
-        }
+    // Hard edges: runtime `dependencies` (workspace-only). A cycle here is a real
+    // packaging defect — throw.
+    const hardOrder = orderByEdges((pkg) => Object.keys(pkg.dependencies));
+    if (hardOrder === undefined) {
+        throw new Error('internal package dependency cycle in runtime dependencies');
     }
+    let order = hardOrder;
 
+    // Soft edges: workspace `devDependencies`. A package's src may statically import
+    // a sibling it deliberately keeps out of runtime deps (infra's adapter subpaths,
+    // ADR-014), so the build must still run after that sibling. Each soft edge is
+    // accepted only when it extends the order without creating a cycle — the mutual
+    // case is the optional-peer pattern (runtime ↔ db: runtime imports ts-db only
+    // dynamically), which needs no ordering.
+    const acceptedSoft = new Set<string>();
     for (const pkg of publishable) {
-        visit(pkg);
+        for (const dependencyName of Object.keys(pkg.devDependencies ?? {})) {
+            const dependency = packageByName.get(dependencyName);
+            if (!dependency || !publishableByName.has(dependencyName)) continue;
+            const edge = `${pkg.name}\u0000${dependencyName}`;
+            if (acceptedSoft.has(edge)) continue;
+            const indexOfPkg = order.findIndex((p) => p.name === pkg.name);
+            const indexOfDep = order.findIndex((p) => p.name === dependencyName);
+            if (indexOfDep <= indexOfPkg) continue; // already ordered correctly
+
+            const extended = orderByEdges((p) => [
+                ...Object.keys(p.dependencies),
+                ...Object.keys(p.devDependencies ?? {}).filter(
+                    (d) => acceptedSoft.has(`${p.name}\u0000${d}`) || (p.name === pkg.name && d === dependencyName),
+                ),
+            ]);
+            if (extended !== undefined) {
+                order = extended;
+                acceptedSoft.add(edge);
+            }
+        }
     }
 
-    return sorted;
+    return order;
 }
 
 export async function selectPackagesForPublish(

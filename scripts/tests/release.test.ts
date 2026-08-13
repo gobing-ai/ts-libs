@@ -201,6 +201,44 @@ describe('sortPackagesByDependencyOrder', () => {
 
         await expect(sortPackagesByDependencyOrder(packages)).rejects.toThrow('internal package dependency cycle');
     });
+
+    test('orders a package after its workspace devDependencies regardless of input order', async () => {
+        // infra keeps ts-db / ts-runtime as devDeps (ADR-014 adapter subpaths) but its
+        // src imports them statically — build must run after both, even when the input
+        // lists infra first.
+        const infra = {
+            ...pkg('@gobing-ai/ts-infra', 'packages/infra', { '@gobing-ai/ts-utils': '^0.1.5' }),
+            devDependencies: { '@gobing-ai/ts-db': '^0.1.5', '@gobing-ai/ts-runtime': '^0.1.5' },
+        };
+        const db = pkg('@gobing-ai/ts-db', 'packages/db', {
+            '@gobing-ai/ts-runtime': '^0.1.5',
+            '@gobing-ai/ts-utils': '^0.1.5',
+        });
+        const runtime = pkg('@gobing-ai/ts-runtime', 'packages/runtime', { '@gobing-ai/ts-utils': '^0.1.5' });
+        const utils = pkg('@gobing-ai/ts-utils', 'packages/utils');
+
+        const sorted = await sortPackagesByDependencyOrder([infra, db, runtime, utils]);
+        const names = sorted.map((p) => p.name);
+        expect(names.indexOf('@gobing-ai/ts-infra')).toBeGreaterThan(names.indexOf('@gobing-ai/ts-db'));
+        expect(names.indexOf('@gobing-ai/ts-infra')).toBeGreaterThan(names.indexOf('@gobing-ai/ts-runtime'));
+    });
+
+    test('skips a devDependency edge that would close a cycle', async () => {
+        // runtime ↔ db is the optional-peer pattern (runtime imports ts-db only
+        // dynamically); the mutual edge must not throw or force an impossible order.
+        const runtime = {
+            ...pkg('@gobing-ai/ts-runtime', 'packages/runtime', { '@gobing-ai/ts-utils': '^0.1.5' }),
+            devDependencies: { '@gobing-ai/ts-db': '^0.1.5' },
+        };
+        const db = pkg('@gobing-ai/ts-db', 'packages/db', {
+            '@gobing-ai/ts-runtime': '^0.1.5',
+            '@gobing-ai/ts-utils': '^0.1.5',
+        });
+        const utils = pkg('@gobing-ai/ts-utils', 'packages/utils');
+
+        const sorted = await sortPackagesByDependencyOrder([runtime, db, utils]);
+        expect(sorted.map((p) => p.name)).toEqual(['@gobing-ai/ts-utils', '@gobing-ai/ts-runtime', '@gobing-ai/ts-db']);
+    });
 });
 
 describe('release command git push args', () => {
