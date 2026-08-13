@@ -6,7 +6,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
-## [Unreleased]
+## [0.4.31] — 2026-08-13
 
 ### Added
 
@@ -15,22 +15,6 @@ versioned in **lockstep** — a single version number covers every package in th
   `collectWorkflowExtensions` maps it to `WorkflowExtensionRef[]` (kind order
   `actions` then `guards`) without importing or resolving paths. Not breaking —
   defs without `extensions` still parse.
-
-### Changed
-
-- None.
-
-### Fixed
-
-- None.
-
-### Security
-
-- No security fixes in this section.
-
-### Breaking Changes
-
-- None.
 
 ## [0.4.29] — 2026-08-12
 
@@ -884,7 +868,6 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
-[Unreleased]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.23...HEAD
 
 [0.4.23]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.22...@gobing-ai/ts-libs-v0.4.23
 [0.4.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.19...@gobing-ai/ts-libs-v0.4.20
