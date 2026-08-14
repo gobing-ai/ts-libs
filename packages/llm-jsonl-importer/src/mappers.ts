@@ -58,11 +58,13 @@ function identityFieldMap(keys: readonly string[]): Record<string, string> {
 // Source-specific helpers
 // ---------------------------------------------------------------------------
 
-/** Build a provenance string: 'ambient' unless cwd implies a spur workspace. */
-function detectProvenance(cwd?: string): 'ambient' | 'spur-run' {
-    if (cwd === undefined) return 'ambient';
-    return cwd.includes('/spur') || cwd.includes('/spur-new') ? 'spur-run' : 'ambient';
-}
+// Launch provenance (`spur-run` vs `ambient`) is a fact only the import host knows:
+// a session is spur-launched iff its (source, session_id) appears in the host's
+// run→session mapping (spur: `history_run_session`, tasks 0557/0558). The mapper
+// cannot see that, so every row imports as `ambient` and the host corrects mapped
+// sessions after import. The old cwd-substring heuristic (path contains `/spur`)
+// was deleted — it mislabelled ambient sessions that merely ran inside a spur
+// directory (task 0559 R5).
 
 /** Compute args_digest: sha256 of stable-jsonified, key-sorted, redacted args. */
 export function argsDigest(args: unknown): string {
@@ -145,7 +147,7 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
                 ts,
                 duration_ms: raw.durationMs,
                 content_text: null,
-                provenance: detectProvenance(cwd),
+                provenance: 'ambient',
             },
         });
         return entries;
@@ -160,7 +162,7 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
                 record_type: recordType,
                 disposition: 'meta',
                 ts,
-                provenance: detectProvenance(cwd),
+                provenance: 'ambient',
             },
         });
         return entries;
@@ -199,7 +201,7 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
             cost_usd: costUsd ?? null,
             content_text: contentText ?? null,
             cwd: cwd ?? null,
-            provenance: detectProvenance(cwd),
+            provenance: 'ambient',
         },
     });
 
@@ -278,7 +280,7 @@ export function piSplit(raw: unknown): readonly SplitEntry[] {
             cost_usd: costUsd ?? null,
             content_text: s(r.content, r.text, msg?.content) ?? null,
             cwd: cwd ?? null,
-            provenance: detectProvenance(cwd),
+            provenance: 'ambient',
         },
     });
 
@@ -394,7 +396,7 @@ export function ompSplit(raw: Record<string, unknown>, context?: TransformContex
             cost_usd: costUsd ?? null,
             content_text: extractContentText(contentBlocks) ?? s(raw.content, raw.text, msg?.content) ?? null,
             cwd: cwd ?? null,
-            provenance: detectProvenance(cwd),
+            provenance: 'ambient',
         },
     });
 
@@ -508,7 +510,7 @@ export function codexSplit(raw: Record<string, unknown>): readonly SplitEntry[] 
             cost_usd: costUsd ?? null,
             content_text: s(payload.content, payload.text, raw.content, raw.text) ?? null,
             cwd: cwd ?? null,
-            provenance: detectProvenance(cwd),
+            provenance: 'ambient',
         },
     });
 
@@ -688,7 +690,7 @@ export function geminiSplit(raw: Record<string, unknown>, context?: TransformCon
                     disposition: 'meta',
                     ts,
                     content_text: s(state.summary) ?? null,
-                    provenance: detectProvenance(context?.sourceFile),
+                    provenance: 'ambient',
                 },
             },
         ];
@@ -716,7 +718,7 @@ export function geminiSplit(raw: Record<string, unknown>, context?: TransformCon
                 cost_usd: null,
                 content_text: content,
                 cwd: null,
-                provenance: detectProvenance(context?.sourceFile),
+                provenance: 'ambient',
             },
         },
     ];

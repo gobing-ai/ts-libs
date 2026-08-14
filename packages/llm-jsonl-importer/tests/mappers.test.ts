@@ -186,7 +186,10 @@ describe('claudeSplit', () => {
         expect(entries[0]?.record.cost_usd).toBeCloseTo(0.00105, 8);
     });
 
-    test('detects spur provenance from cwd', () => {
+    // R5 (task 0559): launch provenance is the import host's fact (run→session mapping);
+    // the mapper can never derive it from the session file, so a /spur cwd imports as
+    // ambient like anything else — the host corrects mapped sessions after import.
+    test('a /spur cwd does not imply spur-run (provenance is host-derived)', () => {
         const entries = claudeSplit({
             sessionId: 's',
             type: 'user',
@@ -194,7 +197,7 @@ describe('claudeSplit', () => {
             cwd: '/home/user/projects/spur-work',
             content: 'hi',
         });
-        expect(entries[0]?.record.provenance).toBe('spur-run');
+        expect(entries[0]?.record.provenance).toBe('ambient');
     });
 
     test('ambient provenance when cwd is absent', () => {
