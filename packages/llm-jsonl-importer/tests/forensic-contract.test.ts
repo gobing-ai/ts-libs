@@ -441,7 +441,7 @@ describe('R4 tool results store byte count, never content', () => {
         const tools = await db.queryAll<Record<string, unknown>>('SELECT * FROM history_tool_call');
         expect(tools).toHaveLength(1);
         for (const row of tools) {
-            for (const [col, val] of Object.entries(row)) {
+            for (const [_col, val] of Object.entries(row)) {
                 if (typeof val === 'string') {
                     expect(val).not.toContain('SECRET_TOKEN');
                     expect(val).not.toContain('file1.txt');
