@@ -338,7 +338,11 @@ describe('R1 args_raw forensic retention (task 0553)', () => {
             type: 'assistant',
             timestamp: '2026-08-07T00:00:00.000Z',
             content: [
-                { type: 'tool_use', name: 'TodoWrite', input: { todos: [{ content: 'fix bug', status: 'in_progress' }] } },
+                {
+                    type: 'tool_use',
+                    name: 'TodoWrite',
+                    input: { todos: [{ content: 'fix bug', status: 'in_progress' }] },
+                },
                 { type: 'tool_use', name: 'Bash', input: { command: 'rm -rf /' } },
             ],
         });
@@ -356,7 +360,12 @@ describe('R1 args_raw forensic retention (task 0553)', () => {
             timestamp: '2026-08-07T00:00:00.000Z',
             payload: {
                 content: 'planning',
-                response_item: { function_call: { name: 'update_plan', arguments: JSON.stringify({ plan: [{ step: 'do X', status: 'in_progress' }] }) } },
+                response_item: {
+                    function_call: {
+                        name: 'update_plan',
+                        arguments: JSON.stringify({ plan: [{ step: 'do X', status: 'in_progress' }] }),
+                    },
+                },
             },
         });
         const tool = entries.find((e) => e.targetTable === 'history_tool_call');
@@ -384,7 +393,6 @@ describe('R1 args_raw forensic retention (task 0553)', () => {
         expect(String(tool?.record.args_raw)).toContain('write tests');
     });
 });
-
 
 describe('R4 tool results store byte count, never content', () => {
     let db: DbAdapter;
