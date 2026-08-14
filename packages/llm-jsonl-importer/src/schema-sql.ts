@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS history_tool_call (
     seq           INTEGER NOT NULL,
     tool_name     TEXT NOT NULL,
     args_digest   TEXT,
+    args_raw      TEXT,
     status        TEXT NOT NULL,
     started_at    TEXT,
     completed_at  TEXT,

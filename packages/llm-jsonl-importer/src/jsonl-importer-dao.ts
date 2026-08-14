@@ -46,6 +46,7 @@ const TYPED_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
         'seq',
         'tool_name',
         'args_digest',
+        'args_raw',
         'status',
         'started_at',
         'completed_at',

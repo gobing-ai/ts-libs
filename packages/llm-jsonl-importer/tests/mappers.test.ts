@@ -1233,6 +1233,7 @@ describe('field maps', () => {
         'seq',
         'tool_name',
         'args_digest',
+        'args_raw',
         'status',
         'started_at',
         'completed_at',

@@ -36,6 +36,7 @@ const TOOL_CALL_MAPPER_KEYS: readonly string[] = [
     'seq',
     'tool_name',
     'args_digest',
+    'args_raw',
     'status',
     'started_at',
     'completed_at',
@@ -85,6 +86,35 @@ function redactArgs(args: unknown): unknown {
         return result;
     }
     return args;
+}
+
+/**
+ * Per-source todo-writing tool names whose raw arguments are retained for phase detection.
+ *
+ * Evidence: 0489 R4 confirmed omp/pi/claude; codex/grok/agy probed task 0553 R3 from real
+ * session JSONL. agy has no on-disk session format (VS Code fork); gemini deferred by the
+ * 2026-08-06 source-support ruling.
+ */
+const TODO_TOOL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+    claude: ['TodoWrite'],
+    pi: ['todo'],
+    omp: ['TodoWrite', 'todo'],
+    codex: ['update_plan'],
+    grok: ['todo_write'],
+    agy: [],
+    gemini: [],
+};
+
+/**
+ * Return JSON-stringified raw args when the tool is a todo-writing tool for its source,
+ * otherwise undefined. Codex `arguments` arrives as a JSON string already — store as-is.
+ */
+function maybeArgsRaw(source: string, toolName: string, args: unknown): string | undefined {
+    const allow = TODO_TOOL_ALLOWLIST[source];
+    if (allow === undefined || !allow.includes(toolName)) return undefined;
+    if (typeof args === 'string') return args;
+    if (args === undefined || args === null) return undefined;
+    return JSON.stringify(args);
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +217,7 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
                         seq,
                         tool_name: String(b.name ?? ''),
                         args_digest: argsDigest(b.input),
+                        args_raw: maybeArgsRaw('claude', String(b.name ?? ''), b.input),
                         status: 'ok',
                         started_at: undefined,
                         completed_at: undefined,
@@ -264,6 +295,7 @@ export function piSplit(raw: unknown): readonly SplitEntry[] {
                         seq,
                         tool_name: String(tc.name ?? ''),
                         args_digest: argsDigest(tc.input ?? tc.arguments),
+                        args_raw: maybeArgsRaw('pi', String(tc.name ?? ''), tc.input ?? tc.arguments),
                         status: 'ok',
                         started_at: undefined,
                         completed_at: undefined,
@@ -378,6 +410,7 @@ export function ompSplit(raw: Record<string, unknown>, context?: TransformContex
                     seq,
                     tool_name: String(call.name ?? ''),
                     args_digest: argsDigest(call.input ?? call.arguments),
+                    args_raw: maybeArgsRaw('omp', String(call.name ?? ''), call.input ?? call.arguments),
                     status: 'ok',
                     started_at: undefined,
                     completed_at: undefined,
@@ -496,6 +529,7 @@ export function codexSplit(raw: Record<string, unknown>): readonly SplitEntry[] 
                     seq,
                     tool_name: String(fc.name ?? ''),
                     args_digest: argsDigest(fc.arguments),
+                    args_raw: maybeArgsRaw('codex', String(fc.name ?? ''), fc.arguments),
                     status: 'ok',
                     started_at: undefined,
                     completed_at: undefined,
@@ -615,6 +649,7 @@ export function agySplit(raw: Record<string, unknown>): readonly SplitEntry[] {
                     seq: typeof tc.step_index === 'number' ? tc.step_index : seq,
                     tool_name: String(tc.name ?? tc.tool_name ?? ''),
                     args_digest: argsDigest(tc.input ?? tc.arguments),
+                    args_raw: maybeArgsRaw('agy', String(tc.name ?? tc.tool_name ?? ''), tc.input ?? tc.arguments),
                     status: 'ok',
                     started_at: undefined,
                     completed_at: undefined,
@@ -701,6 +736,7 @@ export function geminiSplit(raw: Record<string, unknown>, context?: TransformCon
                     seq,
                     tool_name: s(tool.name, tool.displayName) ?? 'unknown',
                     args_digest: argsDigest(tool.args),
+                    args_raw: maybeArgsRaw('gemini', s(tool.name, tool.displayName) ?? '', tool.args),
                     status,
                     started_at: timestamp,
                     completed_at: timestamp,
@@ -988,6 +1024,7 @@ export function grokSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
                 seq,
                 tool_name: n.toolName,
                 args_digest: argsDigest(n.toolArgs),
+                args_raw: maybeArgsRaw('grok', n.toolName, n.toolArgs),
                 status: n.toolStatus || 'ok',
                 started_at: ts,
                 completed_at: undefined,
@@ -1029,6 +1066,7 @@ export function grokSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
                 seq,
                 tool_name: n.toolName,
                 args_digest: null,
+                args_raw: undefined,
                 status: n.toolStatus || 'ok',
                 started_at: undefined,
                 completed_at: ts,
@@ -1072,6 +1110,7 @@ export function grokSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
                 seq,
                 tool_name: n.toolName,
                 args_digest: argsDigest(n.toolArgs),
+                args_raw: maybeArgsRaw('grok', n.toolName, n.toolArgs),
                 status: n.toolStatus || 'ok',
                 started_at: recordType === 'tool_call' ? ts : undefined,
                 completed_at: recordType === 'tool_call_update' ? ts : undefined,

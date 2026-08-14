@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
 import { HistoryImportError, runJsonlImport } from '../src';
 import { applyHistoryImportSchema, insertRecord, targetTableFor } from '../src/jsonl-importer-dao';
-import { agySplit, claudeSplit, grokSplit, piSplit, stableFieldShape } from '../src/mappers';
+import { agySplit, claudeSplit, codexSplit, grokSplit, piSplit, stableFieldShape } from '../src/mappers';
 import { HISTORY_IMPORT_SCHEMA_SQL } from '../src/schema-sql';
 import { getSourceDefinition, SOURCE_DEFINITIONS, VALID_TABLE_NAME } from '../src/sources';
 
@@ -328,5 +328,117 @@ describe('R4/R8 mapper contracts', () => {
         expect(msg?.record.duration_ms).toBeUndefined();
         const tool = entries.find((e) => e.targetTable === 'history_tool_call');
         expect(tool?.record.args_digest).toMatch(/^[a-f0-9]{64}$/);
+    });
+});
+
+describe('R1 args_raw forensic retention (task 0553)', () => {
+    test('claude TodoWrite retains full args_raw; non-allowlisted tool does not', () => {
+        const entries = claudeSplit({
+            sessionId: 's',
+            type: 'assistant',
+            timestamp: '2026-08-07T00:00:00.000Z',
+            content: [
+                { type: 'tool_use', name: 'TodoWrite', input: { todos: [{ content: 'fix bug', status: 'in_progress' }] } },
+                { type: 'tool_use', name: 'Bash', input: { command: 'rm -rf /' } },
+            ],
+        });
+        const todo = entries.find((e) => e.targetTable === 'history_tool_call' && e.record.tool_name === 'TodoWrite');
+        const bash = entries.find((e) => e.targetTable === 'history_tool_call' && e.record.tool_name === 'Bash');
+        expect(todo?.record.args_raw).toBeDefined();
+        expect(String(todo?.record.args_raw)).toContain('fix bug');
+        expect(bash?.record.args_raw).toBeUndefined();
+    });
+
+    test('codex update_plan retains args_raw (arguments is already JSON string)', () => {
+        const entries = codexSplit({
+            session_id: 'sess',
+            type: 'assistant',
+            timestamp: '2026-08-07T00:00:00.000Z',
+            payload: {
+                content: 'planning',
+                response_item: { function_call: { name: 'update_plan', arguments: JSON.stringify({ plan: [{ step: 'do X', status: 'in_progress' }] }) } },
+            },
+        });
+        const tool = entries.find((e) => e.targetTable === 'history_tool_call');
+        expect(tool?.record.args_raw).toBeDefined();
+        expect(String(tool?.record.args_raw)).toContain('do X');
+    });
+
+    test('grok todo_write retains args_raw', () => {
+        const entries = grokSplit({
+            timestamp: 1784274045,
+            method: 'session/update',
+            params: {
+                sessionId: 'sess-1',
+                update: {
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 'call-1',
+                    title: 'todo_write',
+                    rawInput: { todos: [{ id: '1', content: 'write tests', status: 'pending' }] },
+                    _meta: { 'x.ai/tool': { name: 'todo_write' } },
+                },
+            },
+        });
+        const tool = entries.find((e) => e.targetTable === 'history_tool_call');
+        expect(tool?.record.args_raw).toBeDefined();
+        expect(String(tool?.record.args_raw)).toContain('write tests');
+    });
+});
+
+
+describe('R4 tool results store byte count, never content', () => {
+    let db: DbAdapter;
+
+    beforeEach(async () => {
+        db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        await applyHistoryImportSchema(db);
+    });
+
+    test('history_tool_call has no result-content column — only result_bytes', async () => {
+        const cols = await db.queryAll<{ name: string }>('PRAGMA table_info(history_tool_call)');
+        const names = cols.map((c) => c.name);
+        expect(names).toContain('result_bytes');
+        expect(names).not.toContain('result_content');
+        expect(names).not.toContain('result_text');
+        expect(names).not.toContain('result_json');
+        expect(names).not.toContain('output');
+    });
+
+    test('Claude session with tool_result stores zero result content in tool_call rows', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({
+                sessionId: 'sess-r4',
+                type: 'assistant',
+                timestamp: '2026-08-07T00:00:00.000Z',
+                messageIndex: 1,
+                content: [{ type: 'tool_use', name: 'Bash', input: { command: 'ls -la' } }],
+            }),
+            JSON.stringify({
+                sessionId: 'sess-r4',
+                type: 'user',
+                timestamp: '2026-08-07T00:00:01.000Z',
+                messageIndex: 2,
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: 'toolu_r4',
+                        content: 'file1.txt\nfile2.ts\nSECRET_TOKEN=abc123',
+                    },
+                ],
+            }),
+        ]);
+        await runJsonlImport('claude', { db, files: [file], mode: 'full', now: fixedNow });
+
+        // The tool_result text must not appear anywhere in history_tool_call.
+        const tools = await db.queryAll<Record<string, unknown>>('SELECT * FROM history_tool_call');
+        expect(tools).toHaveLength(1);
+        for (const row of tools) {
+            for (const [col, val] of Object.entries(row)) {
+                if (typeof val === 'string') {
+                    expect(val).not.toContain('SECRET_TOKEN');
+                    expect(val).not.toContain('file1.txt');
+                }
+            }
+        }
     });
 });
