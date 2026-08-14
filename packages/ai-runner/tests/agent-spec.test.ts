@@ -34,6 +34,50 @@ describe('AgentSpec persistence', () => {
         expect(await loadAgentSpecs(dir)).toEqual([]);
     });
 
+    test('save/load round-trips the optional executor field (task 0537)', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'agent-spec-executor-'));
+        await saveAgentSpec(
+            {
+                id: 'demo-codex-sol',
+                name: 'Verifier',
+                type: 'codex',
+                executor: 'codex-sol',
+                workspace: '/repo',
+                purpose: 'Second opinion',
+                tags: ['team:demo', 'spur:generated'],
+                config: { model: 'gpt-5.6-sol' },
+            },
+            dir,
+        );
+
+        const specs = await loadAgentSpecs(dir);
+        expect(specs).toHaveLength(1);
+        expect(specs[0]).toMatchObject({
+            id: 'demo-codex-sol',
+            type: 'codex',
+            executor: 'codex-sol',
+            config: { model: 'gpt-5.6-sol' },
+        });
+    });
+
+    test('loadAgentSpecs tolerates a pre-existing spec with no executor field', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'agent-spec-no-executor-'));
+        const source = [
+            'id: coder',
+            'name: Coder',
+            'type: codex',
+            'workspace: /repo',
+            'purpose: Implement',
+            'tags: [code]',
+            'config: {}',
+            '',
+        ].join('\n');
+        writeFileSync(join(dir, 'a.yaml'), source);
+        const specs = await loadAgentSpecs(dir);
+        expect(specs[0]).toMatchObject({ id: 'coder', type: 'codex' });
+        expect(specs[0]?.executor).toBeUndefined();
+    });
+
     test('validateAgentId rejects invalid ids', () => {
         expect(validateAgentId('coder-1')).toBe('coder-1');
         expect(() => validateAgentId('Coder')).toThrow(ValueError);

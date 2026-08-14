@@ -12,6 +12,13 @@ export interface AgentSpec {
     id: string;
     name: string;
     type: string;
+    /**
+     * Executor name the spec was materialized from (task 0537, feature B2).
+     * Optional: pre-existing specs carry only `type` and still load — the
+     * drain path falls back to `type` for those (`@transition-shim(spec-without-executor-field)`
+     * in apps/cli/src/commands/agent.ts).
+     */
+    executor?: string;
     workspace: string;
     purpose: string;
     tags: string[];
@@ -90,6 +97,7 @@ function parseAgentSpec(source: string, fileName: string): AgentSpec {
         id: requireString(parsed, 'id', fileName),
         name: requireString(parsed, 'name', fileName),
         type: requireString(parsed, 'type', fileName),
+        ...(typeof parsed.executor === 'string' && parsed.executor.trim() !== '' ? { executor: parsed.executor } : {}),
         workspace: requireString(parsed, 'workspace', fileName),
         purpose: requireString(parsed, 'purpose', fileName),
         tags: requireStringArray(parsed, 'tags', fileName),
@@ -104,6 +112,7 @@ function serializeAgentSpec(spec: AgentSpec): string {
         id: spec.id,
         name: spec.name,
         type: spec.type,
+        ...(spec.executor !== undefined ? { executor: spec.executor } : {}),
         workspace: spec.workspace,
         purpose: spec.purpose,
         tags: spec.tags,
