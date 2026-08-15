@@ -45,6 +45,7 @@ const TYPED_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
         'session_id',
         'seq',
         'tool_name',
+        'call_id',
         'args_digest',
         'args_raw',
         'status',
@@ -252,6 +253,29 @@ export function checkpointUpsertOp(
                 last_imported_line = excluded.last_imported_line,
                 updated_at = excluded.updated_at`,
         params: [source, sourceFile, line, timestamp(now)],
+    };
+}
+
+/**
+ * Targeted UPDATE op attaching a tool duration to a previously-inserted
+ * `history_tool_call` row (task 0564 R1). Keyed by `record_hash` (PK), never an
+ * unindexed predicate. Idempotent: re-imports write the same values.
+ *
+ * Bounds are written alongside a FALLBACK duration so the figure is auditable;
+ * a wallTimeMs-derived duration keeps `started_at`/`completed_at` NULL so the
+ * two measurement paths stay distinguishable.
+ */
+function toolCallDurationUpdateOp(
+    recordHash: string,
+    startedAt: string | null,
+    completedAt: string | null,
+    durationMs: number | null,
+): DbBatchOp {
+    return {
+        sql: `UPDATE history_tool_call
+              SET started_at = ?, completed_at = ?, duration_ms = ?
+              WHERE record_hash = ?`,
+        params: [startedAt, completedAt, durationMs, recordHash],
     };
 }
 
@@ -688,5 +712,6 @@ export {
     resetCheckpoints,
     targetTableFor,
     timestamp,
+    toolCallDurationUpdateOp,
     writeCheckpoint,
 };

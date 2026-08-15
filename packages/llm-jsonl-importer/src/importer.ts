@@ -19,7 +19,9 @@ import {
     recordInsertOp,
     resetCheckpoints,
     targetTableFor,
+    toolCallDurationUpdateOp,
 } from './jsonl-importer-dao';
+import { type OmpToolResultTiming, ompToolResultTiming, timestampToEpochMs } from './mappers';
 import { redactRecord } from './redaction';
 import { resolveSourceDefinition } from './sources';
 import type {
@@ -35,6 +37,83 @@ import type {
 interface SplitRecord {
     readonly targetTable: string;
     readonly raw: JsonObject;
+}
+
+// ---------------------------------------------------------------------------
+// Task 0564 R1 — tool-call duration attach (omp)
+//
+// A toolCall row is emitted while handling its assistant message (SplitEntry is
+// insert-only, so the duration cannot ride the mapper's split path); the
+// duration arrives on a LATER toolResult line. The attach therefore lives in the
+// streaming loop, keyed on (source, session_id, call_id) per the frozen contract:
+//   - `details.wallTimeMs` is the tool's own measured wall time — used as-is,
+//     rounded, NEVER clamped or second-guessed (guards are fallback-only);
+//   - otherwise the fallback `toolResult.timestamp − toolCall message timestamp`
+//     when both are parseable AND the delta is in [0, 3_600_000]; an implausible
+//     delta stays NULL so the unmeasured count stays honest;
+//   - started_at / completed_at are written alongside a FALLBACK figure so it is
+//     auditable (wallTimeMs rows keep both NULL — the two stay distinguishable);
+//   - an unmatched toolCallId attaches nothing and never fails the import.
+//
+// The in-memory map covers the common (fresh-import) case without extra queries;
+// a toolResult whose tool-call line was imported by an earlier checkpointed run
+// (resume) resolves through a DB lookup instead, so a mid-file checkpoint loses
+// no earlier duration.
+// ---------------------------------------------------------------------------
+
+interface PendingToolCall {
+    readonly recordHash: string;
+    /** Assistant-message timestamp (epoch ms) — the fallback's start bound. */
+    readonly messageTsMs: number | undefined;
+}
+
+const TOOL_CALL_KEY_SEP = '\u0000';
+
+function toolCallKey(source: string, sessionId: string, callId: string): string {
+    return `${source}${TOOL_CALL_KEY_SEP}${sessionId}${TOOL_CALL_KEY_SEP}${callId}`;
+}
+
+/** Resolve a tool-call row this run did not see (its line is behind the checkpoint). */
+async function resolveToolCallRow(
+    db: ImportOptions['db'],
+    source: string,
+    sessionId: string,
+    callId: string,
+): Promise<PendingToolCall | undefined> {
+    const row = await db.queryFirst<{ recordHash: string; messageTs: string | null }>(
+        `SELECT tc.record_hash AS recordHash, m.ts AS messageTs
+         FROM history_tool_call tc
+         LEFT JOIN history_message m ON m.record_hash = tc.message_hash
+         WHERE tc.source = ? AND tc.session_id = ? AND tc.call_id = ?`,
+        source,
+        sessionId,
+        callId,
+    );
+    if (row === undefined || row === null) return undefined;
+    return { recordHash: row.recordHash, messageTsMs: timestampToEpochMs(row.messageTs) };
+}
+
+/**
+ * Compute the attachable duration for a toolResult, or null when nothing should
+ * be written (implausible fallback delta → row stays NULL → counts unmeasured).
+ */
+function attachableDuration(
+    timing: OmpToolResultTiming,
+    messageTsMs: number | undefined,
+): { startedAt: string | null; completedAt: string | null; durationMs: number } | null {
+    if (timing.wallTimeMs !== undefined) {
+        // The tool's own measurement — no clamping, no sanity check.
+        return { startedAt: null, completedAt: null, durationMs: Math.round(timing.wallTimeMs) };
+    }
+    if (timing.timestampMs === undefined || messageTsMs === undefined) return null;
+    const delta = timing.timestampMs - messageTsMs;
+    // Guard rails apply to the fallback ONLY: negative or > 1h is implausible.
+    if (!Number.isFinite(delta) || delta < 0 || delta > 3_600_000) return null;
+    return {
+        startedAt: new Date(messageTsMs).toISOString(),
+        completedAt: new Date(timing.timestampMs).toISOString(),
+        durationMs: Math.round(delta),
+    };
 }
 
 /** Run the JSONL import pipeline for one source.
@@ -68,6 +147,10 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     // Full-mode desired set (R1, task 0504): every record hash the current source produces.
     // ReconcileFullImport diffs this against the persisted ledger to retire stale rows.
     const desiredHashes = new Set<string>();
+
+    // Task 0564 R1: tool-call rows emitted by earlier assistant lines, keyed by
+    // (source, session_id, call_id) so a later toolResult line can attach its duration.
+    const toolCallRows = new Map<string, PendingToolCall>();
 
     for (const file of files) {
         const checkpoint = mode === 'incremental' ? await readCheckpoint(options.db, resolvedSource, file) : 0;
@@ -138,6 +221,43 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             // second pass, no checkpoint advance, no partial rows from this record.
             if (lineRejected) continue;
 
+            // Task 0564 R1 (omp): register this line's tool-call rows for later duration
+            // attach. Runs over ALL prepared entries — including duplicates — because a
+            // re-imported line's row already exists and its duration UPDATE still targets
+            // the same deterministic record_hash. The assistant message timestamp is the
+            // fallback's start bound; every call in one message shares it.
+            if (definition.source === 'omp') {
+                const assistantTs = new Map<string, number | undefined>();
+                for (const entry of prepared) {
+                    if (
+                        entry.split.targetTable === 'history_message' &&
+                        entry.normalized.role === 'assistant' &&
+                        typeof entry.normalized.session_id === 'string'
+                    ) {
+                        assistantTs.set(
+                            `${entry.normalized.session_id}${TOOL_CALL_KEY_SEP}${entry.normalized.seq}`,
+                            timestampToEpochMs(entry.normalized.ts),
+                        );
+                    }
+                }
+                for (const entry of prepared) {
+                    const callId = entry.normalized.call_id;
+                    if (
+                        entry.split.targetTable === 'history_tool_call' &&
+                        typeof callId === 'string' &&
+                        callId.length > 0 &&
+                        typeof entry.normalized.session_id === 'string'
+                    ) {
+                        toolCallRows.set(toolCallKey(resolvedSource, entry.normalized.session_id, callId), {
+                            recordHash: entry.recordHash,
+                            messageTsMs: assistantTs.get(
+                                `${entry.normalized.session_id}${TOOL_CALL_KEY_SEP}${entry.normalized.seq}`,
+                            ),
+                        });
+                    }
+                }
+            }
+
             // Chunked ledger lookup (task 0060 F9): one `IN (...)` query per ≤200 hashes
             // instead of a SELECT per record; duplicates are dropped before the write pass.
             const existing = await ledgerExistingHashes(
@@ -199,6 +319,47 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             }
 
             if (!options.dryRun && lineSucceeded) {
+                // Task 0564 R1 (omp): attach tool durations from this line's toolResult
+                // message. Unmatched toolCallIds attach nothing and never fail the import;
+                // an implausible fallback delta stays NULL (unmeasured). The UPDATEs ride
+                // this line's batch — idempotent, so re-imports and post-resume tail
+                // reprocessing write the same values.
+                if (definition.source === 'omp') {
+                    const timing = ompToolResultTiming(raw);
+                    if (timing !== null) {
+                        const resultEntry = prepared.find(
+                            (entry) =>
+                                entry.split.targetTable === 'history_message' && entry.normalized.role === 'toolresult',
+                        );
+                        const sessionId = resultEntry?.normalized.session_id;
+                        if (typeof sessionId === 'string') {
+                            let pending = toolCallRows.get(toolCallKey(resolvedSource, sessionId, timing.toolCallId));
+                            if (pending === undefined) {
+                                // The tool-call line sits behind this run's checkpoint — the
+                                // row exists from an earlier import; resolve it from the DB.
+                                pending = await resolveToolCallRow(
+                                    options.db,
+                                    resolvedSource,
+                                    sessionId,
+                                    timing.toolCallId,
+                                );
+                            }
+                            if (pending !== undefined) {
+                                const duration = attachableDuration(timing, pending.messageTsMs);
+                                if (duration !== null) {
+                                    ops.push(
+                                        toolCallDurationUpdateOp(
+                                            pending.recordHash,
+                                            duration.startedAt,
+                                            duration.completedAt,
+                                            duration.durationMs,
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
                 // Checkpoint upsert joins the same batch so an accepted line can never be
                 // re-imported after a mid-batch crash.
                 ops.push(checkpointUpsertOp(resolvedSource, file, lineNumber, options.now));

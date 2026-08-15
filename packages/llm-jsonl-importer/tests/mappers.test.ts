@@ -1235,6 +1235,7 @@ describe('field maps', () => {
         'session_id',
         'seq',
         'tool_name',
+        'call_id',
         'args_digest',
         'args_raw',
         'status',

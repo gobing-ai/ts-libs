@@ -35,6 +35,7 @@ const TOOL_CALL_MAPPER_KEYS: readonly string[] = [
     'session_id',
     'seq',
     'tool_name',
+    'call_id',
     'args_digest',
     'args_raw',
     'status',
@@ -411,6 +412,10 @@ export function ompSplit(raw: Record<string, unknown>, context?: TransformContex
                     session_id: sessionId,
                     seq,
                     tool_name: String(call.name ?? ''),
+                    // Task 0564 R1: the tool's own call id is the exact join key a
+                    // toolResult's `toolCallId` matches — it lets the streaming loop
+                    // attach the tool's measured duration to the right row.
+                    call_id: s(call.id),
                     args_digest: argsDigest(call.input ?? call.arguments),
                     args_raw: maybeArgsRaw('omp', String(call.name ?? ''), call.input ?? call.arguments),
                     status: 'ok',
@@ -439,6 +444,51 @@ function normalizeOmpToolCall(block: Record<string, unknown>): Record<string, un
     if (Object.keys(nested).length > 0) return nested;
     if (block.type === 'toolCall') return block;
     return null;
+}
+
+// ---------------------------------------------------------------------------
+// OMP toolResult timing signals (task 0564 R1)
+// ---------------------------------------------------------------------------
+
+/** Timing signals carried by an OMP toolResult message envelope (task 0564 R1). */
+export interface OmpToolResultTiming {
+    /** The toolCall id this result answers — joins `toolCall.id` exactly. */
+    toolCallId: string;
+    /** The tool's own measured wall time in ms, when present and finite. */
+    wallTimeMs: number | undefined;
+    /** Message timestamp as epoch millis, when parseable. */
+    timestampMs: number | undefined;
+}
+
+/** Parse a message timestamp (epoch-millis number, numeric string, or ISO) to epoch millis. */
+export function timestampToEpochMs(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.length > 0) {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) return numeric;
+        const parsed = Date.parse(value);
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+    return undefined;
+}
+
+/**
+ * Extract toolResult timing signals from a raw OMP record (task 0564 R1), or null
+ * when the record is not a toolResult message or carries no toolCallId. Live OMP
+ * emits `role: "toolResult"` message envelopes with `{toolCallId, toolName,
+ * content, details, isError, timestamp}`; `details.wallTimeMs` is the tool's own
+ * measured wall time (48% of results in the sampled session) and `toolCallId`
+ * joins the originating `toolCall.id` exactly.
+ */
+export function ompToolResultTiming(raw: Record<string, unknown>): OmpToolResultTiming | null {
+    const msg = o(raw.message);
+    if (String(msg.role ?? '').toLowerCase() !== 'toolresult') return null;
+    const toolCallId = s(msg.toolCallId);
+    if (toolCallId === undefined) return null;
+    const details = o(msg.details);
+    const wallTimeMs =
+        typeof details.wallTimeMs === 'number' && Number.isFinite(details.wallTimeMs) ? details.wallTimeMs : undefined;
+    return { toolCallId, wallTimeMs, timestampMs: timestampToEpochMs(raw.timestamp ?? msg.timestamp) };
 }
 
 // ---------------------------------------------------------------------------

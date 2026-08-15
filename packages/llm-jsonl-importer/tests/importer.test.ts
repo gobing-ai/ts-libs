@@ -1214,3 +1214,160 @@ describe('runJsonlImport dryRun mode', () => {
         expect(checkpoints).toEqual([]);
     });
 });
+
+/**
+ * Task 0564 R1 — omp tool-call durations survive import.
+ *
+ * A toolCall row is emitted with its assistant message (insert-only SplitEntry);
+ * the duration arrives on a later toolResult line and is attached in the
+ * streaming loop keyed on (source, session_id, call_id). The frozen contract:
+ * wallTimeMs first (rounded, never clamped), timestamp-delta fallback with
+ * [0, 3_600_000] guard rails (implausible stays NULL), bounds written for
+ * fallback figures, unmatched toolCallId attaches nothing, and the whole thing
+ * is idempotent + safe under line-checkpointed resume.
+ */
+
+const R1_ASSISTANT_TS = '2026-08-14T05:11:13.990Z';
+
+/** One omp assistant message carrying four toolCall blocks with live `arguments` shape. */
+function r1AssistantLine(): string {
+    return JSON.stringify({
+        type: 'message',
+        id: 'evt-1',
+        timestamp: R1_ASSISTANT_TS,
+        message: {
+            role: 'assistant',
+            model: 'claude-x',
+            content: [
+                { type: 'toolCall', id: 'call-w', name: 'Bash', arguments: { command: 'echo wall' } },
+                { type: 'toolCall', id: 'call-f', name: 'Bash', arguments: { command: 'echo fallback' } },
+                { type: 'toolCall', id: 'call-neg', name: 'Bash', arguments: { command: 'echo neg' } },
+                { type: 'toolCall', id: 'call-huge', name: 'Bash', arguments: { command: 'echo huge' } },
+            ],
+        },
+    });
+}
+
+/** One omp toolResult message envelope (role: "toolResult", live shape). */
+function r1ToolResultLine(toolCallId: string, timestamp: string, details: Record<string, unknown> = {}): string {
+    return JSON.stringify({
+        type: 'message',
+        id: `evt-${toolCallId}`,
+        timestamp,
+        message: {
+            role: 'toolResult',
+            toolCallId,
+            toolName: 'bash',
+            content: [{ type: 'text', text: 'ok' }],
+            details,
+            isError: false,
+            timestamp,
+        },
+    });
+}
+
+/** Full duration fixture: wallTimeMs, fallback, negative, >1h, and unmatched results. */
+function r1FullLines(): string[] {
+    return [
+        r1AssistantLine(),
+        // wallTimeMs path — the tool's own measurement wins, rounded, no bounds.
+        r1ToolResultLine('call-w', '2026-08-14T05:11:14.327Z', { wallTimeMs: 1234.6, exitCode: 0 }),
+        // fallback path — no wallTimeMs; delta = 16.490 − 13.990 = 2500ms, bounds recorded.
+        r1ToolResultLine('call-f', '2026-08-14T05:11:16.490Z', { exitCode: 0 }),
+        // implausible fallback — result BEFORE the assistant message → negative → NULL.
+        r1ToolResultLine('call-neg', '2026-08-14T05:11:10.000Z', { exitCode: 0 }),
+        // implausible fallback — delta ≈ 1h18m > 3_600_000 → NULL.
+        r1ToolResultLine('call-huge', '2026-08-14T06:30:00.000Z', { exitCode: 0 }),
+        // unmatched toolCallId — attaches nothing, never fails the import.
+        r1ToolResultLine('call-missing', '2026-08-14T05:11:15.000Z', { wallTimeMs: 99 }),
+    ];
+}
+
+interface ToolCallRow {
+    call_id: string | null;
+    tool_name: string;
+    duration_ms: number | null;
+    started_at: string | null;
+    completed_at: string | null;
+}
+
+async function r1ToolRows(db: DbAdapter): Promise<ToolCallRow[]> {
+    return db.queryAll<ToolCallRow>(
+        'SELECT call_id, tool_name, duration_ms, started_at, completed_at FROM history_tool_call ORDER BY seq',
+    );
+}
+
+describe('runJsonlImport omp tool durations (0564 R1)', () => {
+    test('call_id survives import and wallTimeMs/fallback/implausible/unmatched resolve per contract', async () => {
+        const file = await namedFixtureFile('r1-durations', r1FullLines());
+        const result = await runJsonlImport('omp', { db, files: [file], mode: 'force-file', now: fixedNow });
+
+        expect(result.importedRecords).toBe(10); // 6 messages (assistant + 5 results) + 4 tool calls
+        const rows = await r1ToolRows(db);
+        expect(rows).toHaveLength(4);
+        const byId = new Map(rows.map((r) => [r.call_id, r]));
+        expect(byId.get('call-w')).toMatchObject({ duration_ms: 1235, started_at: null, completed_at: null });
+        expect(byId.get('call-f')).toMatchObject({
+            duration_ms: 2500,
+            started_at: R1_ASSISTANT_TS,
+            completed_at: '2026-08-14T05:11:16.490Z',
+        });
+        expect(byId.get('call-neg')?.duration_ms).toBeNull();
+        expect(byId.get('call-huge')?.duration_ms).toBeNull();
+        expect(byId.has('call-missing')).toBe(false); // no row exists — nothing attached, nothing failed
+    });
+
+    test('re-import is idempotent — the same durations are written again (force-file reprocesses)', async () => {
+        const file = await namedFixtureFile('r1-idempotent', r1FullLines());
+        await runJsonlImport('omp', { db, files: [file], mode: 'force-file', now: fixedNow });
+        const afterFirst = await r1ToolRows(db);
+
+        const second = await runJsonlImport('omp', { db, files: [file], mode: 'force-file', now: fixedNow });
+        // All rows are ledger duplicates on the second pass — the attach still re-runs.
+        expect(second.skippedDuplicates).toBeGreaterThan(0);
+        expect(await r1ToolRows(db)).toEqual(afterFirst);
+    });
+
+    test('resume after an interrupted run attaches durations via the DB fallback', async () => {
+        // One physical file path: run 1 sees only the assistant line (call rows
+        // inserted, no results yet, checkpoint at line 1).
+        const dir = await mkdtemp(join(tmpdir(), 'llm-jsonl-importer-r1-'));
+        const file = join(dir, 'r1-resume.jsonl');
+        await writeFile(file, `${r1AssistantLine()}\n`);
+
+        await runJsonlImport('omp', { db, files: [file], mode: 'force-file', now: fixedNow });
+
+        // The session file grows; run 2 (incremental) continues from the checkpoint.
+        // The assistant line is skipped, so its calls are NOT in the in-memory map —
+        // the toolResult lines must resolve the rows from the DB and still attach.
+        await writeFile(file, `${r1FullLines().join('\n')}\n`);
+        const resumed = await runJsonlImport('omp', { db, files: [file], mode: 'incremental', now: fixedNow });
+        expect(resumed.processedLines).toBe(5); // the 5 toolResult lines after the checkpoint
+
+        const rows = await r1ToolRows(db);
+        const byId = new Map(rows.map((r) => [r.call_id, r]));
+        expect(byId.get('call-w')?.duration_ms).toBe(1235);
+        expect(byId.get('call-f')).toMatchObject({ duration_ms: 2500, started_at: R1_ASSISTANT_TS });
+        expect(byId.get('call-neg')?.duration_ms).toBeNull();
+        expect(byId.get('call-huge')?.duration_ms).toBeNull();
+    });
+
+    test('a truncated mid-file session loses no earlier duration on re-import', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'llm-jsonl-importer-r1-'));
+        const file = join(dir, 'r1-truncated.jsonl');
+        await writeFile(file, `${r1FullLines().join('\n')}\n`);
+        await runJsonlImport('omp', { db, files: [file], mode: 'force-file', now: fixedNow });
+        const before = await r1ToolRows(db);
+
+        // The file is now truncated mid-file (assistant + wallTimeMs result only). Re-import
+        // incrementally: the checkpoint is past the truncation, so nothing is re-processed
+        // and the earlier durations survive untouched.
+        await writeFile(
+            file,
+            `${r1AssistantLine()}\n${r1ToolResultLine('call-w', '2026-08-14T05:11:14.327Z', { wallTimeMs: 1234.6, exitCode: 0 })}\n`,
+        );
+        const result = await runJsonlImport('omp', { db, files: [file], mode: 'incremental', now: fixedNow });
+        expect(result.processedLines).toBe(0);
+        expect(await r1ToolRows(db)).toEqual(before);
+    });
+});
