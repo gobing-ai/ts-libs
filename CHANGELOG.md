@@ -6,6 +6,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [0.4.35] — 2026-08-16
+
+### Fixed
+
+- **`@gobing-ai/ts-dual-workflow-engine` (state-machine dialect): `runActionSequence` no longer drops `ActionResult.setVars`** — spur task 0571. Two drops are closed: (1) intra-state — every action in an onEnter/onExit sequence used to resolve templates against the same vars snapshot the caller passed in, so a mid-sequence setter (e.g. `file.read.into-var` followed by shell actions in the same state) was invisible to the next action; (2) inter-state — the sequence returned only the LAST action's result, and the driver merged only that result's setVars, silently discarding every non-final action's setVars with no warning. The sequence runner now accumulates setVars from every action (including continued-past failures and the terminal/failing action itself), threads them forward before the next action runs, and returns the accumulated map as `ActionStepResult.setVars`; the state-machine driver merges that map (onEnter and onExit). The transition-flow dialect was already correct (per-node immediate merge) and is unchanged. Behavior contract change by design: intra-sequence setVars visibility changes from never to always — every previously working consumer had its setter alone/last in its state.
+
 ## [0.4.31] — 2026-08-13
 
 ### Added

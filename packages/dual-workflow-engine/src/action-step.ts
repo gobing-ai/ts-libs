@@ -2,8 +2,15 @@ import type { WorkflowEngineHost } from './host';
 import { defaultActionRedactor } from './persistence';
 import type { RunLifecycle } from './run-lifecycle';
 import { runtimeBuiltins, type WorkflowMode } from './run-lifecycle';
-import type { ActionDef, ActionResult, OnErrorPolicy, WorkflowPersistenceAdapter, WorkflowRunOptions } from './types';
-import { resolveOnErrorPolicy, resolveTemplates } from './variables';
+import type {
+    ActionDef,
+    ActionResult,
+    OnErrorPolicy,
+    Vars,
+    WorkflowPersistenceAdapter,
+    WorkflowRunOptions,
+} from './types';
+import { mergeSetVars, resolveOnErrorPolicy, resolveTemplates } from './variables';
 
 /**
  * Outcome discriminator for a single action step. `terminal` means the action
@@ -13,10 +20,17 @@ import { resolveOnErrorPolicy, resolveTemplates } from './variables';
  */
 export type ActionStepOutcome = 'completed' | 'terminal' | 'fail';
 
-/** Result of running one or more action steps: last result plus a control-flow discriminator. */
+/** Result of running one or more action steps: last result, a control-flow discriminator, and the accumulated `setVars` of every step in the sequence. */
 export interface ActionStepResult {
     readonly outcome: ActionStepOutcome;
     readonly result: ActionResult | undefined;
+    /**
+     * Sequence-level accumulation of `setVars` from every action that ran
+     * (including the terminal/failing one). Single-step callers get just that
+     * step's setVars. Drivers merge this map into their run-local vars after
+     * the sequence settles.
+     */
+    readonly setVars?: Vars;
 }
 
 /**
@@ -44,9 +58,9 @@ export interface ActionStepDeps {
  * Run one action through its full lifecycle: resolve templates, persist the
  * start row, time the host invocation inside try/finally, persist + emit the
  * finalize, then classify terminal/fail/continue. `vars` is read-only here;
- * callers thread any `setVars` from the returned result back into their own
- * vars map (the merge stays caller-owned because the two drivers carry vars
- * differently across their loops).
+ * callers thread any `setVars` from the returned result forward — the sequence
+ * runner does so within a sequence, and drivers merge the accumulated map
+ * across states/nodes (each dialect carries vars differently across its loop).
  *
  * This is the single seam both drivers share for action execution (ADR-006 §7
  * keeps the *control loops* dialect-specific; only this per-action mechanism is
@@ -110,13 +124,15 @@ export async function runActionStep(
 
 /**
  * Run a sequence of actions in declaration order, stopping at the first
- * `terminal` or `fail` outcome. Every action resolves its templates against the
- * same `vars` snapshot the caller passed in — `setVars` does not affect later
- * actions within the same sequence; it is the caller (the state-machine driver)
- * that merges the returned result's `setVars` into its run-local vars after the
- * sequence settles. Returns the last action result (retained even when a failure
- * was continued past, so downstream guards can inspect it) plus the controlling
- * outcome.
+ * `terminal` or `fail` outcome. `setVars` from each action is threaded forward
+ * BEFORE the next action runs, so action N+1 resolves its templates (and sees
+ * `context.vars`) with every prior same-sequence `setVars` applied — the YAML
+ * reads imperatively. The returned `setVars` accumulates the maps of every
+ * action that ran (including a continued-past failure and the terminal/failing
+ * action itself); it is the caller (the state-machine driver) that merges it
+ * into run-local vars after the sequence settles. Returns the last action
+ * result (retained even when a failure was continued past, so downstream
+ * guards can inspect it) plus the controlling outcome.
  */
 export async function runActionSequence(
     actions: readonly ActionDef[],
@@ -124,11 +140,16 @@ export async function runActionSequence(
     deps: ActionStepDeps,
 ): Promise<ActionStepResult> {
     let last: ActionResult | undefined;
+    let acc: Vars | undefined;
     for (const action of actions) {
         const step = await runActionStep(action, vars, deps);
         if (step.result !== undefined) last = step.result;
-        if (step.outcome === 'terminal') return { outcome: 'terminal', result: last };
-        if (step.outcome === 'fail') return { outcome: 'fail', result: last };
+        if (step.result?.setVars) {
+            acc = mergeSetVars(acc ?? {}, step.result.setVars);
+            vars = mergeSetVars(vars, step.result.setVars);
+        }
+        if (step.outcome === 'terminal') return { outcome: 'terminal', result: last, setVars: acc };
+        if (step.outcome === 'fail') return { outcome: 'fail', result: last, setVars: acc };
     }
-    return { outcome: 'completed', result: last };
+    return { outcome: 'completed', result: last, setVars: acc };
 }

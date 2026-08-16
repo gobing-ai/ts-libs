@@ -109,7 +109,7 @@ export class StateMachineDriver {
                 // driver's `continue` semantics. A state with no enter actions must not
                 // erase the previous result.
                 if (enter.result !== undefined) lastActionResult = enter.result;
-                if (enter.result?.setVars) vars = mergeSetVars(vars, enter.result.setVars);
+                if (enter.setVars) vars = mergeSetVars(vars, enter.setVars);
                 if (enter.outcome === 'terminal') {
                     return failure.has(current.id)
                         ? await lifecycle.fail(current.id, transitionsTaken, `terminal:${current.id}`)
@@ -170,7 +170,7 @@ export class StateMachineDriver {
                       defaultOnError,
                   });
             if (exit.result !== undefined) lastActionResult = exit.result;
-            if (exit.result?.setVars) vars = mergeSetVars(vars, exit.result.setVars);
+            if (exit.setVars) vars = mergeSetVars(vars, exit.setVars);
             if (exit.outcome === 'fail') return await lifecycle.fail(current.id, transitionsTaken, exit.result?.error);
 
             // 7. Atomically commit the transition + new state snapshot + phase in a
@@ -200,7 +200,7 @@ export class StateMachineDriver {
 }
 
 /** Dry-run sentinel: no action ran, so there is nothing to retain and nothing to halt on. */
-const EMPTY_OUTCOME = { outcome: 'completed', result: undefined } as const;
+const EMPTY_OUTCOME = { outcome: 'completed', result: undefined, setVars: undefined } as const;
 
 async function firstPassingTransition(
     transitions: StateMachineWorkflowDef['transitions'],

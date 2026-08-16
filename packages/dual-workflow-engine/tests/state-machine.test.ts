@@ -585,6 +585,136 @@ describe('StateMachineDriver — setVars cross-action flow', () => {
         // If exitVar were missing, ${vars.exitVar} would throw WorkflowValidationError.
         expect(result.status).toBe('done');
     });
+
+    test('setVars from a NON-FINAL action reaches the next state (Drop 2 regression)', async () => {
+        // Regression (0571 Drop 2): the sequence used to return only the LAST
+        // action's result, so a non-final setter's setVars were silently discarded
+        // at the driver merge. Pre-fix this run fails with WorkflowValidationError
+        // on ${vars.x}; post-fix the accumulated map carries x into s2 and the guard.
+        let readerSaw: string | undefined;
+        let guardSaw: unknown;
+        const host = createDefaultWorkflowEngineHost()
+            .registerAction({
+                kind: 'setter',
+                async execute() {
+                    return { ok: true, setVars: { x: '42' } };
+                },
+            })
+            .registerAction({
+                kind: 'reader',
+                async execute(options: Record<string, unknown>) {
+                    readerSaw = options.message as string;
+                    return { ok: true };
+                },
+            })
+            .registerGuard({
+                kind: 'capture-vars',
+                async evaluate(_options: Record<string, unknown>, context) {
+                    guardSaw = context.vars.x;
+                    return true;
+                },
+            });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new StateMachineDriver({ host, persistence });
+
+        const result = await driver.run({
+            name: 'setvars-non-final',
+            initialState: 's1',
+            terminalStates: ['end'],
+            states: [
+                // setter is NOT the final action of the sequence (trailing note) —
+                // exactly the idea-pipeline feature-create shape.
+                { id: 's1', onEnter: [{ kind: 'setter' }, { kind: 'note', options: { message: 'trailing' } }] },
+                { id: 's2', onEnter: [{ kind: 'reader', options: { message: `\${vars.x}` } }] },
+                { id: 'end' },
+            ],
+            transitions: [
+                { from: 's1', to: 's2' },
+                { from: 's2', to: 'end', guard: { kind: 'capture-vars' } },
+            ],
+        });
+        expect(result.status).toBe('done');
+        expect(readerSaw).toBe('42');
+        expect(guardSaw).toBe('42');
+    });
+
+    test('setVars is visible to a later action in the SAME state (Drop 1 regression)', async () => {
+        // Regression (0571 Drop 1): every action used to receive the same vars
+        // snapshot, so a mid-sequence setter was invisible to the next action.
+        // Pre-fix the reader's ${vars.x} throws WorkflowValidationError.
+        let readerSaw: string | undefined;
+        const host = createDefaultWorkflowEngineHost()
+            .registerAction({
+                kind: 'setter',
+                async execute() {
+                    return { ok: true, setVars: { x: '42' } };
+                },
+            })
+            .registerAction({
+                kind: 'reader',
+                async execute(options: Record<string, unknown>) {
+                    readerSaw = options.message as string;
+                    return { ok: true };
+                },
+            });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new StateMachineDriver({ host, persistence });
+
+        const result = await driver.run({
+            name: 'setvars-same-state',
+            initialState: 's1',
+            terminalStates: ['end'],
+            states: [
+                { id: 's1', onEnter: [{ kind: 'setter' }, { kind: 'reader', options: { message: `\${vars.x}` } }] },
+                { id: 'end' },
+            ],
+            transitions: [{ from: 's1', to: 'end' }],
+        });
+        expect(result.status).toBe('done');
+        expect(readerSaw).toBe('42');
+    });
+
+    test('accumulated setVars survive a continued-failure action', async () => {
+        // Mirrors the transition-flow.test.ts precedent: a failure continued
+        // past via onError still contributes its setVars to the accumulated map —
+        // and here the fail-setter is non-final, so the map (not the last result)
+        // is what carries errFlag into the next state.
+        let readerSaw: string | undefined;
+        const host = createDefaultWorkflowEngineHost()
+            .registerAction({
+                kind: 'fail-setter',
+                async execute() {
+                    return { ok: false, error: 'failed but continued', setVars: { errFlag: 'set' } };
+                },
+            })
+            .registerAction({
+                kind: 'reader',
+                async execute(options: Record<string, unknown>) {
+                    readerSaw = options.message as string;
+                    return { ok: true };
+                },
+            });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new StateMachineDriver({ host, persistence });
+
+        const result = await driver.run({
+            name: 'setvars-continue-failure',
+            initialState: 's1',
+            terminalStates: ['end'],
+            defaultOnError: 'continue',
+            states: [
+                { id: 's1', onEnter: [{ kind: 'fail-setter' }, { kind: 'note', options: { message: 'trailing' } }] },
+                { id: 's2', onEnter: [{ kind: 'reader', options: { message: `\${vars.errFlag}` } }] },
+                { id: 'end' },
+            ],
+            transitions: [
+                { from: 's1', to: 's2' },
+                { from: 's2', to: 'end' },
+            ],
+        });
+        expect(result.status).toBe('done');
+        expect(readerSaw).toBe('set');
+    });
 });
 
 test('shell guards honor run workdir for relative artifact paths (0425 R4)', async () => {
