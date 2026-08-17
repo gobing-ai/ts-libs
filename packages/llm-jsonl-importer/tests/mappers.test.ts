@@ -1482,3 +1482,112 @@ describe('maybeArgsRaw allowlist (task 0578 R3)', () => {
         expect(maybeArgsRaw('nonexistent', 'todowrite', { a: 1 })).toBeUndefined();
     });
 });
+
+// ---------------------------------------------------------------------------
+// Mapper fidelity fixtures (task 0580) — real session-record shapes
+// ---------------------------------------------------------------------------
+
+describe('mapper fidelity fixtures (task 0580)', () => {
+    test('codex rollout: response_item message uses payload.role, not transport type (D1)', () => {
+        const entries = codexSplit({
+            timestamp: '2026-08-17T00:00:00.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'message',
+                role: 'developer',
+                content: [{ type: 'input_text', text: '<skills_instructions>hi</skills_instructions>' }],
+            },
+        });
+        expect(entries).toHaveLength(1);
+        expect(entries[0]?.record.role).toBe('user');
+        expect(entries[0]?.record.record_type).toBe('response_item');
+        expect(entries[0]?.record.content_text).toContain('skills_instructions');
+    });
+
+    test('codex rollout: reasoning item maps to assistant with summary content (D1)', () => {
+        const entries = codexSplit({
+            timestamp: '2026-08-17T00:00:00.000Z',
+            type: 'response_item',
+            payload: { type: 'reasoning', summary: [{ type: 'summary_text', text: 'thinking…' }] },
+        });
+        expect(entries[0]?.record.role).toBe('assistant');
+        expect(entries[0]?.record.content_text).toBe('thinking…');
+    });
+
+    test('codex rollout: custom_tool_call payload is the item; emits tool row (D1)', () => {
+        const entries = codexSplit({
+            timestamp: '2026-08-17T00:00:00.000Z',
+            type: 'response_item',
+            payload: { type: 'custom_tool_call', name: 'apply_patch', call_id: 'c1', input: '*** Begin Patch' },
+        });
+        expect(entries[0]?.record.role).toBe('tool');
+        expect(entries[1]?.targetTable).toBe('history_tool_call');
+        expect(entries[1]?.record.tool_name).toBe('apply_patch');
+        expect(entries[1]?.record.call_id).toBe('c1');
+    });
+
+    test('codex rollout: token_count event_msg yields usage from payload.info.last_token_usage (R2)', () => {
+        const entries = codexSplit({
+            timestamp: '2026-08-17T00:00:00.000Z',
+            type: 'event_msg',
+            payload: {
+                type: 'token_count',
+                info: { last_token_usage: { input_tokens: 7, cached_input_tokens: 3, output_tokens: 5 } },
+            },
+        });
+        expect(entries[0]?.record.role).toBe('meta');
+        expect(entries[0]?.record.input_tokens).toBe(7);
+        expect(entries[0]?.record.cache_read_tokens).toBe(3);
+        expect(entries[0]?.record.output_tokens).toBe(5);
+    });
+
+    test('claude: usage read from message.usage when top-level usage absent (D2)', () => {
+        const entries = claudeSplit({
+            type: 'assistant',
+            timestamp: '2026-08-17T00:00:00.000Z',
+            sessionId: 's1',
+            message: { role: 'assistant', usage: { input_tokens: 11, output_tokens: 22, cache_read_input_tokens: 4 } },
+        });
+        expect(entries[0]?.record.input_tokens).toBe(11);
+        expect(entries[0]?.record.output_tokens).toBe(22);
+        expect(entries[0]?.record.cache_read_tokens).toBe(4);
+    });
+
+    test('grok: toolMeta.name wins over title; title fallback strips backticks (D3)', () => {
+        const withMeta = grokSplit({
+            ts: '2026-08-17T00:00:00.000Z',
+            type: 'tool_started',
+            session_id: 'g1',
+            seq: 1,
+            title: 'Read `/long/path`',
+            _meta: { 'x.ai/tool': { name: 'fs_read', kind: 'fs_read' } },
+        });
+        expect(withMeta[1]?.record.tool_name).toBe('fs_read');
+
+        const titleOnly = grokSplit({
+            ts: '2026-08-17T00:00:00.000Z',
+            type: 'tool_started',
+            session_id: 'g1',
+            seq: 1,
+            title: 'Read `/long/path`',
+        });
+        expect(titleOnly[1]?.record.tool_name).toBe('Read');
+    });
+
+    test('grok: absent ts persists undefined, not epoch-0 sentinel (D4/R5)', () => {
+        const entries = grokSplit({ type: 'tool_started', session_id: 'g1', seq: 1 });
+        expect(entries[0]?.record.ts).toBeUndefined();
+    });
+
+    test('codex: absent timestamp persists undefined, not epoch-0 sentinel (D4/R5)', () => {
+        const entries = codexSplit({ type: 'event_msg', payload: { type: 'task_started' } });
+        expect(entries[0]?.record.ts).toBeUndefined();
+    });
+
+    test('pi: numeric epoch ts (s and ms) normalized to ISO (R6)', () => {
+        const sec = piSplit({ ts: 1755388800, text: 'hi' });
+        expect(sec[0]?.record.ts).toBe('2025-08-17T00:00:00.000Z');
+        const ms = piSplit({ ts: 1755388800000, text: 'hi' });
+        expect(ms[0]?.record.ts).toBe('2025-08-17T00:00:00.000Z');
+    });
+});

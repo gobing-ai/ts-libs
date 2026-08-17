@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS history_message (
     role               TEXT NOT NULL,
     record_type        TEXT NOT NULL,
     disposition        TEXT NOT NULL,
-    ts                 TEXT NOT NULL,
+    ts                 TEXT,
     duration_ms        INTEGER,
     model              TEXT,
     input_tokens       INTEGER,

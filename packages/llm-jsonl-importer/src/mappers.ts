@@ -132,10 +132,10 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
     const entries: SplitEntry[] = [];
     const sessionId = s(raw.sessionId, raw.conversation_uuid) ?? 'unknown';
     const seq = typeof raw.seq === 'number' ? raw.seq : typeof raw.messageIndex === 'number' ? raw.messageIndex : 0;
-    const ts = s(raw.ts, raw.timestamp, raw.createdAt) ?? new Date(0).toISOString();
+    const ts = timestampOf(raw.ts, raw.timestamp, raw.createdAt);
     const role = mapRole(raw.type ?? raw.role);
     const recordType = String(raw.type ?? '');
-    const model = s(raw.model);
+    const model = s(raw.model, o(raw.message).model);
     const cwd = s(raw.cwd, raw.dir);
 
     // Check for system/turn-duration records
@@ -174,14 +174,17 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
 
     // Main message
     const hasUsage = typeof raw.usage === 'object' && raw.usage !== null;
-    const usage = hasUsage ? (raw.usage as Record<string, unknown>) : undefined;
-    const inputTokens = typeof raw.inputTokens === 'number' ? raw.inputTokens : undefined;
-    const outputTokens = typeof raw.outputTokens === 'number' ? raw.outputTokens : undefined;
-    const cacheRead = (usage?.cacheReadTokens ?? usage?.cache_read_tokens ?? undefined) as number | undefined;
-    const cacheWrite = (usage?.cacheWriteTokens ?? usage?.cache_write_tokens ?? undefined) as number | undefined;
+    const usage = (hasUsage ? raw.usage : o(raw.message).usage) as Record<string, unknown> | undefined;
+    const inputTokens = ((raw.inputTokens as number | undefined) ?? usage?.input_tokens) as number | undefined;
+    const outputTokens = ((raw.outputTokens as number | undefined) ?? usage?.output_tokens) as number | undefined;
+    const cacheRead = (usage?.cacheReadTokens ?? usage?.cache_read_tokens ?? usage?.cache_read_input_tokens) as
+        | number
+        | undefined;
+    const cacheWrite = (usage?.cacheWriteTokens ?? usage?.cache_write_tokens ?? usage?.cache_creation_input_tokens) as
+        | number
+        | undefined;
     const costUsd = computeCost(inputTokens, outputTokens, model);
-
-    const contentBlocks = raw.content;
+    const contentBlocks = raw.content ?? o(raw.message).content;
     const contentText = extractContentText(contentBlocks);
 
     const messageSplitIndex = entries.length;
@@ -253,11 +256,9 @@ export function piSplit(raw: Record<string, unknown>, context?: TransformContext
     const recordType = String(raw.type ?? raw.recordType ?? '');
     const sessionId = sessionIdFromContext(context, raw);
     const seq = context?.sourceLine ?? (typeof raw.seq === 'number' ? raw.seq : 0);
-    // Prefer the ISO `timestamp`; a numeric epoch-ms `ts` is converted, never stringified.
-    const ts =
-        s(raw.timestamp, raw.createdAt) ??
-        (typeof raw.ts === 'number' && Number.isFinite(raw.ts) ? new Date(raw.ts).toISOString() : s(raw.ts)) ??
-        new Date(0).toISOString();
+    // Prefer the ISO `timestamp`; numeric epoch values are converted (task 0580 R6), never
+    // stringified, and a missing ts persists as null rather than a 1970 sentinel (D4).
+    const ts = timestampOf(raw.timestamp, raw.createdAt, raw.ts);
 
     // Meta lifecycle/custom records collapse to one meta row keyed by the source session,
     // never the unique event id, and never a guessed role.
@@ -390,7 +391,7 @@ export function ompSplit(raw: Record<string, unknown>, context?: TransformContex
     const recordType = String(raw.type ?? '');
     const sessionId = sessionIdFromContext(context, raw);
     const seq = context?.sourceLine ?? (typeof raw.seq === 'number' ? raw.seq : 0);
-    const ts = s(raw.ts, raw.timestamp, raw.createdAt) ?? new Date(0).toISOString();
+    const ts = timestampOf(raw.ts, raw.timestamp, raw.createdAt);
 
     // Meta lifecycle/custom records — including the current `custom.*` events and non-message
     // lifecycle types — collapse to one meta row keyed by the source session, never the unique
@@ -564,8 +565,9 @@ export function codexSplit(raw: Record<string, unknown>): readonly SplitEntry[] 
     const payload = (raw.payload ?? raw) as Record<string, unknown>;
     const sessionId = s(raw.session_id, o(raw.session_meta).id, raw.id) ?? 'unknown';
     const seq = typeof raw.seq === 'number' ? raw.seq : 0;
-    const ts = s(raw.timestamp, raw.ts, payload.ts) ?? new Date(0).toISOString();
+    const ts = timestampOf(raw.timestamp, raw.ts, payload.ts);
     const recordType = String(raw.type ?? '');
+    const payloadType = String(payload.type ?? '');
 
     // Check for older short format
     if (recordType === '' && raw.id && raw.timestamp && raw.instructions) {
@@ -585,21 +587,77 @@ export function codexSplit(raw: Record<string, unknown>): readonly SplitEntry[] 
         ];
     }
 
-    const role = mapRole(recordType);
+    // Codex JSONL is a transport envelope: the top-level `type` (response_item / event_msg /
+    // turn_context / ...) is bookkeeping, never a role. Real roles live in
+    // `payload.role` for response_item message items (task 0580 D1: passing recordType to
+    // mapRole leaked 153k response_item / 91k event_msg rows into the role column).
+    let role: string;
+    let disposition: string;
+    let contentText: string | null;
+    let usage: Record<string, unknown> | undefined;
+    if (recordType === 'response_item') {
+        if (payloadType === 'message') {
+            role = mapRole(payload.role);
+            disposition = 'keep';
+            contentText = extractContentText(payload.content) ?? s(payload.text) ?? null;
+        } else if (payloadType === 'agent_message') {
+            role = 'assistant';
+            disposition = 'keep';
+            contentText = extractContentText(payload.content) ?? s(payload.text, payload.message) ?? null;
+        } else if (payloadType === 'reasoning') {
+            role = 'assistant';
+            disposition = 'keep';
+            contentText = extractContentText(payload.summary) ?? s(payload.text) ?? null;
+        } else if (payloadType === 'function_call' || payloadType === 'custom_tool_call') {
+            role = 'tool';
+            disposition = 'keep';
+            contentText = null;
+        } else {
+            role = 'meta';
+            disposition = 'meta';
+            contentText = s(payload.text) ?? null;
+        }
+    } else if (recordType === 'user' || recordType === 'assistant') {
+        // Legacy (pre-rollout) envelope: top-level type carried the role directly.
+        role = mapRole(recordType);
+        disposition = 'keep';
+        contentText = extractContentText(payload.content) ?? s(raw.content, payload.text) ?? null;
+    } else if (recordType === 'message') {
+        role = mapRole(raw.role ?? payload.role);
+        disposition = 'keep';
+        contentText = extractContentText(payload.content ?? raw.content) ?? s(payload.text, raw.text) ?? null;
+    } else if (recordType === 'event_msg') {
+        role = 'meta';
+        disposition = 'meta';
+        contentText = s(payload.message, payload.text) ?? null;
+        // Per-turn usage lives on token_count transport events (task 0580 R2): real files
+        // carry `payload.info.last_token_usage`; the legacy `payload.token_count` path is kept.
+        usage = o(o(payload.info).last_token_usage);
+    } else {
+        role = 'meta';
+        disposition = 'meta';
+        contentText = s(payload.text, raw.instructions) ?? null;
+    }
+
     const model = s(raw.model, payload.model, o(o(raw.turn_context).payload).model);
     const cwd = s(raw.cwd, raw.dir);
 
     const tokenCount = payload.token_count as Record<string, unknown> | undefined;
-    const inputTokens = (tokenCount?.input ?? tokenCount?.input_tokens ?? undefined) as number | undefined;
-    const outputTokens = (tokenCount?.output ?? tokenCount?.output_tokens ?? undefined) as number | undefined;
+    const usageInput = (usage?.input_tokens ?? tokenCount?.input ?? tokenCount?.input_tokens ?? undefined) as
+        | number
+        | undefined;
+    const usageOutput = (usage?.output_tokens ?? tokenCount?.output ?? tokenCount?.output_tokens ?? undefined) as
+        | number
+        | undefined;
+    const cacheRead = (usage?.cached_input_tokens ?? undefined) as number | undefined;
 
     const turnCtx = raw.turn_context as Record<string, unknown> | undefined;
     const turnPayload = turnCtx?.payload as Record<string, unknown> | undefined;
     const turnInputTokens = turnPayload?.input_tokens as number | undefined;
     const turnOutputTokens = turnPayload?.output_tokens as number | undefined;
 
-    const finalInput = inputTokens !== undefined ? inputTokens : turnInputTokens;
-    const finalOutput = outputTokens !== undefined ? outputTokens : turnOutputTokens;
+    const finalInput = usageInput !== undefined ? usageInput : turnInputTokens;
+    const finalOutput = usageOutput !== undefined ? usageOutput : turnOutputTokens;
     const costUsd = computeCost(finalInput, finalOutput, model);
 
     const messageSplitIndex = entries.length;
@@ -611,48 +669,57 @@ export function codexSplit(raw: Record<string, unknown>): readonly SplitEntry[] 
             seq,
             role,
             record_type: recordType,
-            disposition: 'keep',
+            disposition,
             ts,
             duration_ms: undefined,
             model: model ?? null,
             input_tokens: finalInput ?? null,
             output_tokens: finalOutput ?? null,
-            cache_read_tokens: null,
+            cache_read_tokens: cacheRead ?? null,
             cache_write_tokens: null,
             cost_usd: costUsd ?? null,
-            content_text: s(payload.content, payload.text, raw.content, raw.text) ?? null,
+            content_text: contentText,
             cwd: cwd ?? null,
             provenance: 'ambient',
         },
     });
 
-    // Tool calls: function_call in response_item
-    const responseItems = payload.response_item
-        ? [payload.response_item as Record<string, unknown>]
-        : Array.isArray(payload.response_items)
-          ? (payload.response_items as Record<string, unknown>[])
-          : [];
-    for (const item of responseItems) {
-        if (item.function_call) {
-            const fc = item.function_call as Record<string, unknown>;
-            entries.push({
-                targetTable: 'history_tool_call',
-                record: {
-                    _messageSplitIndex: messageSplitIndex,
-                    session_id: sessionId,
-                    seq,
-                    tool_name: String(fc.name ?? ''),
-                    args_digest: argsDigest(fc.arguments),
-                    args_raw: maybeArgsRaw('codex', String(fc.name ?? ''), fc.arguments),
-                    status: 'ok',
-                    started_at: undefined,
-                    completed_at: undefined,
-                    duration_ms: undefined,
-                    result_bytes: undefined,
-                    error_text: undefined,
-                },
-            });
-        }
+    // Tool calls. Live rollouts emit each call as its own response_item whose payload IS the
+    // item (`payload.type === "function_call" | "custom_tool_call"`, name/call_id/arguments or
+    // input at payload level); the legacy nested `payload.response_item[_s]` shape is kept.
+    const toolItems: Record<string, unknown>[] = [];
+    if (
+        (recordType === 'response_item' || recordType === 'function_call' || recordType === 'custom_tool_call') &&
+        (payloadType === 'function_call' || payloadType === 'custom_tool_call')
+    ) {
+        toolItems.push(payload);
+    } else if (payload.response_item) {
+        toolItems.push(payload.response_item as Record<string, unknown>);
+    } else if (Array.isArray(payload.response_items)) {
+        toolItems.push(...(payload.response_items as Record<string, unknown>[]));
+    }
+    for (const item of toolItems) {
+        const fc = (item.function_call as Record<string, unknown> | undefined) ?? item;
+        const toolName = s(fc.name) ?? '';
+        const args = fc.arguments ?? fc.input;
+        entries.push({
+            targetTable: 'history_tool_call',
+            record: {
+                _messageSplitIndex: messageSplitIndex,
+                session_id: sessionId,
+                seq,
+                tool_name: toolName,
+                call_id: s(fc.call_id),
+                args_digest: argsDigest(args),
+                args_raw: maybeArgsRaw('codex', toolName, args),
+                status: 'ok',
+                started_at: undefined,
+                completed_at: undefined,
+                duration_ms: undefined,
+                result_bytes: undefined,
+                error_text: undefined,
+            },
+        });
     }
 
     return entries;
@@ -668,7 +735,7 @@ export function agySplit(raw: Record<string, unknown>): readonly SplitEntry[] {
     const recordType = String(raw.type ?? '');
     const sessionId = s(raw.session_id, raw.conversation_id) ?? 'unknown';
     const seq = typeof raw.seq === 'number' ? raw.seq : typeof raw.step_index === 'number' ? raw.step_index : 0;
-    const ts = s(raw.created_at, raw.timestamp, raw.ts) ?? new Date(0).toISOString();
+    const ts = timestampOf(raw.created_at, raw.timestamp, raw.ts);
 
     let role: string;
     let disposition: string;
@@ -788,7 +855,7 @@ export function geminiSplit(raw: Record<string, unknown>, context?: TransformCon
     const state = o(raw.$set);
     const sessionId = sessionIdFromContext(context, raw);
     const seq = context?.sourceLine ?? 0;
-    const ts = s(raw.timestamp, raw.startTime, raw.lastUpdated, state.lastUpdated) ?? new Date(0).toISOString();
+    const ts = timestampOf(raw.timestamp, raw.startTime, raw.lastUpdated, state.lastUpdated);
 
     if (recordType === 'session' || recordType === 'state') {
         return [
@@ -906,7 +973,7 @@ function numberOrNull(value: unknown): number | null {
 function normalizeGrokRecord(raw: Record<string, unknown>): {
     recordType: string;
     sessionId: string;
-    ts: string;
+    ts: string | undefined;
     seq: number;
     body: Record<string, unknown>;
     model: string | undefined;
@@ -961,8 +1028,13 @@ function normalizeGrokRecord(raw: Record<string, unknown>): {
     );
     const usage = (body.usage ?? raw.usage) as Record<string, unknown> | undefined;
     const toolMeta = meta?.['x.ai/tool'] as Record<string, unknown> | undefined;
+    // The tool's real name is `_meta["x.ai/tool"].name` (or `kind`); `title` is a human label
+    // like "Read `/path`" — used only as a last resort, stripped at the first backtick so the
+    // argument payload never pollutes tool_name (task 0580 D3).
+    const titleFallback = s(body.title)?.split('`')[0]?.trim();
     const toolName =
-        s(body.title, body.tool_name, body.name, toolMeta?.name, toolMeta?.label, raw.tool_name, raw.name) ?? '';
+        s(toolMeta?.name, body.kind, body.tool_name, body.name, raw.tool_name, raw.name) ??
+        (titleFallback !== undefined && titleFallback.length > 0 && titleFallback.length <= 40 ? titleFallback : '');
     const toolArgs = body.rawInput ?? body.input ?? body.arguments ?? toolMeta?.input ?? raw.input ?? raw.arguments;
     const toolStatus = s(body.status, raw.outcome, raw.status) ?? 'ok';
     const durationMs =
@@ -995,21 +1067,8 @@ function normalizeGrokRecord(raw: Record<string, unknown>): {
     };
 }
 
-function normalizeTs(value: unknown): string {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        // Grok timestamps are unix seconds (sometimes with fractional).
-        const ms = value > 1e12 ? value : value * 1000;
-        return new Date(ms).toISOString();
-    }
-    if (typeof value === 'string' && value.length > 0) {
-        const asNum = Number(value);
-        if (Number.isFinite(asNum) && /^\d+(\.\d+)?$/.test(value.trim())) {
-            const ms = asNum > 1e12 ? asNum : asNum * 1000;
-            return new Date(ms).toISOString();
-        }
-        return value;
-    }
-    return new Date(0).toISOString();
+function normalizeTs(value: unknown): string | undefined {
+    return timestampOf(value);
 }
 
 function extractGrokContent(content: unknown): string | null {
@@ -1385,10 +1444,32 @@ function s(...values: readonly unknown[]): string | undefined {
     }
     return undefined;
 }
+/**
+ * First usable timestamp: an ISO-ish string passes through, a finite number (or digit-string)
+ * is converted from epoch seconds/millis (>1e12 treated as ms). Returns undefined when nothing
+ * usable exists — mappers must persist null ts rather than a 1970 sentinel (task 0580 D4).
+ */
+function timestampOf(...values: readonly unknown[]): string | undefined {
+    for (const value of values) {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            const ms = value > 1e12 ? value : value * 1000;
+            return new Date(ms).toISOString();
+        }
+        if (typeof value === 'string' && value.length > 0) {
+            const asNum = Number(value);
+            if (Number.isFinite(asNum) && /^\d+(\.\d+)?$/.test(value.trim())) {
+                const ms = asNum > 1e12 ? asNum : asNum * 1000;
+                return new Date(ms).toISOString();
+            }
+            return value;
+        }
+    }
+    return undefined;
+}
 
 function mapRole(type: unknown): string {
     const t = String(type ?? '').toLowerCase();
-    if (t === 'user' || t === 'human') return 'user';
+    if (t === 'user' || t === 'human' || t === 'developer') return 'user';
     if (t === 'assistant' || t === 'ai' || t === 'model') return 'assistant';
     if (t === 'system' || t === 'error') return 'system';
     return t || 'unknown';
@@ -1415,7 +1496,9 @@ function extractContentText(content: unknown): string | undefined {
     for (const block of content) {
         if (typeof block !== 'object' || block === null) continue;
         const b = block as Record<string, unknown>;
-        if (b.type === 'text' && typeof b.text === 'string') {
+        // Claude emits {type:"text",text}; codex emits {type:"input_text"|"output_text"|
+        // "summary_text",text} — any block carrying a string `text` is text content.
+        if (typeof b.text === 'string') {
             parts.push(b.text);
         }
     }
