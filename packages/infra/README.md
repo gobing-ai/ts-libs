@@ -744,9 +744,9 @@ single `lifecycleBus`.
 **Portable vs Node subpath split (ADR-011).** `runApplication` (portable)
 never opens files: it calls `attachFileObserver(lifecycleBus, filePath, writer)`
 only when `services.fileObserverWriter` is provided; its portable default path is
-`logs/system-events.jsonl`. The Node subpath `runNodeApplication` constructs a
+`.spur/logs/system-events.jsonl`. The Node subpath `runNodeApplication` constructs a
 Node writer and uses `createNodeFileSystem()` to resolve the path to
-`<projectRoot>/logs/system-events.jsonl`. Set `config.events.fileObserver: false`
+`<projectRoot>/.spur/logs/system-events.jsonl`. Set `config.events.fileObserver: false`
 to disable; supply a custom `filePath` (or a test-stub writer via
 `services.fileObserverWriter`) to override.
 

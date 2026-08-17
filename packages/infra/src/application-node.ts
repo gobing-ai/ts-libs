@@ -342,7 +342,7 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
             appendFileSync(path, content);
         },
     };
-    const eventsFilePath = eventsOpts.filePath ?? injectedFileSystem.resolve('logs', 'system-events.jsonl');
+    const eventsFilePath = eventsOpts.filePath ?? injectedFileSystem.resolve('.spur', 'logs', 'system-events.jsonl');
     const eventsConfig: EventsOptions<TEvents> = {
         ...eventsOpts,
         filePath: eventsFilePath,

@@ -53,7 +53,7 @@ export interface EventsOptions<TEvents extends EventMap = InfraEvents> {
      */
     fileObserver?: boolean;
     /**
-     * JSONL output path. Defaults to `logs/system-events.jsonl` when a writer
+     * JSONL output path. Defaults to `.spur/logs/system-events.jsonl` when a writer
      * is supplied; the Node subpath resolves this against the project root.
      * Portable callers may override it with an absolute path.
      */

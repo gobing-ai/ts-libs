@@ -70,7 +70,7 @@ async function performShutdown<TAppConfig, TEvents extends EventMap>(
  * can be passed to RuleEngine, WorkflowService, AiRunner, TeamOrchestrator, and
  * APIClient so their domain events share one System Events stream. A supplied
  * file-observer writer records that stream as JSONL; the Node subpath supplies
- * the writer and default `logs/system-events.jsonl` path.
+ * the writer and default `.spur/logs/system-events.jsonl` path.
  *
  * Startup is plugin-driven. Built-in service plugins are registered in dependency
  * order, then `loadAll()` + `startAll()` run them forward:
@@ -132,7 +132,8 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
     const eventsFileObserver = options.config?.events?.fileObserver ?? true;
     const fileObserverWriter = options.services?.fileObserverWriter;
     const eventsFilePath =
-        options.config?.events?.filePath ?? (fileObserverWriter !== undefined ? 'logs/system-events.jsonl' : undefined);
+        options.config?.events?.filePath ??
+        (fileObserverWriter !== undefined ? '.spur/logs/system-events.jsonl' : undefined);
 
     const state: RuntimeState<TAppConfig, TEvents> = {
         app: undefined,

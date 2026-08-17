@@ -29,7 +29,7 @@ describe('System Events — application file observer', () => {
         });
 
         expect(app.config.events.fileObserver).toBe(true);
-        expect(app.config.events.filePath).toBe('logs/system-events.jsonl');
+        expect(app.config.events.filePath).toBe('.spur/logs/system-events.jsonl');
         expect(recorded.length).toBeGreaterThanOrEqual(1);
         const parsed = recorded.map((line) => JSON.parse(line)).find((row) => row.event === 'api.request.error');
         expect(parsed?.lifecycle).toBeDefined();
