@@ -19,6 +19,7 @@ import {
     readOpenCodeMessages,
     readOpenCodeParts,
 } from './jsonl-importer-dao';
+import { maybeArgsRaw } from './mappers';
 import { redactRecord } from './redaction';
 import type { ImportIssue, ImportMode, ImportResult, JsonObject, ReconcileSummary, RedactionRule } from './types';
 
@@ -262,6 +263,7 @@ function prepareEntries(
                 session_id: row.session_id,
                 seq: started ?? created,
                 tool_name: stringValue(part.tool) ?? 'unknown',
+                args_raw: maybeArgsRaw(SOURCE, stringValue(part.tool) ?? 'unknown', state.input),
                 args_digest: sha256(state.input ?? null),
                 status,
                 started_at: started === undefined ? null : isoTime(started),

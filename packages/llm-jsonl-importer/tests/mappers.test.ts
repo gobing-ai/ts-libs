@@ -16,6 +16,7 @@ import {
     GROK_SCHEMA,
     geminiSplit,
     grokSplit,
+    maybeArgsRaw,
     OMP_FIELD_MAP,
     OMP_SCHEMA,
     ompSplit,
@@ -264,6 +265,21 @@ describe('piSplit', () => {
         expect(entries[0]?.record.content_text).toBe('hello');
     });
 
+    test('manage_todo_list tool call retains args_raw (task 0578 R3)', () => {
+        const entries = piSplit({
+            id: 'sess',
+            type: 'assistant',
+            timestamp: '2026-08-07T00:00:00.000Z',
+            content: [
+                { text: 'planning' },
+                { type: 'toolCall', id: 'tc-1', name: 'manage_todo_list', input: { todos: [{ content: 'pi step' }] } },
+            ],
+        });
+        const todo = entries.find((e) => e.targetTable === 'history_tool_call');
+        expect(todo?.record.tool_name).toBe('manage_todo_list');
+        expect(String(todo?.record.args_raw)).toContain('pi step');
+    });
+
     test('maps cost.total to cost_usd', () => {
         const entries = piSplit({
             id: 'sess',
@@ -508,6 +524,37 @@ describe('ompSplit', () => {
         expect(entries).toHaveLength(2);
         expect(entries[1]?.targetTable).toBe('history_tool_call');
         expect(entries[1]?.record.tool_name).toBe('Bash');
+    });
+
+    test('todo_write tool call retains args_raw (task 0578 R3)', () => {
+        const entries = ompSplit({
+            id: 'sess',
+            type: 'assistant',
+            ts: '2026-08-07T00:00:00.000Z',
+            content: [
+                { text: 'planning' },
+                {
+                    toolCall: {
+                        name: 'todo_write',
+                        input: { todos: [{ id: '1', content: 'step', status: 'pending' }] },
+                    },
+                },
+            ],
+        });
+        const todo = entries.find((e) => e.targetTable === 'history_tool_call');
+        expect(todo?.record.args_raw).toBeDefined();
+        expect(String(todo?.record.args_raw)).toContain('step');
+    });
+
+    test('non-todo tool call keeps args_raw undefined', () => {
+        const entries = ompSplit({
+            id: 'sess',
+            type: 'assistant',
+            ts: '2026-08-07T00:00:00.000Z',
+            content: [{ toolCall: { name: 'Bash', input: { command: 'ls' } } }],
+        });
+        const bash = entries.find((e) => e.targetTable === 'history_tool_call');
+        expect(bash?.record.args_raw).toBeUndefined();
     });
 
     test('does not emit tool calls for user messages', () => {
@@ -1417,5 +1464,21 @@ describe('zod schemas', () => {
 
     test('GEMINI_SCHEMA passes through any object', () => {
         expect(GEMINI_SCHEMA.parse({ g: 7 })).toEqual({ g: 7 });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// maybeArgsRaw allowlist (task 0578 R3)
+// ---------------------------------------------------------------------------
+
+describe('maybeArgsRaw allowlist (task 0578 R3)', () => {
+    test('opencode todowrite/todoread retain args_raw; other tools do not', () => {
+        expect(maybeArgsRaw('opencode', 'todowrite', { todos: [{ content: 'x' }] })).toContain('x');
+        expect(maybeArgsRaw('opencode', 'todoread', {})).toBe('{}');
+        expect(maybeArgsRaw('opencode', 'bash', { command: 'ls' })).toBeUndefined();
+    });
+
+    test('unknown source stays undefined', () => {
+        expect(maybeArgsRaw('nonexistent', 'todowrite', { a: 1 })).toBeUndefined();
     });
 });

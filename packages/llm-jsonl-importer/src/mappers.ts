@@ -96,14 +96,17 @@ function redactArgs(args: unknown): unknown {
  *
  * Evidence: 0489 R4 confirmed omp/pi/claude; codex/grok/agy probed task 0553 R3 from real
  * session JSONL. agy has no on-disk session format (VS Code fork); gemini deferred by the
- * 2026-08-06 source-support ruling.
+ * 2026-08-06 source-support ruling. Task 0578 R3: omp `todo_write`, pi `manage_todo_list`,
+ * opencode `todowrite`/`todoread` measured live in .spur/spur.db (3,237/21, 1,043, 379/2
+ * rows with NULL args_raw).
  */
 const TODO_TOOL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
     claude: ['TodoWrite'],
-    pi: ['todo'],
-    omp: ['TodoWrite', 'todo'],
+    opencode: ['todowrite', 'todoread'],
     codex: ['update_plan'],
+    omp: ['TodoWrite', 'todo', 'todo_write'],
     grok: ['todo_write'],
+    pi: ['todo', 'manage_todo_list'],
     agy: [],
     gemini: [],
 };
@@ -112,7 +115,7 @@ const TODO_TOOL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
  * Return JSON-stringified raw args when the tool is a todo-writing tool for its source,
  * otherwise undefined. Codex `arguments` arrives as a JSON string already — store as-is.
  */
-function maybeArgsRaw(source: string, toolName: string, args: unknown): string | undefined {
+export function maybeArgsRaw(source: string, toolName: string, args: unknown): string | undefined {
     const allow = TODO_TOOL_ALLOWLIST[source];
     if (allow === undefined || !allow.includes(toolName)) return undefined;
     if (typeof args === 'string') return args;
