@@ -241,25 +241,67 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
 // ---------------------------------------------------------------------------
 
 /** Map a Pi JSONL record into one or more ETL split entries. */
-export function piSplit(raw: unknown): readonly SplitEntry[] {
-    const entries: SplitEntry[] = [];
-    const r = raw as Record<string, unknown>;
-    const sessionId = s(r.id, o(r.session).id) ?? 'unknown';
-    const seq = typeof r.seq === 'number' ? r.seq : 0;
-    const ts = s(r.ts, r.timestamp, r.createdAt) ?? new Date(0).toISOString();
-    const role = mapRole(r.type ?? r.role);
-    const recordType = String(r.type ?? '');
-    const model = s(r.model, o(r.message).model);
-    const cwd = s(r.cwd, r.dir);
+export function piSplit(raw: Record<string, unknown>, context?: TransformContext): readonly SplitEntry[] {
+    // Pi session files are top-level event envelopes: `{type, id, parentId, timestamp,
+    // message: {role, content, model, usage, provider, ...}}`. Newer records carry `recordType`
+    // instead of `type` with `role`/`text` at the top level. The top-level `id` is an event id,
+    // never a session id; the session key and sequence come from the source file (context).
+    const msg = raw.message as Record<string, unknown> | undefined;
+    const recordType = String(raw.type ?? raw.recordType ?? '');
+    const sessionId = sessionIdFromContext(context, raw);
+    const seq = context?.sourceLine ?? (typeof raw.seq === 'number' ? raw.seq : 0);
+    // Prefer the ISO `timestamp`; a numeric epoch-ms `ts` is converted, never stringified.
+    const ts =
+        s(raw.timestamp, raw.createdAt) ??
+        (typeof raw.ts === 'number' && Number.isFinite(raw.ts) ? new Date(raw.ts).toISOString() : s(raw.ts)) ??
+        new Date(0).toISOString();
 
-    const msg = r.message as Record<string, unknown> | undefined;
-    const usage = msg?.usage as Record<string, unknown> | undefined;
+    // Meta lifecycle/custom records collapse to one meta row keyed by the source session,
+    // never the unique event id, and never a guessed role.
+    if (
+        recordType === 'title' ||
+        recordType === 'title_change' ||
+        recordType === 'service_tier_change' ||
+        recordType === 'session_info' ||
+        recordType === 'ttsr_injection' ||
+        recordType === 'session_init' ||
+        recordType === 'session' ||
+        recordType === 'model_change' ||
+        recordType === 'thinking_level_change' ||
+        recordType === 'compaction' ||
+        recordType === 'custom' ||
+        recordType === 'custom_message' ||
+        recordType.startsWith('custom.')
+    ) {
+        return [
+            {
+                targetTable: 'history_message',
+                record: {
+                    session_id: sessionId,
+                    seq,
+                    role: 'meta',
+                    record_type: recordType,
+                    disposition: 'meta',
+                    ts,
+                    provenance: 'ambient',
+                },
+            },
+        ];
+    }
+
+    const entries: SplitEntry[] = [];
+    const role = piRole(msg?.role ?? raw.role ?? recordType);
+    const model = s(raw.model, o(msg).model);
+    const cwd = s(raw.cwd, raw.dir);
+    const usage = (msg?.usage ?? raw.usage) as Record<string, unknown> | undefined;
     const inputTokens = (usage?.input ?? usage?.input_tokens ?? undefined) as number | undefined;
     const outputTokens = (usage?.output ?? usage?.output_tokens ?? undefined) as number | undefined;
     const cacheRead = (usage?.cacheRead ?? usage?.cache_read_tokens ?? undefined) as number | undefined;
     const cacheWrite = (usage?.cacheWrite ?? usage?.cache_write_tokens ?? undefined) as number | undefined;
-    const costObj = (msg?.cost ?? r.cost) as Record<string, unknown> | undefined;
+    const costObj = (msg?.cost ?? raw.cost) as Record<string, unknown> | undefined;
     const costUsd = typeof costObj?.total === 'number' ? costObj.total : computeCost(inputTokens, outputTokens, model);
+    const contentBlocks = msg?.content ?? raw.content;
+    const durationMs = typeof msg?.duration === 'number' && Number.isFinite(msg.duration) ? msg.duration : undefined;
 
     const messageSplitIndex = entries.length;
 
@@ -272,46 +314,63 @@ export function piSplit(raw: unknown): readonly SplitEntry[] {
             record_type: recordType,
             disposition: 'keep',
             ts,
-            duration_ms: undefined,
+            duration_ms: durationMs,
             model: model ?? null,
             input_tokens: inputTokens ?? null,
             output_tokens: outputTokens ?? null,
             cache_read_tokens: cacheRead ?? null,
             cache_write_tokens: cacheWrite ?? null,
             cost_usd: costUsd ?? null,
-            content_text: s(r.content, r.text, msg?.content) ?? null,
+            content_text: extractContentText(contentBlocks) ?? s(raw.content, raw.text, msg?.content) ?? null,
             cwd: cwd ?? null,
             provenance: 'ambient',
         },
     });
 
-    // Tool calls from toolCall blocks in assistant content
-    if (Array.isArray(r.content) && role === 'assistant') {
-        for (const block of r.content as Record<string, unknown>[]) {
-            if (block?.toolCall) {
-                const tc = block.toolCall as Record<string, unknown>;
-                entries.push({
-                    targetTable: 'history_tool_call',
-                    record: {
-                        _messageSplitIndex: messageSplitIndex,
-                        session_id: sessionId,
-                        seq,
-                        tool_name: String(tc.name ?? ''),
-                        args_digest: argsDigest(tc.input ?? tc.arguments),
-                        args_raw: maybeArgsRaw('pi', String(tc.name ?? ''), tc.input ?? tc.arguments),
-                        status: 'ok',
-                        started_at: undefined,
-                        completed_at: undefined,
-                        duration_ms: undefined,
-                        result_bytes: undefined,
-                        error_text: undefined,
-                    },
-                });
-            }
+    // Tool calls from content blocks in assistant messages. normalizeOmpToolCall handles both
+    // the legacy nested `{toolCall: {...}}` block and pi's flat `{type: "toolCall", id, name,
+    // arguments}` block.
+    if (Array.isArray(contentBlocks) && role === 'assistant') {
+        for (const block of contentBlocks as Record<string, unknown>[]) {
+            const call = normalizeOmpToolCall(block);
+            if (call === null) continue;
+            entries.push({
+                targetTable: 'history_tool_call',
+                record: {
+                    _messageSplitIndex: messageSplitIndex,
+                    session_id: sessionId,
+                    seq,
+                    tool_name: String(call.name ?? ''),
+                    // The tool's own call id is the exact join key a toolResult's `toolCallId`
+                    // matches (see ompSplit / task 0564 R1).
+                    call_id: s(call.id),
+                    args_digest: argsDigest(call.input ?? call.arguments),
+                    args_raw: maybeArgsRaw('pi', String(call.name ?? ''), call.input ?? call.arguments),
+                    status: 'ok',
+                    started_at: undefined,
+                    completed_at: undefined,
+                    duration_ms: undefined,
+                    result_bytes: undefined,
+                    error_text: undefined,
+                },
+            });
         }
     }
 
     return entries;
+}
+
+/**
+ * Canonicalize a pi message role. pi tool results and bash executions ride user turns (Claude
+ * protocol shape); everything unrecognized clamps to `unknown` so pi record types never leak
+ * into the role column (task 0577 AC2).
+ */
+function piRole(type: unknown): string {
+    const t = String(type ?? '').toLowerCase();
+    if (t === 'toolresult' || t === 'tool_result' || t === 'bashexecution' || t === 'tool') return 'user';
+    const mapped = mapRole(t);
+    if (mapped === 'user' || mapped === 'assistant' || mapped === 'system') return mapped;
+    return 'unknown';
 }
 
 // ---------------------------------------------------------------------------

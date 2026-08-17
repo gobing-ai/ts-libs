@@ -331,14 +331,115 @@ describe('piSplit', () => {
         expect(entries[0]?.record.session_id).toBe('unknown');
     });
 
-    test('handles unknown type', () => {
+    test('handles unknown type by clamping to unknown role', () => {
         const entries = piSplit({
             id: 'sess',
             type: 'weird_type',
             timestamp: '2026-08-07T00:00:00.000Z',
             content: 'hi',
         });
-        expect(entries[0]?.record.role).toBe('weird_type');
+        expect(entries[0]?.record.role).toBe('unknown');
+        expect(entries[0]?.record.record_type).toBe('weird_type');
+    });
+
+    test('new recordType envelope: session from source file, epoch ts converted, top-level text', () => {
+        const entries = piSplit(
+            {
+                recordType: 'message',
+                role: 'user',
+                text: 'hello new shape',
+                ts: 1786937383758,
+                message: { role: 'user', content: 'hello new shape' },
+            },
+            { source: 'pi', sourceFile: '/sessions/abc/sp-session.jsonl', sourceLine: 3, splitIndex: 0 },
+        );
+        expect(entries).toHaveLength(1);
+        expect(entries[0]?.record.session_id).toBe('sp-session');
+        expect(entries[0]?.record.seq).toBe(3);
+        expect(entries[0]?.record.ts).toBe('2026-08-17T03:29:43.758Z');
+        expect(entries[0]?.record.content_text).toBe('hello new shape');
+        expect(entries[0]?.record.role).toBe('user');
+    });
+
+    test('new recordType envelope: record_type preserves original recordType value', () => {
+        const entries = piSplit(
+            {
+                recordType: 'message',
+                role: 'assistant',
+                text: 'working',
+                ts: 1786937383758,
+                message: { role: 'assistant', content: [{ type: 'text', text: 'working' }] },
+            },
+            { source: 'pi', sourceFile: '/sessions/abc/sp-session.jsonl', sourceLine: 4, splitIndex: 0 },
+        );
+        expect(entries[0]?.record.record_type).toBe('message');
+    });
+
+    test('toolResult role maps to user', () => {
+        const entries = piSplit(
+            {
+                type: 'toolResult',
+                id: 'event-9',
+                timestamp: '2026-08-07T00:00:00.000Z',
+                message: { role: 'toolResult', content: [{ type: 'text', text: 'command output' }] },
+            },
+            { source: 'pi', sourceFile: '/sessions/abc/sp-session.jsonl', sourceLine: 5, splitIndex: 0 },
+        );
+        expect(entries[0]?.record.role).toBe('user');
+        expect(entries[0]?.record.content_text).toBe('command output');
+    });
+
+    test('bashExecution role maps to user', () => {
+        const entries = piSplit(
+            {
+                type: 'bashExecution',
+                timestamp: '2026-08-07T00:00:00.000Z',
+                message: { role: 'bashExecution', content: [{ type: 'text', text: 'stdout' }] },
+            },
+            { source: 'pi', sourceFile: '/sessions/abc/sp-session.jsonl', sourceLine: 6, splitIndex: 0 },
+        );
+        expect(entries[0]?.record.role).toBe('user');
+    });
+
+    test('flat toolCall block emits tool call with call_id', () => {
+        const entries = piSplit(
+            {
+                type: 'assistant',
+                id: 'event-10',
+                timestamp: '2026-08-07T00:00:00.000Z',
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'toolCall', id: 'call-77', name: 'read', arguments: { path: '/x' } }],
+                },
+            },
+            { source: 'pi', sourceFile: '/sessions/abc/sp-session.jsonl', sourceLine: 7, splitIndex: 0 },
+        );
+        expect(entries).toHaveLength(2);
+        expect(entries[1]?.targetTable).toBe('history_tool_call');
+        expect(entries[1]?.record.call_id).toBe('call-77');
+    });
+
+    test('meta types collapse to one meta row keyed by source session', () => {
+        const entries = piSplit(
+            { type: 'session_info', id: 'unique-event-1', timestamp: '2026-08-07T00:00:00.000Z' },
+            { source: 'pi', sourceFile: '/sessions/abc/sp-session.jsonl', sourceLine: 8, splitIndex: 0 },
+        );
+        expect(entries).toHaveLength(1);
+        expect(entries[0]?.record.role).toBe('meta');
+        expect(entries[0]?.record.disposition).toBe('meta');
+        expect(entries[0]?.record.record_type).toBe('session_info');
+        expect(entries[0]?.record.session_id).toBe('sp-session');
+    });
+
+    test('custom.* types collapse to meta', () => {
+        const entries = piSplit(
+            { type: 'custom.session-tag', id: 'unique-event-2', timestamp: '2026-08-07T00:00:00.000Z' },
+            { source: 'pi', sourceFile: '/sessions/abc/sp-session.jsonl', sourceLine: 9, splitIndex: 0 },
+        );
+        expect(entries).toHaveLength(1);
+        expect(entries[0]?.record.role).toBe('meta');
+        expect(entries[0]?.record.record_type).toBe('custom.session-tag');
+        expect(entries[0]?.record.session_id).toBe('sp-session');
     });
 });
 
