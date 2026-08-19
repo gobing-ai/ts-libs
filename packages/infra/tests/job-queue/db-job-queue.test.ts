@@ -81,6 +81,24 @@ describe('DBQueueConsumer', () => {
         ).not.toThrow();
     });
 
+    test('rejects missing or invalid queue names when events are configured', () => {
+        // R4 (0602): an event-enabled consumer must name its queue — an anonymous
+        // lifecycle row is never acceptable (ADR-068).
+        const invalidNames = [undefined, '', '   ', ' padded '] as const;
+        for (const queueName of invalidNames) {
+            expect(() => new DBQueueConsumer(dao, { events: new EventBus<QueueEvents>(), queueName })).toThrow(
+                'Queue consumer queueName',
+            );
+        }
+    });
+
+    test('a silent consumer may still omit queue identity', () => {
+        // Backward-compatibility control: no `events` bus ⇒ no lifecycle rows ⇒ the
+        // `{}` config contract is preserved.
+        expect(() => new DBQueueConsumer(dao, {})).not.toThrow();
+        expect(() => new DBQueueConsumer(dao, { queueName: 'test-jobs' })).not.toThrow();
+    });
+
     test('processOnce dispatches a ready job and marks it completed', async () => {
         const queue = new DBJobQueue<{ value: number }>(dao);
         const id = await queue.enqueue('work', { value: 7 });
@@ -237,6 +255,7 @@ describe('DBQueueConsumer', () => {
             pollInterval: 5,
             drainTimeoutMs: 1_000,
             events: bus,
+            queueName: 'test-jobs',
         });
         consumer.register('slow-claim', async () => {
             if (stopReturned) ranAfterStop = true;
@@ -264,9 +283,11 @@ describe('DBQueueConsumer', () => {
         const bus = new EventBus<QueueEvents>();
         let drained: boolean | undefined;
         let stopSeverity: string | undefined;
+        let stopQueueName: string | undefined;
         bus.on('queue.consumer.stopped', (d) => {
             drained = d.drained;
             stopSeverity = d.severity;
+            stopQueueName = d.queueName;
         });
 
         let release: () => void = () => {};
@@ -274,6 +295,7 @@ describe('DBQueueConsumer', () => {
             pollInterval: 5,
             drainTimeoutMs: 50,
             events: bus,
+            queueName: 'test-jobs',
         });
         consumer.register(
             'hang',
@@ -293,6 +315,7 @@ describe('DBQueueConsumer', () => {
         expect(elapsed).toBeLessThan(2_000); // bounded by drainTimeoutMs, not by the handler
         expect(drained).toBe(false); // and honestly reported as an incomplete drain
         expect(stopSeverity).toBe('warning');
+        expect(stopQueueName).toBe('test-jobs');
 
         release(); // let the stuck cycle finish so it does not outlive the test
         await Bun.sleep(10);
@@ -348,7 +371,7 @@ describe('DBQueueConsumer', () => {
         const queue = new DBJobQueue<{ v: number }>(dao, bus);
         await queue.enqueue('work', { v: 1 });
 
-        const consumer = new DBQueueConsumer<{ v: number }>(dao, { events: bus });
+        const consumer = new DBQueueConsumer<{ v: number }>(dao, { events: bus, queueName: 'test-jobs' });
         consumer.register('work', async () => {});
         await consumer.processOnce();
 
@@ -365,7 +388,12 @@ describe('DBQueueConsumer', () => {
 
         const queue = new DBJobQueue<{ v: number }>(dao);
         const id = await queue.enqueue('unstable', { v: 1 }, { maxRetries: 2 });
-        const consumer = new DBQueueConsumer<{ v: number }>(dao, { events: bus, baseDelay: 1, maxDelay: 1 });
+        const consumer = new DBQueueConsumer<{ v: number }>(dao, {
+            events: bus,
+            baseDelay: 1,
+            maxDelay: 1,
+            queueName: 'test-jobs',
+        });
         consumer.register('unstable', async () => {
             throw new Error('oops');
         });
@@ -387,6 +415,7 @@ describe('DBQueueConsumer', () => {
                   batchSize: number;
                   maxConcurrency: number;
                   visibilityTimeout: number;
+                  queueName: string;
                   severity: 'info' | 'warning' | 'error';
               }
             | undefined;
@@ -400,6 +429,7 @@ describe('DBQueueConsumer', () => {
             batchSize: 10,
             maxConcurrency: 5,
             visibilityTimeout: 30_000,
+            queueName: 'test-jobs',
         });
         await consumer.start();
         await consumer.stop();
@@ -410,6 +440,7 @@ describe('DBQueueConsumer', () => {
         expect(started?.batchSize).toBe(10);
         expect(started?.maxConcurrency).toBe(5);
         expect(started?.visibilityTimeout).toBe(30_000);
+        expect(started?.queueName).toBe('test-jobs');
         expect(started?.severity).toBe('info');
     });
 
@@ -421,6 +452,7 @@ describe('DBQueueConsumer', () => {
                   drainTimeoutMs: number;
                   inFlightAtStop: number;
                   drained: boolean;
+                  queueName: string;
                   severity: 'info' | 'warning' | 'error';
               }
             | undefined;
@@ -431,6 +463,7 @@ describe('DBQueueConsumer', () => {
         const consumer = new DBQueueConsumer<{ v: number }>(dao, {
             events: bus,
             drainTimeoutMs: 5_000,
+            queueName: 'test-jobs',
         });
         await consumer.start();
         await consumer.stop();
@@ -440,6 +473,7 @@ describe('DBQueueConsumer', () => {
         expect(stopped?.drainTimeoutMs).toBe(5_000);
         expect(stopped?.inFlightAtStop).toBe(0);
         expect(stopped?.drained).toBe(true);
+        expect(stopped?.queueName).toBe('test-jobs');
         expect(stopped?.severity).toBe('info');
     });
 
@@ -502,7 +536,7 @@ describe('DBQueueConsumer', () => {
 
         const queue = new DBJobQueue<{ v: number }>(dao, bus);
         const id = await queue.enqueue('work', { v: 1 });
-        const consumer = new DBQueueConsumer<{ v: number }>(dao, { events: bus });
+        const consumer = new DBQueueConsumer<{ v: number }>(dao, { events: bus, queueName: 'test-jobs' });
         consumer.register('work', async () => {});
         await consumer.processOnce();
 
@@ -524,7 +558,12 @@ describe('DBQueueConsumer', () => {
 
         const queue = new DBJobQueue<{ v: number }>(dao);
         const id = await queue.enqueue('unstable', { v: 1 }, { maxRetries: 1 });
-        const consumer = new DBQueueConsumer<{ v: number }>(dao, { events: bus, baseDelay: 1, maxDelay: 1 });
+        const consumer = new DBQueueConsumer<{ v: number }>(dao, {
+            events: bus,
+            baseDelay: 1,
+            maxDelay: 1,
+            queueName: 'test-jobs',
+        });
         consumer.register('unstable', async () => {
             throw new Error('boom');
         });
@@ -557,7 +596,12 @@ describe('DBQueueConsumer', () => {
 
         const queue = new DBJobQueue<{ v: number }>(dao);
         const id = await queue.enqueue('unstable', { v: 1 }, { maxRetries: 3 });
-        const consumer = new DBQueueConsumer<{ v: number }>(dao, { events: bus, baseDelay: 1, maxDelay: 1 });
+        const consumer = new DBQueueConsumer<{ v: number }>(dao, {
+            events: bus,
+            baseDelay: 1,
+            maxDelay: 1,
+            queueName: 'test-jobs',
+        });
         consumer.register('unstable', async () => {
             throw new Error('transient');
         });

@@ -1,7 +1,6 @@
 import type { QueueJobDao, QueueJobRecord, QueueStats } from '@gobing-ai/ts-db';
 import type { EventBus } from '../event-bus/event-bus';
 import type {
-    QueueConsumerStoppedDetail,
     QueueEvents,
     QueueJobCompletedDetail,
     QueueJobEnqueuedDetail,
@@ -78,7 +77,11 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
     private readonly baseDelay: number;
     private readonly maxDelay: number;
     private readonly drainTimeoutMs: number;
-    private readonly events: EventBus<QueueEvents> | undefined;
+    /**
+     * Validated event sink: the bus plus the non-empty queue name its lifecycle rows
+     * require (ADR-068). `undefined` for silent consumers — no `events`, no identity.
+     */
+    private readonly eventSink: { bus: EventBus<QueueEvents>; queueName: string } | undefined;
     private timer: ReturnType<typeof setTimeout> | null = null;
     private running = false;
     private inFlight = 0;
@@ -95,7 +98,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         this.baseDelay = nonNegativeFiniteConfig('baseDelay', config.baseDelay ?? 1_000);
         this.maxDelay = nonNegativeFiniteConfig('maxDelay', config.maxDelay ?? 60_000);
         this.drainTimeoutMs = nonNegativeFiniteConfig('drainTimeoutMs', config.drainTimeoutMs ?? 30_000);
-        this.events = config.events;
+        this.eventSink = resolveEventSink(config);
     }
 
     register(type: string, handler: JobHandler<T>): void {
@@ -106,14 +109,18 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         if (this.running) return;
         this.running = true;
         this.schedule(0);
-        await this.events?.emit('queue.consumer.started', {
-            startedAt: Date.now(),
-            pollInterval: this.pollInterval,
-            batchSize: this.batchSize,
-            maxConcurrency: this.maxConcurrency,
-            visibilityTimeout: this.visibilityTimeout,
-            severity: 'info',
-        });
+        const sink = this.eventSink;
+        if (sink !== undefined) {
+            await sink.bus.emit('queue.consumer.started', {
+                startedAt: Date.now(),
+                pollInterval: this.pollInterval,
+                batchSize: this.batchSize,
+                maxConcurrency: this.maxConcurrency,
+                visibilityTimeout: this.visibilityTimeout,
+                queueName: sink.queueName,
+                severity: 'info',
+            });
+        }
     }
 
     async stop(): Promise<void> {
@@ -141,14 +148,17 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         }
         if (wasRunning) {
             const drained = this.inFlight === 0;
-            const detail: QueueConsumerStoppedDetail = {
-                stoppedAt: Date.now(),
-                drainTimeoutMs: this.drainTimeoutMs,
-                inFlightAtStop: this.inFlight,
-                drained,
-                severity: drained ? 'info' : 'warning',
-            };
-            await this.events?.emit('queue.consumer.stopped', detail);
+            const sink = this.eventSink;
+            if (sink !== undefined) {
+                await sink.bus.emit('queue.consumer.stopped', {
+                    stoppedAt: Date.now(),
+                    drainTimeoutMs: this.drainTimeoutMs,
+                    inFlightAtStop: this.inFlight,
+                    drained,
+                    queueName: sink.queueName,
+                    severity: drained ? 'info' : 'warning',
+                });
+            }
         }
     }
 
@@ -249,7 +259,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
                     attempt: job.attempts,
                     severity: 'info',
                 };
-                await this.events?.emit('queue.job.completed', completed);
+                await this.eventSink?.bus.emit('queue.job.completed', completed);
             } catch (error) {
                 const durationMs = performance.now() - startMs;
                 getQueueJobProcessingDuration().record(durationMs, { type: job.type });
@@ -277,7 +287,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
                 durationMs,
                 severity: 'error',
             };
-            await this.events?.emit('queue.job.failed', failed);
+            await this.eventSink?.bus.emit('queue.job.failed', failed);
             return;
         }
 
@@ -293,7 +303,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
             error: message,
             severity: 'warning',
         };
-        await this.events?.emit('queue.job.retrying', retrying);
+        await this.eventSink?.bus.emit('queue.job.retrying', retrying);
     }
 }
 
@@ -338,4 +348,27 @@ function nonNegativeFiniteConfig(name: string, value: number): number {
         throw new RangeError(`Queue consumer ${name} must be a non-negative finite number; received ${value}`);
     }
     return value;
+}
+
+/**
+ * Resolve the validated event sink from `QueueConsumerConfig`: any supplied `queueName`
+ * must be non-empty and already trimmed, and an event-enabled consumer (one with an
+ * `events` bus) must supply one. Silent consumers may omit identity because they emit no
+ * lifecycle rows. The name is validated but never normalized — the emitted detail is
+ * byte-for-byte the config.
+ */
+function resolveEventSink(config: QueueConsumerConfig): { bus: EventBus<QueueEvents>; queueName: string } | undefined {
+    const name = config.queueName;
+    if (name !== undefined && (name.length === 0 || name.trim() !== name)) {
+        throw new TypeError(
+            `Queue consumer queueName must be a non-empty, already-trimmed string; received ${JSON.stringify(name)}`,
+        );
+    }
+    if (config.events === undefined) {
+        return undefined;
+    }
+    if (name === undefined) {
+        throw new TypeError('Queue consumer queueName is required when events is configured');
+    }
+    return { bus: config.events, queueName: name };
 }

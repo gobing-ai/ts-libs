@@ -55,6 +55,8 @@ export interface QueueJobEnqueuedDetail extends QueueJobRef, WithEventSeverity {
 
 /** Payload for `queue.consumer.started` — the polling loop began. */
 export interface QueueConsumerStartedDetail extends WithEventSeverity {
+    /** Queue identity the consumer polls (validated `QueueConsumerConfig.queueName`). */
+    queueName: string;
     /** Epoch ms when the consumer was started. */
     startedAt: number;
     /** Polling interval in ms. */
@@ -69,6 +71,8 @@ export interface QueueConsumerStartedDetail extends WithEventSeverity {
 
 /** Payload for `queue.consumer.stopped` — the polling loop was halted. */
 export interface QueueConsumerStoppedDetail extends WithEventSeverity {
+    /** Queue identity the consumer polls (validated `QueueConsumerConfig.queueName`). */
+    queueName: string;
     /** Epoch ms when `stop()` was called. */
     stoppedAt: number;
     /** Drain deadline in ms applied to in-flight handlers at stop time. */

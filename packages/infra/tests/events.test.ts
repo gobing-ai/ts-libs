@@ -50,8 +50,8 @@ describe('infra events', () => {
 
     test('consumer lifecycle events carry config and drain detail (R5)', async () => {
         const bus = new EventBus<InfraEvents>();
-        let started: { pollInterval: unknown; severity?: string } | undefined;
-        let stopped: { drained: unknown; severity?: string } | undefined;
+        let started: { pollInterval: unknown; queueName?: string; severity?: string } | undefined;
+        let stopped: { drained: unknown; queueName?: string; severity?: string } | undefined;
         bus.on('queue.consumer.started', (d) => {
             started = d;
         });
@@ -60,6 +60,7 @@ describe('infra events', () => {
         });
 
         await bus.emit('queue.consumer.started', {
+            queueName: 'test-jobs',
             startedAt: Date.now(),
             pollInterval: 1000,
             batchSize: 10,
@@ -68,6 +69,7 @@ describe('infra events', () => {
             severity: 'info',
         });
         await bus.emit('queue.consumer.stopped', {
+            queueName: 'test-jobs',
             stoppedAt: Date.now(),
             drainTimeoutMs: 30_000,
             inFlightAtStop: 0,
@@ -76,9 +78,11 @@ describe('infra events', () => {
         });
 
         expect(started).toBeDefined();
+        expect(started?.queueName).toBe('test-jobs');
         expect(started?.pollInterval).toBe(1000);
         expect(started?.severity).toBe('info');
         expect(stopped).toBeDefined();
+        expect(stopped?.queueName).toBe('test-jobs');
         expect(stopped?.drained).toBe(true);
         expect(stopped?.severity).toBe('info');
     });

@@ -6,6 +6,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [0.4.39] — 2026-08-19
+
+### Added
+
+- **`@gobing-ai/ts-infra`: queue identity on consumer lifecycle events (spur task 0602).**
+  `QueueConsumerConfig.queueName?: string` is the optional configured identity; it is
+  runtime-required whenever `events` is configured. `QueueConsumerStartedDetail` and
+  `QueueConsumerStoppedDetail` now carry a required `queueName: string` emitted
+  byte-for-byte from the validated config value. Silent consumers (no `events` bus) keep
+  the existing `{}` contract and may omit identity entirely.
+
+### Changed
+
+- **`@gobing-ai/ts-infra` event-enabled consumers must name their queue (ADR-068).** An
+  event-enabled `DBQueueConsumer` (one with an `events` bus) constructed without a
+  non-empty, already-trimmed `queueName` now throws a `TypeError` whose message begins
+  `Queue consumer queueName …` — an observable consumer can never emit an anonymous
+  lifecycle row. The name is validated but never normalized; no default, table name, or
+  job `type` is substituted.
+
+### Breaking Changes
+
+- **Event-enabled `DBQueueConsumer` constructors and manual lifecycle detail emitters.**
+  Consumers that configure `events` must now pass `queueName`; manual construction of
+  `QueueConsumerStartedDetail` / `QueueConsumerStoppedDetail` objects (e.g. in typed
+  `EventBus` tests or custom emitters) must add the required `queueName: string` field.
+  Silent consumers are unaffected.
+
 ## [0.4.35] — 2026-08-16
 
 ### Fixed

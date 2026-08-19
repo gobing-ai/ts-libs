@@ -275,6 +275,8 @@ The consumer claims ready jobs, resets stuck processing jobs after the visibilit
 
 `stop()` drains gracefully: it stops polling, then waits for work already in flight — including a poll cycle that has claimed nothing yet — before resolving. The wait is capped by `drainTimeoutMs` (default 30s) so a stuck handler cannot block shutdown; when the cap is hit, `queue.consumer.stopped` reports `drained: false` with the outstanding `inFlightAtStop` count.
 
+**Queue identity.** Once a consumer is event-enabled (an `events` bus is configured), it **must** supply a non-empty, already-trimmed `queueName` — construction throws `Queue consumer queueName …` otherwise, so an observable consumer can never emit an anonymous `queue.consumer.started`/`queue.consumer.stopped` row. The name is validated, never normalized, and is emitted byte-for-byte as `queueName` on both lifecycle details. Silent consumers (no `events`) may omit identity entirely.
+
 **Queue lifecycle events** are opt-in through the injected `EventBus`:
 
 ```ts
@@ -291,7 +293,10 @@ events.on('queue.consumer.started', () => { /* ... */ });
 events.on('queue.consumer.stopped', () => { /* ... */ });
 
 const queue = new DBJobQueue<Payload>(dao, events);                // emits enqueued
-const consumer = new DBQueueConsumer<Payload>(dao, { events });    // emits the rest
+const consumer = new DBQueueConsumer<Payload>(dao, {
+    events,                             // emits lifecycle + job events
+    queueName: 'email-jobs',            // required when `events` is configured (ADR-068)
+});
 ```
 
 ### Scheduler — cron-like actions

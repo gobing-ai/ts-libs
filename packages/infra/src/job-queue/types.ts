@@ -61,6 +61,13 @@ export interface QueueConsumerConfig {
     /** Upper bound (ms, default 30_000) on how long `stop()` waits for in-flight work to drain. */
     drainTimeoutMs?: number;
     /**
+     * Identity of the queue this consumer polls. Runtime-required whenever `events` is
+     * configured (ADR-068): an observable consumer must never emit an anonymous lifecycle
+     * row. Silent consumers (no `events`) may omit it. A supplied value must be non-empty
+     * and already trimmed; it is validated but never normalized.
+     */
+    queueName?: string;
+    /**
      * Optional bus for queue lifecycle events with correlator-grade detail payloads:
      * `queue.consumer.started` / `queue.consumer.stopped` (config snapshot + drain
      * outcome), `queue.job.enqueued` / `queue.job.completed` / `queue.job.failed` /
