@@ -143,6 +143,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     let importedRecords = 0;
     let skippedDuplicates = 0;
     let unknownRecords = 0;
+    let skippedCorruptLines = 0;
     let checkpointUpdates = 0;
     // Full-mode desired set (R1, task 0504): every record hash the current source produces.
     // ReconcileFullImport diffs this against the persisted ledger to retire stale rows.
@@ -161,8 +162,11 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             if (line.length === 0 || lineNumber <= checkpoint) continue;
             processedLines += 1;
 
-            const raw = parseJsonLine(line, file, lineNumber, parseErrors);
-            if (raw === undefined) continue;
+            const raw = parseJsonLine(line, file, lineNumber, parseErrors, definition.corruptLinePolicy);
+            if (raw === undefined) {
+                if (definition.corruptLinePolicy === 'skip') skippedCorruptLines += 1;
+                continue;
+            }
 
             const splitRecords = splitRawRecord(definition, raw, {
                 source: resolvedSource,
@@ -392,6 +396,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
         processedLines,
         importedRecords,
         skippedDuplicates,
+        skippedCorruptLines,
         unknownRecords,
         parseErrors,
         validationErrors,
@@ -405,18 +410,28 @@ function parseJsonLine(
     sourceFile: string,
     sourceLine: number,
     parseErrors: ImportIssue[],
+    corruptLinePolicy: SourceDefinition['corruptLinePolicy'] = 'error',
 ): JsonObject | undefined {
+    let parsed: unknown;
     try {
-        const value = JSON.parse(line);
-        if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-            parseErrors.push({ sourceFile, sourceLine, reason: 'JSONL row must be an object' });
-            return undefined;
-        }
-        return value as JsonObject;
+        parsed = JSON.parse(line);
     } catch (error) {
-        parseErrors.push({ sourceFile, sourceLine, reason: error instanceof Error ? error.message : 'Invalid JSON' });
+        if (corruptLinePolicy !== 'skip') {
+            parseErrors.push({
+                sourceFile,
+                sourceLine,
+                reason: error instanceof Error ? error.message : 'Invalid JSON',
+            });
+        }
         return undefined;
     }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        if (corruptLinePolicy !== 'skip') {
+            parseErrors.push({ sourceFile, sourceLine, reason: 'JSONL row must be an object' });
+        }
+        return undefined;
+    }
+    return parsed as JsonObject;
 }
 
 function splitRawRecord(

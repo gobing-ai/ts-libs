@@ -190,15 +190,21 @@ export const SOURCE_DEFINITIONS: Readonly<Record<LlmJsonlSource, SourceDefinitio
         GROK_FIELD_MAP,
         GROK_SCHEMA,
     ),
-    agy: customSourceDefinition(
-        'agy',
-        'Antigravity CLI',
-        ['.gemini/antigravity-cli/brain'],
-        ['*.jsonl'],
-        agySplit,
-        AGY_FIELD_MAP,
-        AGY_SCHEMA,
-    ),
+    agy: {
+        ...customSourceDefinition(
+            'agy',
+            'Antigravity CLI',
+            ['.gemini/antigravity-cli/brain'],
+            ['*.jsonl'],
+            agySplit,
+            AGY_FIELD_MAP,
+            AGY_SCHEMA,
+        ),
+        // agy's producer interleaves non-JSON fragments and torn tail writes into its
+        // brain jsonl (task 0623: 789/89,818 lines, all unrecoverable). Skipping keeps
+        // the 99%+ good records importable without degrading the whole source.
+        corruptLinePolicy: 'skip',
+    },
     gemini: customSourceDefinition(
         'gemini',
         'Gemini CLI',

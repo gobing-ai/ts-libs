@@ -62,6 +62,13 @@ export interface SourceDefinition<TRecord extends JsonObject = JsonObject> {
     readonly displayName: string;
     readonly defaultRoots: readonly string[];
     readonly filePatterns: readonly string[];
+    /**
+     * Policy for lines that fail JSON parsing. `'error'` (default) records a parse error and
+     * degrades the import; `'skip'` counts the line and moves on — for producers whose logs
+     * are known to interleave non-JSON fragments and torn tail writes (agy task 0623:
+     * 789/89,818 lines unparseable, all unrecoverable garbage).
+     */
+    readonly corruptLinePolicy?: 'error' | 'skip';
     readonly targetTable: string;
     readonly splitConfig: SplitConfig;
     readonly fieldMap: Readonly<Record<string, string>>;
@@ -126,6 +133,8 @@ export interface ImportResult {
     readonly importedRecords: number;
     readonly skippedDuplicates: number;
     readonly unknownRecords: number;
+    /** Lines dropped by `corruptLinePolicy: 'skip'` instead of degrading the import. */
+    readonly skippedCorruptLines: number;
     readonly parseErrors: readonly ImportIssue[];
     readonly validationErrors: readonly ImportIssue[];
     readonly checkpointUpdates: number;

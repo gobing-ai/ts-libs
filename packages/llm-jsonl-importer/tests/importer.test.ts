@@ -903,6 +903,42 @@ describe('runJsonlImport source registry (ADR-023 A3)', () => {
     });
 });
 
+/**
+ * corruptLinePolicy (task 0623): agy's producer interleaves non-JSON fragments and torn
+ * tail writes into its jsonl. Under `'skip'` those lines are counted and dropped instead
+ * of degrading the source; the default `'error'` policy is unchanged for every other source.
+ */
+describe('runJsonlImport corruptLinePolicy (0623)', () => {
+    test("agy 'skip' policy drops corrupt lines without parse errors and still imports good records", async () => {
+        const file = await fixtureFile([
+            'an class="badge b-gray" — foreign fragment, not JSON',
+            JSON.stringify({ id: 'ok-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'before-corrupt' }),
+            '{"step_index":585,"source":"USER_EXPLICIT",', // torn tail write
+            JSON.stringify({ id: 'ok-2', timestamp: '2026-05-30T00:01:00.000Z', content: 'after-corrupt' }),
+        ]);
+
+        const result = await runJsonlImport('agy', { db, files: [file], mode: 'full', now: fixedNow });
+
+        expect(result.parseErrors).toHaveLength(0);
+        expect(result.skippedCorruptLines).toBe(2);
+        expect(result.importedRecords).toBe(2);
+        expect(result.validationErrors).toHaveLength(0);
+    });
+
+    test("default 'error' policy keeps recording parse errors (other sources unchanged)", async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'ok-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'good' }),
+            '{"torn',
+        ]);
+
+        const result = await runJsonlImport('antigravity', { db, files: [file], mode: 'full', now: fixedNow });
+
+        expect(result.parseErrors).toHaveLength(1);
+        expect(result.skippedCorruptLines).toBe(0);
+        expect(result.importedRecords).toBe(1);
+    });
+});
+
 function customAcmeSource(): SourceDefinition {
     return {
         source: 'acme',
