@@ -31,7 +31,7 @@ beforeEach(async () => {
 });
 
 describe('applyHistoryImportSchema', () => {
-    test('creates checkpoint, ledger, and built-in ETL tables', async () => {
+    test('creates checkpoint, ledger, and typed tables without empty ETL tables', async () => {
         await applyHistoryImportSchema(db);
 
         const tables = await db.queryAll<{ name: string }>(
@@ -40,8 +40,9 @@ describe('applyHistoryImportSchema', () => {
         const names = tables.map((t) => t.name);
         expect(names).toContain('history_import_checkpoint');
         expect(names).toContain('history_import_ledger');
-        expect(names).toContain('history_etl_claude');
-        expect(names).toContain('history_etl_codex');
+        expect(names).toContain('history_message');
+        expect(names).toContain('history_tool_call');
+        expect(names.some((name) => name.startsWith('history_etl_'))).toBe(false);
     });
 
     test('is idempotent when called twice', async () => {
@@ -310,19 +311,18 @@ describe('normalizeSourceFilePaths', () => {
     });
 });
 
-describe('applyHistoryImportSchema — built-in ETL table materialization (R2)', () => {
-    test('creates every built-in history_etl_* table incl. grok/omp/agy, not only the old static seven', async () => {
+describe('applyHistoryImportSchema — lazy ETL materialization', () => {
+    test('creates typed tables but no empty built-in history_etl_* tables', async () => {
         // Fresh :memory: adapter; beforeEach already applied schema for the shared `db`,
         // so use an independent adapter to prove applyHistoryImportSchema alone is sufficient.
         const fresh = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
         await applyHistoryImportSchema(fresh);
 
-        for (const table of ['history_etl_pi', 'history_etl_grok', 'history_etl_omp', 'history_etl_agy']) {
-            const rows = await fresh.queryAll<{ c: number }>(`SELECT COUNT(*) AS c FROM ${table}`);
-            expect(rows[0]?.c).toBe(0);
-        }
+        const etl = await fresh.queryAll<{ name: string }>(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'history_etl_%'",
+        );
+        expect(etl).toEqual([]);
 
-        // Typed contract tables still come from the static SQL.
         const typedMsg = await fresh.queryAll<{ c: number }>(`SELECT COUNT(*) AS c FROM history_message`);
         expect(typedMsg[0]?.c).toBe(0);
     });

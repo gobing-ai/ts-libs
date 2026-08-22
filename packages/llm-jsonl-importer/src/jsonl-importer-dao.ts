@@ -1,7 +1,7 @@
 import type { DbAdapter, DbBatchOp } from '@gobing-ai/ts-db';
 import { HistoryImportError } from './errors';
 import { HISTORY_IMPORT_SCHEMA_SQL } from './schema-sql';
-import { SOURCE_DEFINITIONS, VALID_TABLE_NAME } from './sources';
+import { VALID_TABLE_NAME } from './sources';
 import type { ImportOptions, JsonObject, ReconcileSummary, SourceDefinition } from './types';
 
 interface CheckpointRow {
@@ -87,11 +87,9 @@ function ETL_TABLE_DDL(table: string): string {
 /**
  * Apply importer-owned schema to the target database.
  *
- * Creates the checkpoint, ledger, and typed contract tables from the static SQL, then materializes
- * every built-in `history_etl_*` table by looping {@link SOURCE_DEFINITIONS} through
- * {@link ensureTargetTables}. This keeps the migration contract "schema applied ⇒ all built-in ETL
- * tables exist" for callers who apply the schema and then raw-insert without a prior import.
- * Adding a new built-in source to {@link SOURCE_DEFINITIONS} is now the only edit needed.
+ * Creates the checkpoint, ledger, and typed contract tables from the static SQL.
+ * Generic ETL tables are created lazily with the first accepted row, so applying
+ * the schema or scanning an empty source never leaves vestigial empty tables.
  */
 export async function applyHistoryImportSchema(db: ImportOptions['db']): Promise<void> {
     for (const statement of HISTORY_IMPORT_SCHEMA_SQL.split(';')) {
@@ -100,18 +98,20 @@ export async function applyHistoryImportSchema(db: ImportOptions['db']): Promise
             await db.exec(sql);
         }
     }
-    for (const definition of Object.values(SOURCE_DEFINITIONS)) {
-        await ensureTargetTables(db, definition);
-    }
+}
+
+/** Ensure one accepted record's target exists; typed targets come from the static schema. */
+async function ensureTargetTable(db: ImportOptions['db'], targetTable: string): Promise<void> {
+    const table = targetTableFor(targetTable);
+    if (TYPED_TABLE_COLUMNS[table] === undefined) await db.exec(ETL_TABLE_DDL(table));
 }
 
 /**
  * Ensure the ETL table(s) for a source definition exist.
  *
  * WHY: the static {@link HISTORY_IMPORT_SCHEMA_SQL} creates only the checkpoint, ledger, and
- * typed contract tables. Every `history_etl_*` blob table — built-in and custom — is created here
- * (and by {@link applyHistoryImportSchema} looping {@link SOURCE_DEFINITIONS}). Built-in definitions
- * with a `splitConfig.targetTable` override also need their target table(s) created on demand. The
+ * typed contract tables. Callers that explicitly request a definition's generic targets use this
+ * helper; the import pipeline instead creates only targets reached by accepted rows. The
  * table name is already gated by
  * {@link VALID_TABLE_NAME} in {@link validateSourceDefinition} / {@link targetTableFor},
  * so it is safe to interpolate into DDL. `CREATE TABLE IF NOT EXISTS` is
@@ -123,9 +123,7 @@ async function ensureTargetTables(db: ImportOptions['db'], definition: SourceDef
         tables.add(targetTableFor(definition.splitConfig.targetTable));
     }
     for (const table of tables) {
-        // Typed tables are created by the static schema; use ETL DDL for custom tables.
-        if (TYPED_TABLE_COLUMNS[table] !== undefined) continue;
-        await db.exec(ETL_TABLE_DDL(table));
+        await ensureTargetTable(db, table);
     }
 }
 
@@ -176,7 +174,7 @@ async function ledgerExists(db: ImportOptions['db'], recordHash: string): Promis
  * INSERT op for one accepted record row (task 0060 F9). Pure builder so the
  * per-record batch path and the single-write `insertRecord` can never drift.
  * Typed tables validate unknown keys here; the caller must have ensured the
- * target table exists (`ensureTargetTables` runs at import start).
+ * target table exists (the import loop ensures accepted targets before batching).
  */
 export function recordInsertOp(
     targetTable: string,
@@ -322,11 +320,7 @@ async function insertRecord(
     now: ImportOptions['now'],
 ): Promise<void> {
     const op = recordInsertOp(targetTable, recordHash, sourceFile, sourceLine, splitIndex, payload, now);
-    if (TYPED_TABLE_COLUMNS[targetTableFor(targetTable)] === undefined) {
-        // Custom ETL tables are created on demand; `CREATE TABLE IF NOT EXISTS` is idempotent,
-        // so there is no process-global cache to go stale across adapter instances (task 0060 F8).
-        await db.exec(ETL_TABLE_DDL(targetTableFor(targetTable)));
-    }
+    await ensureTargetTable(db, targetTable);
     await db.run(op.sql, ...op.params);
 }
 
@@ -717,6 +711,7 @@ export function openCodeBulkWriteOperations(
 export type { CheckpointRow };
 export {
     ETL_TABLE_DDL,
+    ensureTargetTable,
     ensureTargetTables,
     insertLedger,
     insertRecord,

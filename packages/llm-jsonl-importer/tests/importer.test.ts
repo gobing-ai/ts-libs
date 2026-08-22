@@ -1217,7 +1217,10 @@ describe('runJsonlImport atomic validation (0504 R2)', () => {
         expect(result.validationErrors[0]?.sourceLine).toBe(1);
         // Nothing persisted: the valid sibling was rejected together with the invalid split.
         expect(await db.queryAll('SELECT record_hash FROM history_import_ledger')).toEqual([]);
-        expect(await db.queryAll('SELECT record_hash FROM history_etl_atomic')).toEqual([]);
+        const table = await db.queryFirst<{ name: string }>(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'history_etl_atomic'",
+        );
+        expect(table).toBeNull();
     });
 });
 describe('runJsonlImport dryRun mode', () => {
@@ -1239,9 +1242,11 @@ describe('runJsonlImport dryRun mode', () => {
         expect(result.processedLines).toBe(2);
         expect(result.checkpointUpdates).toBe(0);
 
-        // Nothing persisted: no ETL rows, no ledger rows, no checkpoints.
-        const etlRows = await db.queryAll<{ payload_json: string }>('SELECT payload_json FROM history_etl_antigravity');
-        expect(etlRows).toEqual([]);
+        // Nothing persisted: no ETL table, ledger rows, or checkpoints.
+        const table = await db.queryFirst<{ name: string }>(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'history_etl_antigravity'",
+        );
+        expect(table).toBeNull();
         const ledgerRows = await db.queryAll<{ record_hash: string }>('SELECT record_hash FROM history_import_ledger');
         expect(ledgerRows).toEqual([]);
         const checkpoints = await db.queryAll<{ last_imported_line: number }>(

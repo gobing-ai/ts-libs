@@ -235,9 +235,10 @@ describe('R6 unknown capture + stable field shape', () => {
             'SELECT role, content_text FROM history_message',
         );
         expect(rows).toEqual([{ role: 'user', content_text: 'user said hello' }]);
-        // Blob table is materialized by applyHistoryImportSchema even when this row is typed.
-        const etl = await db.queryAll<{ c: number }>('SELECT COUNT(*) AS c FROM history_etl_agy');
-        expect(etl[0]?.c).toBe(0);
+        const etl = await db.queryFirst<{ name: string }>(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'history_etl_agy'",
+        );
+        expect(etl).toBeNull();
     });
 
     test('grok record with no type discriminator is unknown and counted', async () => {
