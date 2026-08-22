@@ -20,8 +20,9 @@ import {
     resetCheckpoints,
     targetTableFor,
     toolCallDurationUpdateOp,
+    toolCallResultBytesUpdateOp,
 } from './jsonl-importer-dao';
-import { type OmpToolResultTiming, ompToolResultTiming, timestampToEpochMs } from './mappers';
+import { claudeToolResultTiming, type OmpToolResultTiming, ompToolResultTiming, timestampToEpochMs } from './mappers';
 import { redactRecord } from './redaction';
 import { resolveSourceDefinition } from './sources';
 import type {
@@ -230,18 +231,23 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             // re-imported line's row already exists and its duration UPDATE still targets
             // the same deterministic record_hash. The assistant message timestamp is the
             // fallback's start bound; every call in one message shares it.
-            if (definition.source === 'omp') {
-                const assistantTs = new Map<string, number | undefined>();
-                for (const entry of prepared) {
-                    if (
-                        entry.split.targetTable === 'history_message' &&
-                        entry.normalized.role === 'assistant' &&
-                        typeof entry.normalized.session_id === 'string'
-                    ) {
-                        assistantTs.set(
-                            `${entry.normalized.session_id}${TOOL_CALL_KEY_SEP}${entry.normalized.seq}`,
-                            timestampToEpochMs(entry.normalized.ts),
-                        );
+            if (definition.source === 'omp' || definition.source === 'claude') {
+                // omp only: assistant-message timestamps are the fallback duration's
+                // start bound. claude attaches result_bytes only — no fallback
+                // duration exists natively (never-fabricate, 0624 R2).
+                const assistantTs = definition.source === 'omp' ? new Map<string, number | undefined>() : null;
+                if (assistantTs !== null) {
+                    for (const entry of prepared) {
+                        if (
+                            entry.split.targetTable === 'history_message' &&
+                            entry.normalized.role === 'assistant' &&
+                            typeof entry.normalized.session_id === 'string'
+                        ) {
+                            assistantTs.set(
+                                `${entry.normalized.session_id}${TOOL_CALL_KEY_SEP}${entry.normalized.seq}`,
+                                timestampToEpochMs(entry.normalized.ts),
+                            );
+                        }
                     }
                 }
                 for (const entry of prepared) {
@@ -254,7 +260,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                     ) {
                         toolCallRows.set(toolCallKey(resolvedSource, entry.normalized.session_id, callId), {
                             recordHash: entry.recordHash,
-                            messageTsMs: assistantTs.get(
+                            messageTsMs: assistantTs?.get(
                                 `${entry.normalized.session_id}${TOOL_CALL_KEY_SEP}${entry.normalized.seq}`,
                             ),
                         });
@@ -360,6 +366,32 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                                         ),
                                     );
                                 }
+                            }
+                        }
+                    }
+                }
+                // Task 0624 R2 (claude): attach result sizes from this line's
+                // tool_result blocks. Pairing is by `tool_use_id` → `call_id`
+                // (source ∘ session ∘ call), the same key the omp branch uses.
+                // No duration is written — claude has no native wall time and the
+                // guarded timestamp fallback does not extend to it (0624 Design).
+                if (definition.source === 'claude') {
+                    const timing = claudeToolResultTiming(raw);
+                    if (timing !== null) {
+                        const resultEntry = prepared.find((entry) => entry.split.targetTable === 'history_message');
+                        const sessionId = resultEntry?.normalized.session_id;
+                        if (typeof sessionId === 'string') {
+                            let pending = toolCallRows.get(toolCallKey(resolvedSource, sessionId, timing.toolCallId));
+                            if (pending === undefined) {
+                                pending = await resolveToolCallRow(
+                                    options.db,
+                                    resolvedSource,
+                                    sessionId,
+                                    timing.toolCallId,
+                                );
+                            }
+                            if (pending !== undefined) {
+                                ops.push(toolCallResultBytesUpdateOp(pending.recordHash, timing.resultBytes));
                             }
                         }
                     }

@@ -9,6 +9,7 @@ import {
     CODEX_FIELD_MAP,
     CODEX_SCHEMA,
     claudeSplit,
+    claudeToolResultTiming,
     codexSplit,
     GEMINI_FIELD_MAP,
     GEMINI_SCHEMA,
@@ -1376,6 +1377,7 @@ describe('field maps', () => {
         'provenance',
         'run_id',
         'task_wbs',
+        'request_id',
     ];
 
     const TOOL_CALL_KEYS = [
@@ -1589,5 +1591,71 @@ describe('mapper fidelity fixtures (task 0580)', () => {
         expect(sec[0]?.record.ts).toBe('2025-08-17T00:00:00.000Z');
         const ms = piSplit({ ts: 1755388800000, text: 'hi' });
         expect(ms[0]?.record.ts).toBe('2025-08-17T00:00:00.000Z');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Claude request_id / call_id / tool_result signals (task 0624 R2)
+// ---------------------------------------------------------------------------
+
+describe('claudeSplit 0624 R2 fields', () => {
+    test('assistant message carries requestId as request_id; tool_use id becomes call_id', () => {
+        const entries = claudeSplit({
+            sessionId: 'sess-r2',
+            type: 'assistant',
+            requestId: 'req_abc123',
+            timestamp: '2026-08-20T00:00:00.000Z',
+            message: {
+                id: 'msg_1',
+                model: 'claude-5',
+                content: [{ type: 'tool_use', id: 'toolu_01', name: 'Bash', input: { command: 'ls' } }],
+            },
+        });
+        const message = entries.find((e) => e.targetTable === 'history_message');
+        const tool = entries.find((e) => e.targetTable === 'history_tool_call');
+        expect(message?.record.request_id).toBe('req_abc123');
+        expect(tool?.record.call_id).toBe('toolu_01');
+    });
+
+    test('request_id is null when the line has no requestId', () => {
+        const entries = claudeSplit({
+            sessionId: 's',
+            type: 'user',
+            timestamp: '2026-08-20T00:00:00.000Z',
+            content: 'hi',
+        });
+        expect(entries[0]?.record.request_id).toBeNull();
+    });
+});
+
+describe('claudeToolResultTiming (0624 R2)', () => {
+    test('parses a tool_result block: id, epoch timestamp, serialized byte size', () => {
+        const payload = { stdout: 'x'.repeat(41) }; // JSON.stringify length = 55
+        const t = claudeToolResultTiming({
+            type: 'user',
+            timestamp: '2026-08-20T01:02:03.000Z',
+            message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_9', content: payload }] },
+        });
+        expect(t).not.toBeNull();
+        expect(t?.toolCallId).toBe('toolu_9');
+        expect(t?.timestampMs).toBe(Date.parse('2026-08-20T01:02:03.000Z'));
+        expect(t?.resultBytes).toBe(JSON.stringify(payload).length);
+        expect(Number.isFinite(t?.resultBytes ?? NaN)).toBe(true);
+    });
+
+    test('falls back to toolUseResult when block content is absent', () => {
+        const raw = { stdout: 'ok' };
+        const t = claudeToolResultTiming({
+            type: 'user',
+            message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1' }] },
+            toolUseResult: raw,
+        });
+        expect(t?.resultBytes).toBe(JSON.stringify(raw).length);
+    });
+
+    test('returns null for non-tool_result lines and missing tool_use_id', () => {
+        expect(claudeToolResultTiming({ type: 'user', message: { content: 'plain' } })).toBeNull();
+        expect(claudeToolResultTiming({ message: { content: [{ type: 'text', text: 'x' }] } })).toBeNull();
+        expect(claudeToolResultTiming({ message: { content: [{ type: 'tool_result' }] } })).toBeNull();
     });
 });

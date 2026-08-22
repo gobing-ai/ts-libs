@@ -34,6 +34,7 @@ const TYPED_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
         'provenance',
         'run_id',
         'task_wbs',
+        'request_id',
         'imported_at',
     ],
     history_tool_call: [
@@ -276,6 +277,19 @@ function toolCallDurationUpdateOp(
               SET started_at = ?, completed_at = ?, duration_ms = ?
               WHERE record_hash = ?`,
         params: [startedAt, completedAt, durationMs, recordHash],
+    };
+}
+
+/**
+ * Targeted UPDATE op attaching a result size to a previously-inserted
+ * `history_tool_call` row (task 0624 R2). Keyed by `record_hash` (PK). Idempotent.
+ */
+function toolCallResultBytesUpdateOp(recordHash: string, resultBytes: number): DbBatchOp {
+    return {
+        sql: `UPDATE history_tool_call
+              SET result_bytes = ?
+              WHERE record_hash = ?`,
+        params: [resultBytes, recordHash],
     };
 }
 
@@ -713,5 +727,6 @@ export {
     targetTableFor,
     timestamp,
     toolCallDurationUpdateOp,
+    toolCallResultBytesUpdateOp,
     writeCheckpoint,
 };

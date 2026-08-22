@@ -27,6 +27,7 @@ const MESSAGE_MAPPER_KEYS: readonly string[] = [
     'provenance',
     'run_id',
     'task_wbs',
+    'request_id',
 ];
 
 /** Columns the mapper may produce for history_tool_call. */
@@ -209,6 +210,7 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
             content_text: contentText ?? null,
             cwd: cwd ?? null,
             provenance: 'ambient',
+            request_id: s(raw.requestId) ?? null,
         },
     });
 
@@ -224,6 +226,7 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
                         _messageSplitIndex: messageSplitIndex,
                         session_id: sessionId,
                         seq,
+                        call_id: s(b.id),
                         tool_name: String(b.name ?? ''),
                         args_digest: argsDigest(b.input),
                         args_raw: maybeArgsRaw('claude', String(b.name ?? ''), b.input),
@@ -552,6 +555,49 @@ export function ompToolResultTiming(raw: Record<string, unknown>): OmpToolResult
     const wallTimeMs =
         typeof details.wallTimeMs === 'number' && Number.isFinite(details.wallTimeMs) ? details.wallTimeMs : undefined;
     return { toolCallId, wallTimeMs, timestampMs: timestampToEpochMs(raw.timestamp ?? msg.timestamp) };
+}
+
+// ---------------------------------------------------------------------------
+// Claude toolResult signals (task 0624 R2)
+// ---------------------------------------------------------------------------
+
+/** Signals carried by a Claude tool_result user line (task 0624 R2). */
+export interface ClaudeToolResultTiming {
+    /** The `toolu_…` id from the answered tool_use block — joins `tool_use.id` exactly. */
+    toolCallId: string;
+    /** Message timestamp as epoch millis, when parseable. */
+    timestampMs: number | undefined;
+    /** Serialized size in bytes of the tool result payload. */
+    resultBytes: number;
+}
+
+/**
+ * Extract tool_result signals from a raw Claude Code record (task 0624 R2), or
+ * null when the record carries no tool_result block. Claude Code emits
+ * `type: "user"` lines whose `message.content` holds `{type: "tool_result",
+ * tool_use_id, content}` blocks; the top-level `toolUseResult` carries the raw
+ * envelope. `resultBytes` prefers the model-visible block content and falls
+ * back to `toolUseResult`; both are null-safe. No wall time exists natively —
+ * claude `duration_ms` intentionally stays NULL (never-fabricate, 0624).
+ */
+export function claudeToolResultTiming(raw: Record<string, unknown>): ClaudeToolResultTiming | null {
+    const content = o(raw.message).content;
+    if (!Array.isArray(content)) return null;
+    for (const block of content) {
+        if (typeof block !== 'object' || block === null) continue;
+        const b = block as Record<string, unknown>;
+        if (b.type !== 'tool_result') continue;
+        const toolCallId = s(b.tool_use_id);
+        if (toolCallId === undefined) continue;
+        const payload = b.content ?? raw.toolUseResult;
+        const resultBytes = JSON.stringify(payload ?? null)?.length ?? 2;
+        return {
+            toolCallId,
+            timestampMs: timestampToEpochMs(raw.timestamp),
+            resultBytes,
+        };
+    }
+    return null;
 }
 
 // ---------------------------------------------------------------------------

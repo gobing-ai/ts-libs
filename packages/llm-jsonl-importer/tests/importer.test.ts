@@ -1407,3 +1407,76 @@ describe('runJsonlImport omp tool durations (0564 R1)', () => {
         expect(await r1ToolRows(db)).toEqual(before);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Task 0624 R2 — claude tool_result sizes survive import.
+//
+// A history_tool_call row ships with its assistant tool_use line; the byte size
+// arrives on the following user tool_result line and attaches in the streaming
+// loop keyed on (source, session_id, call_id) — the same key omp durations use.
+// No duration_ms is ever written for claude (never-fabricate).
+// ---------------------------------------------------------------------------
+
+function r2ClaudeAssistantLine(): string {
+    return JSON.stringify({
+        type: 'assistant',
+        requestId: 'req_r2',
+        sessionId: 'sess-r2',
+        timestamp: '2026-08-20T00:00:00.000Z',
+        message: {
+            id: 'msg_r2',
+            model: 'claude-5',
+            content: [
+                { type: 'text', text: 'running' },
+                { type: 'tool_use', id: 'toolu_r2', name: 'Bash', input: { command: 'ls' } },
+            ],
+        },
+    });
+}
+
+function r2ClaudeToolResultLine(content: unknown = { stdout: 'ok' }): string {
+    return JSON.stringify({
+        type: 'user',
+        sessionId: 'sess-r2',
+        timestamp: '2026-08-20T00:00:01.000Z',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_r2', content }] },
+    });
+}
+
+describe('runJsonlImport claude result sizes (0624 R2)', () => {
+    test('tool_result line attaches result_bytes; duration stays NULL; request_id persists', async () => {
+        const file = await namedFixtureFile('r2-sizes', [r2ClaudeAssistantLine(), r2ClaudeToolResultLine()]);
+        const result = await runJsonlImport('claude', { db, files: [file], mode: 'force-file', now: fixedNow });
+
+        expect(result.importedRecords).toBe(3); // assistant message + tool call + tool_result message
+        const rows = await db.queryAll<{
+            call_id: string | null;
+            duration_ms: number | null;
+            result_bytes: number | null;
+        }>('SELECT call_id, duration_ms, result_bytes FROM history_tool_call');
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.call_id).toBe('toolu_r2');
+        expect(rows[0]?.result_bytes).toBe(JSON.stringify({ stdout: 'ok' }).length);
+        expect(rows[0]?.duration_ms).toBeNull();
+
+        const messages = await db.queryAll<{ request_id: string | null }>(
+            "SELECT request_id FROM history_message WHERE record_type = 'assistant'",
+        );
+        expect(messages[0]?.request_id).toBe('req_r2');
+    });
+
+    test('unmatched tool_use_id attaches nothing and never fails the import', async () => {
+        const stray = JSON.stringify({
+            type: 'user',
+            sessionId: 'sess-r2',
+            timestamp: '2026-08-20T00:00:02.000Z',
+            message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_gone', content: 'x' }] },
+        });
+        const file = await namedFixtureFile('r2-unmatched', [r2ClaudeAssistantLine(), r2ClaudeToolResultLine(), stray]);
+        const result = await runJsonlImport('claude', { db, files: [file], mode: 'force-file', now: fixedNow });
+        expect(result.importedRecords).toBe(4);
+        const rows = await db.queryAll<{ result_bytes: number | null }>('SELECT result_bytes FROM history_tool_call');
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.result_bytes).not.toBeNull();
+    });
+});

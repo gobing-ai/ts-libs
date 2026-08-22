@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS history_message (
     provenance         TEXT NOT NULL,
     run_id             TEXT,
     task_wbs           TEXT,
+    request_id         TEXT,
     imported_at        TEXT NOT NULL
 );
 
