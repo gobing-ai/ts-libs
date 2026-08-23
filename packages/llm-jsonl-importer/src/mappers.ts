@@ -605,18 +605,30 @@ export function claudeToolResultTiming(raw: Record<string, unknown>): ClaudeTool
 // ---------------------------------------------------------------------------
 
 /** Map a Codex JSONL record into one or more ETL split entries. */
-export function codexSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
+export function codexSplit(raw: Record<string, unknown>, context?: TransformContext): readonly SplitEntry[] {
     const entries: SplitEntry[] = [];
 
     const payload = (raw.payload ?? raw) as Record<string, unknown>;
-    const sessionId = s(raw.session_id, o(raw.session_meta).id, raw.id) ?? 'unknown';
     const seq = typeof raw.seq === 'number' ? raw.seq : 0;
     const ts = timestampOf(raw.timestamp, raw.ts, payload.ts);
     const recordType = String(raw.type ?? '');
     const payloadType = String(payload.type ?? '');
 
+    const isShortFormat =
+        recordType === '' && raw.id !== undefined && raw.timestamp !== undefined && raw.instructions !== undefined;
+
+    let explicitSessionId = s(raw.session_id, o(raw.session_meta).id);
+    if (explicitSessionId === undefined && recordType === 'session_meta') {
+        explicitSessionId = s(payload.id, o(raw.payload).id);
+    }
+    if (explicitSessionId === undefined && isShortFormat) {
+        explicitSessionId = s(raw.id);
+    }
+    const pathSessionId = context?.sourceFile ? sessionIdFromSourcePath('codex', context.sourceFile) : undefined;
+    const sessionId = explicitSessionId ?? pathSessionId ?? 'unknown';
+
     // Check for older short format
-    if (recordType === '' && raw.id && raw.timestamp && raw.instructions) {
+    if (isShortFormat) {
         return [
             {
                 targetTable: 'history_message',
@@ -776,10 +788,12 @@ export function codexSplit(raw: Record<string, unknown>): readonly SplitEntry[] 
 // ---------------------------------------------------------------------------
 
 /** Map an Antigravity (AGY) JSONL record into one or more ETL split entries. */
-export function agySplit(raw: Record<string, unknown>): readonly SplitEntry[] {
+export function agySplit(raw: Record<string, unknown>, context?: TransformContext): readonly SplitEntry[] {
     const entries: SplitEntry[] = [];
     const recordType = String(raw.type ?? '');
-    const sessionId = s(raw.session_id, raw.conversation_id) ?? 'unknown';
+    const explicitSessionId = s(raw.session_id, raw.conversation_id);
+    const pathSessionId = context?.sourceFile ? sessionIdFromSourcePath('agy', context.sourceFile) : undefined;
+    const sessionId = explicitSessionId ?? pathSessionId ?? 'unknown';
     const seq = typeof raw.seq === 'number' ? raw.seq : typeof raw.step_index === 'number' ? raw.step_index : 0;
     const ts = timestampOf(raw.created_at, raw.timestamp, raw.ts);
 
@@ -977,6 +991,35 @@ export function geminiSplit(raw: Record<string, unknown>, context?: TransformCon
     }
 
     return entries;
+}
+
+const UUID_PATTERN = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+const AGY_BRAIN_REGEX = new RegExp(`(?:^|\\/)brain\\/(${UUID_PATTERN})(?:\\/|$)`, 'i');
+const CODEX_ROLLOUT_REGEX = new RegExp(`(?:^|-|_)(${UUID_PATTERN})$`, 'i');
+
+/**
+ * Pure helper extracting canonical session identity from source transcript paths (task 0638 R4).
+ *
+ * Normalizes POSIX/Windows separators and returns only valid UUID-shaped identifiers:
+ * - agy: segment immediately following `/brain/`
+ * - codex: trailing UUID before `.jsonl` in a filename beginning with `rollout-`
+ */
+export function sessionIdFromSourcePath(source: string, sourceFile: string): string | undefined {
+    const normalized = sourceFile.replace(/\\/g, '/');
+    const sLower = source.toLowerCase();
+    if (sLower === 'agy' || sLower === 'antigravity') {
+        const match = normalized.match(AGY_BRAIN_REGEX);
+        return match?.[1];
+    }
+    if (sLower === 'codex') {
+        const basename = normalized.split('/').at(-1) ?? '';
+        if (basename.startsWith('rollout-') && basename.endsWith('.jsonl')) {
+            const stem = basename.slice(0, -6);
+            const match = stem.match(CODEX_ROLLOUT_REGEX);
+            return match?.[1];
+        }
+    }
+    return undefined;
 }
 
 function sessionIdFromContext(context: TransformContext | undefined, raw: Record<string, unknown>): string {

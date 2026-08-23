@@ -24,6 +24,7 @@ import {
     PI_FIELD_MAP,
     PI_SCHEMA,
     piSplit,
+    sessionIdFromSourcePath,
     stableFieldShape,
 } from '../src/mappers';
 
@@ -1657,5 +1658,135 @@ describe('claudeToolResultTiming (0624 R2)', () => {
         expect(claudeToolResultTiming({ type: 'user', message: { content: 'plain' } })).toBeNull();
         expect(claudeToolResultTiming({ message: { content: [{ type: 'text', text: 'x' }] } })).toBeNull();
         expect(claudeToolResultTiming({ message: { content: [{ type: 'tool_result' }] } })).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical session identity extraction (task 0638 R4)
+// ---------------------------------------------------------------------------
+
+describe('sessionIdFromSourcePath (0638 R4)', () => {
+    test('extracts AGY session id from POSIX and Windows brain paths', () => {
+        const posix =
+            '/home/r/.gemini/antigravity-cli/brain/11111111-1111-4111-8111-111111111111/.system_generated/logs/transcript.jsonl';
+        const win =
+            'C:\\Users\\r\\.gemini\\antigravity-cli\\brain\\11111111-1111-4111-8111-111111111111\\.system_generated\\logs\\transcript.jsonl';
+        expect(sessionIdFromSourcePath('agy', posix)).toBe('11111111-1111-4111-8111-111111111111');
+        expect(sessionIdFromSourcePath('antigravity', win)).toBe('11111111-1111-4111-8111-111111111111');
+    });
+
+    test('extracts Codex session id from POSIX and Windows rollout filenames', () => {
+        const posix =
+            '/Users/r/.codex/sessions/2026/08/23/rollout-2026-08-23T12-00-00-22222222-2222-4222-8222-222222222222.jsonl';
+        const win =
+            'C:\\Users\\r\\.codex\\sessions\\2026\\08\\23\\rollout-2026-08-23T12-00-00-22222222-2222-4222-8222-222222222222.jsonl';
+        expect(sessionIdFromSourcePath('codex', posix)).toBe('22222222-2222-4222-8222-222222222222');
+        expect(sessionIdFromSourcePath('codex', win)).toBe('22222222-2222-4222-8222-222222222222');
+    });
+
+    test('returns undefined for non-UUID or malformed paths', () => {
+        expect(sessionIdFromSourcePath('agy', '/home/r/brain/not-a-uuid/transcript.jsonl')).toBeUndefined();
+        expect(sessionIdFromSourcePath('codex', '/home/r/rollout-not-a-uuid.jsonl')).toBeUndefined();
+        expect(sessionIdFromSourcePath('codex', '/home/r/session-123.jsonl')).toBeUndefined();
+        expect(
+            sessionIdFromSourcePath('claude', '/home/r/brain/11111111-1111-4111-8111-111111111111/transcript.jsonl'),
+        ).toBeUndefined();
+    });
+});
+
+describe('codexSplit & agySplit session identity resolution (0638 R4)', () => {
+    test('codex: explicit session_id wins over context source path', () => {
+        const context = {
+            source: 'codex',
+            sourceFile: '/sessions/rollout-2026-08-23T12-00-00-22222222-2222-4222-8222-222222222222.jsonl',
+            sourceLine: 1,
+            splitIndex: 0,
+        };
+        const entries = codexSplit(
+            {
+                session_id: 'explicit-codex-sess',
+                type: 'response_item',
+                payload: { type: 'message', role: 'user', content: 'hello' },
+            },
+            context,
+        );
+        expect(entries[0]?.record.session_id).toBe('explicit-codex-sess');
+    });
+
+    test('codex: session_meta payload.id wins for session_meta envelope', () => {
+        const entries = codexSplit({
+            type: 'session_meta',
+            payload: { id: 'meta-session-uuid', title: 'test session' },
+        });
+        expect(entries[0]?.record.session_id).toBe('meta-session-uuid');
+    });
+
+    test('codex: non-session_meta payload.id does NOT become session_id; path extraction applies', () => {
+        const context = {
+            source: 'codex',
+            sourceFile: '/sessions/rollout-2026-08-23T12-00-00-22222222-2222-4222-8222-222222222222.jsonl',
+            sourceLine: 1,
+            splitIndex: 0,
+        };
+        const entries = codexSplit(
+            {
+                type: 'response_item',
+                payload: { id: 'item-uuid-should-not-be-sess', type: 'message', role: 'assistant', content: 'hi' },
+            },
+            context,
+        );
+        expect(entries[0]?.record.session_id).toBe('22222222-2222-4222-8222-222222222222');
+    });
+
+    test('codex: legacy short format retains raw.id as session_id', () => {
+        const entries = codexSplit({
+            id: 'legacy-short-sess',
+            timestamp: '2026-08-23T00:00:00.000Z',
+            instructions: 'legacy instructions',
+        });
+        expect(entries[0]?.record.session_id).toBe('legacy-short-sess');
+    });
+
+    test('agy: path extraction assigns canonical session_id to messages and tool calls', () => {
+        const context = {
+            source: 'agy',
+            sourceFile:
+                '/home/r/.gemini/antigravity-cli/brain/11111111-1111-4111-8111-111111111111/.system_generated/logs/transcript.jsonl',
+            sourceLine: 5,
+            splitIndex: 0,
+        };
+        const entries = agySplit(
+            {
+                type: 'PLANNER_RESPONSE',
+                created_at: '2026-08-23T12:00:00.000Z',
+                content: 'planning to run command',
+                tool_calls: [{ name: 'run_command', input: { cmd: 'ls' } }],
+            },
+            context,
+        );
+        expect(entries).toHaveLength(2);
+        expect(entries[0]?.targetTable).toBe('history_message');
+        expect(entries[0]?.record.session_id).toBe('11111111-1111-4111-8111-111111111111');
+        expect(entries[1]?.targetTable).toBe('history_tool_call');
+        expect(entries[1]?.record.session_id).toBe('11111111-1111-4111-8111-111111111111');
+    });
+
+    test('agy: explicit session_id / conversation_id wins over context path', () => {
+        const context = {
+            source: 'agy',
+            sourceFile:
+                '/home/r/.gemini/antigravity-cli/brain/11111111-1111-4111-8111-111111111111/.system_generated/logs/transcript.jsonl',
+            sourceLine: 1,
+            splitIndex: 0,
+        };
+        const entries = agySplit(
+            {
+                conversation_id: 'conv-explicit-uuid',
+                type: 'USER_INPUT',
+                content: 'hello',
+            },
+            context,
+        );
+        expect(entries[0]?.record.session_id).toBe('conv-explicit-uuid');
     });
 });
