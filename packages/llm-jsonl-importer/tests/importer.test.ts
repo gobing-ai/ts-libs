@@ -1474,6 +1474,19 @@ describe('runJsonlImport claude result signals (0624 R2)', () => {
         expect(messages[0]?.request_id).toBe('req_r2');
     });
 
+    test('tool_result with durationSeconds converts to duration_ms via import', async () => {
+        const file = await namedFixtureFile('r2-seconds', [
+            r2ClaudeAssistantLine(),
+            r2ClaudeToolResultLine({ stdout: 'ok' }, { durationSeconds: 1.25 }),
+        ]);
+        const result = await runJsonlImport('claude', { db, files: [file], mode: 'force-file', now: fixedNow });
+
+        expect(result.importedRecords).toBe(3); // assistant message + tool call + tool_result message
+        const rows = await db.queryAll<{ duration_ms: number | null }>('SELECT duration_ms FROM history_tool_call');
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.duration_ms).toBe(1_250);
+    });
+
     test('unmatched tool_use_id attaches nothing and never fails the import', async () => {
         const stray = JSON.stringify({
             type: 'user',

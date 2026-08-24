@@ -74,8 +74,11 @@ export function argsDigest(args: unknown): string {
     return sha256(redacted);
 }
 
+/** Redacted tool args: JSON shape preserved, string leaves possibly elided. */
+type RedactedValue = string | number | boolean | null | RedactedValue[] | { [key: string]: RedactedValue };
+
 /** Redact tool arguments for digest: replace string values > 80 chars or containing secrets. */
-function redactArgs(args: unknown): unknown {
+function redactArgs(args: unknown): RedactedValue {
     if (typeof args === 'string') {
         if (args.length > 80) return '[REDACTED:long]';
         if (/[A-Za-z0-9+/]{40,}=*|[A-Za-z0-9_-]{20,}/.test(args)) return '[REDACTED:secret]';
@@ -83,13 +86,15 @@ function redactArgs(args: unknown): unknown {
     }
     if (Array.isArray(args)) return args.map(redactArgs);
     if (args !== null && typeof args === 'object') {
-        const result: Record<string, unknown> = {};
+        const result: Record<string, RedactedValue> = {};
         for (const [key, value] of Object.entries(args as Record<string, unknown>)) {
             result[key] = redactArgs(value);
         }
         return result;
     }
-    return args;
+    // Non-object JSON leaves (number/boolean/null) pass through unchanged; JSON args
+    // never reach here as undefined/bigint/symbol/function.
+    return args as RedactedValue;
 }
 
 /**
@@ -593,12 +598,16 @@ export function claudeToolResultTiming(raw: Record<string, unknown>): ClaudeTool
         if (toolCallId === undefined) continue;
         const payload = b.content ?? raw.toolUseResult;
         const toolUseResult = o(raw.toolUseResult);
-        const durationMs =
-            typeof toolUseResult.durationMs === 'number' && Number.isFinite(toolUseResult.durationMs)
-                ? Math.round(toolUseResult.durationMs)
-                : typeof toolUseResult.durationSeconds === 'number' && Number.isFinite(toolUseResult.durationSeconds)
-                  ? Math.round(toolUseResult.durationSeconds * 1_000)
+        const rawDurationMs =
+            typeof toolUseResult.durationMs === 'number'
+                ? toolUseResult.durationMs
+                : typeof toolUseResult.durationSeconds === 'number'
+                  ? toolUseResult.durationSeconds * 1_000
                   : undefined;
+        // Guard the converted value, not the source: a huge durationSeconds can
+        // overflow to Infinity on the * 1_000 (finite check on it alone misses it).
+        const durationMs =
+            typeof rawDurationMs === 'number' && Number.isFinite(rawDurationMs) ? Math.round(rawDurationMs) : undefined;
         const resultBytes = JSON.stringify(payload ?? null)?.length ?? 2;
         return {
             toolCallId,
