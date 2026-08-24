@@ -11,7 +11,7 @@ import { sha256 } from './hash';
 import {
     applyHistoryImportSchema,
     checkpointUpsertOp,
-    ensureTargetTables,
+    ensureTargetTable,
     ledgerExistingHashes,
     ledgerInsertOp,
     readCheckpoint,
@@ -130,7 +130,6 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     const resolvedSource = definition.source;
     const fileSystem = options.fileSystem ?? createNodeFileSystem();
     await applyHistoryImportSchema(options.db);
-    await ensureTargetTables(options.db, definition);
 
     const mode = options.mode ?? 'incremental';
     const files = await discoverFiles(definition, options.roots, options.files, fileSystem, options.paths);
@@ -146,6 +145,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     let unknownRecords = 0;
     let skippedCorruptLines = 0;
     let checkpointUpdates = 0;
+    const ensuredTargetTables = new Set<string>();
     // Full-mode desired set (R1, task 0504): every record hash the current source produces.
     // ReconcileFullImport diffs this against the persisted ledger to retire stale rows.
     const desiredHashes = new Set<string>();
@@ -281,6 +281,14 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                 }
                 return true;
             });
+
+            if (!options.dryRun) {
+                for (const entry of accepted) {
+                    if (ensuredTargetTables.has(entry.split.targetTable)) continue;
+                    await ensureTargetTable(options.db, entry.split.targetTable);
+                    ensuredTargetTables.add(entry.split.targetTable);
+                }
+            }
 
             // Second pass: resolve _messageSplitIndex → message_hash, then batch.
             const recordHashBySplitIndex = new Map(prepared.map((e) => [e.splitIndex, e.recordHash] as const));

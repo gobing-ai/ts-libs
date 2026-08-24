@@ -15,7 +15,7 @@ describe('HISTORY_IMPORT_SCHEMA_SQL', () => {
         expect(HISTORY_IMPORT_SCHEMA_SQL).toMatch(/history_tool_call/);
     });
 
-    test('does not create any history_etl_* table (R1 — ETL DDL is single-owned by ensureTargetTables)', () => {
+    test('does not create any history_etl_* table (generic targets are lazy)', () => {
         expect(HISTORY_IMPORT_SCHEMA_SQL).not.toMatch(/CREATE TABLE IF NOT EXISTS history_etl_/);
         expect(HISTORY_IMPORT_SCHEMA_SQL).not.toMatch(/history_etl_/);
     });

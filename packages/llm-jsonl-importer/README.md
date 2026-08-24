@@ -9,7 +9,7 @@ Generic JSONL import pipeline for AI-agent history-style files: discover files, 
 | Export | Purpose |
 |--------|---------|
 | `runJsonlImport()` | Runs discovery, parsing, validation, redaction, dedupe, and persistence. Accepts a built-in source string **or** a custom `SourceDefinition`. |
-| `applyHistoryImportSchema()` | Installs importer-owned checkpoint, ledger, and ETL tables |
+| `applyHistoryImportSchema()` | Installs importer-owned checkpoint, ledger, and typed contract tables |
 | `SOURCE_DEFINITIONS` | Built-in source definitions |
 | `getSourceDefinition()` | Returns one built-in definition by key (throws `HistoryImportError` for unknown keys) |
 | `resolveSourceDefinition()` | Resolves a `string \| SourceDefinition` into a validated definition |
@@ -19,7 +19,7 @@ Generic JSONL import pipeline for AI-agent history-style files: discover files, 
 | `sha256()` / `stableJson()` | Stable hash helpers used by the ledger |
 | `HISTORY_IMPORT_SCHEMA_SQL` | SQL schema string for explicit migration flows |
 
-Built-in source keys are `claude`, `codex`, `gemini`, `pi`, `opencode`, `antigravity`, and `openclaw`.
+Built-in source keys are `claude`, `codex`, `gemini`, `pi`, `opencode`, `antigravity`, `openclaw`, `omp`, `grok`, and `agy`.
 
 ## Installation
 
@@ -127,13 +127,16 @@ The schema contains:
 |-------|---------|
 | `history_import_checkpoint` | Per-source/per-file last imported line |
 | `history_import_ledger` | Stable hash ledger for dedupe and provenance |
-| `history_etl_<source>` | Redacted normalized payloads for each built-in source |
+| `history_message` | Typed normalized messages from built-in forensic mappers |
+| `history_tool_call` | Typed normalized tool calls from built-in forensic mappers |
+| `history_etl_<source>` | Redacted payloads for generic/custom definitions; created only after an accepted row targets one |
 
-ETL tables store the normalized payload JSON plus source file, source line, split index, hash, and timestamps.
+Generic ETL tables store normalized payload JSON plus source file, source line, split index, hash, and timestamps.
+Schema setup, empty scans, validation failures, and dry runs do not create empty ETL tables.
 
 ## Split Records
 
-Most sources are one input row to one ETL row. A source can also split one JSONL row into multiple ETL records. The built-in `pi` definition splits nested `messages` into one row per message when present.
+A source can split one JSONL row into several typed or generic records. Built-in source mappers normalize supported records into `history_message` and `history_tool_call`; custom definitions may target a generic ETL table.
 
 ```ts
 const result = await runJsonlImport('pi', { db, files: ['session.jsonl'], mode: 'full' });

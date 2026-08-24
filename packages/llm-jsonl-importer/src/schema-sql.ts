@@ -1,11 +1,8 @@
 /**
  * DDL string that creates the history import checkpoint, ledger, and typed contract tables.
  *
- * WHY: per-source `history_etl_*` blob tables are no longer hard-coded here. They are created
- * dynamically by {@link ensureTargetTables} / {@link ETL_TABLE_DDL} looping every entry of
- * {@link SOURCE_DEFINITIONS}, so adding a new built-in source needs no edit to this file. This
- * single-owner rule closes the R16 drift where `omp` / `grok` / `agy` existed only via import-time
- * DDL while the seven other sources were duplicated in the static string.
+ * Generic `history_etl_*` blob tables are created lazily when an accepted record actually targets
+ * one. Empty scans and typed built-in mappers therefore leave no empty per-source tables behind.
  */
 export const HISTORY_IMPORT_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS history_import_checkpoint (
