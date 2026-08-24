@@ -133,6 +133,8 @@ The schema contains:
 
 Generic ETL tables store normalized payload JSON plus source file, source line, split index, hash, and timestamps.
 Schema setup, empty scans, validation failures, and dry runs do not create empty ETL tables.
+Claude tool results copy native `toolUseResult.durationMs` or `durationSeconds` into `duration_ms`; absent timing
+stays `NULL` and is never inferred from message timestamps.
 
 ## Split Records
 

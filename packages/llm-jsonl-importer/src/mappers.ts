@@ -567,6 +567,8 @@ export interface ClaudeToolResultTiming {
     toolCallId: string;
     /** Message timestamp as epoch millis, when parseable. */
     timestampMs: number | undefined;
+    /** Native tool duration, when Claude Code emits one. */
+    durationMs: number | undefined;
     /** Serialized size in bytes of the tool result payload. */
     resultBytes: number;
 }
@@ -577,8 +579,8 @@ export interface ClaudeToolResultTiming {
  * `type: "user"` lines whose `message.content` holds `{type: "tool_result",
  * tool_use_id, content}` blocks; the top-level `toolUseResult` carries the raw
  * envelope. `resultBytes` prefers the model-visible block content and falls
- * back to `toolUseResult`; both are null-safe. No wall time exists natively —
- * claude `duration_ms` intentionally stays NULL (never-fabricate, 0624).
+ * back to `toolUseResult`; both are null-safe. Some tool results carry a native
+ * `durationMs` or `durationSeconds`; absent timing stays unmeasured.
  */
 export function claudeToolResultTiming(raw: Record<string, unknown>): ClaudeToolResultTiming | null {
     const content = o(raw.message).content;
@@ -590,10 +592,18 @@ export function claudeToolResultTiming(raw: Record<string, unknown>): ClaudeTool
         const toolCallId = s(b.tool_use_id);
         if (toolCallId === undefined) continue;
         const payload = b.content ?? raw.toolUseResult;
+        const toolUseResult = o(raw.toolUseResult);
+        const durationMs =
+            typeof toolUseResult.durationMs === 'number' && Number.isFinite(toolUseResult.durationMs)
+                ? Math.round(toolUseResult.durationMs)
+                : typeof toolUseResult.durationSeconds === 'number' && Number.isFinite(toolUseResult.durationSeconds)
+                  ? Math.round(toolUseResult.durationSeconds * 1_000)
+                  : undefined;
         const resultBytes = JSON.stringify(payload ?? null)?.length ?? 2;
         return {
             toolCallId,
             timestampMs: timestampToEpochMs(raw.timestamp),
+            durationMs,
             resultBytes,
         };
     }

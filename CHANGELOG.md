@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [Unreleased]
+
+### Fixed
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: Claude tool-result forensics now preserve native timings.**
+  `toolUseResult.durationMs` and `durationSeconds` populate `history_tool_call.duration_ms` when
+  present; records without native timing remain `NULL` rather than using timestamp inference.
+- **`@gobing-ai/ts-llm-jsonl-importer`: generic ETL tables materialize lazily.** Schema setup,
+  empty scans, validation failures, and dry runs no longer recreate empty built-in
+  `history_etl_*` tables after a consumer retires them.
+
 ## [0.4.39] — 2026-08-19
 
 ### Added

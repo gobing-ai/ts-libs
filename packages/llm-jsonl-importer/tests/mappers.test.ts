@@ -1636,10 +1636,12 @@ describe('claudeToolResultTiming (0624 R2)', () => {
             type: 'user',
             timestamp: '2026-08-20T01:02:03.000Z',
             message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_9', content: payload }] },
+            toolUseResult: { durationMs: 1_234 },
         });
         expect(t).not.toBeNull();
         expect(t?.toolCallId).toBe('toolu_9');
         expect(t?.timestampMs).toBe(Date.parse('2026-08-20T01:02:03.000Z'));
+        expect(t?.durationMs).toBe(1_234);
         expect(t?.resultBytes).toBe(JSON.stringify(payload).length);
         expect(Number.isFinite(t?.resultBytes ?? NaN)).toBe(true);
     });
@@ -1649,9 +1651,10 @@ describe('claudeToolResultTiming (0624 R2)', () => {
         const t = claudeToolResultTiming({
             type: 'user',
             message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1' }] },
-            toolUseResult: raw,
+            toolUseResult: { ...raw, durationSeconds: 1.25 },
         });
-        expect(t?.resultBytes).toBe(JSON.stringify(raw).length);
+        expect(t?.resultBytes).toBe(JSON.stringify({ ...raw, durationSeconds: 1.25 }).length);
+        expect(t?.durationMs).toBe(1_250);
     });
 
     test('returns null for non-tool_result lines and missing tool_use_id', () => {

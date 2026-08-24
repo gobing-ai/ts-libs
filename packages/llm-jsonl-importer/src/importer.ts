@@ -378,11 +378,10 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                         }
                     }
                 }
-                // Task 0624 R2 (claude): attach result sizes from this line's
+                // Task 0624 R2 (claude): attach native durations and result sizes from this line's
                 // tool_result blocks. Pairing is by `tool_use_id` → `call_id`
                 // (source ∘ session ∘ call), the same key the omp branch uses.
-                // No duration is written — claude has no native wall time and the
-                // guarded timestamp fallback does not extend to it (0624 Design).
+                // Missing native timing stays NULL; the timestamp fallback does not extend to claude.
                 if (definition.source === 'claude') {
                     const timing = claudeToolResultTiming(raw);
                     if (timing !== null) {
@@ -400,6 +399,11 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                             }
                             if (pending !== undefined) {
                                 ops.push(toolCallResultBytesUpdateOp(pending.recordHash, timing.resultBytes));
+                                if (timing.durationMs !== undefined) {
+                                    ops.push(
+                                        toolCallDurationUpdateOp(pending.recordHash, null, null, timing.durationMs),
+                                    );
+                                }
                             }
                         }
                     }

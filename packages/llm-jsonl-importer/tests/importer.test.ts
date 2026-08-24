@@ -1414,12 +1414,12 @@ describe('runJsonlImport omp tool durations (0564 R1)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Task 0624 R2 — claude tool_result sizes survive import.
+// Task 0624 R2 — claude native tool_result timings and sizes survive import.
 //
 // A history_tool_call row ships with its assistant tool_use line; the byte size
 // arrives on the following user tool_result line and attaches in the streaming
 // loop keyed on (source, session_id, call_id) — the same key omp durations use.
-// No duration_ms is ever written for claude (never-fabricate).
+// Missing native timing stays NULL (never-fabricate).
 // ---------------------------------------------------------------------------
 
 function r2ClaudeAssistantLine(): string {
@@ -1439,18 +1439,22 @@ function r2ClaudeAssistantLine(): string {
     });
 }
 
-function r2ClaudeToolResultLine(content: unknown = { stdout: 'ok' }): string {
+function r2ClaudeToolResultLine(content: unknown = { stdout: 'ok' }, toolUseResult?: unknown): string {
     return JSON.stringify({
         type: 'user',
         sessionId: 'sess-r2',
         timestamp: '2026-08-20T00:00:01.000Z',
         message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_r2', content }] },
+        toolUseResult,
     });
 }
 
-describe('runJsonlImport claude result sizes (0624 R2)', () => {
-    test('tool_result line attaches result_bytes; duration stays NULL; request_id persists', async () => {
-        const file = await namedFixtureFile('r2-sizes', [r2ClaudeAssistantLine(), r2ClaudeToolResultLine()]);
+describe('runJsonlImport claude result signals (0624 R2)', () => {
+    test('tool_result line attaches native duration and result_bytes; request_id persists', async () => {
+        const file = await namedFixtureFile('r2-signals', [
+            r2ClaudeAssistantLine(),
+            r2ClaudeToolResultLine({ stdout: 'ok' }, { durationMs: 1_234 }),
+        ]);
         const result = await runJsonlImport('claude', { db, files: [file], mode: 'force-file', now: fixedNow });
 
         expect(result.importedRecords).toBe(3); // assistant message + tool call + tool_result message
@@ -1462,7 +1466,7 @@ describe('runJsonlImport claude result sizes (0624 R2)', () => {
         expect(rows).toHaveLength(1);
         expect(rows[0]?.call_id).toBe('toolu_r2');
         expect(rows[0]?.result_bytes).toBe(JSON.stringify({ stdout: 'ok' }).length);
-        expect(rows[0]?.duration_ms).toBeNull();
+        expect(rows[0]?.duration_ms).toBe(1_234);
 
         const messages = await db.queryAll<{ request_id: string | null }>(
             "SELECT request_id FROM history_message WHERE record_type = 'assistant'",
@@ -1480,8 +1484,11 @@ describe('runJsonlImport claude result sizes (0624 R2)', () => {
         const file = await namedFixtureFile('r2-unmatched', [r2ClaudeAssistantLine(), r2ClaudeToolResultLine(), stray]);
         const result = await runJsonlImport('claude', { db, files: [file], mode: 'force-file', now: fixedNow });
         expect(result.importedRecords).toBe(4);
-        const rows = await db.queryAll<{ result_bytes: number | null }>('SELECT result_bytes FROM history_tool_call');
+        const rows = await db.queryAll<{ duration_ms: number | null; result_bytes: number | null }>(
+            'SELECT duration_ms, result_bytes FROM history_tool_call',
+        );
         expect(rows).toHaveLength(1);
         expect(rows[0]?.result_bytes).not.toBeNull();
+        expect(rows[0]?.duration_ms).toBeNull();
     });
 });
