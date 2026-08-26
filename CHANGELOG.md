@@ -17,6 +17,22 @@ versioned in **lockstep** — a single version number covers every package in th
   empty scans, validation failures, and dry runs no longer recreate empty built-in
   `history_etl_*` tables after a consumer retires them.
 
+> Note: both entries above shipped with lockstep releases **v0.4.42/v0.4.43** before their
+> sections were written here — see tags `@gobing-ai/ts-*-v0.4.42` / `-v0.4.43`. Sections for
+> v0.4.40–v0.4.43 are missing from this file (backfill pending).
+
+## [0.4.44] - 2026-08-26
+
+### Changed
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: codex usage-attribution UPDATE moved into the DAO seam.**
+  Raw SQL for attributing codex `_codexUsageCarrier` token counts now lives in
+  `codexUsageAttributionUpdateOp` beside the other targeted UPDATE ops (bf6a3c0).
+
+### Other
+
+- chore(project): upgrade package.json (aed7c45)
+
 ## [0.4.39] — 2026-08-19
 
 ### Added
@@ -912,7 +928,6 @@ Initial public release.
 - **`@gobing-ai/ts-runtime`** — runtime abstractions (Bun / Node / Cloudflare Workers): config, context, filesystem, process executor.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
-
 
 [0.4.23]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.22...@gobing-ai/ts-libs-v0.4.23
 [0.4.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.19...@gobing-ai/ts-libs-v0.4.20
