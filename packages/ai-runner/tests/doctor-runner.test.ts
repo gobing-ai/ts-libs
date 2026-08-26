@@ -427,3 +427,46 @@ describe('DoctorRunner with executors', () => {
         expect(row?.modelStatus?.detail).toContain('no probe registered');
     });
 });
+
+describe('DoctorRunner probeAuth option (0684 R1-R3)', () => {
+    test('probeAuth: false skips the auth probe entirely — no credential read, no auth subprocess', async () => {
+        const executor = new FakeExecutor((options) =>
+            options.args?.includes('--version') === true ? { stdout: 'claude 1.0.0' } : { stdout: 'unused' },
+        );
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({
+            runner,
+            agentDetector: new AgentDetector({ runner }),
+            env: {},
+            probeAuth: false,
+        });
+
+        const result = await doctor.runOne('claude');
+
+        expect(result.authenticated).toBe('unknown');
+        expect(result.usable).toBe(true);
+        // Only version detection ran; every recorded command is a --version call.
+        expect(executor.calls.length).toBeGreaterThan(0);
+        for (const call of executor.calls) {
+            expect(call.args?.includes('--version')).toBe(true);
+        }
+    });
+
+    test('default path still probes — same fixture reports a claim, not unknown', async () => {
+        const executor = new FakeExecutor((options) =>
+            options.args?.includes('--version') === true ? { stdout: 'claude 1.0.0' } : { stdout: 'unused' },
+        );
+        const runner = new AiRunner({ processExecutor: executor });
+        const doctor = new DoctorRunner({
+            runner,
+            agentDetector: new AgentDetector({ runner }),
+            env: {},
+        });
+
+        await doctor.runOne('claude');
+
+        // The default path runs the auth probe on top of version detection,
+        // so at least one recorded call carries args beyond --version.
+        expect(executor.calls.some((call) => !call.args?.includes('--version'))).toBe(true);
+    });
+});

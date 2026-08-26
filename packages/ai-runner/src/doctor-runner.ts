@@ -77,6 +77,12 @@ export interface DoctorRunnerOptions {
     probeRegistry?: ModelHealthProbeRegistry;
     /** Model health probe timeout in milliseconds (default 10s). */
     probeTimeoutMs?: number;
+    /**
+     * Probe authentication during health checks. Default `true` (existing behavior).
+     * When `false`, results report `authenticated: 'unknown'` — the probe is skipped
+     * entirely: no auth subprocess and no credential-file read.
+     */
+    probeAuth?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -92,6 +98,7 @@ export class DoctorRunner {
     private readonly executors: ExecutorConfig[];
     private readonly probeRegistry: ModelHealthProbeRegistry;
     private readonly probeTimeoutMs: number;
+    private readonly probeAuth: boolean;
 
     constructor(options: DoctorRunnerOptions = {}) {
         this.runner = options.runner ?? new AiRunner();
@@ -103,6 +110,7 @@ export class DoctorRunner {
         this.executors = options.executors ?? [];
         this.probeTimeoutMs = options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
         this.probeRegistry = options.probeRegistry ?? this.createDefaultRegistry();
+        this.probeAuth = options.probeAuth ?? true;
     }
 
     /** Create the default probe registry with OmpModelProbe for all known omp providers. */
@@ -213,15 +221,18 @@ export class DoctorRunner {
         const canonical = resolveAgentName(detected.name) ?? null;
         const tier = canonical !== null && TIER2_AGENTS.has(canonical) ? 2 : 1;
         this.logger.debug('checking agent', { agent: detected.name, installed: detected.installed, tier });
-        const authenticated: AuthState =
-            detected.installed && canonical !== null
-                ? await isAuthenticated(canonical, {
-                      runner: this.runner,
-                      env: this.env,
-                      fileSystem: this.fs,
-                      timeout: this.timeout,
-                  })
-                : 'unauthenticated';
+        // 'unauthenticated' would be a claim; a suppressed probe claims nothing,
+        // so the skip path reports 'unknown'.
+        const authenticated: AuthState = !this.probeAuth
+            ? 'unknown'
+            : detected.installed && canonical !== null
+              ? await isAuthenticated(canonical, {
+                    runner: this.runner,
+                    env: this.env,
+                    fileSystem: this.fs,
+                    timeout: this.timeout,
+                })
+              : 'unauthenticated';
         return {
             agent: detected.name,
             installed: detected.installed,
