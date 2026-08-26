@@ -148,15 +148,30 @@ async function readCheckpoint(db: ImportOptions['db'], source: string, sourceFil
 /**
  * One query per source (0675 R5): all checkpoint rows for `source` keyed by file,
  * replacing the per-file SELECT in the import loop.
+ *
+ * Fails open when the identity columns are missing (0678): a database created through a
+ * migration path that has not yet applied 0675's ALTERs would otherwise hard-fail every
+ * import. Line-level behavior degrades to pre-identity semantics — the short-circuit
+ * and identity stamping no-op until the columns exist.
  */
 export async function loadSourceCheckpoints(
     db: ImportOptions['db'],
     source: string,
 ): Promise<Map<string, SourceCheckpoint>> {
-    const rows = await db.queryAll<CheckpointRow & { source_file: string }>(
-        'SELECT source_file, last_imported_line, source_size, source_mtime_ms FROM history_import_checkpoint WHERE source = ?',
-        source,
-    );
+    let rows: Array<CheckpointRow & { source_file: string }>;
+    try {
+        rows = await db.queryAll<CheckpointRow & { source_file: string }>(
+            'SELECT source_file, last_imported_line, source_size, source_mtime_ms FROM history_import_checkpoint WHERE source = ?',
+            source,
+        );
+    } catch (err) {
+        if (!/no such column|source_size|source_mtime_ms/i.test((err as Error).message)) throw err;
+        rows = (await db.queryAll<{ source_file: string; last_imported_line: number }>(
+            'SELECT source_file, last_imported_line FROM history_import_checkpoint WHERE source = ?',
+            source,
+        )) as Array<CheckpointRow & { source_file: string }>;
+        return new Map(rows.map((row) => [row.source_file, { line: row.last_imported_line, size: null, mtimeMs: null }]));
+    }
     const map = new Map<string, SourceCheckpoint>();
     for (const row of rows) {
         map.set(row.source_file, {

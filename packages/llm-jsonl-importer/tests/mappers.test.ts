@@ -1395,9 +1395,11 @@ describe('field maps', () => {
         'duration_ms',
         'result_bytes',
         'error_text',
+        '_codexUsageCarrier',
     ];
 
-    const ALL_KEYS = [...new Set([...MESSAGE_KEYS, ...TOOL_CALL_KEYS])];
+    // 0678 R3: _codexUsageCarrier is an internal transport key the importer deletes before write.
+    const ALL_KEYS = [...new Set([...MESSAGE_KEYS, ...TOOL_CALL_KEYS, '_codexUsageCarrier'])];
 
     function checkFieldMap(_name: string, map: Record<string, string>) {
         expect(Object.keys(map).sort()).toEqual([...ALL_KEYS].sort());
@@ -1539,9 +1541,15 @@ describe('mapper fidelity fixtures (task 0580)', () => {
             },
         });
         expect(entries[0]?.record.role).toBe('meta');
-        expect(entries[0]?.record.input_tokens).toBe(7);
-        expect(entries[0]?.record.cache_read_tokens).toBe(3);
-        expect(entries[0]?.record.output_tokens).toBe(5);
+        // 0678 R3: usage no longer lands on the meta row (it never counted toward step-level
+        // support there); it rides _codexUsageCarrier for importer-side attribution to the
+        // preceding assistant message.
+        expect(entries[0]?.record.input_tokens ?? null).toBeNull();
+        expect((entries[0]?.record as Record<string, unknown>)._codexUsageCarrier).toEqual({
+            input: 7,
+            output: 5,
+            cacheRead: 3,
+        });
     });
 
     test('claude: usage read from message.usage when top-level usage absent (D2)', () => {

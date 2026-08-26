@@ -8,6 +8,9 @@ import type { JsonObject, SplitEntry, TransformContext } from './types';
 
 /** Columns the mapper may produce for history_message (excluding framework-managed fields). */
 const MESSAGE_MAPPER_KEYS: readonly string[] = [
+    // 0678 R3 internal transport: codex token_count usage rides the mapper output to the
+    // importer, which re-targets it at the latest assistant row and deletes this key.
+    '_codexUsageCarrier',
     'session_id',
     'seq',
     'turn_index',
@@ -737,6 +740,17 @@ export function codexSplit(raw: Record<string, unknown>, context?: TransformCont
     const finalOutput = usageOutput !== undefined ? usageOutput : turnOutputTokens;
     const costUsd = computeCost(finalInput, finalOutput, model);
 
+    // 0678 R3: token_count events ride their OWN meta row, which never counted toward
+    // step-level usage (0 of 53,406 assistant rows with usage while the source total
+    // reached billions). Strip the numbers off the meta row and carry them as an
+    // internal tag: the importer attributes them to the most recent assistant message
+    // of the same session — that is where the usage was generated.
+    const usageCarrier =
+        finalInput !== undefined || finalOutput !== undefined
+            ? { input: finalInput ?? null, output: finalOutput ?? null, cacheRead: cacheRead ?? null }
+            : undefined;
+    const stripUsage = role === 'meta' && usageCarrier !== undefined;
+
     const messageSplitIndex = entries.length;
 
     entries.push({
@@ -750,9 +764,10 @@ export function codexSplit(raw: Record<string, unknown>, context?: TransformCont
             ts,
             duration_ms: undefined,
             model: model ?? null,
-            input_tokens: finalInput ?? null,
-            output_tokens: finalOutput ?? null,
-            cache_read_tokens: cacheRead ?? null,
+            input_tokens: stripUsage ? null : (finalInput ?? null),
+            output_tokens: stripUsage ? null : (finalOutput ?? null),
+            cache_read_tokens: stripUsage ? null : (cacheRead ?? null),
+            ...(usageCarrier !== undefined ? { _codexUsageCarrier: usageCarrier } : {}),
             cache_write_tokens: null,
             cost_usd: costUsd ?? null,
             content_text: contentText,

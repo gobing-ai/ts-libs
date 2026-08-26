@@ -155,6 +155,10 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     // (source, session_id, call_id) so a later toolResult line can attach its duration.
     const toolCallRows = new Map<string, PendingToolCall>();
 
+    // 0678 R3: codex token_count events carry usage on a meta row; the numbers belong
+    // to the most recent assistant message of that session.
+    const codexLastAssistant = new Map<string, string>();
+
     // 0675 R5: one query per source replaces the per-file SELECT in this loop.
     // Only incremental mode consults checkpoints; full/force-file read everything.
     const checkpoints = mode === 'incremental' ? await loadSourceCheckpoints(options.db, resolvedSource) : undefined;
@@ -323,6 +327,28 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                     }
                 }
                 if (!options.dryRun) {
+                    // 0678 R3 (codex): a meta row carrying `_codexUsageCarrier` contributes its
+                    // numbers to the latest assistant message instead of itself; with no known
+                    // target the usage stays unattributed — never reattached to a wrong row.
+                    const carrier = normalized._codexUsageCarrier as
+                        | { input: number | null; output: number | null; cacheRead: number | null }
+                        | undefined;
+                    delete normalized._codexUsageCarrier;
+                    if (
+                        carrier !== undefined &&
+                        typeof normalized.session_id === 'string' &&
+                        codexLastAssistant.has(normalized.session_id)
+                    ) {
+                        ops.push({
+                            sql: 'UPDATE history_message SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ? WHERE record_hash = ?',
+                            params: [
+                                carrier.input,
+                                carrier.output,
+                                carrier.cacheRead,
+                                codexLastAssistant.get(normalized.session_id),
+                            ],
+                        });
+                    }
                     // Record row + ledger row join one batch op pair — a crash between the two
                     // writes is impossible (task 0060 F9).
                     ops.push(
@@ -347,6 +373,16 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                             options.now,
                         ),
                     );
+                    // 0678 R3 (codex): remember this session's latest assistant row so a
+                    // following token_count meta row can attribute its usage to it.
+                    if (
+                        definition.source === 'codex' &&
+                        split.targetTable === 'history_message' &&
+                        normalized.role === 'assistant' &&
+                        typeof normalized.session_id === 'string'
+                    ) {
+                        codexLastAssistant.set(normalized.session_id, recordHash);
+                    }
                 }
                 importedRecords += 1;
             }
@@ -434,10 +470,23 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             // 0675 R1/R4: stamp file identity once per READ file (never for skipped ones).
             // This is also what self-heals legacy rows whose stored identity is NULL — without
             // it a fully-imported database never arms the short-circuit. Skipped when nothing
-            // changed since the stored checkpoint to keep no-op runs write-free.
+            // changed since the stored checkpoint to keep no-op runs write-free. Degraded
+            // entries (pre-migration database without identity columns, 0678 fail-open) keep
+            // the old line-only write shape via checkpointUpsertOp's optional identity.
             if (!options.dryRun && mode === 'incremental') {
                 const statAfter = await safeStat(fileSystem, file);
-                if (statAfter !== null && (entry?.size !== statAfter.size || entry?.mtimeMs !== statAfter.mtimeMs)) {
+                // Degraded = a STORED entry without identity (pre-migration database, 0678
+                // fail-open). No stored entry means first-ever import: stamp normally.
+                const identityDegraded =
+                    entry !== undefined && entry.size === null && entry.mtimeMs === null;
+                const identityChanged =
+                    entry !== undefined &&
+                    (entry.size !== (statAfter?.size ?? null) || entry.mtimeMs !== (statAfter?.mtimeMs ?? null));
+                if (
+                    statAfter !== null &&
+                    !identityDegraded &&
+                    (entry === undefined || identityChanged)
+                ) {
                     await options.db.batch([
                         checkpointUpsertOp(resolvedSource, file, Math.max(lineNumber, checkpoint), options.now, {
                             size: statAfter.size,

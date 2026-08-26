@@ -1573,3 +1573,37 @@ describe('runJsonlImport identity predicate edge cases (0675 R19)', () => {
         expect(result.skippedUnchangedFiles).toBe(0);
     });
 });
+
+describe('runJsonlImport codex usage attribution (0678 R3)', () => {
+    test('token_count event usage attaches to the preceding assistant row, not the meta row', async () => {
+        const lines = [
+            JSON.stringify({
+                timestamp: '2026-03-28T05:56:20.000Z',
+                type: 'response_item',
+                payload: { type: 'agent_message', content: [{ type: 'output_text', text: 'answer' }] },
+            }),
+            JSON.stringify({
+                timestamp: '2026-03-28T05:56:37.123Z',
+                type: 'event_msg',
+                payload: {
+                    type: 'token_count',
+                    info: {
+                        total_token_usage: { input_tokens: 97455, cached_input_tokens: 52736, output_tokens: 830 },
+                        last_token_usage: { input_tokens: 50695, cached_input_tokens: 47232, output_tokens: 301 },
+                    },
+                },
+            }),
+        ];
+        const file = await fixtureFile(lines);
+        const result = await runJsonlImport('codex', { db, files: [file], mode: 'full' });
+        expect(result.importedRecords).toBeGreaterThan(0);
+
+        const rows = await db.queryAll<{ role: string; input_tokens: number | null }>(
+            'SELECT role, input_tokens FROM history_message ORDER BY rowid',
+        );
+        const assistant = rows.find((r) => r.role === 'assistant');
+        expect(assistant?.input_tokens).toBe(50695);
+        const meta = rows.find((r) => r.role === 'meta');
+        expect(meta?.input_tokens ?? null).toBeNull();
+    });
+});
