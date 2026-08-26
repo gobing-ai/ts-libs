@@ -11,6 +11,7 @@ import { sha256 } from './hash';
 import {
     applyHistoryImportSchema,
     checkpointUpsertOp,
+    codexUsageAttributionUpdateOp,
     ensureTargetTable,
     ledgerExistingHashes,
     ledgerInsertOp,
@@ -339,15 +340,16 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                         typeof normalized.session_id === 'string' &&
                         codexLastAssistant.has(normalized.session_id)
                     ) {
-                        ops.push({
-                            sql: 'UPDATE history_message SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ? WHERE record_hash = ?',
-                            params: [
-                                carrier.input,
-                                carrier.output,
-                                carrier.cacheRead,
-                                codexLastAssistant.get(normalized.session_id),
-                            ],
-                        });
+                        const lastHash = codexLastAssistant.get(normalized.session_id);
+                        if (lastHash !== undefined) {
+                            ops.push(
+                                codexUsageAttributionUpdateOp(lastHash, {
+                                    input: carrier.input,
+                                    output: carrier.output,
+                                    cacheRead: carrier.cacheRead,
+                                }),
+                            );
+                        }
                     }
                     // Record row + ledger row join one batch op pair — a crash between the two
                     // writes is impossible (task 0060 F9).

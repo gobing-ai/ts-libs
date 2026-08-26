@@ -343,6 +343,20 @@ function toolCallResultBytesUpdateOp(recordHash: string, resultBytes: number): D
     };
 }
 
+/** Targeted UPDATE op attributing a codex usage-carrier row's token counts to the
+ *  latest assistant message of its session (task 0678 R3). Keyed by `record_hash` (PK). */
+export function codexUsageAttributionUpdateOp(
+    recordHash: string,
+    tokens: { readonly input: number | null; readonly output: number | null; readonly cacheRead: number | null },
+): DbBatchOp {
+    return {
+        sql: `UPDATE history_message
+              SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?
+              WHERE record_hash = ?`,
+        params: [tokens.input, tokens.output, tokens.cacheRead, recordHash],
+    };
+}
+
 /**
  * Query which of the given hashes already exist in the ledger, in chunks of at
  * most 200 per `IN (...)` (task 0060 F9 — replaces the per-record SELECT loop).
