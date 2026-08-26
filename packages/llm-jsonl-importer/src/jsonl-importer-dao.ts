@@ -170,7 +170,9 @@ export async function loadSourceCheckpoints(
             'SELECT source_file, last_imported_line FROM history_import_checkpoint WHERE source = ?',
             source,
         )) as Array<CheckpointRow & { source_file: string }>;
-        return new Map(rows.map((row) => [row.source_file, { line: row.last_imported_line, size: null, mtimeMs: null }]));
+        return new Map(
+            rows.map((row) => [row.source_file, { line: row.last_imported_line, size: null, mtimeMs: null }]),
+        );
     }
     const map = new Map<string, SourceCheckpoint>();
     for (const row of rows) {

@@ -477,16 +477,11 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                 const statAfter = await safeStat(fileSystem, file);
                 // Degraded = a STORED entry without identity (pre-migration database, 0678
                 // fail-open). No stored entry means first-ever import: stamp normally.
-                const identityDegraded =
-                    entry !== undefined && entry.size === null && entry.mtimeMs === null;
+                const identityDegraded = entry !== undefined && entry.size === null && entry.mtimeMs === null;
                 const identityChanged =
                     entry !== undefined &&
                     (entry.size !== (statAfter?.size ?? null) || entry.mtimeMs !== (statAfter?.mtimeMs ?? null));
-                if (
-                    statAfter !== null &&
-                    !identityDegraded &&
-                    (entry === undefined || identityChanged)
-                ) {
+                if (statAfter !== null && !identityDegraded && (entry === undefined || identityChanged)) {
                     await options.db.batch([
                         checkpointUpsertOp(resolvedSource, file, Math.max(lineNumber, checkpoint), options.now, {
                             size: statAfter.size,

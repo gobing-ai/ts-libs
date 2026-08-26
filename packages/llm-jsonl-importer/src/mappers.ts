@@ -1274,7 +1274,9 @@ export function grokSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
                 record_type: recordType,
                 disposition: 'keep',
                 ts,
-                duration_ms: n.durationMs ?? null,
+                // 0678 R2: the producer measures API latency itself — mapping is honest
+                // signal, not synthesis from adjacent timestamps.
+                duration_ms: n.durationMs ?? usage?.apiDurationMs ?? null,
                 model: model ?? null,
                 input_tokens: inputTokens ?? null,
                 output_tokens: outputTokens ?? null,
