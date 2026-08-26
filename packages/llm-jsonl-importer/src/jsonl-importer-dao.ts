@@ -6,6 +6,15 @@ import type { ImportOptions, JsonObject, ReconcileSummary, SourceDefinition } fr
 
 interface CheckpointRow {
     readonly last_imported_line: number;
+    readonly source_size?: number | null;
+    readonly source_mtime_ms?: number | null;
+}
+
+/** File identity + line for one checkpoint row (0675 R1/R5). */
+export interface SourceCheckpoint {
+    readonly line: number;
+    readonly size: number | null;
+    readonly mtimeMs: number | null;
 }
 
 /** Column allowlist per typed contract table; order is the INSERT column order. */
@@ -136,6 +145,29 @@ async function readCheckpoint(db: ImportOptions['db'], source: string, sourceFil
     return row?.last_imported_line ?? 0;
 }
 
+/**
+ * One query per source (0675 R5): all checkpoint rows for `source` keyed by file,
+ * replacing the per-file SELECT in the import loop.
+ */
+export async function loadSourceCheckpoints(
+    db: ImportOptions['db'],
+    source: string,
+): Promise<Map<string, SourceCheckpoint>> {
+    const rows = await db.queryAll<CheckpointRow & { source_file: string }>(
+        'SELECT source_file, last_imported_line, source_size, source_mtime_ms FROM history_import_checkpoint WHERE source = ?',
+        source,
+    );
+    const map = new Map<string, SourceCheckpoint>();
+    for (const row of rows) {
+        map.set(row.source_file, {
+            line: row.last_imported_line,
+            size: row.source_size ?? null,
+            mtimeMs: row.source_mtime_ms ?? null,
+        });
+    }
+    return map;
+}
+
 async function resetCheckpoints(db: ImportOptions['db'], source: string, files: readonly string[]): Promise<void> {
     for (const file of files) {
         await db.run('DELETE FROM history_import_checkpoint WHERE source = ? AND source_file = ?', source, file);
@@ -244,14 +276,17 @@ export function checkpointUpsertOp(
     sourceFile: string,
     line: number,
     now: ImportOptions['now'],
+    identity?: { readonly size: number | null; readonly mtimeMs: number | null },
 ): DbBatchOp {
     return {
-        sql: `INSERT INTO history_import_checkpoint (source, source_file, last_imported_line, updated_at)
-             VALUES (?, ?, ?, ?)
+        sql: `INSERT INTO history_import_checkpoint (source, source_file, last_imported_line, source_size, source_mtime_ms, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(source, source_file) DO UPDATE SET
                 last_imported_line = excluded.last_imported_line,
+                source_size = excluded.source_size,
+                source_mtime_ms = excluded.source_mtime_ms,
                 updated_at = excluded.updated_at`,
-        params: [source, sourceFile, line, timestamp(now)],
+        params: [source, sourceFile, line, identity?.size ?? null, identity?.mtimeMs ?? null, timestamp(now)],
     };
 }
 
@@ -413,12 +448,23 @@ async function normalizeCheckpointPaths(
         source: string;
         source_file: string;
         last_imported_line: number;
+        source_size: number | null;
+        source_mtime_ms: number | null;
         updated_at: string;
-    }>('SELECT source, source_file, last_imported_line, updated_at FROM history_import_checkpoint');
+    }>(
+        'SELECT source, source_file, last_imported_line, source_size, source_mtime_ms, updated_at FROM history_import_checkpoint',
+    );
     // Collapse per (source, realPath) keeping the highest last_imported_line.
     const collapsed = new Map<
         string,
-        { source: string; source_file: string; last_imported_line: number; updated_at: string }
+        {
+            source: string;
+            source_file: string;
+            last_imported_line: number;
+            source_size: number | null;
+            source_mtime_ms: number | null;
+            updated_at: string;
+        }
     >();
     for (const row of rows) {
         const canonical = resolveWithFallback(resolveRealPath, row.source_file);
@@ -429,6 +475,8 @@ async function normalizeCheckpointPaths(
                 source: row.source,
                 source_file: canonical,
                 last_imported_line: row.last_imported_line,
+                source_size: row.source_size,
+                source_mtime_ms: row.source_mtime_ms,
                 updated_at: row.updated_at,
             });
         }
@@ -436,11 +484,13 @@ async function normalizeCheckpointPaths(
     await db.exec('DELETE FROM history_import_checkpoint');
     for (const row of collapsed.values()) {
         await db.run(
-            `INSERT INTO history_import_checkpoint (source, source_file, last_imported_line, updated_at)
-             VALUES (?, ?, ?, ?)`,
+            `INSERT INTO history_import_checkpoint (source, source_file, last_imported_line, source_size, source_mtime_ms, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
             row.source,
             row.source_file,
             row.last_imported_line,
+            row.source_size,
+            row.source_mtime_ms,
             row.updated_at,
         );
     }

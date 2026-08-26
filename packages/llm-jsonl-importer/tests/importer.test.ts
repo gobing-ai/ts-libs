@@ -1505,3 +1505,71 @@ describe('runJsonlImport claude result signals (0624 R2)', () => {
         expect(rows[0]?.duration_ms).toBeNull();
     });
 });
+
+/**
+ * 0675 — incremental file-identity short-circuit.
+ *
+ * Uses real temp files + the Node FS so stat() identity (size, mtimeMs) is genuine:
+ *  - a no-op second import must not read unchanged files at all (R2/R6)
+ *  - a changed file is still read from its checkpoint line, each record exactly once (R3/R7)
+ *  - full mode always reads everything (R6)
+ */
+describe('runJsonlImport incremental identity short-circuit (0675)', () => {
+    test('second incremental run skips an unchanged file without reading it', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'sc-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'a' }),
+            JSON.stringify({ id: 'sc-2', timestamp: '2026-05-30T00:01:00.000Z', content: 'b' }),
+        ]);
+        const first = await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental' });
+        expect(first.importedRecords).toBe(2);
+        expect(first.skippedUnchangedFiles).toBe(0);
+
+        const second = await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental' });
+        expect(second.skippedUnchangedFiles).toBe(1);
+        expect(second.processedLines).toBe(0);
+        expect(second.importedRecords).toBe(0);
+    });
+
+    test('an appended (changed-size) file is read from its checkpoint line onward, exactly once', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'ap-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'a' }),
+        ]);
+        await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental' });
+
+        const { appendFile } = await import('node:fs/promises');
+        await appendFile(
+            file,
+            `${JSON.stringify({ id: 'ap-2', timestamp: '2026-05-30T00:02:00.000Z', content: 'b' })}\n`,
+        );
+        const result = await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental' });
+        // Only the appended line was processed; the checkpoint line itself is not re-read as data.
+        expect(result.processedLines).toBe(1);
+        expect(result.importedRecords).toBe(1);
+        expect(result.skippedUnchangedFiles).toBe(0);
+    });
+
+    test('full mode never short-circuits even with identical identity on disk', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'fm-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'a' }),
+        ]);
+        await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental' });
+        const full = await runJsonlImport('antigravity', { db, files: [file], mode: 'full' });
+        expect(full.skippedUnchangedFiles).toBe(0);
+        expect(full.processedLines).toBeGreaterThanOrEqual(1);
+    });
+});
+
+describe('runJsonlImport identity predicate edge cases (0675 R19)', () => {
+    test('a file whose size matches but mtime differs since checkpoint is still imported', async () => {
+        const { utimes } = await import('node:fs/promises');
+        const file = await fixtureFile([
+            JSON.stringify({ id: 'mt-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'a' }),
+        ]);
+        await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental' });
+        // Same content, same size — only the mtime moves. Identity mismatch must force a read.
+        const future = new Date(Date.now() + 5_000);
+        await utimes(file, future, future);
+        const result = await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental' });
+        expect(result.skippedUnchangedFiles).toBe(0);
+    });
+});

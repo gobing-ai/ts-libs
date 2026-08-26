@@ -135,6 +135,8 @@ export interface ImportResult {
     readonly unknownRecords: number;
     /** Lines dropped by `corruptLinePolicy: 'skip'` instead of degrading the import. */
     readonly skippedCorruptLines: number;
+    /** Files skipped whole by the incremental identity short-circuit (0675 R2); 0 elsewhere. */
+    readonly skippedUnchangedFiles: number;
     readonly parseErrors: readonly ImportIssue[];
     readonly validationErrors: readonly ImportIssue[];
     readonly checkpointUpdates: number;

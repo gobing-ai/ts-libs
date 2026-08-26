@@ -7,6 +7,7 @@ import {
     insertLedger,
     insertRecord,
     ledgerExists,
+    loadSourceCheckpoints,
     normalizeSourceFilePaths,
     readCheckpoint,
     resetCheckpoints,
@@ -325,5 +326,22 @@ describe('applyHistoryImportSchema — lazy ETL materialization', () => {
 
         const typedMsg = await fresh.queryAll<{ c: number }>(`SELECT COUNT(*) AS c FROM history_message`);
         expect(typedMsg[0]?.c).toBe(0);
+    });
+});
+
+describe('loadSourceCheckpoints (0675 R5)', () => {
+    beforeEach(async () => {
+        await applyHistoryImportSchema(db);
+    });
+
+    test('loads all rows for one source into a map, including nullable identity', async () => {
+        await writeCheckpoint(db, 'src-a', '/f1.jsonl', 12, undefined);
+        await writeCheckpoint(db, 'src-b', '/f9.jsonl', 99, undefined);
+        const map = await loadSourceCheckpoints(db, 'src-a');
+        expect(map.size).toBe(1);
+        const entry = map.get('/f1.jsonl');
+        expect(entry?.line).toBe(12);
+        expect(entry?.size ?? null).toBeNull();
+        expect(entry?.mtimeMs ?? null).toBeNull();
     });
 });

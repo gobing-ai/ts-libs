@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS history_import_checkpoint (
     source TEXT NOT NULL,
     source_file TEXT NOT NULL,
     last_imported_line INTEGER NOT NULL DEFAULT 0,
+    -- File identity (0675 R1): nullable so pre-migration rows self-heal on first read.
+    source_size INTEGER,
+    source_mtime_ms REAL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (source, source_file)
 );

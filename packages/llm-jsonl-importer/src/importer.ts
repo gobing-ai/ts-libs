@@ -14,7 +14,7 @@ import {
     ensureTargetTable,
     ledgerExistingHashes,
     ledgerInsertOp,
-    readCheckpoint,
+    loadSourceCheckpoints,
     reconcileFullImport,
     recordInsertOp,
     resetCheckpoints,
@@ -144,6 +144,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     let skippedDuplicates = 0;
     let unknownRecords = 0;
     let skippedCorruptLines = 0;
+    let skippedUnchangedFiles = 0;
     let checkpointUpdates = 0;
     const ensuredTargetTables = new Set<string>();
     // Full-mode desired set (R1, task 0504): every record hash the current source produces.
@@ -154,8 +155,22 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     // (source, session_id, call_id) so a later toolResult line can attach its duration.
     const toolCallRows = new Map<string, PendingToolCall>();
 
+    // 0675 R5: one query per source replaces the per-file SELECT in this loop.
+    // Only incremental mode consults checkpoints; full/force-file read everything.
+    const checkpoints = mode === 'incremental' ? await loadSourceCheckpoints(options.db, resolvedSource) : undefined;
+
     for (const file of files) {
-        const checkpoint = mode === 'incremental' ? await readCheckpoint(options.db, resolvedSource, file) : 0;
+        const entry = checkpoints?.get(file);
+        const checkpoint = entry?.line ?? 0;
+        if (checkpoints !== undefined && entry !== undefined && entry.size !== null && entry.mtimeMs !== null) {
+            // 0675 R2: identity short-circuit — skip the whole file when (size, mtimeMs) both match.
+            // Fail open on any stat problem; never applies to full/force-file (checkpoints is undefined there).
+            const stat = await safeStat(fileSystem, file);
+            if (stat !== null && stat.size === entry.size && stat.mtimeMs === entry.mtimeMs) {
+                skippedUnchangedFiles += 1;
+                continue;
+            }
+        }
         let lineNumber = 0;
         for await (const rawLine of readLines(fileSystem, file)) {
             lineNumber += 1;
@@ -416,12 +431,24 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                     checkpointUpdates += 1;
                 }
             }
+            // 0675 R1/R4: stamp file identity once per READ file (never for skipped ones).
+            // This is also what self-heals legacy rows whose stored identity is NULL — without
+            // it a fully-imported database never arms the short-circuit. Skipped when nothing
+            // changed since the stored checkpoint to keep no-op runs write-free.
+            if (!options.dryRun && mode === 'incremental') {
+                const statAfter = await safeStat(fileSystem, file);
+                if (statAfter !== null && (entry?.size !== statAfter.size || entry?.mtimeMs !== statAfter.mtimeMs)) {
+                    await options.db.batch([
+                        checkpointUpsertOp(resolvedSource, file, Math.max(lineNumber, checkpoint), options.now, {
+                            size: statAfter.size,
+                            mtimeMs: statAfter.mtimeMs,
+                        }),
+                    ]);
+                    checkpointUpdates += 1;
+                }
+            }
         }
     }
-
-    // Full-mode reconciliation (R1, task 0504): diff the desired hash set against the
-    // persisted ledger and retire stale derived rows (target, tool, ledger, checkpoint) in
-    // one source-scoped batch. Dry-run computes the identical counts without mutation.
     let reconciliation: ReconcileSummary | undefined;
     if (mode === 'full') {
         reconciliation = await reconcileFullImport(
@@ -441,6 +468,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
         importedRecords,
         skippedDuplicates,
         skippedCorruptLines,
+        skippedUnchangedFiles,
         unknownRecords,
         parseErrors,
         validationErrors,
@@ -597,6 +625,19 @@ function matchesPattern(path: string, patterns: readonly string[]): boolean {
         if (pattern === '*.json') return path.endsWith('.json');
         return path.endsWith(pattern.replace(/^\*/, ''));
     });
+}
+
+/**
+ * Stat a file for its identity, returning null on any failure (missing file, stat unsupported).
+ * 0675 R2: the short-circuit fails OPEN — any null falls through to the normal read path.
+ */
+async function safeStat(fileSystem: FileSystem, file: string): Promise<{ size: number; mtimeMs: number } | null> {
+    try {
+        const stat = await fileSystem.stat(file);
+        return stat === null ? null : { size: stat.size, mtimeMs: stat.mtimeMs };
+    } catch {
+        return null;
+    }
 }
 
 /**
