@@ -167,18 +167,19 @@ describe('new agent shims', () => {
         expect(shim.tier).toBe(1);
         expect(shim.getPromptCommand({ input: 'ship it' })).toEqual({
             command: 'agy',
-            args: ['-p', 'ship it', '--dangerously-skip-permissions'],
+            args: ['-p', 'ship it', '--mode', 'accept-edits'],
         });
         expect(shim.getPromptCommand({ input: 'x', continue: true, model: 'claude-opus-4' })).toEqual({
             command: 'agy',
-            args: ['-p', 'x', '--dangerously-skip-permissions', '--continue', '--model', 'claude-opus-4'],
+            args: ['-p', 'x', '--mode', 'accept-edits', '--continue', '--model', 'claude-opus-4'],
         });
         // spur 0689: workspace threads to --add-dir so headless relative writes
         // land in the project tree instead of agy's scratch dir.
         expect(shim.getPromptCommand({ input: 'x', workspace: '/repo' }).args).toEqual([
             '-p',
             'x',
-            '--dangerously-skip-permissions',
+            '--mode',
+            'accept-edits',
             '--add-dir',
             '/repo',
         ]);
@@ -314,10 +315,10 @@ describe('session-affinity argv matrix (0447 R3/R5)', () => {
         {
             agent: 'antigravity-cli',
             name: 'agy',
-            fresh: ['-p', '', '--dangerously-skip-permissions'],
-            sessionDirOnly: ['-p', '', '--dangerously-skip-permissions'],
-            sessionIdAndDir: ['-p', '', '--dangerously-skip-permissions', '--conversation', 'abc123'],
-            continueOnly: ['-p', '', '--dangerously-skip-permissions', '--continue'],
+            fresh: ['-p', '', '--mode', 'accept-edits'],
+            sessionDirOnly: ['-p', '', '--mode', 'accept-edits'],
+            sessionIdAndDir: ['-p', '', '--mode', 'accept-edits', '--conversation', 'abc123'],
+            continueOnly: ['-p', '', '--mode', 'accept-edits', '--continue'],
         },
         {
             agent: 'grok',

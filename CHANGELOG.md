@@ -10,6 +10,13 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Fixed
 
+- **`@gobing-ai/ts-ai-runner`: antigravity-cli print-mode dispatches can now write files.**
+  Headless `agy -p` auto-denies any tool that would prompt, so `expectFile`-style automation
+  dead-ended with the agent exiting 0 and no artifact. The shim now emits `--mode accept-edits`
+  (narrowest grant verified by live probe 2026-08-27 — `--dangerously-skip-permissions` was the
+  broader fallback) plus `--add-dir <workspace>` so headless relative file-tool paths land in the
+  real workspace instead of agy's scratch dir.
+
 - **`@gobing-ai/ts-llm-jsonl-importer`: Claude tool-result forensics now preserve native timings.**
   `toolUseResult.durationMs` and `durationSeconds` populate `history_tool_call.duration_ms` when
   present; records without native timing remain `NULL` rather than using timestamp inference.

@@ -210,10 +210,15 @@ const antigravityCliShim: AgentShim = {
     getPromptCommand: (options) => {
         // Print mode is headless: agy auto-denies any tool that would prompt
         // (write_file et al.), so expectFile-style automation dead-ends without
-        // this flag (spur 0689). Trust assumption: the dispatch is already an
-        // unsandboxed subprocess running agent-emitted commands under the
-        // caller's supervision — the prompt is a UX layer, not a boundary.
-        const args = ['-p', options.input ?? '', '--dangerously-skip-permissions'];
+        // a permission affordance (spur 0689). `--mode accept-edits` is the
+        // narrowest grant verified to suppress the denial (live probe
+        // 2026-08-27: write_file succeeds, multi-step write-read-write passes);
+        // it auto-approves edit permission requests only, not all tools. Trust
+        // assumption: the dispatch is already an operator-initiated, headless,
+        // workspace-scoped subprocess running agent-emitted commands under the
+        // caller's supervision. This is the only shim that carries a print-mode
+        // permission affordance (spur 0689).
+        const args = ['-p', options.input ?? '', '--mode', 'accept-edits'];
         // Headless agy resolves relative file-tool paths against a scratch dir,
         // not the process cwd; --add-dir re-roots them into the real workspace
         // (spur 0689, verified: without it expectFile artifacts land in scratch).
