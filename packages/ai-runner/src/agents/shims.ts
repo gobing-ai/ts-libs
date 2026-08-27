@@ -51,6 +51,12 @@ export interface PromptOptions {
     purpose?: string;
     /** Caller-defined prompt tags. */
     tags?: string[];
+    /**
+     * Dispatch working directory (project root). Agents whose headless file
+     * tools resolve relative paths against a scratch workspace (antigravity-cli)
+     * use this to re-root into the real workspace via their directory flag.
+     */
+    workspace?: string;
     /** Additional system prompt rendered in the identity preamble. */
     systemPrompt?: string;
     /** Current task identifier included in the identity preamble. */
@@ -202,7 +208,16 @@ const antigravityCliShim: AgentShim = {
     getHelpCommand: () => ({ command: 'agy', args: ['--help'] }),
     getVersionCommand: () => ({ command: 'agy', args: ['--version'] }),
     getPromptCommand: (options) => {
-        const args = ['-p', options.input ?? ''];
+        // Print mode is headless: agy auto-denies any tool that would prompt
+        // (write_file et al.), so expectFile-style automation dead-ends without
+        // this flag (spur 0689). Trust assumption: the dispatch is already an
+        // unsandboxed subprocess running agent-emitted commands under the
+        // caller's supervision — the prompt is a UX layer, not a boundary.
+        const args = ['-p', options.input ?? '', '--dangerously-skip-permissions'];
+        // Headless agy resolves relative file-tool paths against a scratch dir,
+        // not the process cwd; --add-dir re-roots them into the real workspace
+        // (spur 0689, verified: without it expectFile artifacts land in scratch).
+        if (options.workspace !== undefined) args.push('--add-dir', options.workspace);
         const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
         if (hasSession) {
             // Session/pin path — never emit --continue. agy has no session-dir flag;

@@ -274,7 +274,10 @@ export function buildAgentCommand(
     promptOptions: PromptOptions,
     context: { workspace: string },
 ): ShimCommand {
-    return getAgentShim(agent).getPromptCommand(applyIdentityPreamble(agent, promptOptions, context));
+    return getAgentShim(agent).getPromptCommand({
+        workspace: context.workspace,
+        ...applyIdentityPreamble(agent, promptOptions, context),
+    });
 }
 
 function applyIdentityPreamble(

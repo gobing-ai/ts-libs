@@ -165,11 +165,23 @@ describe('new agent shims', () => {
         const shim = getAgentShim('antigravity-cli');
         expect(shim.command).toBe('agy');
         expect(shim.tier).toBe(1);
-        expect(shim.getPromptCommand({ input: 'ship it' })).toEqual({ command: 'agy', args: ['-p', 'ship it'] });
+        expect(shim.getPromptCommand({ input: 'ship it' })).toEqual({
+            command: 'agy',
+            args: ['-p', 'ship it', '--dangerously-skip-permissions'],
+        });
         expect(shim.getPromptCommand({ input: 'x', continue: true, model: 'claude-opus-4' })).toEqual({
             command: 'agy',
-            args: ['-p', 'x', '--continue', '--model', 'claude-opus-4'],
+            args: ['-p', 'x', '--dangerously-skip-permissions', '--continue', '--model', 'claude-opus-4'],
         });
+        // spur 0689: workspace threads to --add-dir so headless relative writes
+        // land in the project tree instead of agy's scratch dir.
+        expect(shim.getPromptCommand({ input: 'x', workspace: '/repo' }).args).toEqual([
+            '-p',
+            'x',
+            '--dangerously-skip-permissions',
+            '--add-dir',
+            '/repo',
+        ]);
         expect(shim.getAuthCommand()).toBeNull();
         expect(shim.getHelpCommand()).toEqual({ command: 'agy', args: ['--help'] });
         expect(shim.getVersionCommand()).toEqual({ command: 'agy', args: ['--version'] });
@@ -302,10 +314,10 @@ describe('session-affinity argv matrix (0447 R3/R5)', () => {
         {
             agent: 'antigravity-cli',
             name: 'agy',
-            fresh: ['-p', ''],
-            sessionDirOnly: ['-p', ''],
-            sessionIdAndDir: ['-p', '', '--conversation', 'abc123'],
-            continueOnly: ['-p', '', '--continue'],
+            fresh: ['-p', '', '--dangerously-skip-permissions'],
+            sessionDirOnly: ['-p', '', '--dangerously-skip-permissions'],
+            sessionIdAndDir: ['-p', '', '--dangerously-skip-permissions', '--conversation', 'abc123'],
+            continueOnly: ['-p', '', '--dangerously-skip-permissions', '--continue'],
         },
         {
             agent: 'grok',
