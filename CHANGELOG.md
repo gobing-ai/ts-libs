@@ -10,7 +10,6 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Fixed
 
-- **`@gobing-ai/ts-ai-runner`: `agy` resolves as an alias of `antigravity-cli`, and doctor probes executors configured with the `agy` binary name.** The Antigravity 2.0 split design (spur task 0038 R4) registered the `antigravity` legacy id as an alias but dropped the `agy` binary identity — so an executor like `{ name: agy-gemini, agent: agy, model: gemini-3.7-flash-high }` failed detection with `Unknown agent: agy` and reported `missing` in `spur agent doctor`. The `antigravity-cli` shim now carries `aliases: ['antigravity', 'agy']`, and `DoctorRunner.runAllWithExecutors` resolves each executor's `agent` through `resolveAgentName` before the canonical row lookup, so alias-named executors match the detected `antigravity-cli` row instead of degrading to `installed: false`.
 - **`@gobing-ai/ts-llm-jsonl-importer`: Claude tool-result forensics now preserve native timings.**
   `toolUseResult.durationMs` and `durationSeconds` populate `history_tool_call.duration_ms` when
   present; records without native timing remain `NULL` rather than using timestamp inference.
@@ -21,6 +20,16 @@ versioned in **lockstep** — a single version number covers every package in th
 > Note: both entries above shipped with lockstep releases **v0.4.42/v0.4.43** before their
 > sections were written here — see tags `@gobing-ai/ts-*-v0.4.42` / `-v0.4.43`. Sections for
 > v0.4.40–v0.4.43 are missing from this file (backfill pending).
+
+## [0.4.45] - 2026-08-27
+
+### Added
+
+- **`@gobing-ai/ts-ai-runner`: headless `agy` dispatch — `--dangerously-skip-permissions` + workspace re-root.** Print-mode `agy` auto-denies any tool that would prompt (spur 0689), dead-ending expectFile-style automation, so the antigravity-cli prompt command now appends `--dangerously-skip-permissions`; a new `PromptOptions.workspace`, threaded from `buildAgentCommand`, emits `--add-dir` so headless relative file-tool paths land in the real workspace instead of agy's scratch dir (4ce405b).
+
+### Fixed
+
+- **`@gobing-ai/ts-ai-runner`: `agy` resolves as an alias of `antigravity-cli`, and doctor probes executors configured with the `agy` binary name.** The Antigravity 2.0 split design (spur task 0038 R4) registered the `antigravity` legacy id as an alias but dropped the `agy` binary identity — so an executor like `{ name: agy-gemini, agent: agy, model: gemini-3.7-flash-high }` failed detection with `Unknown agent: agy` and reported `missing` in `spur agent doctor`. The `antigravity-cli` shim now carries `aliases: ['antigravity', 'agy']`, and `DoctorRunner.runAllWithExecutors` resolves each executor's `agent` through `resolveAgentName` before the canonical row lookup, so alias-named executors match the detected `antigravity-cli` row instead of degrading to `installed: false` (4b15d19).
 
 ## [0.4.44] - 2026-08-26
 
