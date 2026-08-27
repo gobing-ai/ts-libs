@@ -24,8 +24,7 @@ describe('Agent shims', () => {
         expect(isAgentName('hermes')).toBe(true);
         expect(isAgentName('omp')).toBe(true);
         expect(isAgentName('grok')).toBe(true);
-        // Alias
-        expect(isAgentName('antigravity')).toBe(true);
+        expect(isAgentName('agy')).toBe(true);
 
         expect(isAgentName('')).toBe(false);
         expect(isAgentName('cursor')).toBe(false);
@@ -96,6 +95,8 @@ describe('resolveAgentName', () => {
 
     test('alias resolves to canonical', () => {
         expect(resolveAgentName('antigravity')).toBe('antigravity-cli');
+        // The `agy` binary identity is also an alias (task 0038 R4).
+        expect(resolveAgentName('agy')).toBe('antigravity-cli');
     });
 
     test('deprecated-but-not-aliased id resolves to itself', () => {
@@ -209,6 +210,7 @@ describe('deprecation metadata', () => {
     test('antigravity-cli carries the antigravity alias and is not itself deprecated', () => {
         const shim = getAgentShim('antigravity-cli');
         expect(shim.aliases).toContain('antigravity');
+        expect(shim.aliases).toContain('agy');
         // The canonical antigravity-cli is the active successor — not deprecated.
         expect(shim.deprecated).toBeUndefined();
     });

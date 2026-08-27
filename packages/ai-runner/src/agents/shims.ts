@@ -198,7 +198,7 @@ const antigravityCliShim: AgentShim = {
     name: 'antigravity-cli',
     command: 'agy',
     tier: 1,
-    aliases: ['antigravity'],
+    aliases: ['antigravity', 'agy'],
     getHelpCommand: () => ({ command: 'agy', args: ['--help'] }),
     getVersionCommand: () => ({ command: 'agy', args: ['--version'] }),
     getPromptCommand: (options) => {

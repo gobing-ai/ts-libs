@@ -10,6 +10,7 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Fixed
 
+- **`@gobing-ai/ts-ai-runner`: `agy` resolves as an alias of `antigravity-cli`, and doctor probes executors configured with the `agy` binary name.** The Antigravity 2.0 split design (spur task 0038 R4) registered the `antigravity` legacy id as an alias but dropped the `agy` binary identity — so an executor like `{ name: agy-gemini, agent: agy, model: gemini-3.7-flash-high }` failed detection with `Unknown agent: agy` and reported `missing` in `spur agent doctor`. The `antigravity-cli` shim now carries `aliases: ['antigravity', 'agy']`, and `DoctorRunner.runAllWithExecutors` resolves each executor's `agent` through `resolveAgentName` before the canonical row lookup, so alias-named executors match the detected `antigravity-cli` row instead of degrading to `installed: false`.
 - **`@gobing-ai/ts-llm-jsonl-importer`: Claude tool-result forensics now preserve native timings.**
   `toolUseResult.durationMs` and `durationSeconds` populate `history_tool_call.duration_ms` when
   present; records without native timing remain `NULL` rather than using timestamp inference.

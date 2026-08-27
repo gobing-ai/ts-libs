@@ -326,25 +326,34 @@ describe('DoctorRunner with executors', () => {
         expect(zai?.installed).toBe(true);
     });
 
-    test('runOne matches executor name first when executors are configured', async () => {
+    test('executor with alias agent (agy) resolves to the canonical detected row in runAll', async () => {
         const detector = {
-            detectAll: async () => [],
+            detectAll: async () => [
+                { name: 'antigravity-cli', installed: true, version: 'agy 1.1.21', channels: [], error: null },
+            ],
             detectOne: async (name: string) => ({
                 name,
                 installed: true,
-                version: 'omp 1.0.0',
+                version: 'agy 1.1.21',
                 channels: [],
                 error: null,
             }),
         } as unknown as AgentDetector;
         const runner = new AiRunner({ processExecutor: new FakeExecutor(() => ({ stdout: 'ok' })) });
-        const executors = [{ name: 'omp-zai', agent: 'omp', model: 'zai/glm-5.2' }];
-        const result = await new DoctorRunner({ runner, agentDetector: detector, env: {}, executors }).runOne(
-            'omp-zai',
-        );
+        const executors = [
+            { name: 'agy-gemini', agent: 'agy', model: 'gemini-3.7-flash-high' },
+            { name: 'agy-opus', agent: 'agy', model: 'claude-opus-4.6-thinking' },
+        ];
+        const results = await new DoctorRunner({ runner, agentDetector: detector, env: {}, executors }).runAll();
 
-        expect(result.agent).toBe('omp-zai');
-        expect(result.installed).toBe(true);
+        expect(results).toHaveLength(2);
+        for (const result of results) {
+            expect(result.installed).toBe(true);
+            expect(result.version).toBe('agy 1.1.21');
+            expect(result.error).toBeNull();
+        }
+        expect(results[0]?.agent).toBe('agy-gemini');
+        expect(results[1]?.agent).toBe('agy-opus');
     });
 
     test('probeModel returns unknown when no API key is found in env', async () => {

@@ -154,13 +154,18 @@ export class DoctorRunner {
         const byName = new Map(detected.map((agent) => [agent.name, agent]));
         const results: DoctorResult[] = [];
         for (const executor of this.executors) {
-            const agentDetected = byName.get(executor.agent) ?? {
-                name: executor.agent,
-                installed: false,
-                version: null,
-                channels: [],
-                error: `Unknown agent: ${executor.agent}`,
-            };
+            // Resolve aliases/binary names to the canonical id so an executor
+            // configured with `agent: agy` matches the detected `antigravity-cli`
+            // row instead of falling through to "Unknown agent" (task 0038 R4).
+            const canonical = resolveAgentName(executor.agent);
+            const agentDetected = byName.get(executor.agent) ??
+                (canonical !== undefined ? byName.get(canonical) : undefined) ?? {
+                    name: executor.agent,
+                    installed: false,
+                    version: null,
+                    channels: [],
+                    error: `Unknown agent: ${executor.agent}`,
+                };
             const result = await this.buildResult(agentDetected);
             // Override the agent name with the executor name for display
             result.agent = executor.name;
