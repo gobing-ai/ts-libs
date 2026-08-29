@@ -47,6 +47,8 @@ export interface PromptOptions {
     model?: string;
     /** Output mode passed through to the agent CLI. */
     mode?: OutputMode;
+    /** Process timeout mirrored into CLIs that impose a shorter internal wait. */
+    timeoutMs?: number;
     /** Team-mode purpose included in the identity preamble. */
     purpose?: string;
     /** Caller-defined prompt tags. */
@@ -102,7 +104,9 @@ const claudeShim: AgentShim = {
     getHelpCommand: () => ({ command: 'claude', args: ['--help'] }),
     getVersionCommand: () => ({ command: 'claude', args: ['--version'] }),
     getPromptCommand: (options) => {
-        const args = ['-p', options.input ?? ''];
+        // Headless dispatch cannot answer edit approval prompts. acceptEdits
+        // grants only file edits, leaving shell and broader tools gated.
+        const args = ['-p', options.input ?? '', '--permission-mode', 'acceptEdits'];
         const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
         if (hasSession) {
             // Session/pin path — never emit --continue. Claude has no session-dir
@@ -216,9 +220,10 @@ const antigravityCliShim: AgentShim = {
         // it auto-approves edit permission requests only, not all tools. Trust
         // assumption: the dispatch is already an operator-initiated, headless,
         // workspace-scoped subprocess running agent-emitted commands under the
-        // caller's supervision. This is the only shim that carries a print-mode
-        // permission affordance (spur 0689).
+        // caller's supervision. This is the narrow edit-only policy shared by
+        // configured headless executors that otherwise prompt (spur 0689).
         const args = ['-p', options.input ?? '', '--mode', 'accept-edits'];
+        if (options.timeoutMs !== undefined) args.push('--print-timeout', `${options.timeoutMs}ms`);
         // Headless agy resolves relative file-tool paths against a scratch dir,
         // not the process cwd; --add-dir re-roots them into the real workspace
         // (spur 0689, verified: without it expectFile artifacts land in scratch).
@@ -305,7 +310,10 @@ const grokShim: AgentShim = {
     getHelpCommand: () => ({ command: 'grok', args: ['--help'] }),
     getVersionCommand: () => ({ command: 'grok', args: ['--version'] }),
     getPromptCommand: (options) => {
-        const args = ['-p', options.input ?? ''];
+        // Grok 1.0.5 accepts --permission-mode acceptEdits but still narrates
+        // writes without invoking the tool in single-turn mode. Tool-scoped
+        // allow rules are the narrow verified noninteractive affordance.
+        const args = ['-p', options.input ?? '', '--allow', 'Write', '--allow', 'Edit'];
         const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
         if (hasSession) {
             // Session/pin path — never emit -c. grok has no session-dir flag;

@@ -106,6 +106,26 @@ describe('AiRunner', () => {
         expect(executor.calls).toHaveLength(0);
     });
 
+    test('buildPromptCommand forwards the process timeout to antigravity print mode', () => {
+        const runner = new AiRunner({ processExecutor: new FakeExecutor(() => ({ stdout: 'ok' })) });
+
+        const args = runner.buildPromptCommand('antigravity-cli', { input: 'ship it' }, { timeout: 1_800_000 }).args;
+        expect(args).toContain('--print-timeout');
+        expect(args).toContain('1800000ms');
+    });
+
+    test('buildPromptCommand keeps the execution workspace authoritative', () => {
+        const runner = new AiRunner({ processExecutor: new FakeExecutor(() => ({ stdout: 'ok' })) });
+
+        const args = runner.buildPromptCommand(
+            'antigravity-cli',
+            { input: 'ship it', workspace: '/stale' },
+            { cwd: '/authoritative' },
+        ).args;
+        expect(args).toContain('/authoritative');
+        expect(args).not.toContain('/stale');
+    });
+
     test('logs invocation diagnostics and escalates a non-zero exit to error', async () => {
         // Non-zero exits must surface in logs; a silent failure leaves operators blind
         // to why an agent command failed (parity finding F7 — restored observability).

@@ -187,9 +187,16 @@ export class AiRunner {
 
     /** Build an agent prompt command without executing it. */
     buildPromptCommand(agent: AgentName, promptOptions: PromptOptions, options: AgentRunOptions = {}): ShimCommand {
-        return buildAgentCommand(agent, promptOptions, {
-            workspace: options.cwd ?? this.defaultCwd ?? getProcessCwd(),
-        });
+        return buildAgentCommand(
+            agent,
+            {
+                ...promptOptions,
+                timeoutMs: options.timeout ?? promptOptions.timeoutMs ?? this.defaultTimeout,
+            },
+            {
+                workspace: options.cwd ?? this.defaultCwd ?? getProcessCwd(),
+            },
+        );
     }
 
     /** Run an agent authentication command, or return null when unsupported. */
@@ -275,8 +282,8 @@ export function buildAgentCommand(
     context: { workspace: string },
 ): ShimCommand {
     return getAgentShim(agent).getPromptCommand({
-        workspace: context.workspace,
         ...applyIdentityPreamble(agent, promptOptions, context),
+        workspace: context.workspace,
     });
 }
 

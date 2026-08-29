@@ -183,6 +183,9 @@ describe('new agent shims', () => {
             '--add-dir',
             '/repo',
         ]);
+        const timeoutArgs = shim.getPromptCommand({ input: 'x', timeoutMs: 1_800_000 }).args;
+        expect(timeoutArgs).toContain('--print-timeout');
+        expect(timeoutArgs).toContain('1800000ms');
         expect(shim.getAuthCommand()).toBeNull();
         expect(shim.getHelpCommand()).toEqual({ command: 'agy', args: ['--help'] });
         expect(shim.getVersionCommand()).toEqual({ command: 'agy', args: ['--version'] });
@@ -195,12 +198,24 @@ describe('new agent shims', () => {
         // one-shot defaults mode text → --output-format plain
         expect(shim.getPromptCommand({ input: 'ship it' })).toEqual({
             command: 'grok',
-            args: ['-p', 'ship it', '--output-format', 'plain'],
+            args: ['-p', 'ship it', '--allow', 'Write', '--allow', 'Edit', '--output-format', 'plain'],
         });
         // continue + model + json
         expect(shim.getPromptCommand({ input: 'x', continue: true, model: 'grok-build', mode: 'json' })).toEqual({
             command: 'grok',
-            args: ['-p', 'x', '-c', '-m', 'grok-build', '--output-format', 'json'],
+            args: [
+                '-p',
+                'x',
+                '--allow',
+                'Write',
+                '--allow',
+                'Edit',
+                '-c',
+                '-m',
+                'grok-build',
+                '--output-format',
+                'json',
+            ],
         });
         // R8: mode text must never emit the bare format value "text"
         const textMode = shim.getPromptCommand({ input: 'y', mode: 'text' });
@@ -297,11 +312,20 @@ describe('session-affinity argv matrix (0447 R3/R5)', () => {
         {
             agent: 'claude',
             name: 'claude',
-            fresh: ['-p', '', '--output-format', 'text'],
+            fresh: ['-p', '', '--permission-mode', 'acceptEdits', '--output-format', 'text'],
             // sessionDir unsupported → ignored; sessionId pins via --resume
-            sessionDirOnly: ['-p', '', '--output-format', 'text'],
-            sessionIdAndDir: ['-p', '', '--resume', 'abc123', '--output-format', 'text'],
-            continueOnly: ['-p', '', '--continue', '--output-format', 'text'],
+            sessionDirOnly: ['-p', '', '--permission-mode', 'acceptEdits', '--output-format', 'text'],
+            sessionIdAndDir: [
+                '-p',
+                '',
+                '--permission-mode',
+                'acceptEdits',
+                '--resume',
+                'abc123',
+                '--output-format',
+                'text',
+            ],
+            continueOnly: ['-p', '', '--permission-mode', 'acceptEdits', '--continue', '--output-format', 'text'],
         },
         {
             agent: 'codex',
@@ -323,10 +347,21 @@ describe('session-affinity argv matrix (0447 R3/R5)', () => {
         {
             agent: 'grok',
             name: 'grok',
-            fresh: ['-p', '', '--output-format', 'plain'],
-            sessionDirOnly: ['-p', '', '--output-format', 'plain'],
-            sessionIdAndDir: ['-p', '', '--resume', 'abc123', '--output-format', 'plain'],
-            continueOnly: ['-p', '', '-c', '--output-format', 'plain'],
+            fresh: ['-p', '', '--allow', 'Write', '--allow', 'Edit', '--output-format', 'plain'],
+            sessionDirOnly: ['-p', '', '--allow', 'Write', '--allow', 'Edit', '--output-format', 'plain'],
+            sessionIdAndDir: [
+                '-p',
+                '',
+                '--allow',
+                'Write',
+                '--allow',
+                'Edit',
+                '--resume',
+                'abc123',
+                '--output-format',
+                'plain',
+            ],
+            continueOnly: ['-p', '', '--allow', 'Write', '--allow', 'Edit', '-c', '--output-format', 'plain'],
         },
     ];
 
