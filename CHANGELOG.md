@@ -14,6 +14,8 @@ versioned in **lockstep** — a single version number covers every package in th
   Antigravity and Claude prompt commands use edit-scoped noninteractive modes while Pi retains its
   native write behavior. Grok uses tool-scoped `--allow Write --allow Edit` rules because 1.0.5
   accepts `acceptEdits` but still narrates writes without invoking a tool in one-shot mode.
+  Claude also declares `Write` and `Edit` through `--allowedTools`, preventing current print-mode
+  releases from exiting zero after silently denying the required artifact write.
   Antigravity also receives the caller timeout and authoritative workspace, preventing its shorter
   print wait or scratch directory from defeating `expectFile`.
 

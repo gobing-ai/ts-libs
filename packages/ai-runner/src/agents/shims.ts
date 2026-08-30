@@ -104,9 +104,9 @@ const claudeShim: AgentShim = {
     getHelpCommand: () => ({ command: 'claude', args: ['--help'] }),
     getVersionCommand: () => ({ command: 'claude', args: ['--version'] }),
     getPromptCommand: (options) => {
-        // Headless dispatch cannot answer edit approval prompts. acceptEdits
-        // grants only file edits, leaving shell and broader tools gated.
-        const args = ['-p', options.input ?? '', '--permission-mode', 'acceptEdits'];
+        // Headless dispatch cannot answer edit approval prompts. Keep the grant
+        // scoped to file edits; shell and broader tools remain gated.
+        const args = ['-p', options.input ?? '', '--permission-mode', 'acceptEdits', '--allowedTools', 'Write', 'Edit'];
         const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
         if (hasSession) {
             // Session/pin path — never emit --continue. Claude has no session-dir
