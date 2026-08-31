@@ -28,7 +28,7 @@ Feature satellites are owned by `spur feature`. The generated, authoritative ros
 | C1 | ↳ Workflow YAML rule-style extensions | ✅ done | [`C1_workflow-yaml-rule-style-extensions.md`](features/C1_workflow-yaml-rule-style-extensions.md) |
 | D | ts-infra | ⏳ planned | [`D_ts-infra.md`](features/D_ts-infra.md) |
 | D1 | ↳ Restore System Events observability coverage | ✅ done | [`D1_restore-system-events-observability-coverage.md`](features/D1_restore-system-events-observability-coverage.md) |
-| E | ts-llm-jsonl-importer | ⏳ planned | [`E_ts-llm-jsonl-importer.md`](features/E_ts-llm-jsonl-importer.md) |
+| E | ts-llm-jsonl-importer | 🔶 partial | [`E_ts-llm-jsonl-importer.md`](features/E_ts-llm-jsonl-importer.md) |
 | F | ts-rule-engine | ⏳ planned | [`F_ts-rule-engine.md`](features/F_ts-rule-engine.md) |
 | G | ts-runtime | ⏳ planned | [`G_ts-runtime.md`](features/G_ts-runtime.md) |
 | H | ts-utils | ⏳ planned | [`H_ts-utils.md`](features/H_ts-utils.md) |

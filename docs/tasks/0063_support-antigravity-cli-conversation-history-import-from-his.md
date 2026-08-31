@@ -4,7 +4,7 @@ name: "Support Antigravity CLI conversation history import from history.jsonl an
 status: done
 template: standard
 created_at: 2026-08-31T15:33:47.925Z
-updated_at: "2026-08-31T17:02:47.759Z"
+updated_at: "2026-08-31T17:34:06.505Z"
 feature_id: E
 ---
 
@@ -370,34 +370,31 @@ No `dependencies[]`; nothing is owed to or from another WBS. The deferred conver
 importer (Q&A D6) is a **new task**, not a continuation of this one, and must not be started here.
 
 ### Plan
-
-1. [ ] **`src/sources.ts`** — set `SOURCE_DEFINITIONS['agy']` `defaultRoots` to
+1. [x] **`src/sources.ts`** — set `SOURCE_DEFINITIONS['agy']` `defaultRoots` to
    `['.gemini/antigravity-cli']`; leave `filePatterns`, the mapper wiring, and the
    `corruptLinePolicy: 'skip'` override untouched. → R1
-2. [ ] **`src/mappers.ts` — `agySplit`** — apply Design edits 1-5 in order (session alias, seq
+2. [x] **`src/mappers.ts` — `agySplit`** — apply Design edits 1-5 in order (session alias, seq
    fallback, `display` branch + `messageRecordType`, `cwd`, `record_type`). Do not touch the
    `switch` body, `AGY_SCHEMA`, `AGY_FIELD_MAP`, or `timestampOf`. → R2, R3, R4, R5
-3. [ ] **`tests/forensic-contract.test.ts:203`** — update the `defaultRoots` assertion to
+3. [x] **`tests/forensic-contract.test.ts:203`** — update the `defaultRoots` assertion to
    `['.gemini/antigravity-cli']`. This test **will fail** until it is updated; that failure is
    expected, not a regression. → R1
-4. [ ] **`tests/mappers.test.ts`** — add the R2/R3 cases (bare `display`, `slash_command`, `shell`,
+4. [x] **`tests/mappers.test.ts`** — add the R2/R3 cases (bare `display`, `slash_command`, `shell`,
    missing `conversationId`) asserting role/disposition/record_type/content_text/cwd/seq/ts. Add
    the R4 legacy case asserting `seq = 5` and `cwd = null`. Leave existing `agySplit` tests
    byte-identical. → R2, R3, R4, R8
-5. [ ] **`tests/importer.test.ts`** — add a discovery test (in-memory FS with both
+5. [x] **`tests/importer.test.ts`** — add a discovery test (in-memory FS with both
    `history.jsonl` and a brain transcript, imported via `roots`/`paths` rather than `files`) and
    the R6 double-import idempotence test. → R1, R6, R8
-6. [ ] **`README.md`** — extend the built-in-source line to say `agy` scans
+6. [x] **`README.md`** — extend the built-in-source line to say `agy` scans
    `~/.gemini/antigravity-cli` (both `history.jsonl` and `brain/**` transcripts) and that
    `conversations/*.db` stores are not imported. → R9
-7. [ ] **Verify** — `bun run spur-check` then `bun run build`; both exit 0. Fix root causes only;
+7. [x] **Verify** — `bun run spur-check` then `bun run build`; both exit 0. Fix root causes only;
    no `--no-verify`, no `.skip`, no `biome-ignore`. → R10
-
 ### Solution
-
 Implemented by sp-super-coder (implement stage, sp-code-implementation competency) per frozen Design+Plan. Two production files + three test files + README.
 
-- `src/sources.ts:197` — `agy.defaultRoots` → `['.gemini/antigravity-cli']` (R1).
+- `packages/llm-jsonl-importer/src/sources.ts:197` — `agy.defaultRoots` → `['.gemini/antigravity-cli']` (R1).
 - `src/mappers.ts` — `agySplit`: `conversationId` accepted as session id alias (R3); `seq` falls back to `context?.sourceLine ?? 0` like `geminiSplit` (R3); new history branch when `raw.display !== undefined` → `role='user'`, `disposition='keep'`, `content_text=display`, `messageRecordType = type || 'USER_INPUT'`, 0463 switch wrapped in `else` (R2); `cwd: s(raw.workspace, raw.cwd) ?? null` (R3); `record_type: messageRecordType` (R2). Switch body, `AGY_SCHEMA`, `AGY_FIELD_MAP`, `timestampOf`, tool-call blocks untouched — legacy brain-transcript output byte-identical (R4), proven by all pre-existing `agySplit` tests passing unmodified.
 - `tests/mappers.test.ts` — five 0063 cases: bare display (cwd/ts/seq), `slash_command`, `shell`, missing `conversationId`, legacy `seq=5`/`cwd=null` + tool call.
 - `tests/importer.test.ts` — discovery test (history.jsonl + brain transcript, both found, `cwd` persisted) + R6 idempotence lens (line-anchored-hash dedupe with `importedRecords=0`, `skippedDuplicates=processedLines`).
@@ -405,41 +402,37 @@ Implemented by sp-super-coder (implement stage, sp-code-implementation competenc
 - `README.md` — scan scope documented; `conversations/*.db` stores explicitly not imported (R9).
 
 Deviation: R6's gherkin says "incremental mode", but plain incremental short-circuits unchanged files at the checkpoint identity check (`src/importer.ts`) and can never report `processedLines = lineCount`; the regression lens uses `force-file`, which reads every line while keeping ledger dedupe — the exact line-anchored-hash behavior R6 protects. No production change needed, as the Design predicted. One pre-existing task-0678 fixture line in `tests/mappers.test.ts` received a semantics-preserving `?? {}` hardening (in-scope file; assertion outcome unchanged).
-
 ### Testing
-
 **Pipeline verify results**
 
 - Verdict: PASS (from verdict artifact)
 
 | Requirement | Status | Evidence |
-| ------------- | -------- | ---------- |
-| R1 | MET | `packages/llm-jsonl-importer/src/sources.ts:197` — `defaultRoots` is exactly `['.gemini/antigravity-cli']` (brain suffix removed), `filePatterns: ['*.jsonl']` at `:198`; discovery test `packages/llm-jsonl-importer/tests/importer.test.ts:585-650` (fake home with `history.jsonl` + `brain/<uuid>/.system_generated/logs/transcript.jsonl` → scannedFiles=2, importedRecords=3, both source_files present); root assertion `packages/llm-jsonl-importer/tests/forensic-contract.test.ts:203`. Re-read this run. |
-| R2 | MET | `packages/llm-jsonl-importer/src/mappers.ts:889-893` — `raw.display !== undefined` branch: role='user', disposition='keep', `content_text=s(raw.display)`, `messageRecordType = recordType.length > 0 ? recordType : 'USER_INPUT'` (≡ `String(raw.type ?? '') |
-| R3 | MET | `packages/llm-jsonl-importer/src/mappers.ts:870` session alias `s(raw.session_id, raw.conversation_id, raw.conversationId)`; `:873-878` seq falls back to `context?.sourceLine ?? 0`; `:969` `cwd: s(raw.workspace, raw.cwd) ?? null` (additive); precedence brain-UUID → 'unknown' via `sessionIdFromSourcePath`; tests `packages/llm-jsonl-importer/tests/mappers.test.ts:1006` (unknown fallback) and `:945` (seq=7, cwd persisted) pass this run. |
-| R4 | MET | 0463 switch body byte-identical, wrapped in `else` (`packages/llm-jsonl-importer/src/mappers.ts:894-948`); `messageRecordType` init `:884`, legacy emit `:958`; tool-call block still keyed off raw `recordType` (`:973-989`); diff hunks in `tests/mappers.test.ts` are purely additive except the disclosed task-0678 `?? {}` hardening (`tests/mappers.test.ts:1675`); legacy lens `packages/llm-jsonl-importer/tests/mappers.test.ts:1016` (seq=5, cwd=null, view_file tool call status ok) passes. |
-| R5 | MET | History rows emit non-null session_id/seq/role/record_type/disposition and `provenance: 'ambient'` (`packages/llm-jsonl-importer/src/mappers.ts:945-970`); end-to-end fresh-schema insert with `validationErrors` empty (`packages/llm-jsonl-importer/tests/importer.test.ts:634`, scannedFiles=2/importedRecords=3). DDL: `record_type`/`disposition` are plain TEXT NOT NULL (no enum) so 'slash_command'/'shell' insert cleanly. |
-| R6 | MET | Via the verified documented deviation: plain incremental short-circuits unchanged files at the (size, mtimeMs) checkpoint identity check (`packages/llm-jsonl-importer/src/importer.ts:165-176`) before any line is read, so the regression lens uses `force-file` — reads every line, keeps ledger dedupe over the line-anchored `recordHash = sha256({source, sourceFile, sourceLine, splitIndex, record})` (`:236-243`, dedupe `:299`); lens `packages/llm-jsonl-importer/tests/importer.test.ts:653-680` asserts processedLines=2, importedRecords=0, skippedDuplicates=processedLines — passes this run. No production change needed, as the Design predicted. |
-| R7 | MET | `corruptLinePolicy: 'skip'` override intact (`packages/llm-jsonl-importer/src/sources.ts:206` with 0623 rationale comment); pre-existing torn-tail coverage `packages/llm-jsonl-importer/tests/importer.test.ts:1015-1035` (agy 'skip' drops corrupt lines without parse errors) passes this run. |
-| R8 | MET | Four history shapes + cwd + numeric-epoch ts (1779224635930 → '2026-05-19T21:03:55.930Z') + seq-from-sourceLine: `packages/llm-jsonl-importer/tests/mappers.test.ts:945,970,988,1006,1016`; discovery + R6 lenses: `tests/importer.test.ts:585,653`; root assertion updated: `tests/forensic-contract.test.ts:203`. Targeted run: 7 named 0063 tests, 7 pass / 0 fail; full package: 267 pass / 0 fail. |
-| R9 | MET | `packages/llm-jsonl-importer/README.md:22` — "`agy` source scans `~/.gemini/antigravity-cli`, covering both `history.jsonl` and `brain/**` transcripts; conversation `.db` stores under `conversations/` are not imported." |
-| R10 | MET | Fresh this run: `bun run spur-check` exit 0 (biome check + typecheck + 2066 pass / 0 fail across 178 files, rule presets green); `bun run build` exit 0. No new `.skip`/`.todo`/`biome-ignore` in the diff (grep-verified this run). |
+|-------------|--------|----------|
+| R1 | MET | `packages/llm-jsonl-importer/src/sources.ts:197` — `defaultRoots` is exactly `['.gemini/antigravity-cli']` (brain suffix removed); `filePatterns: ['*.jsonl']` at `packages/llm-jsonl-importer/src/sources.ts:198`. Discovery lens `packages/llm-jsonl-importer/tests/importer.test.ts:585` (fake home holding `history.jsonl` + `brain/<uuid>/.system_generated/logs/transcript.jsonl` → scannedFiles=2, importedRecords=3, both source_files present). Root assertion `packages/llm-jsonl-importer/tests/forensic-contract.test.ts:203`. All re-read this run. |
+| R2 | MET | `packages/llm-jsonl-importer/src/mappers.ts:889` — `raw.display !== undefined` branch sets role='user', disposition='keep', `content_text = s(raw.display)`, and `messageRecordType = recordType.length > 0 ? recordType : 'USER_INPUT'` at `packages/llm-jsonl-importer/src/mappers.ts:893`, which is exactly R2's `String(raw.type ?? '')` fallback given `recordType` at `packages/llm-jsonl-importer/src/mappers.ts:869`. Emitted at `packages/llm-jsonl-importer/src/mappers.ts:958`. Three producer shapes covered by one branch, proven at `packages/llm-jsonl-importer/tests/mappers.test.ts:945` (absent type), `:970` (slash_command), `:988` (shell). |
+| R3 | MET | Session alias `s(raw.session_id, raw.conversation_id, raw.conversationId)` at `packages/llm-jsonl-importer/src/mappers.ts:870`; seq fallback to `context?.sourceLine ?? 0` at `packages/llm-jsonl-importer/src/mappers.ts:873-878`; `cwd: s(raw.workspace, raw.cwd) ?? null` at `packages/llm-jsonl-importer/src/mappers.ts:969`. Precedence brain-UUID then `'unknown'` via `sessionIdFromSourcePath` at `packages/llm-jsonl-importer/src/mappers.ts:871-872`. Lenses `packages/llm-jsonl-importer/tests/mappers.test.ts:1006` (unknown fallback) and `:945` (seq=7, cwd persisted) pass this run. |
+| R4 | MET | 0463 switch body unchanged, wrapped in `else` at `packages/llm-jsonl-importer/src/mappers.ts:894`; tool-call block still keyed off raw `recordType` at `packages/llm-jsonl-importer/src/mappers.ts:973`. Legacy lens `packages/llm-jsonl-importer/tests/mappers.test.ts:1016` (seq=5, cwd=null, view_file tool call status ok) plus all pre-existing agySplit tests pass unmodified. Byte-identity strengthened from sample to full corpus this run: 84,898 records scanned across every brain jsonl shape (transcript, transcript_full, and the 873 `NNNNNNNN.jsonl` files not covered by the earlier sample) — 0 carry `display`, 0 carry `workspace`/`cwd`, 0 lack both `seq` and `step_index`, so no live legacy record can reach the new branch or shift `seq`/`cwd`. |
+| R5 | MET | History rows emit non-null session_id/seq/role/record_type/disposition and `provenance: 'ambient'` at `packages/llm-jsonl-importer/src/mappers.ts:954-970`. End-to-end fresh-schema insert with `validationErrors` empty at `packages/llm-jsonl-importer/tests/importer.test.ts:634`. DDL `record_type`/`disposition` are plain `TEXT NOT NULL` with no enum at `packages/llm-jsonl-importer/src/schema-sql.ts:37-39`, so 'slash_command' and 'shell' insert cleanly. |
+| R6 | MET | No production change needed, as the Design predicted — `recordHash = sha256({source, sourceFile, sourceLine, splitIndex, record})` at `packages/llm-jsonl-importer/src/importer.ts:234` is line-anchored and dedupe runs at `packages/llm-jsonl-importer/src/importer.ts:298`. Documented deviation (recorded in `### Solution`): plain `incremental` short-circuits an unchanged file on the (size, mtimeMs) identity check at `packages/llm-jsonl-importer/src/importer.ts:165-176` before any line is read, so `processedLines = lineCount` is unreachable there; the lens at `packages/llm-jsonl-importer/tests/importer.test.ts:653-679` uses `force-file`, which reads every line while keeping ledger dedupe, and asserts processedLines=2, importedRecords=0, skippedDuplicates=processedLines. Strictly stronger than the literal AC wording. Passes this run. |
+| R7 | MET | `corruptLinePolicy: 'skip'` override intact with its 0623 rationale comment at `packages/llm-jsonl-importer/src/sources.ts:206`; the diff touched only `defaultRoots` in that block. Pre-existing torn-tail coverage `packages/llm-jsonl-importer/tests/importer.test.ts:1016` passes this run. |
+| R8 | MET | Four history shapes + cwd + numeric-epoch ts (1779224635930 to '2026-05-19T21:03:55.930Z') + seq-from-sourceLine at `packages/llm-jsonl-importer/tests/mappers.test.ts:945`, `:970`, `:988`, `:1006`, `:1016`; discovery and idempotence lenses at `packages/llm-jsonl-importer/tests/importer.test.ts:585` and `:653`; root assertion updated at `packages/llm-jsonl-importer/tests/forensic-contract.test.ts:203`. Targeted run this turn: `bun test tests/mappers.test.ts tests/importer.test.ts tests/forensic-contract.test.ts` — 219 pass, 0 fail, 990 expect() calls. |
+| R9 | MET | `packages/llm-jsonl-importer/README.md:22` states the `agy` source scans `~/.gemini/antigravity-cli`, covering both `history.jsonl` and `brain/**` transcripts, and that conversation `.db` stores under `conversations/` are not imported. Re-read this run. |
+| R10 | MET | Fresh this run: `bun run spur-check` exit 0 — Biome + per-package typecheck + 2066 pass / 0 fail across 178 files, and both spur rule presets green (coverage-gate, every-export-has-tsdoc). `bun run build` exit 0 for all 8 packages. No `.skip`/`.todo` and no new `biome-ignore` in the diff. Coverage: measured by the `coverage-gate` spur rule inside `bun run spur-check` — passed. Gitignored fix-pass writes this run (disclosure): `.spur/run/0063-verify-answer.txt` fully rewritten (45 lines; repo-relative citation repair + untruncated R2 evidence) and `.spur/run/0063-verdict.json` regenerated from it via `spur task verdict --from-answer` (10 requirements, 10 acceptanceCriteria, 2 checks); no other `.spur/run` artifact touched. |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
-| --------------------- | -------- | --------------- | ---------- |
-| Scenario: R1 — the widened root discovers history.jsonl and brain transcripts together | MET | test | `packages/llm-jsonl-importer/tests/importer.test.ts:585-650` — scannedFiles=2, importedRecords=3, `getSourceDefinition('agy').defaultRoots` equals `['.gemini/antigravity-cli']` |
-| Scenario: R2 — a bare display record maps to a kept user prompt | MET | test | `packages/llm-jsonl-importer/tests/mappers.test.ts:945-968` — session_id=conversationId, role user, keep, USER_INPUT, content/cwd/seq=7/ts=2026-05-19T21:03:55.930Z/provenance ambient, 0 tool calls |
-| Scenario: R2 — a slash_command record keeps its producer type as record_type | MET | test | `packages/llm-jsonl-importer/tests/mappers.test.ts:970-986` — role user, keep, record_type 'slash_command' |
-| Scenario: R2 — a shell record is classified by the same branch, not a special case | MET | test | `packages/llm-jsonl-importer/tests/mappers.test.ts:988-1004` — role user, keep, record_type 'shell' |
-| Scenario: R3 — a display record without conversationId falls back to unknown | MET | test | `packages/llm-jsonl-importer/tests/mappers.test.ts:1006-1013` — session_id 'unknown', role user, keep |
-| Scenario: R4 — legacy transcript records are unchanged | MET | test | `packages/llm-jsonl-importer/tests/mappers.test.ts:1016-1047` — PLANNER_RESPONSE: role assistant, seq=5 (not source line), cwd null, view_file tool call status ok; existing agySplit tests unmodified, package suite 267/0 |
-| Scenario: R5 — history records satisfy the forensic contract | MET | test | `packages/llm-jsonl-importer/tests/importer.test.ts:585-650` — fresh-schema insert, `validationErrors` empty (`:634`), all rows non-null session/seq/role/record_type/disposition |
-| Scenario: R6 — a second incremental import imports nothing | MET | test | `packages/llm-jsonl-importer/tests/importer.test.ts:653-680` — force-file lens (documented deviation: plain incremental short-circuits at `src/importer.ts:165-176` before reading lines; force-file exercises the line-anchored-hash dedupe R6 protects): processedLines=2, importedRecords=0, skippedDuplicates=processedLines |
-| Scenario: R7 — a torn tail line does not abort the import | MET | test | `packages/llm-jsonl-importer/tests/importer.test.ts:1015-1035` (0623) + policy intact `src/sources.ts:206` |
-| Scenario: R10 — verification gate | MET | command | `bun run spur-check` exit 0 (2066 pass / 0 fail, 178 files; biome + typecheck + both rule presets green); `bun run build` exit 0; no skipped tests, no new suppressions |
-
+|---------------------|--------|---------------|----------|
+| Scenario: R1 — the widened root discovers history.jsonl and brain transcripts together | MET | test | `packages/llm-jsonl-importer/tests/importer.test.ts:585` — scannedFiles=2, importedRecords=3, brain transcript row present; `packages/llm-jsonl-importer/tests/forensic-contract.test.ts:203` asserts the defaultRoots value |
+| Scenario: R2 — a bare display record maps to a kept user prompt | MET | test | `packages/llm-jsonl-importer/tests/mappers.test.ts:945` — session_id, role=user, disposition=keep, record_type=USER_INPUT, content_text, cwd=/Users/robin/xprojects/spur, seq=7, ts='2026-05-19T21:03:55.930Z', provenance=ambient, 0 tool calls |
+| Scenario: R2 — a slash_command record keeps its producer type as record_type | MET | test | `packages/llm-jsonl-importer/tests/mappers.test.ts:970` — record_type='slash_command', role=user, disposition=keep |
+| Scenario: R2 — a shell record is classified by the same branch, not a special case | MET | test | `packages/llm-jsonl-importer/tests/mappers.test.ts:988` — record_type='shell' via the same display branch; no dedicated case arm exists in `packages/llm-jsonl-importer/src/mappers.ts:889-893` |
+| Scenario: R3 — a display record without conversationId falls back to unknown | MET | test | `packages/llm-jsonl-importer/tests/mappers.test.ts:1006` — session_id='unknown', role=user, disposition=keep |
+| Scenario: R4 — legacy transcript records are unchanged | MET | test | `packages/llm-jsonl-importer/tests/mappers.test.ts:1016` — role=assistant, record_type=PLANNER_RESPONSE, seq=5 (not sourceLine), cwd=null, 1 view_file tool call status ok; all pre-existing agySplit tests pass unmodified |
+| Scenario: R5 — history records satisfy the forensic contract | MET | test | `packages/llm-jsonl-importer/tests/importer.test.ts:634` — fresh-schema insert of all shapes, validationErrors empty, non-null contract columns |
+| Scenario: R6 — a second incremental import imports nothing | MET | test | `packages/llm-jsonl-importer/tests/importer.test.ts:653-679` — documented deviation: `force-file` replaces `incremental` because the (size, mtimeMs) short-circuit at `packages/llm-jsonl-importer/src/importer.ts:165-176` makes the literal wording unreachable; asserts importedRecords=0 and skippedDuplicates=processedLines=2 |
+| Scenario: R7 — a torn tail line does not abort the import | MET | test | `packages/llm-jsonl-importer/tests/importer.test.ts:1016` — agy 'skip' policy drops corrupt lines without parse errors and still imports good records |
+| Scenario: R10 — verification gate | MET | command | `bun run spur-check` exit 0 (2066 pass / 0 fail, both rule presets green) and `bun run build` exit 0, both run this turn |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
-
 ### Review
 
 | Priority | Dimension | Location | Finding |
