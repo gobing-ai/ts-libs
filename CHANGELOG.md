@@ -30,6 +30,32 @@ versioned in **lockstep** — a single version number covers every package in th
 > sections were written here — see tags `@gobing-ai/ts-*-v0.4.42` / `-v0.4.43`. Sections for
 > v0.4.40–v0.4.43 are missing from this file (backfill pending).
 
+## [0.4.49] - 2026-08-31
+
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: Antigravity CLI conversation history import (spur task 0063).**
+  A new `agy` source discovers `history.jsonl` under the widened `.gemini/antigravity-cli` root
+  and maps display-branch records into the standard history tables: role from `role` with unknown
+  types passed through as `record_type`, `conversationId` as the session alias, `cwd` derived from
+  `workspace`, and `seq` falling back to the source line like the `geminiSplit` mapper. Legacy
+  transcript output stays byte-identical (a1eefc5).
+
+### Fixed
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: bash tool calls retain their command strings in `args_raw`.**
+  Bash `tool_use` arguments were previously dropped during normalization, leaving `args_raw` NULL
+  for shell commands and breaking post-hoc forensics; the command string is now retained verbatim
+  (96762d5).
+
+### Changed
+
+- docs(spur): sync 0063 corpus after wrapup audit (c90f6ab)
+
+### Other
+
+- chore(spur): record 0063 wrapup learnings and metrics (8a8a4d2)
+
 ## [0.4.45] - 2026-08-27
 
 ### Added
