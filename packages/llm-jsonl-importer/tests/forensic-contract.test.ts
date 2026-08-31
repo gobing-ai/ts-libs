@@ -200,7 +200,7 @@ describe('R5 source registry covers six in-scope agents', () => {
         expect(getSourceDefinition('codex').defaultRoots).toEqual(['.codex/sessions']);
         expect(getSourceDefinition('omp').defaultRoots).toEqual(['.omp/agent/sessions']);
         expect(getSourceDefinition('grok').defaultRoots).toEqual(['.grok/sessions']);
-        expect(getSourceDefinition('agy').defaultRoots).toEqual(['.gemini/antigravity-cli/brain']);
+        expect(getSourceDefinition('agy').defaultRoots).toEqual(['.gemini/antigravity-cli']);
     });
 
     test('pi patterns no longer include bare *.json', () => {

@@ -194,7 +194,7 @@ export const SOURCE_DEFINITIONS: Readonly<Record<LlmJsonlSource, SourceDefinitio
         ...customSourceDefinition(
             'agy',
             'Antigravity CLI',
-            ['.gemini/antigravity-cli/brain'],
+            ['.gemini/antigravity-cli'],
             ['*.jsonl'],
             agySplit,
             AGY_FIELD_MAP,

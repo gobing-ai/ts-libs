@@ -931,6 +931,113 @@ describe('agySplit', () => {
     });
 });
 
+// agySplit history.jsonl records (0063)
+// ---------------------------------------------------------------------------
+
+describe('agySplit history.jsonl records (0063)', () => {
+    const historyContext = {
+        source: 'agy',
+        sourceFile: '.gemini/antigravity-cli/history.jsonl',
+        sourceLine: 7,
+        splitIndex: 0,
+    };
+
+    test('bare display record maps to a kept user prompt (0063 R2)', () => {
+        const entries = agySplit(
+            {
+                display: 'Refactor the database adapter',
+                timestamp: 1779224635930,
+                workspace: '/Users/robin/xprojects/spur',
+                conversationId: 'cb06215b-964d-4799-86d1-6ca8cb125a40',
+            },
+            historyContext,
+        );
+        expect(entries).toHaveLength(1);
+        expect(entries[0]?.targetTable).toBe('history_message');
+        const record = entries[0]?.record;
+        expect(record?.session_id).toBe('cb06215b-964d-4799-86d1-6ca8cb125a40');
+        expect(record?.role).toBe('user');
+        expect(record?.disposition).toBe('keep');
+        expect(record?.record_type).toBe('USER_INPUT');
+        expect(record?.content_text).toBe('Refactor the database adapter');
+        expect(record?.cwd).toBe('/Users/robin/xprojects/spur');
+        expect(record?.seq).toBe(7);
+        expect(record?.ts).toBe('2026-05-19T21:03:55.930Z');
+        expect(record?.provenance).toBe('ambient');
+        expect(entries.filter((entry) => entry.targetTable === 'history_tool_call')).toHaveLength(0);
+    });
+
+    test('slash_command display record keeps the producer type as record_type (0063 R2)', () => {
+        const entries = agySplit(
+            {
+                display: '/rd3-dev-run 0125 --auto --verify',
+                timestamp: 1779226019890,
+                workspace: '/Users/robin/xprojects/spur',
+                conversationId: 'eaad556c-d6e3-400c-af66-b819e05637a9',
+                type: 'slash_command',
+            },
+            historyContext,
+        );
+        const record = entries[0]?.record;
+        expect(record?.role).toBe('user');
+        expect(record?.disposition).toBe('keep');
+        expect(record?.record_type).toBe('slash_command');
+        expect(record?.content_text).toBe('/rd3-dev-run 0125 --auto --verify');
+    });
+
+    test('shell display record is classified by the same branch, not a special case (0063 R2)', () => {
+        const entries = agySplit(
+            {
+                display: 'git status',
+                timestamp: 1779226019890,
+                workspace: '/tmp/wt',
+                conversationId: 'eaad556c-d6e3-400c-af66-b819e05637a9',
+                type: 'shell',
+            },
+            historyContext,
+        );
+        const record = entries[0]?.record;
+        expect(record?.role).toBe('user');
+        expect(record?.disposition).toBe('keep');
+        expect(record?.record_type).toBe('shell');
+        expect(record?.content_text).toBe('git status');
+    });
+
+    test('display record without conversationId falls back to unknown session (0063 R3)', () => {
+        const entries = agySplit(
+            { display: 'go ahead', timestamp: 1779223942119, workspace: '/Users/robin/xprojects/spur' },
+            historyContext,
+        );
+        expect(entries[0]?.record.session_id).toBe('unknown');
+        expect(entries[0]?.record.role).toBe('user');
+        expect(entries[0]?.record.disposition).toBe('keep');
+    });
+
+    test('legacy transcript keeps step_index seq and null cwd (0063 R4)', () => {
+        const entries = agySplit(
+            {
+                type: 'PLANNER_RESPONSE',
+                step_index: 5,
+                session_id: 'legacy-session-123',
+                created_at: '2026-08-15T12:00:00.000Z',
+                content: 'I will inspect the files',
+                tool_calls: [{ name: 'view_file', input: { AbsolutePath: '/tmp/test.ts' } }],
+            },
+            historyContext,
+        );
+        const message = entries.find((entry) => entry.targetTable === 'history_message');
+        expect(message?.record.role).toBe('assistant');
+        expect(message?.record.record_type).toBe('PLANNER_RESPONSE');
+        expect(message?.record.content_text).toBe('I will inspect the files');
+        expect(message?.record.seq).toBe(5);
+        expect(message?.record.cwd).toBeNull();
+        const tools = entries.filter((entry) => entry.targetTable === 'history_tool_call');
+        expect(tools).toHaveLength(1);
+        expect(tools[0]?.record.tool_name).toBe('view_file');
+        expect(tools[0]?.record.status).toBe('ok');
+    });
+});
+
 // ---------------------------------------------------------------------------
 // geminiSplit
 // ---------------------------------------------------------------------------
@@ -1565,7 +1672,7 @@ describe('mapper fidelity fixtures (task 0580)', () => {
         // support there); it rides _codexUsageCarrier for importer-side attribution to the
         // preceding assistant message.
         expect(entries[0]?.record.input_tokens ?? null).toBeNull();
-        expect((entries[0]?.record as Record<string, unknown>)._codexUsageCarrier).toEqual({
+        expect(((entries[0]?.record ?? {}) as Record<string, unknown>)._codexUsageCarrier).toEqual({
             input: 7,
             output: 5,
             cacheRead: 3,

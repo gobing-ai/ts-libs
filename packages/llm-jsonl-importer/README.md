@@ -7,7 +7,7 @@ Generic JSONL import pipeline for AI-agent history-style files: discover files, 
 `ts-llm-jsonl-importer` is a common JSONL importer. It is intentionally not a conversation-history domain model. Built-in source definitions cover common agent file shapes, but downstream systems consume normalized ETL rows and ledger metadata.
 
 | Export | Purpose |
-|--------|---------|
+| -------- | --------- |
 | `runJsonlImport()` | Runs discovery, parsing, validation, redaction, dedupe, and persistence. Accepts a built-in source string **or** a custom `SourceDefinition`. |
 | `applyHistoryImportSchema()` | Installs importer-owned checkpoint, ledger, and typed contract tables |
 | `SOURCE_DEFINITIONS` | Built-in source definitions |
@@ -19,7 +19,7 @@ Generic JSONL import pipeline for AI-agent history-style files: discover files, 
 | `sha256()` / `stableJson()` | Stable hash helpers used by the ledger |
 | `HISTORY_IMPORT_SCHEMA_SQL` | SQL schema string for explicit migration flows |
 
-Built-in source keys are `claude`, `codex`, `gemini`, `pi`, `opencode`, `antigravity`, `openclaw`, `omp`, `grok`, and `agy`.
+Built-in source keys are `claude`, `codex`, `gemini`, `pi`, `opencode`, `antigravity`, `openclaw`, `omp`, `grok`, and `agy`. The `agy` source scans `~/.gemini/antigravity-cli`, covering both `history.jsonl` and `brain/**` transcripts; conversation `.db` stores under `conversations/` are not imported.
 
 ## Installation
 
@@ -52,7 +52,7 @@ result.skippedDuplicates;
 ## Import Modes
 
 | Mode | Behavior |
-|------|----------|
+| ------ | ---------- |
 | `incremental` | Reads each file from the last imported line checkpoint |
 | `full` | Clears checkpoints for selected files, scans all lines, and still deduplicates by ledger hash |
 | `force-file` | Scans selected files without using the checkpoint, while preserving ledger-based duplicate protection |
@@ -124,7 +124,7 @@ Use `parseErrors` for invalid JSON or non-object rows. Use `validationErrors` fo
 The schema contains:
 
 | Table | Purpose |
-|-------|---------|
+| ------- | --------- |
 | `history_import_checkpoint` | Per-source/per-file last imported line |
 | `history_import_ledger` | Stable hash ledger for dedupe and provenance |
 | `history_message` | Typed normalized messages from built-in forensic mappers |

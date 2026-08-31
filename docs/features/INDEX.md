@@ -8,7 +8,7 @@
     └── [done] **C1**: Workflow YAML rule-style extensions ([C1_workflow-yaml-rule-style-extensions.md](./C1_workflow-yaml-rule-style-extensions.md))
 [backlog] **D**: ts-infra ([D_ts-infra.md](./D_ts-infra.md))
     └── [done] **D1**: Restore System Events observability coverage ([D1_restore-system-events-observability-coverage.md](./D1_restore-system-events-observability-coverage.md))
-[backlog] **E**: ts-llm-jsonl-importer ([E_ts-llm-jsonl-importer.md](./E_ts-llm-jsonl-importer.md))
+[active] **E**: ts-llm-jsonl-importer ([E_ts-llm-jsonl-importer.md](./E_ts-llm-jsonl-importer.md))
 [backlog] **F**: ts-rule-engine ([F_ts-rule-engine.md](./F_ts-rule-engine.md))
 [backlog] **G**: ts-runtime ([G_ts-runtime.md](./G_ts-runtime.md))
 [backlog] **H**: ts-utils ([H_ts-utils.md](./H_ts-utils.md))

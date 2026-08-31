@@ -867,68 +867,84 @@ export function codexSplit(raw: Record<string, unknown>, context?: TransformCont
 export function agySplit(raw: Record<string, unknown>, context?: TransformContext): readonly SplitEntry[] {
     const entries: SplitEntry[] = [];
     const recordType = String(raw.type ?? '');
-    const explicitSessionId = s(raw.session_id, raw.conversation_id);
+    const explicitSessionId = s(raw.session_id, raw.conversation_id, raw.conversationId);
     const pathSessionId = context?.sourceFile ? sessionIdFromSourcePath('agy', context.sourceFile) : undefined;
     const sessionId = explicitSessionId ?? pathSessionId ?? 'unknown';
-    const seq = typeof raw.seq === 'number' ? raw.seq : typeof raw.step_index === 'number' ? raw.step_index : 0;
+    const seq =
+        typeof raw.seq === 'number'
+            ? raw.seq
+            : typeof raw.step_index === 'number'
+              ? raw.step_index
+              : (context?.sourceLine ?? 0);
     const ts = timestampOf(raw.created_at, raw.timestamp, raw.ts);
 
     let role: string;
     let disposition: string;
     let contentText: string | null = null;
+    let messageRecordType = recordType;
 
-    // Classification from task 0463 field map (agy transcript types).
-    switch (recordType) {
-        case 'USER_INPUT':
-        case 'ASK_QUESTION':
-            role = 'user';
-            disposition = 'keep';
-            contentText = s(raw.content, raw.text, raw.message) ?? null;
-            break;
-        case 'PLANNER_RESPONSE':
-            role = 'assistant';
-            disposition = 'keep';
-            contentText = s(raw.content, raw.text, raw.message, raw.plan) ?? null;
-            break;
-        case 'ERROR_MESSAGE':
-            role = 'system';
-            disposition = 'keep';
-            contentText = s(raw.content, raw.text, raw.message) ?? null;
-            break;
-        case 'RUN_COMMAND':
-        case 'VIEW_FILE':
-        case 'GREP_SEARCH':
-        case 'LIST_DIRECTORY':
-        case 'READ_URL_CONTENT':
-            role = 'tool';
-            disposition = 'keep';
-            contentText = s(raw.content, raw.command, raw.file_path, raw.pattern) ?? null;
-            break;
-        case 'CODE_ACTION':
-        case 'INVOKE_SUBAGENT':
-            role = 'tool';
-            disposition = 'keep';
-            contentText = s(raw.content, raw.text) ?? null;
-            break;
-        case 'CONVERSATION_HISTORY':
-        case 'CHECKPOINT':
-        case 'GENERIC':
-            role = 'meta';
-            disposition = 'meta';
-            contentText = s(raw.content, raw.text) ?? null;
-            break;
-        default:
-            if (recordType.length === 0) {
-                role = 'unknown';
-                disposition = 'unknown';
-            } else {
-                // Known discriminator present but not in the frozen 0463 keep/meta table —
-                // still a determined type; treat as meta bookkeeping rather than unknown.
+    // history.jsonl prompt index: {display, timestamp, workspace, conversationId?, type?}.
+    // One branch covers absent type, 'slash_command', 'shell', and any future producer type.
+    // `display` never appears on legacy brain transcripts, so this cannot collide with 0463.
+    if (raw.display !== undefined) {
+        role = 'user';
+        disposition = 'keep';
+        contentText = s(raw.display) ?? null;
+        messageRecordType = recordType.length > 0 ? recordType : 'USER_INPUT';
+    } else {
+        // Classification from task 0463 field map (agy transcript types).
+        switch (recordType) {
+            case 'USER_INPUT':
+            case 'ASK_QUESTION':
+                role = 'user';
+                disposition = 'keep';
+                contentText = s(raw.content, raw.text, raw.message) ?? null;
+                break;
+            case 'PLANNER_RESPONSE':
+                role = 'assistant';
+                disposition = 'keep';
+                contentText = s(raw.content, raw.text, raw.message, raw.plan) ?? null;
+                break;
+            case 'ERROR_MESSAGE':
+                role = 'system';
+                disposition = 'keep';
+                contentText = s(raw.content, raw.text, raw.message) ?? null;
+                break;
+            case 'RUN_COMMAND':
+            case 'VIEW_FILE':
+            case 'GREP_SEARCH':
+            case 'LIST_DIRECTORY':
+            case 'READ_URL_CONTENT':
+                role = 'tool';
+                disposition = 'keep';
+                contentText = s(raw.content, raw.command, raw.file_path, raw.pattern) ?? null;
+                break;
+            case 'CODE_ACTION':
+            case 'INVOKE_SUBAGENT':
+                role = 'tool';
+                disposition = 'keep';
+                contentText = s(raw.content, raw.text) ?? null;
+                break;
+            case 'CONVERSATION_HISTORY':
+            case 'CHECKPOINT':
+            case 'GENERIC':
                 role = 'meta';
                 disposition = 'meta';
                 contentText = s(raw.content, raw.text) ?? null;
-            }
-            break;
+                break;
+            default:
+                if (recordType.length === 0) {
+                    role = 'unknown';
+                    disposition = 'unknown';
+                } else {
+                    // Known discriminator present but not in the frozen 0463 keep/meta table —
+                    // still a determined type; treat as meta bookkeeping rather than unknown.
+                    role = 'meta';
+                    disposition = 'meta';
+                    contentText = s(raw.content, raw.text) ?? null;
+                }
+                break;
+        }
     }
 
     const messageSplitIndex = entries.length;
@@ -939,7 +955,7 @@ export function agySplit(raw: Record<string, unknown>, context?: TransformContex
             session_id: sessionId,
             seq,
             role,
-            record_type: recordType,
+            record_type: messageRecordType,
             disposition,
             ts,
             duration_ms: undefined,
@@ -950,7 +966,7 @@ export function agySplit(raw: Record<string, unknown>, context?: TransformContex
             cache_write_tokens: null,
             cost_usd: null,
             content_text: contentText,
-            cwd: null,
+            cwd: s(raw.workspace, raw.cwd) ?? null,
             provenance: 'ambient',
         },
     });

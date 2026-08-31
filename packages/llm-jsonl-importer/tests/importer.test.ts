@@ -5,7 +5,13 @@ import { join } from 'node:path';
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
 import { createNodeFileSystem, type FileSystem, type RuntimePaths } from '@gobing-ai/ts-runtime';
 import { z } from 'zod';
-import { HistoryImportError, runJsonlImport, type SourceDefinition, validateSourceDefinition } from '../src';
+import {
+    getSourceDefinition,
+    HistoryImportError,
+    runJsonlImport,
+    type SourceDefinition,
+    validateSourceDefinition,
+} from '../src';
 
 let db: DbAdapter;
 
@@ -572,6 +578,104 @@ describe('runJsonlImport paths injection (ADR-023 A1)', () => {
             await rm(fakeHome, { recursive: true, force: true });
             await rm(outsideCwd, { recursive: true, force: true });
         }
+    });
+});
+
+describe('runJsonlImport agy history.jsonl (0063)', () => {
+    test('widened agy root discovers history.jsonl alongside brain transcripts (0063 R1)', async () => {
+        const fakeHome = await mkdtemp(join(tmpdir(), 'agy-home-'));
+        const outsideCwd = await mkdtemp(join(tmpdir(), 'agy-cwd-'));
+        const cliDir = join(fakeHome, '.gemini', 'antigravity-cli');
+        const brainLogs = join(cliDir, 'brain', 'cb06215b-964d-4799-86d1-6ca8cb125a40', '.system_generated', 'logs');
+        await mkdir(brainLogs, { recursive: true });
+        await writeFile(
+            join(cliDir, 'history.jsonl'),
+            `${[
+                JSON.stringify({
+                    display: 'Refactor the database adapter',
+                    timestamp: 1779224635930,
+                    workspace: '/tmp/ws',
+                    conversationId: 'cb06215b-964d-4799-86d1-6ca8cb125a40',
+                }),
+                JSON.stringify({
+                    display: '/rd3-dev-run 0125 --auto --verify',
+                    timestamp: 1779226019890,
+                    workspace: '/tmp/ws',
+                    conversationId: 'eaad556c-d6e3-400c-af66-b819e05637a9',
+                    type: 'slash_command',
+                }),
+            ].join('\n')}\n`,
+        );
+        await writeFile(
+            join(brainLogs, 'transcript.jsonl'),
+            `${JSON.stringify({
+                type: 'USER_INPUT',
+                step_index: 1,
+                created_at: '2026-08-07T00:00:00.000Z',
+                content: 'brain prompt',
+            })}\n`,
+        );
+
+        const paths: RuntimePaths = { cwd: outsideCwd, home: fakeHome };
+        const fileSystem = createNodeFileSystem(outsideCwd);
+
+        try {
+            expect(getSourceDefinition('agy').defaultRoots).toEqual(['.gemini/antigravity-cli']);
+            const result = await runJsonlImport('agy', {
+                db,
+                mode: 'full',
+                now: fixedNow,
+                paths,
+                fileSystem,
+            });
+
+            expect(result.scannedFiles).toBe(2);
+            expect(result.importedRecords).toBe(3);
+            expect(result.validationErrors).toHaveLength(0);
+            const rows = await db.queryAll<{ source_file: string; content_text: string | null; cwd: string | null }>(
+                'SELECT source_file, content_text, cwd FROM history_message',
+            );
+            const texts = rows.map((row) => row.content_text).sort();
+            expect(texts).toEqual([
+                '/rd3-dev-run 0125 --auto --verify',
+                'Refactor the database adapter',
+                'brain prompt',
+            ]);
+            const historyRow = rows.find((row) => row.content_text === 'Refactor the database adapter');
+            expect(historyRow?.cwd).toBe('/tmp/ws');
+            expect(rows.some((row) => row.source_file.endsWith('transcript.jsonl'))).toBe(true);
+        } finally {
+            await rm(fakeHome, { recursive: true, force: true });
+            await rm(outsideCwd, { recursive: true, force: true });
+        }
+    });
+
+    test('re-importing an unchanged history.jsonl imports nothing (0063 R6)', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({
+                display: 'first prompt',
+                timestamp: 1779224635930,
+                workspace: '/tmp/ws',
+                conversationId: 'cb06215b-964d-4799-86d1-6ca8cb125a40',
+            }),
+            JSON.stringify({
+                display: 'second prompt',
+                timestamp: 1779226019890,
+                workspace: '/tmp/ws',
+                conversationId: 'eaad556c-d6e3-400c-af66-b819e05637a9',
+                type: 'slash_command',
+            }),
+        ]);
+
+        const first = await runJsonlImport('agy', { db, files: [file], mode: 'incremental', now: fixedNow });
+        expect(first.importedRecords).toBe(2);
+
+        // force-file re-hashes every line against the ledger without the checkpoint
+        // identity short-circuit — the regression lens for line-anchored record hashes.
+        const second = await runJsonlImport('agy', { db, files: [file], mode: 'force-file', now: fixedNow });
+        expect(second.processedLines).toBe(2);
+        expect(second.importedRecords).toBe(0);
+        expect(second.skippedDuplicates).toBe(second.processedLines);
     });
 });
 
