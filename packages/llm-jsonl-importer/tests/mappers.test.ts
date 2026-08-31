@@ -1477,10 +1477,30 @@ describe('zod schemas', () => {
 // ---------------------------------------------------------------------------
 
 describe('maybeArgsRaw allowlist (task 0578 R3)', () => {
-    test('opencode todowrite/todoread retain args_raw; other tools do not', () => {
+    test('opencode todowrite/todoread retain args_raw; non-command tools do not', () => {
         expect(maybeArgsRaw('opencode', 'todowrite', { todos: [{ content: 'x' }] })).toContain('x');
         expect(maybeArgsRaw('opencode', 'todoread', {})).toBe('{}');
-        expect(maybeArgsRaw('opencode', 'bash', { command: 'ls' })).toBeUndefined();
+    });
+
+    test('bash tools retain the command string (pi/claude/opencode, evidenced shapes)', () => {
+        expect(maybeArgsRaw('pi', 'bash', { command: 'spur task show 0690 --json' })).toBe(
+            'spur task show 0690 --json',
+        );
+        expect(maybeArgsRaw('claude', 'Bash', { command: 'ls -la', timeout: 5000 })).toBe('ls -la');
+        expect(maybeArgsRaw('opencode', 'bash', { command: 'ls' })).toBe('ls');
+    });
+
+    test('bash retention degrades to undefined on non-command shapes and unknown sources', () => {
+        expect(maybeArgsRaw('pi', 'bash', { timeout: 1000 })).toBeUndefined();
+        expect(maybeArgsRaw('pi', 'bash', null)).toBeUndefined();
+        expect(maybeArgsRaw('omp', 'bash', { command: 'ls' })).toBeUndefined(); // shape unverified, deferred
+        expect(maybeArgsRaw('nonexistent', 'bash', { command: 'ls' })).toBeUndefined();
+    });
+
+    test('bash command arrays join with spaces and long commands truncate at the cap', () => {
+        expect(maybeArgsRaw('pi', 'bash', { command: ['bash', '-lc', 'echo hi'] })).toBe('bash -lc echo hi');
+        const long = 'x'.repeat(9000);
+        expect(maybeArgsRaw('pi', 'bash', { command: long })).toHaveLength(8192);
     });
 
     test('unknown source stays undefined', () => {

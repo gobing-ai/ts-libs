@@ -121,15 +121,57 @@ const TODO_TOOL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
- * Return JSON-stringified raw args when the tool is a todo-writing tool for its source,
- * otherwise undefined. Codex `arguments` arrives as a JSON string already — store as-is.
+ * Per-source shell/exec tool names whose command string is retained in args_raw.
+ *
+ * WHY: bash commands are the primary forensic signal for session-task attribution and ops
+ * history (spur's task classifier regexes `spur task <verb> <wbs>` out of args_raw). Only
+ * evidenced sources are listed; unverified shapes stay empty the same way the todo allowlist
+ * treats agy/gemini. Commands pass through the importer's redaction layer like any other
+ * retained field (importer.ts redacts every split record before insert).
+ */
+const BASH_TOOL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+    claude: ['Bash'], // input: { command: string } (mappers.test.ts fixture)
+    opencode: ['bash'], // input: { command: string } (opencode-importer.test.ts)
+    codex: [], // arguments arrive as a pre-stringified JSON string; command shape unverified
+    omp: [],
+    grok: [],
+    pi: ['bash'], // arguments: { command: string } (live pi session transcripts)
+    agy: [],
+    gemini: [],
+};
+
+/** Retained bash commands are capped; attribution only needs the invocation line. */
+const BASH_COMMAND_MAX_CHARS = 8192;
+
+/** Extract the shell command from a bash tool's raw input; undefined when absent. */
+function bashCommandOf(args: unknown): string | undefined {
+    if (args === null || typeof args !== 'object') return undefined;
+    const command = (args as Record<string, unknown>).command;
+    if (typeof command === 'string') return command;
+    if (Array.isArray(command)) return command.map(String).join(' ');
+    return undefined;
+}
+
+/**
+ * Return retained raw args for tools whose arguments carry forensic value, otherwise
+ * undefined. Todo-writing tools retain the full JSON args (phase detection); bash tools
+ * retain just the command string (capped). Codex `arguments` arrives as a JSON string
+ * already — store as-is for todo tools.
  */
 export function maybeArgsRaw(source: string, toolName: string, args: unknown): string | undefined {
-    const allow = TODO_TOOL_ALLOWLIST[source];
-    if (allow === undefined || !allow.includes(toolName)) return undefined;
-    if (typeof args === 'string') return args;
-    if (args === undefined || args === null) return undefined;
-    return JSON.stringify(args);
+    const todo = TODO_TOOL_ALLOWLIST[source];
+    if (todo?.includes(toolName)) {
+        if (typeof args === 'string') return args;
+        if (args === undefined || args === null) return undefined;
+        return JSON.stringify(args);
+    }
+    const bash = BASH_TOOL_ALLOWLIST[source];
+    if (bash?.includes(toolName)) {
+        const command = bashCommandOf(args);
+        if (command === undefined) return undefined;
+        return command.length > BASH_COMMAND_MAX_CHARS ? command.slice(0, BASH_COMMAND_MAX_CHARS) : command;
+    }
+    return undefined;
 }
 
 // ---------------------------------------------------------------------------

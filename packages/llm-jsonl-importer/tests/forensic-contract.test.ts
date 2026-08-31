@@ -333,7 +333,7 @@ describe('R4/R8 mapper contracts', () => {
 });
 
 describe('R1 args_raw forensic retention (task 0553)', () => {
-    test('claude TodoWrite retains full args_raw; non-allowlisted tool does not', () => {
+    test('claude TodoWrite retains full args_raw; Bash retains the command string', () => {
         const entries = claudeSplit({
             sessionId: 's',
             type: 'assistant',
@@ -351,7 +351,7 @@ describe('R1 args_raw forensic retention (task 0553)', () => {
         const bash = entries.find((e) => e.targetTable === 'history_tool_call' && e.record.tool_name === 'Bash');
         expect(todo?.record.args_raw).toBeDefined();
         expect(String(todo?.record.args_raw)).toContain('fix bug');
-        expect(bash?.record.args_raw).toBeUndefined();
+        expect(bash?.record.args_raw).toBe('rm -rf /');
     });
 
     test('codex update_plan retains args_raw (arguments is already JSON string)', () => {
