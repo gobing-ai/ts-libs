@@ -101,13 +101,12 @@ function redactArgs(args: unknown): RedactedValue {
 }
 
 /**
- * Per-source todo-writing tool names whose raw arguments are retained for phase detection.
- *
- * Evidence: 0489 R4 confirmed omp/pi/claude; codex/grok/agy probed task 0553 R3 from real
- * session JSONL. agy has no on-disk session format (VS Code fork); gemini deferred by the
- * 2026-08-06 source-support ruling. Task 0578 R3: omp `todo_write`, pi `manage_todo_list`,
- * opencode `todowrite`/`todoread` measured live in .spur/spur.db (3,237/21, 1,043, 379/2
-/** Retained bash commands are capped; attribution only needs the invocation line. */
+ * Retained tool-call arguments: recognized shell tools keep the extracted plain
+ * command (attribution compatibility, capped); every other typed tool call keeps
+ * sanitized-but-valid JSON. `args_digest` is computed elsewhere from the unpruned
+ * args and is unaffected; secret redaction stays at the persistence `redactRecord`
+ * seam (task 0064 R5).
+ */
 const BASH_COMMAND_MAX_CHARS = 8192;
 const GENERIC_ARGS_MAX_CHARS = 8192;
 
@@ -121,84 +120,110 @@ function bashCommandOf(args: unknown): string | undefined {
     return undefined;
 }
 
-/** Sanitize an argument object by omitting bulky file/buffer payloads */
-function sanitizeToolArgs(obj: Record<string, unknown>): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj)) {
-        const lowerKey = key.toLowerCase();
-        // Bulky payload fields to prune/omit or truncate
-        if (
-            lowerKey === 'content' ||
-            lowerKey === 'codecontent' ||
-            lowerKey === 'code_content' ||
-            lowerKey === 'replacementcontent' ||
-            lowerKey === 'replacement_content' ||
-            lowerKey === 'targetcontent' ||
-            lowerKey === 'target_content' ||
-            lowerKey === 'filedata' ||
-            lowerKey === 'file_data' ||
-            lowerKey === 'buffer' ||
-            lowerKey === 'image' ||
-            lowerKey === 'imagebase64'
-        ) {
-            if (typeof value === 'string' && value.length > 120) {
-                out[key] = `[omitted ${value.length} chars]`;
-            } else {
-                out[key] = value;
-            }
-        } else if (typeof value === 'string' && value.length > 1000) {
-            out[key] = `${value.slice(0, 1000)}…`;
-        } else if (value && typeof value === 'object' && !Array.isArray(value)) {
-            out[key] = sanitizeToolArgs(value as Record<string, unknown>);
-        } else {
-            out[key] = value;
-        }
+/** Bulky payload keys (normalized) pruned to an omission marker; camelCase and snake_case share one rule. */
+const BULKY_PAYLOAD_KEYS: ReadonlySet<string> = new Set([
+    'content',
+    'codecontent',
+    'replacementcontent',
+    'targetcontent',
+    'filedata',
+    'buffer',
+    'blob',
+    'image',
+    'imagebase64',
+]);
+
+/** Lowercase a key and drop separators so code_content and codeContent compare equal. */
+function normalizeKey(key: string): string {
+    return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** Tool names whose command-shaped args retain the existing plain-string representation. */
+function isShellTool(toolName: string): boolean {
+    return /^(?:bash|shell|cmd|command|exec|execcommand|executecommand|runcommand|shellcommand|runshellcommand)$/.test(
+        normalizeKey(toolName),
+    );
+}
+
+/** Sanitized tool args: JSON shape preserved, bulky payload strings elided. */
+type SanitizedValue = string | number | boolean | null | SanitizedValue[] | { [key: string]: SanitizedValue };
+
+/**
+ * Sanitize any JSON value recursively through objects AND arrays: bulky payload
+ * strings under known keys become `[omitted N chars]`, other strings longer than
+ * 1,000 characters keep a prefix plus an explicit original-length marker, and
+ * every primitive and short payload is preserved untouched (task 0064 R2).
+ */
+function sanitizeValue(value: unknown): SanitizedValue {
+    if (typeof value === 'string') {
+        return value.length > 1000 ? `${value.slice(0, 1000)}[truncated ${value.length} chars]` : value;
     }
-    return out;
+    if (Array.isArray(value)) return value.map(sanitizeValue);
+    if (value !== null && typeof value === 'object') {
+        const out: Record<string, SanitizedValue> = {};
+        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+            out[key] =
+                typeof entry === 'string' && entry.length > 120 && BULKY_PAYLOAD_KEYS.has(normalizeKey(key))
+                    ? `[omitted ${entry.length} chars]`
+                    : sanitizeValue(entry);
+        }
+        return out;
+    }
+    // JSON leaves (number/boolean/null) pass through unchanged; JSON args never
+    // reach here as undefined/bigint/symbol/function.
+    return value as SanitizedValue;
 }
 
 /**
- * Return retained raw args for tools whose arguments carry forensic or user visibility value.
- * Prunes heavy write buffers while retaining path, query, skill, prompt, command, and metadata.
+ * Serialize sanitized args within the retention ceiling without ever slicing JSON
+ * text: values that still serialize past the ceiling collapse into a small valid
+ * JSON wrapper carrying `_truncated`, the omitted character count, and a bounded
+ * preview reduced until the wrapper itself fits (task 0064 R3/AC4).
+ */
+function serializeBounded(value: unknown): string {
+    const serialized = JSON.stringify(sanitizeValue(value));
+    if (serialized.length <= GENERIC_ARGS_MAX_CHARS) return serialized;
+    let preview = serialized;
+    for (;;) {
+        const wrapper = JSON.stringify({
+            _truncated: true,
+            omittedChars: serialized.length - preview.length,
+            preview,
+        });
+        if (wrapper.length <= GENERIC_ARGS_MAX_CHARS) return wrapper;
+        preview = preview.slice(0, preview.length - (wrapper.length - GENERIC_ARGS_MAX_CHARS));
+    }
+}
+
+/**
+ * Return retained raw args for a typed tool call: the shell command string for
+ * recognized bash/shell/exec/command tools, sanitized valid JSON otherwise, and
+ * undefined when the event carries no invocation arguments.
  */
 export function maybeArgsRaw(_source: string, toolName: string, args: unknown): string | undefined {
     if (args === undefined || args === null) return undefined;
 
-    // Check if args is a string
+    let value = args;
     if (typeof args === 'string') {
+        // Pre-stringified arguments (Codex) re-enter the structured path so the
+        // retained value parses and prunes like native JSON.
         try {
-            const parsed = JSON.parse(args);
-            if (parsed && typeof parsed === 'object') {
-                const sanitized = sanitizeToolArgs(parsed as Record<string, unknown>);
-                const str = JSON.stringify(sanitized);
-                return str.length > GENERIC_ARGS_MAX_CHARS ? str.slice(0, GENERIC_ARGS_MAX_CHARS) : str;
-            }
+            value = JSON.parse(args);
         } catch {
             return args.length > BASH_COMMAND_MAX_CHARS ? args.slice(0, BASH_COMMAND_MAX_CHARS) : args;
         }
     }
 
-    if (typeof args === 'object') {
-        const cmd = bashCommandOf(args);
-        // If it's a bash/shell tool, prefer raw command string
-        const lowerName = toolName.toLowerCase();
-        if (
-            cmd !== undefined &&
-            (lowerName.includes('bash') ||
-                lowerName.includes('exec') ||
-                lowerName.includes('shell') ||
-                lowerName.includes('command') ||
-                lowerName === 'cmd')
-        ) {
+    if (value !== null && typeof value === 'object') {
+        const cmd = bashCommandOf(value);
+        if (cmd !== undefined && isShellTool(toolName)) {
             return cmd.length > BASH_COMMAND_MAX_CHARS ? cmd.slice(0, BASH_COMMAND_MAX_CHARS) : cmd;
         }
-
-        const sanitized = sanitizeToolArgs(args as Record<string, unknown>);
-        const str = JSON.stringify(sanitized);
-        return str.length > GENERIC_ARGS_MAX_CHARS ? str.slice(0, GENERIC_ARGS_MAX_CHARS) : str;
+        return serializeBounded(value);
     }
 
-    return undefined;
+    // JSON primitives (number/boolean) retain as valid JSON scalars.
+    return JSON.stringify(value);
 }
 
 // ---------------------------------------------------------------------------

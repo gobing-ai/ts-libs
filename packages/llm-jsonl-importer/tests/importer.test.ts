@@ -247,6 +247,32 @@ describe('runJsonlImport', () => {
         expect(rows[0]?.payload_json).not.toContain('robin@example.com');
     });
 
+    test('retains generic tool args_raw with default-rule redaction through the JSONL path (task 0064 AC5)', async () => {
+        const file = await fixtureFile([
+            JSON.stringify({
+                id: 'args-secret',
+                type: 'assistant',
+                timestamp: '2026-05-30T00:00:00.000Z',
+                content: [{ toolCall: { name: 'read', arguments: { file_path: 'keys/sk-abcdefghijklmnop1234.pem' } } }],
+            }),
+        ]);
+
+        const result = await runJsonlImport('pi', { db, files: [file], mode: 'full', now: fixedNow });
+
+        expect(result.importedRecords).toBe(2);
+        const tool = await db.queryFirst<{ tool_name: string; args_raw: string | null; args_digest: string | null }>(
+            'SELECT tool_name, args_raw, args_digest FROM history_tool_call',
+        );
+        expect(tool?.tool_name).toBe('read');
+        // Newly retained generic args are valid JSON, and the persistence-level
+        // redactRecord seam scrubbed the default-recognized token before the write.
+        const args = JSON.parse(tool?.args_raw ?? 'null') as { file_path: string };
+        expect(args.file_path).toBe('keys/[REDACTED:token].pem');
+        expect(tool?.args_raw).not.toContain('sk-abcdefghijklmnop1234');
+        // Digest calculation is untouched by retention (R6).
+        expect(tool?.args_digest).toMatch(/^[a-f0-9]{64}$/);
+    });
+
     test('rejects non-object JSON rows before persistence', async () => {
         const file = await fixtureFile([JSON.stringify(['not', 'an', 'object'])]);
 

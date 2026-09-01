@@ -131,6 +131,58 @@ describe('runOpenCodeImport', () => {
         }
     });
 
+    test('retains sanitized generic tool args_raw and redacts default-recognized secrets (task 0064 AC1/AC5)', async () => {
+        const source = await sourceDatabase();
+        const target = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        try {
+            await source.db.run('INSERT INTO session (id, directory) VALUES (?, ?)', 'session-64', '/work/project');
+            await source.db.run(
+                'INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)',
+                'message-64',
+                'session-64',
+                1_700_000_000_000,
+                JSON.stringify({ role: 'assistant', time: { created: 1_700_000_000_000 } }),
+            );
+            await source.db.run(
+                'INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (?, ?, ?, ?, ?)',
+                'part-tool-64',
+                'message-64',
+                'session-64',
+                1_700_000_000_002,
+                JSON.stringify({
+                    type: 'tool',
+                    tool: 'read',
+                    state: {
+                        status: 'completed',
+                        input: { file_path: 'keys/sk-abcdefghijklmnop1234.pem', range: { start: 1, end: 9 } },
+                        output: 'ok',
+                    },
+                }),
+            );
+
+            const result = await runOpenCodeImport({ db: target, sourceDatabase: source.path, mode: 'full' });
+            expect(result.parseErrors).toHaveLength(0);
+            expect(result.validationErrors).toHaveLength(0);
+
+            const tool = await target.queryFirst<{ tool_name: string; args_raw: string | null }>(
+                'SELECT tool_name, args_raw FROM history_tool_call',
+            );
+            expect(tool?.tool_name).toBe('read');
+            // Sanitized args persist as valid JSON with the forensic path/range queryable.
+            const args = JSON.parse(tool?.args_raw ?? 'null') as {
+                file_path: string;
+                range: { start: number; end: number };
+            };
+            expect(args.range).toEqual({ start: 1, end: 9 });
+            // The default redaction rules applied at the persistence seam before the write.
+            expect(args.file_path).toBe('keys/[REDACTED:token].pem');
+            expect(tool?.args_raw).not.toContain('sk-abcdefghijklmnop1234');
+        } finally {
+            source.db.close();
+            target.close();
+        }
+    });
+
     test('R3 — persistence cost scales with write chunks, not existing ledger rows (0504)', async () => {
         const source = await sourceDatabase();
         const target = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
@@ -138,34 +190,41 @@ describe('runOpenCodeImport', () => {
             await applyHistoryImportSchema(target);
             await source.db.run('INSERT INTO session (id, directory) VALUES (?, ?)', 'session-r3', '/work/project');
             for (let i = 1; i <= 2; i += 1) {
+                // Bound parameter values are hoisted into consts so the SQL text stays
+                // the only string literal inside each run() call (static with ? placeholders).
+                const messageId = `message-r3-${i}`;
+                const messageData = JSON.stringify({
+                    role: 'assistant',
+                    time: { created: 1_700_000_000_000 + i },
+                    modelID: 'gpt-5',
+                    tokens: { input: 1, output: 1 },
+                });
                 await source.db.run(
                     'INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)',
-                    `message-r3-${i}`,
+                    messageId,
                     'session-r3',
                     1_700_000_000_000 + i,
-                    JSON.stringify({
-                        role: 'assistant',
-                        time: { created: 1_700_000_000_000 + i },
-                        modelID: 'gpt-5',
-                        tokens: { input: 1, output: 1 },
-                    }),
+                    messageData,
                 );
+                const partId = `part-r3-${i}`;
+                const partData = JSON.stringify({ type: 'text', text: `done ${i}` });
                 await source.db.run(
                     'INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (?, ?, ?, ?, ?)',
-                    `part-r3-${i}`,
-                    `message-r3-${i}`,
+                    partId,
+                    messageId,
                     'session-r3',
                     1_700_000_000_001 + i,
-                    JSON.stringify({ type: 'text', text: `done ${i}` }),
+                    partData,
                 );
             }
             // Seed 10,000 UNRELATED ledger rows (a different source). A per-new-message
             // full-ledger scan or an unindexed (source, source_file) ledger delete would
             // execute ~10,000 statements here; the importer must stay O(chunks).
             for (let i = 0; i < 10_000; i += 1) {
+                const unrelatedHash = `unrelated-${i}`;
                 await target.run(
                     'INSERT INTO history_import_ledger (record_hash, source, source_file, source_line, split_index, target_table, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    `unrelated-${i}`,
+                    unrelatedHash,
                     'pi',
                     'unrelated.jsonl',
                     1,

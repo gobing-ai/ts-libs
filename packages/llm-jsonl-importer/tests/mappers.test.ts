@@ -27,6 +27,7 @@ import {
     sessionIdFromSourcePath,
     stableFieldShape,
 } from '../src/mappers';
+import type { SplitEntry } from '../src/types';
 
 // ---------------------------------------------------------------------------
 // Shared utilities (exercised through split functions)
@@ -1610,6 +1611,13 @@ describe('maybeArgsRaw retention (task 0064)', () => {
         expect(maybeArgsRaw('pi', 'bash', { command: long })).toHaveLength(8192);
     });
 
+    test('pre-stringified shell args retain the command while SlashCommand stays structured JSON', () => {
+        expect(maybeArgsRaw('codex', 'exec_command', JSON.stringify({ cmd: 'bun test' }))).toBe('bun test');
+        expect(maybeArgsRaw('claude', 'SlashCommand', { command: '/sp-dev-verify', args: '0064' })).toBe(
+            '{"command":"/sp-dev-verify","args":"0064"}',
+        );
+    });
+
     test('write tools prune bulky content payloads', () => {
         const largeCode = 'const a = 1;\n'.repeat(50);
         const result = maybeArgsRaw('claude', 'Edit', { file_path: 'src/a.ts', content: largeCode });
@@ -1621,6 +1629,166 @@ describe('maybeArgsRaw retention (task 0064)', () => {
     test('skill tools retain skill and argument payload', () => {
         const result = maybeArgsRaw('claude', 'Skill', { skill: 'sp:dev-plan', args: '--feature 123' });
         expect(result).toBe('{"skill":"sp:dev-plan","args":"--feature 123"}');
+    });
+
+    test('sanitizes recursively through objects nested in arrays (AC2)', () => {
+        const payload = {
+            edits: [
+                {
+                    target_file: 'src/a.ts',
+                    line_range: { start: 1, end: 10 },
+                    content: 'x'.repeat(51_200),
+                },
+            ],
+        };
+        const result = maybeArgsRaw('claude', 'replace_file_content', payload) ?? '';
+        expect(result.length).toBeLessThanOrEqual(8192);
+        const parsed: unknown = JSON.parse(result); // valid JSON, never sliced
+        expect(parsed).toEqual({
+            edits: [
+                {
+                    target_file: 'src/a.ts',
+                    line_range: { start: 1, end: 10 },
+                    content: '[omitted 51200 chars]',
+                },
+            ],
+        });
+    });
+
+    test('parses, prunes, and re-serializes pre-stringified Codex arguments (AC3)', () => {
+        const args = JSON.stringify({
+            skill: 'sp:dev-fix',
+            skill_args: '--task 0064',
+            replacement_content: 'y'.repeat(20_000),
+        });
+        const result = maybeArgsRaw('codex', 'apply_patch', args) ?? '';
+        const parsed = JSON.parse(result) as Record<string, unknown>;
+        expect(parsed.skill).toBe('sp:dev-fix');
+        expect(parsed.skill_args).toBe('--task 0064');
+        expect(parsed.replacement_content).toBe('[omitted 20000 chars]');
+    });
+
+    test('oversized sanitized output collapses into a valid JSON truncation wrapper (AC4)', () => {
+        const payload: Record<string, string> = {};
+        for (let i = 0; i < 200; i += 1) payload[`note_${i}`] = 'detail '.repeat(30);
+        const result = maybeArgsRaw('claude', 'notes', payload) ?? '';
+        expect(result.length).toBeLessThanOrEqual(8192);
+        const wrapper = JSON.parse(result) as { _truncated: boolean; omittedChars: number; preview: string };
+        expect(wrapper._truncated).toBe(true);
+        expect(wrapper.omittedChars).toBeGreaterThan(0);
+        expect(wrapper.preview).toContain('note_0');
+        // Round-trip equality proves the text was produced by JSON.stringify, not sliced.
+        expect(result).toBe(JSON.stringify(JSON.parse(result)));
+    });
+
+    test('truncates ordinary long strings with an explicit original-length marker', () => {
+        const result = maybeArgsRaw('claude', 'grep', { pattern: 'z'.repeat(2_000), path: 'src' }) ?? '';
+        const parsed = JSON.parse(result) as { pattern: string; path: string };
+        expect(parsed.path).toBe('src');
+        expect(parsed.pattern).toBe(`${'z'.repeat(1000)}[truncated 2000 chars]`);
+    });
+
+    test('JSON primitives retain as valid JSON scalars (R3)', () => {
+        expect(maybeArgsRaw('codex', 'count', 42)).toBe('42');
+        expect(maybeArgsRaw('codex', 'flag', true)).toBe('true');
+        expect(maybeArgsRaw('codex', 'empty', [])).toBe('[]');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Typed producer args_raw parity (task 0064 AC1)
+// ---------------------------------------------------------------------------
+
+describe('typed producer args_raw parity (task 0064 AC1)', () => {
+    function toolEntries(entries: readonly SplitEntry[]) {
+        return entries.filter((entry) => entry.targetTable === 'history_tool_call');
+    }
+
+    test('claude tool_use retains sanitized args', () => {
+        const entries = claudeSplit({
+            sessionId: 'sess-64',
+            type: 'assistant',
+            timestamp: '2026-08-07T00:00:00.000Z',
+            content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'src/a.ts', old: 'x', new: 'y' } }],
+        });
+        const [tool] = toolEntries(entries);
+        expect(JSON.parse(String(tool?.record.args_raw))).toEqual({ file_path: 'src/a.ts', old: 'x', new: 'y' });
+    });
+
+    test('pi toolCall retains args for non-allowlisted tools', () => {
+        const entries = piSplit({
+            id: 'sess-64',
+            type: 'assistant',
+            timestamp: '2026-08-07T00:00:00.000Z',
+            content: [{ toolCall: { name: 'read', arguments: { path: 'src/index.ts' } } }],
+        });
+        const [tool] = toolEntries(entries);
+        expect(tool?.record.args_raw).toBe('{"path":"src/index.ts"}');
+    });
+
+    test('codex function_call retains command string for shell tools', () => {
+        const entries = codexSplit({
+            session_id: 'sess-64',
+            type: 'assistant',
+            timestamp: '2026-08-07T00:00:00.000Z',
+            payload: {
+                content: 'running',
+                response_item: { function_call: { name: 'Bash', arguments: { command: 'bun test' } } },
+            },
+        });
+        const [tool] = toolEntries(entries);
+        expect(tool?.record.args_raw).toBe('bun test');
+    });
+
+    test('agy tool_calls retain args', () => {
+        const entries = agySplit({
+            type: 'PLANNER_RESPONSE',
+            step_index: 1,
+            created_at: '2026-08-07T00:00:00.000Z',
+            content: 'inspecting',
+            tool_calls: [{ name: 'view_file', input: { AbsolutePath: '/tmp/test.ts' } }],
+        });
+        const [tool] = toolEntries(entries);
+        expect(tool?.record.args_raw).toBe('{"AbsolutePath":"/tmp/test.ts"}');
+    });
+
+    test('gemini toolCalls retain args', () => {
+        const entries = geminiSplit(
+            {
+                id: 'message-64',
+                type: 'gemini',
+                timestamp: '2026-08-07T00:00:00.000Z',
+                content: 'reading',
+                toolCalls: [{ name: 'read_file', args: { path: '/tmp/a' }, result: 'ok' }],
+            },
+            { source: 'gemini', sourceFile: '/gemini/tmp/chats/session-64.jsonl', sourceLine: 1, splitIndex: 0 },
+        );
+        const [tool] = toolEntries(entries);
+        expect(tool?.record.args_raw).toBe('{"path":"/tmp/a"}');
+    });
+
+    test('grok invocation rows retain args; completion-only rows stay undefined', () => {
+        const started = grokSplit({
+            ts: '2026-08-07T00:00:00.000Z',
+            type: 'tool_started',
+            session_id: 'sess-64',
+            seq: 1,
+            title: 'read_file',
+            rawInput: { path: '/tmp/x' },
+        });
+        const startedTool = toolEntries(started);
+        expect(startedTool[0]?.record.args_raw).toBe('{"path":"/tmp/x"}');
+
+        const completed = grokSplit({
+            ts: '2026-08-07T00:00:01.000Z',
+            type: 'tool_completed',
+            session_id: 'sess-64',
+            seq: 1,
+            title: 'read_file',
+            duration_ms: 50,
+        });
+        const completedTool = toolEntries(completed);
+        expect(completedTool[0]?.record.args_raw).toBeUndefined();
     });
 });
 
