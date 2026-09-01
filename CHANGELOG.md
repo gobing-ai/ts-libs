@@ -6,6 +6,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [0.4.50] - 2026-08-31
+
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: every typed tool call now retains sanitized `args_raw` (spur task 0064).**
+  The todo-tool allowlist is gone: invocation arguments from all typed producers (Claude, Pi, OMP,
+  Codex, `agy`, Gemini, Grok, OpenCode) persist through a recursive object/array sanitizer that
+  prunes bulky payloads, a bounded serializer that never slices JSON text (oversized output
+  collapses into a valid truncation wrapper instead), pre-stringified arguments re-enter the
+  structured path, and exact shell-tool matching keeps the capped plain command. Secret redaction
+  stays at the persistence `redactRecord` seam and `args_digest` is unchanged (153b364, c9d61ea).
+
 ## [Unreleased]
 
 ### Fixed
