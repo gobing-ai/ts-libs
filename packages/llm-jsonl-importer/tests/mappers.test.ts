@@ -548,7 +548,7 @@ describe('ompSplit', () => {
         expect(String(todo?.record.args_raw)).toContain('step');
     });
 
-    test('non-todo tool call keeps args_raw undefined', () => {
+    test('non-todo tool call retains args_raw (task 0064)', () => {
         const entries = ompSplit({
             id: 'sess',
             type: 'assistant',
@@ -556,7 +556,7 @@ describe('ompSplit', () => {
             content: [{ toolCall: { name: 'Bash', input: { command: 'ls' } } }],
         });
         const bash = entries.find((e) => e.targetTable === 'history_tool_call');
-        expect(bash?.record.args_raw).toBeUndefined();
+        expect(bash?.record.args_raw).toBe('ls');
     });
 
     test('does not emit tool calls for user messages', () => {
@@ -1583,25 +1583,25 @@ describe('zod schemas', () => {
 // maybeArgsRaw allowlist (task 0578 R3)
 // ---------------------------------------------------------------------------
 
-describe('maybeArgsRaw allowlist (task 0578 R3)', () => {
-    test('opencode todowrite/todoread retain args_raw; non-command tools do not', () => {
+describe('maybeArgsRaw retention (task 0064)', () => {
+    test('opencode todowrite/todoread retain args_raw; generic tools retain sanitized args', () => {
         expect(maybeArgsRaw('opencode', 'todowrite', { todos: [{ content: 'x' }] })).toContain('x');
         expect(maybeArgsRaw('opencode', 'todoread', {})).toBe('{}');
+        expect(maybeArgsRaw('opencode', 'read', { file_path: 'src/index.ts' })).toBe('{"file_path":"src/index.ts"}');
     });
 
-    test('bash tools retain the command string (pi/claude/opencode, evidenced shapes)', () => {
+    test('bash tools retain the command string (pi/claude/opencode/omp, evidenced shapes)', () => {
         expect(maybeArgsRaw('pi', 'bash', { command: 'spur task show 0690 --json' })).toBe(
             'spur task show 0690 --json',
         );
         expect(maybeArgsRaw('claude', 'Bash', { command: 'ls -la', timeout: 5000 })).toBe('ls -la');
         expect(maybeArgsRaw('opencode', 'bash', { command: 'ls' })).toBe('ls');
+        expect(maybeArgsRaw('omp', 'bash', { command: 'ls' })).toBe('ls');
     });
 
-    test('bash retention degrades to undefined on non-command shapes and unknown sources', () => {
-        expect(maybeArgsRaw('pi', 'bash', { timeout: 1000 })).toBeUndefined();
+    test('bash retention degrades gracefully on non-command shapes and null', () => {
+        expect(maybeArgsRaw('pi', 'bash', { timeout: 1000 })).toBe('{"timeout":1000}');
         expect(maybeArgsRaw('pi', 'bash', null)).toBeUndefined();
-        expect(maybeArgsRaw('omp', 'bash', { command: 'ls' })).toBeUndefined(); // shape unverified, deferred
-        expect(maybeArgsRaw('nonexistent', 'bash', { command: 'ls' })).toBeUndefined();
     });
 
     test('bash command arrays join with spaces and long commands truncate at the cap', () => {
@@ -1610,8 +1610,17 @@ describe('maybeArgsRaw allowlist (task 0578 R3)', () => {
         expect(maybeArgsRaw('pi', 'bash', { command: long })).toHaveLength(8192);
     });
 
-    test('unknown source stays undefined', () => {
-        expect(maybeArgsRaw('nonexistent', 'todowrite', { a: 1 })).toBeUndefined();
+    test('write tools prune bulky content payloads', () => {
+        const largeCode = 'const a = 1;\n'.repeat(50);
+        const result = maybeArgsRaw('claude', 'Edit', { file_path: 'src/a.ts', content: largeCode });
+        expect(result).toBeDefined();
+        expect(result).toContain('src/a.ts');
+        expect(result).toContain('[omitted');
+    });
+
+    test('skill tools retain skill and argument payload', () => {
+        const result = maybeArgsRaw('claude', 'Skill', { skill: 'sp:dev-plan', args: '--feature 123' });
+        expect(result).toBe('{"skill":"sp:dev-plan","args":"--feature 123"}');
     });
 });
 

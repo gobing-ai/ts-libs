@@ -107,70 +107,97 @@ function redactArgs(args: unknown): RedactedValue {
  * session JSONL. agy has no on-disk session format (VS Code fork); gemini deferred by the
  * 2026-08-06 source-support ruling. Task 0578 R3: omp `todo_write`, pi `manage_todo_list`,
  * opencode `todowrite`/`todoread` measured live in .spur/spur.db (3,237/21, 1,043, 379/2
- * rows with NULL args_raw).
- */
-const TODO_TOOL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
-    claude: ['TodoWrite'],
-    opencode: ['todowrite', 'todoread'],
-    codex: ['update_plan'],
-    omp: ['TodoWrite', 'todo', 'todo_write'],
-    grok: ['todo_write'],
-    pi: ['todo', 'manage_todo_list'],
-    agy: [],
-    gemini: [],
-};
-
-/**
- * Per-source shell/exec tool names whose command string is retained in args_raw.
- *
- * WHY: bash commands are the primary forensic signal for session-task attribution and ops
- * history (spur's task classifier regexes `spur task <verb> <wbs>` out of args_raw). Only
- * evidenced sources are listed; unverified shapes stay empty the same way the todo allowlist
- * treats agy/gemini. Commands pass through the importer's redaction layer like any other
- * retained field (importer.ts redacts every split record before insert).
- */
-const BASH_TOOL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
-    claude: ['Bash'], // input: { command: string } (mappers.test.ts fixture)
-    opencode: ['bash'], // input: { command: string } (opencode-importer.test.ts)
-    codex: [], // arguments arrive as a pre-stringified JSON string; command shape unverified
-    omp: [],
-    grok: [],
-    pi: ['bash'], // arguments: { command: string } (live pi session transcripts)
-    agy: [],
-    gemini: [],
-};
-
 /** Retained bash commands are capped; attribution only needs the invocation line. */
 const BASH_COMMAND_MAX_CHARS = 8192;
+const GENERIC_ARGS_MAX_CHARS = 8192;
 
 /** Extract the shell command from a bash tool's raw input; undefined when absent. */
 function bashCommandOf(args: unknown): string | undefined {
     if (args === null || typeof args !== 'object') return undefined;
-    const command = (args as Record<string, unknown>).command;
+    const rec = args as Record<string, unknown>;
+    const command = rec.command ?? rec.CommandLine ?? rec.cmd ?? rec.script;
     if (typeof command === 'string') return command;
     if (Array.isArray(command)) return command.map(String).join(' ');
     return undefined;
 }
 
+/** Sanitize an argument object by omitting bulky file/buffer payloads */
+function sanitizeToolArgs(obj: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+        const lowerKey = key.toLowerCase();
+        // Bulky payload fields to prune/omit or truncate
+        if (
+            lowerKey === 'content' ||
+            lowerKey === 'codecontent' ||
+            lowerKey === 'code_content' ||
+            lowerKey === 'replacementcontent' ||
+            lowerKey === 'replacement_content' ||
+            lowerKey === 'targetcontent' ||
+            lowerKey === 'target_content' ||
+            lowerKey === 'filedata' ||
+            lowerKey === 'file_data' ||
+            lowerKey === 'buffer' ||
+            lowerKey === 'image' ||
+            lowerKey === 'imagebase64'
+        ) {
+            if (typeof value === 'string' && value.length > 120) {
+                out[key] = `[omitted ${value.length} chars]`;
+            } else {
+                out[key] = value;
+            }
+        } else if (typeof value === 'string' && value.length > 1000) {
+            out[key] = `${value.slice(0, 1000)}…`;
+        } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+            out[key] = sanitizeToolArgs(value as Record<string, unknown>);
+        } else {
+            out[key] = value;
+        }
+    }
+    return out;
+}
+
 /**
- * Return retained raw args for tools whose arguments carry forensic value, otherwise
- * undefined. Todo-writing tools retain the full JSON args (phase detection); bash tools
- * retain just the command string (capped). Codex `arguments` arrives as a JSON string
- * already — store as-is for todo tools.
+ * Return retained raw args for tools whose arguments carry forensic or user visibility value.
+ * Prunes heavy write buffers while retaining path, query, skill, prompt, command, and metadata.
  */
-export function maybeArgsRaw(source: string, toolName: string, args: unknown): string | undefined {
-    const todo = TODO_TOOL_ALLOWLIST[source];
-    if (todo?.includes(toolName)) {
-        if (typeof args === 'string') return args;
-        if (args === undefined || args === null) return undefined;
-        return JSON.stringify(args);
+export function maybeArgsRaw(_source: string, toolName: string, args: unknown): string | undefined {
+    if (args === undefined || args === null) return undefined;
+
+    // Check if args is a string
+    if (typeof args === 'string') {
+        try {
+            const parsed = JSON.parse(args);
+            if (parsed && typeof parsed === 'object') {
+                const sanitized = sanitizeToolArgs(parsed as Record<string, unknown>);
+                const str = JSON.stringify(sanitized);
+                return str.length > GENERIC_ARGS_MAX_CHARS ? str.slice(0, GENERIC_ARGS_MAX_CHARS) : str;
+            }
+        } catch {
+            return args.length > BASH_COMMAND_MAX_CHARS ? args.slice(0, BASH_COMMAND_MAX_CHARS) : args;
+        }
     }
-    const bash = BASH_TOOL_ALLOWLIST[source];
-    if (bash?.includes(toolName)) {
-        const command = bashCommandOf(args);
-        if (command === undefined) return undefined;
-        return command.length > BASH_COMMAND_MAX_CHARS ? command.slice(0, BASH_COMMAND_MAX_CHARS) : command;
+
+    if (typeof args === 'object') {
+        const cmd = bashCommandOf(args);
+        // If it's a bash/shell tool, prefer raw command string
+        const lowerName = toolName.toLowerCase();
+        if (
+            cmd !== undefined &&
+            (lowerName.includes('bash') ||
+                lowerName.includes('exec') ||
+                lowerName.includes('shell') ||
+                lowerName.includes('command') ||
+                lowerName === 'cmd')
+        ) {
+            return cmd.length > BASH_COMMAND_MAX_CHARS ? cmd.slice(0, BASH_COMMAND_MAX_CHARS) : cmd;
+        }
+
+        const sanitized = sanitizeToolArgs(args as Record<string, unknown>);
+        const str = JSON.stringify(sanitized);
+        return str.length > GENERIC_ARGS_MAX_CHARS ? str.slice(0, GENERIC_ARGS_MAX_CHARS) : str;
     }
+
     return undefined;
 }
 
