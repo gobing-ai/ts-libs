@@ -6,19 +6,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
-## [0.4.50] - 2026-08-31
-
-### Added
-
-- **`@gobing-ai/ts-llm-jsonl-importer`: every typed tool call now retains sanitized `args_raw` (spur task 0064).**
-  The todo-tool allowlist is gone: invocation arguments from all typed producers (Claude, Pi, OMP,
-  Codex, `agy`, Gemini, Grok, OpenCode) persist through a recursive object/array sanitizer that
-  prunes bulky payloads, a bounded serializer that never slices JSON text (oversized output
-  collapses into a valid truncation wrapper instead), pre-stringified arguments re-enter the
-  structured path, and exact shell-tool matching keeps the capped plain command. Secret redaction
-  stays at the persistence `redactRecord` seam and `args_digest` is unchanged (153b364, c9d61ea).
-
 ## [Unreleased]
+
+## [0.4.51] - 2026-09-02
 
 ### Added
 
@@ -37,27 +27,17 @@ versioned in **lockstep** — a single version number covers every package in th
   job `command` itself. The adapter accepts an optional `now()` clock seam. `NodeSchedulerAdapter`
   now supports interval + cron entries with a single ADR-024 drain on `stop()`.
 
-### Fixed
+## [0.4.50] - 2026-08-31
 
-- **`@gobing-ai/ts-ai-runner`: configured headless executors can now complete file-writing stages.**
-  Antigravity and Claude prompt commands use edit-scoped noninteractive modes while Pi retains its
-  native write behavior. Grok uses tool-scoped `--allow Write --allow Edit` rules because 1.0.5
-  accepts `acceptEdits` but still narrates writes without invoking a tool in one-shot mode.
-  Claude also declares `Write` and `Edit` through `--allowedTools`, preventing current print-mode
-  releases from exiting zero after silently denying the required artifact write.
-  Antigravity also receives the caller timeout and authoritative workspace, preventing its shorter
-  print wait or scratch directory from defeating `expectFile`.
+### Added
 
-- **`@gobing-ai/ts-llm-jsonl-importer`: Claude tool-result forensics now preserve native timings.**
-  `toolUseResult.durationMs` and `durationSeconds` populate `history_tool_call.duration_ms` when
-  present; records without native timing remain `NULL` rather than using timestamp inference.
-- **`@gobing-ai/ts-llm-jsonl-importer`: generic ETL tables materialize lazily.** Schema setup,
-  empty scans, validation failures, and dry runs no longer recreate empty built-in
-  `history_etl_*` tables after a consumer retires them.
-
-> Note: both entries above shipped with lockstep releases **v0.4.42/v0.4.43** before their
-> sections were written here — see tags `@gobing-ai/ts-*-v0.4.42` / `-v0.4.43`. Sections for
-> v0.4.40–v0.4.43 are missing from this file (backfill pending).
+- **`@gobing-ai/ts-llm-jsonl-importer`: every typed tool call now retains sanitized `args_raw` (spur task 0064).**
+  The todo-tool allowlist is gone: invocation arguments from all typed producers (Claude, Pi, OMP,
+  Codex, `agy`, Gemini, Grok, OpenCode) persist through a recursive object/array sanitizer that
+  prunes bulky payloads, a bounded serializer that never slices JSON text (oversized output
+  collapses into a valid truncation wrapper instead), pre-stringified arguments re-enter the
+  structured path, and exact shell-tool matching keeps the capped plain command. Secret redaction
+  stays at the persistence `redactRecord` seam and `args_digest` is unchanged (153b364, c9d61ea).
 
 ## [0.4.49] - 2026-08-31
 
