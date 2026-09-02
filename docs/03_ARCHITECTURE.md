@@ -66,8 +66,18 @@ adapters. Runtime-specific wiring lives behind explicit subpaths:
 | `./application-node`       | YAML config, file log sink, Bun SQLite, Node OTel, Node scheduler |
 | `./job-queue-db`           | DB-backed job queue + consumer (depends on `@gobing-ai/ts-db`)    |
 | `./otel-node`              | `initNodeTelemetry` / `shutdownNodeTelemetry` for OTLP export     |
-| `./scheduler-node`         | `NodeSchedulerAdapter` (interval-based)                           |
+| `./scheduler-node`         | `NodeSchedulerAdapter` (interval + real five-field cron, local time)  |
 | `./scheduler-cloudflare`   | `CloudflareSchedulerAdapter` (Workers Cron Trigger)                |
+
+**Scheduler ownership (task 0734).** The `NodeSchedulerAdapter` preserves the three legacy
+interval cadences (a positive ms string, `* * * * *`, and the step-N wildcard form) and adds real
+five-field cron evaluated in local wall-clock time with self-rescheduling `setTimeout` (no overlap,
+missed occurrences skipped, delays beyond the platform timer maximum chunked). The cron grammar
+lives in the internal `scheduler/cron.ts` seam shared with `application-node.ts`, which validates
+`bootstrap.scheduler.jobs` (`SchedulerJobConfig`: non-empty `name`/`command` plus exactly one of
+`intervalMinutes` or a cron string) before the user `start` callback. `runNodeApplication` owns
+scheduler lifecycle and job validation; the consuming application binds a job's `command` to its
+own handler — ts-infra never executes it directly.
 
 ### Application bootstrap — lifecycle
 

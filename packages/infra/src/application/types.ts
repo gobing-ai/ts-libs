@@ -13,7 +13,7 @@ import type { FileObserverWriter } from '../event-bus/file-observer';
 import type { BusLifecycleEvents, EventMap } from '../event-bus/types';
 import type { InfraEvents } from '../events';
 import type { Logger, LogLevel } from '../logger';
-import type { SchedulerAdapter } from '../scheduler/types';
+import type { SchedulerAdapter, SchedulerJobConfig } from '../scheduler/types';
 import type { PluginHost } from './plugins/host';
 import type { Plugin } from './plugins/types';
 
@@ -84,6 +84,13 @@ export interface SchedulerOptions {
     entries?: Array<[string, () => Promise<void>]>;
     /** Start scheduler immediately after registration. Default `true` when enabled. */
     autoStart?: boolean;
+    /**
+     * Declarative scheduler jobs (task 0734). Validated and normalized by the
+     * Node subpath (`runNodeApplication`) before the user `start` callback;
+     * forwarded as data into the resolved config. ts-infra never executes the
+     * job `command` itself.
+     */
+    jobs?: readonly SchedulerJobConfig[];
 }
 
 // ── Resolved bootstrap config ─────────────────────────────────────────────
@@ -106,7 +113,7 @@ export interface ApplicationBootstrapConfig {
         filePath?: string;
     };
     readonly telemetry: { enabled: boolean; serviceName: string; environment: string; dbStatementDebug: boolean };
-    readonly scheduler: { enabled: boolean; autoStart: boolean };
+    readonly scheduler: { enabled: boolean; autoStart: boolean; jobs: readonly SchedulerJobConfig[] };
 }
 
 // ── Injected services ─────────────────────────────────────────────────────

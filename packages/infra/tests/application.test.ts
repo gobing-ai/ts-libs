@@ -658,3 +658,60 @@ describe('application import boundaries', () => {
         expect(source).not.toContain('node:os');
     });
 });
+
+// ── Declarative scheduler jobs (task 0734) ────────────────────────────────
+
+describe('application — resolved scheduler jobs', () => {
+    test('resolved scheduler config defaults jobs to an empty array', async () => {
+        const app = await runApplication(minimalOptions({ config: { scheduler: { enabled: false } } }));
+        expect(app.config.scheduler.jobs).toEqual([]);
+        await app.stop();
+    });
+
+    test('resolved scheduler config forwards jobs as data', async () => {
+        const app = await runApplication(
+            minimalOptions({
+                config: {
+                    scheduler: {
+                        enabled: false,
+                        jobs: [
+                            { name: 'cache', command: 'python x.py', intervalMinutes: 5 },
+                            { name: 'nightly', command: 'bun n.ts', cron: '0 3 * * *' },
+                        ],
+                    },
+                },
+            }),
+        );
+
+        // Definitions are data for the user callback — never auto-executed here.
+        expect(app.config.scheduler.jobs).toEqual([
+            { name: 'cache', command: 'python x.py', intervalMinutes: 5 },
+            { name: 'nightly', command: 'bun n.ts', cron: '0 3 * * *' },
+        ]);
+        await app.stop();
+    });
+
+    test('user start callback runs before the scheduler autoStart', async () => {
+        const order: string[] = [];
+        const adapter = {
+            register: () => {},
+            start: async () => {
+                order.push('scheduler-start');
+            },
+            stop: async () => {},
+        };
+
+        await runApplication(
+            minimalOptions({
+                config: { scheduler: { enabled: true, adapter, autoStart: true } },
+                start: async () => {
+                    order.push('user-start');
+                },
+            }),
+        );
+
+        // schedulerPlugin is registered last, so its autoStart fires after the user
+        // callback — Spur registers its entries against appRt.scheduler during start.
+        expect(order).toEqual(['user-start', 'scheduler-start']);
+    });
+});

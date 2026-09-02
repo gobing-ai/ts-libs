@@ -331,10 +331,24 @@ export default {
 };
 ```
 
-**Cron support is deliberately minimal (task 0060 F7):** a positive millisecond number
-(`'60000'`), `'* * * * *'`, or `'*/N * * * *'` (N > 0). Any other expression — including a
-full 5-field cron like `'0 3 * * *'` — makes `register()` throw a `RangeError`; it never
-silently falls back to a 60s interval.
+**Cron support (task 0734).** Three legacy cadences are preserved as interval forms measured from
+adapter start: a positive millisecond number (`'60000'`), `'* * * * *'` (60s), and `'*/N * * * *'`
+(N > 0). Every other valid five-field expression is real cron, evaluated in local wall-clock time
+and self-rescheduled with `setTimeout` so ticks never overlap and missed occurrences are skipped.
+Supported fields: minute `0-59`, hour `0-23`, day-of-month `1-31`, month `1-12`, day-of-week `0-7`
+(`0` and `7` are Sunday); each accepts `*`, a step form, a comma-separated list of numbers or
+inclusive non-wrapping ranges, or a single number. When both day fields are restricted, standard
+cron OR semantics apply. Wrong field counts, out-of-range values, descending ranges, zero steps,
+empty list members, names/macros, and unsupported operators throw a `RangeError` at registration —
+nothing silently falls back.
+
+**Declarative jobs.** `runNodeApplication` (see `./application-node`) validates
+`bootstrap.scheduler.jobs`, an array of `SchedulerJobConfig` items — each a non-empty `name` and
+`command` plus exactly one of an integer `intervalMinutes` (`1..35791`) or a cron string using the
+grammar above. Jobs are validated and normalized whether or not the scheduler is enabled; a disabled
+scheduler retains validated definitions but creates no adapter and runs nothing. ts-infra treats
+`command` as declarative data and never executes it — the consuming application binds it to its own
+handler.
 
 ### API Client — typed HTTP with tracing
 

@@ -125,6 +125,7 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
     const schedulerConfig: ApplicationBootstrapConfig['scheduler'] = {
         enabled: schedOpts?.enabled ?? false,
         autoStart: schedOpts?.autoStart ?? true,
+        jobs: schedOpts?.jobs ?? [],
     };
     const eventsEnabled = options.config?.events?.enabled ?? true;
     const eventsLifecycle = options.config?.events?.lifecycle ?? true;
@@ -259,6 +260,7 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
 
 export type { BusLifecycleEvents, EventMap } from '../event-bus/types';
 export type { InfraEvents } from '../events';
+export type { SchedulerJobConfig } from '../scheduler/types';
 export type { PluginHost } from './plugins/host';
 export type { Plugin, PluginSummary } from './plugins/types';
 // Re-export types

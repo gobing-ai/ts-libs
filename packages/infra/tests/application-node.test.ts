@@ -788,3 +788,213 @@ describe('runNodeApplication — scheduler adapter injection', () => {
         await app.stop();
     });
 });
+
+// ── Declarative scheduler jobs (task 0734) ────────────────────────────────
+
+describe('runNodeApplication — scheduler jobs', () => {
+    afterEach(resetModules);
+
+    test('loads and normalizes interval + cron jobs from YAML', async () => {
+        const dir = tmpDir();
+        const configPath = writeYaml(
+            dir,
+            'jobs.yaml',
+            `
+bootstrap:
+  telemetry:
+    enabled: false
+  scheduler:
+    enabled: true
+    jobs:
+      - name: cache
+        intervalMinutes: 5
+        command: python tools/rollup.py
+      - name: nightly
+        cron: '0 3 * * *'
+        command: bun tools/nightly.ts
+`,
+        );
+        try {
+            const app = await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                start: async () => {},
+            });
+
+            expect(app.config.scheduler.jobs).toEqual([
+                { name: 'cache', command: 'python tools/rollup.py', intervalMinutes: 5 },
+                { name: 'nightly', command: 'bun tools/nightly.ts', cron: '0 3 * * *' },
+            ]);
+            expect(app.config.scheduler.enabled).toBe(true);
+            await app.stop();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('trims name/command/cron and normalizes whitespace', async () => {
+        const dir = tmpDir();
+        const configPath = writeYaml(
+            dir,
+            'trim.yaml',
+            `
+bootstrap:
+  telemetry:
+    enabled: false
+  scheduler:
+    jobs:
+      - name: '  spaced  '
+        cron: '  30 8 1,15 * 1-5  '
+        command: '  bun n.ts  '
+`,
+        );
+        try {
+            const app = await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                start: async () => {},
+            });
+            expect(app.config.scheduler.jobs).toEqual([
+                { name: 'spaced', command: 'bun n.ts', cron: '30 8 1,15 * 1-5' },
+            ]);
+            await app.stop();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('disabled scheduler retains validated jobs but creates no adapter', async () => {
+        const dir = tmpDir();
+        const configPath = writeYaml(
+            dir,
+            'disabled.yaml',
+            `
+bootstrap:
+  telemetry:
+    enabled: false
+  scheduler:
+    enabled: false
+    jobs:
+      - name: cache
+        intervalMinutes: 5
+        command: python x.py
+`,
+        );
+        try {
+            const app = await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                start: async () => {},
+            });
+            expect(app.config.scheduler.jobs).toEqual([{ name: 'cache', command: 'python x.py', intervalMinutes: 5 }]);
+            expect(app.config.scheduler.enabled).toBe(false);
+            expect(app.scheduler).toBeUndefined();
+            await app.stop();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('missing jobs array resolves to an empty default', async () => {
+        const dir = tmpDir();
+        const configPath = writeYaml(
+            dir,
+            'nojobs.yaml',
+            `
+bootstrap:
+  telemetry:
+    enabled: false
+  scheduler:
+    enabled: true
+`,
+        );
+        try {
+            const app = await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                start: async () => {},
+            });
+            expect(app.config.scheduler.jobs).toEqual([]);
+            await app.stop();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('invalid jobs abort startup before the user start callback with exact paths', async () => {
+        // Each `body` is the scheduler.jobs item list, indented 4 spaces so it
+        // nests under `bootstrap:` → `scheduler:`. Spliced with real newlines.
+        const cases: Array<{ body: string; pathFragment: string }> = [
+            {
+                body: [
+                    '    jobs:',
+                    '      - name: dup',
+                    '        intervalMinutes: 5',
+                    '        command: a',
+                    '      - name: dup',
+                    '        cron: 0 3 * * *',
+                    '        command: b',
+                ].join('\n'),
+                pathFragment: 'bootstrap.scheduler.jobs.1.name',
+            },
+            {
+                body: [
+                    '    jobs:',
+                    '      - name: both',
+                    '        intervalMinutes: 5',
+                    '        cron: 0 3 * * *',
+                    '        command: c',
+                ].join('\n'),
+                pathFragment: 'bootstrap.scheduler.jobs.0',
+            },
+            {
+                body: ['    jobs:', '      - name: neither', '        command: c'].join('\n'),
+                pathFragment: 'bootstrap.scheduler.jobs.0',
+            },
+            {
+                body: ['    jobs:', '      - name: badcron', '        cron: 0 25 * * *', '        command: c'].join(
+                    '\n',
+                ),
+                pathFragment: 'bootstrap.scheduler.jobs.0.cron',
+            },
+            {
+                body: [
+                    '    jobs:',
+                    '      - name: badinterval',
+                    '        intervalMinutes: 40000',
+                    '        command: c',
+                ].join('\n'),
+                pathFragment: 'bootstrap.scheduler.jobs.0.intervalMinutes',
+            },
+            {
+                body: ['    jobs:', '      - name: blank', '        intervalMinutes: 5', '        command:     '].join(
+                    '\n',
+                ),
+                pathFragment: 'bootstrap.scheduler.jobs.0.command',
+            },
+            {
+                body: ['    jobs:', '      - name:   ', '        intervalMinutes: 5', '        command: c'].join('\n'),
+                pathFragment: 'bootstrap.scheduler.jobs.0.name',
+            },
+        ];
+
+        for (const { body, pathFragment } of cases) {
+            const dir = tmpDir();
+            const yamlText = ['bootstrap:', '  telemetry:', '    enabled: false', '  scheduler:', body].join('\n');
+            const configPath = writeYaml(dir, 'bad.yaml', yamlText);
+            let startCalled = false;
+            let message = '';
+            try {
+                await runNodeApplication({
+                    configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                    start: async () => {
+                        startCalled = true;
+                    },
+                }).catch((error: unknown) => {
+                    message = error instanceof Error ? error.message : String(error);
+                    expect(error).toBeInstanceOf(ConfigValidationError);
+                });
+                expect(startCalled).toBe(false);
+                expect(message).toContain(pathFragment);
+            } finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        }
+    });
+});

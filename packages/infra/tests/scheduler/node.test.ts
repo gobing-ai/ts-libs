@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { nextCronTime, parseCronExpression } from '../../src/scheduler/cron';
 import type { ScheduledAction } from '../../src/scheduler/types';
 import { NodeSchedulerAdapter } from '../../src/scheduler-node';
 
@@ -88,17 +89,119 @@ describe('NodeSchedulerAdapter', () => {
         expect(fired).toBeTrue();
     });
 
-    test('unsupported cron expression throws at register time (0060 F7)', async () => {
+    test('R1 — legacy cadences and real five-field cron are both accepted (0734)', async () => {
         const s = new NodeSchedulerAdapter();
-        // A real 5-field cron (minute/hour fields) must fail loud — never silently fire
-        // every 60 seconds at the wrong cadence.
-        expect(() => s.register('0 3 * * *', async () => {})).toThrow(RangeError);
-        expect(() => s.register('0 3 * * *', async () => {})).toThrow(/Unsupported cron/);
-        // First-field wildcard with a constrained later field is still real cron, not "* * * * *".
-        expect(() => s.register('* 3 * * *', async () => {})).toThrow(RangeError);
-        expect(() => s.register('*/5 3 * * *', async () => {})).toThrow(/Unsupported cron/);
-        // No timer is created for the rejected entry.
+        // Legacy interval forms stay accepted.
+        for (const expr of ['60000', '* * * * *', '*/5 * * * *']) {
+            expect(() => s.register(expr, async () => {})).not.toThrow();
+        }
+        // Real cron forms are now accepted too (0734 supersedes the 0060 F7 rejections).
+        for (const expr of ['0 3 * * *', '* 3 * * *', '30 8 1,15 * 1-5', '*/5 3 * * *']) {
+            expect(() => s.register(expr, async () => {})).not.toThrow();
+        }
+    });
+
+    test('R1 — invalid cron throws RangeError at register time (0734)', async () => {
+        const s = new NodeSchedulerAdapter();
+        const invalid = [
+            '0 25 * * *', // hour out of range
+            '1-0 * * * *', // descending range
+            '*/0 * * * *', // zero step
+            '0 3 * * MON', // names/macros unsupported
+            '0 60 * * *', // minute out of range
+            '0 3 0 * *', // day-of-month out of range (1-31)
+            '0 3 * 13 *', // month out of range
+            '0 3 * * 8', // day-of-week out of range (0-7)
+            '0 3 * * * *', // six fields
+            '0 3 *', // three fields
+            '1,,2 * * * *', // empty list member
+            '0 3 * * 1-0', // descending range in dow
+            '@daily', // macro
+            '0 3 L * *', // L unsupported
+            '0 3 * * ?', // ? unsupported
+        ];
+        for (const expr of invalid) {
+            expect(() => s.register(expr, async () => {})).toThrow(RangeError);
+        }
+        // No timer is created for the rejected entries.
         await expect(s.start()).resolves.toBeUndefined();
+    });
+
+    test('R1 — standard cron day-of-month/day-of-week OR semantics (0734)', () => {
+        const expr = parseCronExpression('30 8 1,15 * 1-5');
+
+        // 2026-02-01 is a Sunday (day=0): the day-of-month rule (1st) must still fire it.
+        const fromJan31 = new Date(2026, 0, 31, 23, 0, 0).getTime();
+        const sundayFire = nextCronTime(expr, fromJan31);
+        expect(sundayFire.getFullYear()).toBe(2026);
+        expect(sundayFire.getMonth()).toBe(1); // February
+        expect(sundayFire.getDate()).toBe(1);
+        expect(sundayFire.getHours()).toBe(8);
+        expect(sundayFire.getMinutes()).toBe(30);
+        expect(sundayFire.getDay()).toBe(0); // Sunday — matched via the day-of-month OR
+
+        // 2026-02-02 is a Monday: the day-of-week rule must fire it even though it is
+        // neither the 1st nor the 15th.
+        const fromFeb1 = new Date(2026, 1, 1, 23, 59, 0).getTime();
+        const mondayFire = nextCronTime(expr, fromFeb1);
+        expect(mondayFire.getDate()).toBe(2);
+        expect(mondayFire.getDay()).toBe(1); // Monday
+    });
+
+    test('R1 — single-field and list/range grammar (0734)', () => {
+        const s = new NodeSchedulerAdapter();
+        for (const expr of [
+            '5,10,15 * * * *',
+            '5-10 * * * *',
+            '30 8 1-5 * *',
+            '0 0 1 1 0', // Jan 1, Sunday (0 = Sunday)
+            '30 1 29 2 7', // 7 aliases to Sunday
+        ]) {
+            expect(() => s.register(expr, async () => {})).not.toThrow();
+        }
+    });
+
+    test('R2 — nextCronTime is strictly after now and uses local wall-clock fields (0734)', () => {
+        const expr = parseCronExpression('30 1 * * *');
+        // Just before 01:30 on 2026-01-01 (local): the next match is exactly 01:30.
+        const before = new Date(2026, 0, 1, 1, 29, 0).getTime();
+        const next = nextCronTime(expr, before);
+        expect(next.getHours()).toBe(1);
+        expect(next.getMinutes()).toBe(30);
+        expect(next.getDate()).toBe(1);
+
+        // Strictly-after: from exactly 01:30, the next match is the following day.
+        const at130 = new Date(2026, 0, 1, 1, 30, 0).getTime();
+        const after = nextCronTime(expr, at130);
+        expect(after.getDate()).toBe(2);
+        expect(after.getHours()).toBe(1);
+        expect(after.getMinutes()).toBe(30);
+    });
+
+    test('R2 — DST fall-back day fires both distinct 01:30 instants once each (0734)', () => {
+        const prevTz = process.env.TZ;
+        process.env.TZ = 'America/Los_Angeles';
+        try {
+            const expr = parseCronExpression('30 1 * * *');
+            // 2026-11-01 01:30 PDT = 08:30Z; 01:30 PST = 09:30Z. Both are wall-clock 01:30.
+            const first = Date.UTC(2026, 10, 1, 8, 30, 0);
+            const second = Date.UTC(2026, 10, 1, 9, 30, 0);
+
+            const start = Date.UTC(2026, 10, 1, 7, 30, 0); // 00:30 PDT
+            expect(nextCronTime(expr, start).getTime()).toBe(first);
+            expect(nextCronTime(expr, first).getTime()).toBe(second);
+            // Strictly-after: from the second instant, the next match is the next day.
+            expect(nextCronTime(expr, second).getTime()).not.toBe(second);
+        } finally {
+            process.env.TZ = prevTz;
+        }
+    });
+
+    test('R1 — unsatisfiable expression fails at registration (0734)', () => {
+        const s = new NodeSchedulerAdapter();
+        // '30 1 31 2 *' requires Feb 31, which never exists; the 8-year scan bound
+        // must fail registration loud rather than never fire.
+        expect(() => s.register('30 1 31 2 *', async () => {})).toThrow(RangeError);
     });
 
     test('supported cadences still schedule (0060 F7)', async () => {

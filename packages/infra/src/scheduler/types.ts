@@ -17,3 +17,16 @@ export interface SchedulerAdapter {
     start(): Promise<void>;
     stop(): Promise<void>;
 }
+
+/**
+ * A declarative scheduler job (task 0734). Exactly one of `intervalMinutes` or
+ * `cron` is present — the schedule XOR is enforced by the Node subpath's
+ * `normalizeSchedulerJobs` before the user `start` callback runs.
+ *
+ * The `command` is declarative data: ts-infra validates and exposes it but
+ * never executes it. The consuming application binds it to a queue-backed
+ * command handler.
+ */
+export type SchedulerJobConfig =
+    | { readonly name: string; readonly command: string; readonly intervalMinutes: number; readonly cron?: never }
+    | { readonly name: string; readonly command: string; readonly cron: string; readonly intervalMinutes?: never };

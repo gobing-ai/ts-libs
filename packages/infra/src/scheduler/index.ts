@@ -12,5 +12,5 @@ export {
 } from './action';
 export { initScheduler } from './factory';
 export { NoopSchedulerAdapter } from './noop';
-export type { ScheduledAction, SchedulerAdapter } from './types';
+export type { ScheduledAction, SchedulerAdapter, SchedulerJobConfig } from './types';
 export { wrapScheduledHandler } from './wrap-handler';

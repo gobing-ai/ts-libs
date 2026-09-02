@@ -20,6 +20,23 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+### Added
+
+- **`@gobing-ai/ts-infra`: real five-field cron in `NodeSchedulerAdapter` plus declarative `bootstrap.scheduler.jobs` (spur task 0734).**
+  `register()` now accepts validated five-field cron in local process time (minute `0-59`, hour
+  `0-23`, day-of-month `1-31`, month `1-12`, day-of-week `0-7` with `0`/`7` as Sunday; `*`,
+  step forms, lists/ranges, and standard day OR semantics). Legacy interval cadences (positive ms
+  strings, `* * * * *`, step-N wildcard forms) are preserved as `setInterval`; other valid cron
+  self-reschedules with `setTimeout`, never overlaps, skips missed occurrences, and chunks delays
+  beyond the platform timer maximum. The grammar is a shared internal module (`scheduler/cron.ts`)
+  also used by `runNodeApplication`, which validates `bootstrap.scheduler.jobs`
+  (`SchedulerJobConfig`: non-empty `name`/`command` plus exactly one of `intervalMinutes` or a cron
+  string) before the user `start` callback, rejecting duplicates, schedule XOR violations, and
+  invalid cron with `bootstrap.scheduler.jobs.<index>.<field>` error paths. `SchedulerOptions.jobs`
+  and resolved `app.config.scheduler.jobs` expose the definitions as data; ts-infra never executes a
+  job `command` itself. The adapter accepts an optional `now()` clock seam. `NodeSchedulerAdapter`
+  now supports interval + cron entries with a single ADR-024 drain on `stop()`.
+
 ### Fixed
 
 - **`@gobing-ai/ts-ai-runner`: configured headless executors can now complete file-writing stages.**

@@ -39,6 +39,8 @@ import type {
     SchedulerOptions,
     TelemetryOptions,
 } from './application/types';
+import { parseCronExpression } from './scheduler/cron';
+import type { SchedulerJobConfig } from './scheduler/types';
 import { NodeSchedulerAdapter } from './scheduler-node';
 import { initNodeTelemetry, shutdownNodeTelemetry } from './telemetry/otel-node';
 
@@ -51,6 +53,9 @@ export class ConfigValidationError extends Error {
         this.name = 'ConfigValidationError';
     }
 }
+
+/** Platform timer maximum for `setTimeout` (2^31 - 1 ms). */
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 // ── Config validation helper ──────────────────────────────────────────────
 
@@ -90,6 +95,92 @@ function validateAppConfig<TAppConfig>(
     }
 
     throw new ConfigValidationError(`Unsupported validator shape for section "${section}"`);
+}
+
+// ── Scheduler job validation (task 0734) ────────────────────────────────────
+
+/** Max `intervalMinutes` so that `intervalMinutes * 60_000` fits in the platform timer maximum. */
+const MAX_INTERVAL_MINUTES = Math.floor(MAX_TIMEOUT_MS / 60_000);
+
+/**
+ * Validate and normalize a raw `bootstrap.scheduler.jobs` array.
+ *
+ * Accepts only object entries, trims `name`/`command`/`cron`, enforces the
+ * schedule XOR and `intervalMinutes` bounds, validates cron through the shared
+ * internal parser, and rejects duplicate post-trim names case-sensitively.
+ * Runs whether the scheduler is enabled or disabled; a disabled scheduler may
+ * retain validated job definitions but creates no adapter (R4).
+ *
+ * Throws `ConfigValidationError` with a `bootstrap.scheduler.jobs.<index>.<field>`
+ * path so a bad job aborts startup before the user `start` callback.
+ */
+function normalizeSchedulerJobs(raw: unknown): readonly SchedulerJobConfig[] {
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw)) {
+        throw new ConfigValidationError('bootstrap.scheduler.jobs must be an array');
+    }
+
+    const seen = new Set<string>();
+    const jobs: SchedulerJobConfig[] = [];
+    raw.forEach((item, index) => {
+        if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+            throw new ConfigValidationError(`bootstrap.scheduler.jobs.${index} must be an object`);
+        }
+        const entry = item as Record<string, unknown>;
+        const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+        const command = typeof entry.command === 'string' ? entry.command.trim() : '';
+        const cron = typeof entry.cron === 'string' ? entry.cron.trim() : '';
+        const interval = entry.intervalMinutes;
+
+        if (name === '') {
+            throw new ConfigValidationError(`bootstrap.scheduler.jobs.${index}.name must be a non-empty string`);
+        }
+        if (command === '') {
+            throw new ConfigValidationError(`bootstrap.scheduler.jobs.${index}.command must be a non-empty string`);
+        }
+
+        const hasCron = entry.cron !== undefined && entry.cron !== null;
+        const hasInterval = interval !== undefined && interval !== null;
+        if (hasCron === hasInterval) {
+            throw new ConfigValidationError(
+                `bootstrap.scheduler.jobs.${index} must have exactly one of intervalMinutes or cron`,
+            );
+        }
+
+        if (seen.has(name)) {
+            throw new ConfigValidationError(
+                `bootstrap.scheduler.jobs.${index}.name duplicates the name of an earlier job: "${name}"`,
+            );
+        }
+        seen.add(name);
+
+        if (hasInterval) {
+            if (
+                typeof interval !== 'number' ||
+                !Number.isInteger(interval) ||
+                (interval as number) < 1 ||
+                (interval as number) > MAX_INTERVAL_MINUTES
+            ) {
+                throw new ConfigValidationError(
+                    `bootstrap.scheduler.jobs.${index}.intervalMinutes must be an integer in 1..${MAX_INTERVAL_MINUTES}`,
+                );
+            }
+            jobs.push({ name, command, intervalMinutes: interval as number });
+        } else {
+            if (cron === '') {
+                throw new ConfigValidationError(`bootstrap.scheduler.jobs.${index}.cron must be a non-empty string`);
+            }
+            try {
+                parseCronExpression(cron);
+            } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                throw new ConfigValidationError(`bootstrap.scheduler.jobs.${index}.cron: ${detail}`);
+            }
+            jobs.push({ name, command, cron });
+        }
+    });
+
+    return jobs;
 }
 
 // ── File sink helper ──────────────────────────────────────────────────────
@@ -264,16 +355,22 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
     const loggingConfig: Partial<LoggingOptions> =
         typeof logFilePath === 'string' ? { ...loggingOpts, fileSink: createFileSink(logFilePath) } : loggingOpts;
 
-    // ── Scheduler adapter ───────────────────────────────────────────────
+    // ── Scheduler adapter + jobs ────────────────────────────────────────
     // Honour a caller-supplied `SchedulerOptions.adapter` (documented injection
     // point, application/types.ts:82) instead of unconditionally overwriting
     // it. Only default-construct a NodeSchedulerAdapter when none was provided.
     // `drainTimeoutMs` (ADR-024) is reachable by passing a pre-built adapter;
     // the auto-wired default keeps the 30000 ms bound (CHANGELOG.md:16).
-    const schedulerConfig: SchedulerOptions = {};
-    if (schedulerOpts.enabled === true) {
-        schedulerConfig.enabled = true;
-        schedulerConfig.autoStart = schedulerOpts.autoStart;
+    //
+    // Declarative jobs (task 0734) are validated and normalized whether or not
+    // the scheduler is enabled — a disabled scheduler may retain validated job
+    // definitions but creates no adapter and runs nothing (R4).
+    const schedulerConfig: SchedulerOptions = {
+        enabled: schedulerOpts.enabled === true,
+        autoStart: schedulerOpts.autoStart,
+        jobs: normalizeSchedulerJobs((schedulerOpts as Partial<SchedulerOptions>).jobs),
+    };
+    if (schedulerConfig.enabled) {
         schedulerConfig.adapter = schedulerOpts.adapter ?? new NodeSchedulerAdapter();
         if (schedulerOpts.entries) {
             schedulerConfig.entries = schedulerOpts.entries;

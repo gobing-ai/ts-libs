@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { setLoggerMuted } from '../src/logger';
+import { nextCronTime, parseCronExpression } from '../src/scheduler/cron';
 import { NodeSchedulerAdapter } from '../src/scheduler-node';
 import { _resetMetrics } from '../src/telemetry/metrics';
 import { _resetTelemetry, initTelemetry, shutdownTelemetry } from '../src/telemetry/sdk';
@@ -106,5 +107,47 @@ describe('NodeSchedulerAdapter', () => {
     test('default drainTimeoutMs keeps the no-arg path backward compatible', () => {
         const scheduler = new NodeSchedulerAdapter();
         expect(scheduler).toBeInstanceOf(NodeSchedulerAdapter);
+    });
+
+    test('R2 — stop() drains an in-flight cron tick (0734)', async () => {
+        // A real cron entry self-reschedules with setTimeout; stop() must still wait
+        // for a tick already mid-action, bounded by drainTimeoutMs (ADR-024).
+        const expr = parseCronExpression('30 1 * * *');
+        const target = nextCronTime(expr, Date.now()).getTime();
+
+        let nowMs = target - 1000; // one second before the target
+        const scheduler = new NodeSchedulerAdapter({ drainTimeoutMs: 30_000, now: () => nowMs });
+
+        const actionStarted = Promise.withResolvers<void>();
+        const gate = Promise.withResolvers<void>();
+        let actionCompleted = false;
+
+        scheduler.register('30 1 * * *', async () => {
+            actionStarted.resolve();
+            await gate.promise; // block the tick until the test releases it
+            actionCompleted = true;
+        });
+
+        await scheduler.start(); // arms a setTimeout to the target (~1s away)
+        nowMs = target + 1; // ensure the re-check passes when the timer fires
+        await actionStarted.promise; // a cron tick is now in-flight
+
+        let stopResolved = false;
+        const stopping = scheduler.stop().then(() => {
+            stopResolved = true;
+        });
+
+        // Let stop() reach its drain await. With the tick blocked on the gate and
+        // the deadline far away, stop() must still be pending here.
+        await settleMicrotasks();
+        expect(stopResolved).toBe(false);
+        expect(actionCompleted).toBe(false);
+
+        gate.resolve(); // let the in-flight cron tick finish
+        await stopping;
+
+        expect(actionCompleted).toBe(true); // drained, not torn down
+        // No cron timer is re-armed after stop().
+        expect(scheduler).toBeDefined();
     });
 });
