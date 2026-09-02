@@ -146,3 +146,32 @@ export interface ImportResult {
      */
     readonly reconciliation?: ReconcileSummary;
 }
+
+/**
+ * One normalized skill-load row targeting the `history_skill_call` typed table (0735).
+ * Field names match the DAO typed-column map verbatim (snake_case): the typed insert path
+ * reads `payload[column]` directly, so record keys must equal column names.
+ * `invocation_kind` is `'user'` (L0 harness prefix / direct caller) or `'model'` (native
+ * load tool); `skill_path` is nullable because some producers inline the skill body without
+ * a resolvable path.
+ */
+export interface SkillCall {
+    readonly record_hash: string;
+    readonly message_hash: string;
+    readonly source: string;
+    readonly source_file: string;
+    readonly source_line: number;
+    readonly session_id: string;
+    readonly seq: number;
+    readonly skill_name: string;
+    readonly invocation_kind: 'user' | 'model';
+    readonly skill_path?: string | null;
+    readonly args_raw?: string | null;
+    readonly args_digest?: string | null;
+    readonly call_id?: string | null;
+    readonly status?: string | null;
+    readonly started_at?: string | null;
+    readonly completed_at?: string | null;
+    readonly duration_ms?: number | null;
+    readonly imported_at: string;
+}

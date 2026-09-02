@@ -66,6 +66,26 @@ const TYPED_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
         'error_text',
         'imported_at',
     ],
+    history_skill_call: [
+        'record_hash',
+        'message_hash',
+        'source',
+        'source_file',
+        'source_line',
+        'session_id',
+        'seq',
+        'skill_name',
+        'invocation_kind',
+        'skill_path',
+        'args_raw',
+        'args_digest',
+        'call_id',
+        'status',
+        'started_at',
+        'completed_at',
+        'duration_ms',
+        'imported_at',
+    ],
 };
 
 /** Keys that a typed table mapper may produce that are not columns. */
@@ -450,7 +470,7 @@ export async function normalizeSourceFilePaths(
 }
 
 /** Typed contract tables that carry a `source_file` column (0466 forensic contract). */
-const TYPED_TABLE_COLUMNS_SOURCE_FILE = ['history_message', 'history_tool_call'] as const;
+const TYPED_TABLE_COLUMNS_SOURCE_FILE = ['history_message', 'history_tool_call', 'history_skill_call'] as const;
 
 async function tableExists(db: ImportOptions['db'], table: string): Promise<boolean> {
     const row = await db.queryFirst<{ name: string }>(

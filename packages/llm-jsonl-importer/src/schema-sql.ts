@@ -85,4 +85,33 @@ CREATE INDEX IF NOT EXISTS idx_history_tool_call_tool_name
     ON history_tool_call(tool_name);
 CREATE INDEX IF NOT EXISTS idx_history_tool_call_message_hash
     ON history_tool_call(message_hash);
+
+CREATE TABLE IF NOT EXISTS history_skill_call (
+    record_hash     TEXT PRIMARY KEY,
+    message_hash    TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    source_file     TEXT NOT NULL,
+    source_line     INTEGER NOT NULL,
+    session_id      TEXT NOT NULL,
+    seq             INTEGER NOT NULL,
+    skill_name      TEXT NOT NULL,
+    invocation_kind TEXT NOT NULL CHECK (invocation_kind IN ('user', 'model')),
+    skill_path      TEXT,
+    args_raw        TEXT,
+    args_digest     TEXT,
+    call_id         TEXT,
+    status          TEXT,
+    started_at      TEXT,
+    completed_at    TEXT,
+    duration_ms     REAL,
+    imported_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_history_skill_call_session
+    ON history_skill_call(source, session_id, seq);
+CREATE INDEX IF NOT EXISTS idx_history_skill_call_skill_name
+    ON history_skill_call(skill_name);
+CREATE INDEX IF NOT EXISTS idx_history_skill_call_message_hash
+    ON history_skill_call(message_hash);
+CREATE INDEX IF NOT EXISTS idx_history_skill_call_invocation_kind
+    ON history_skill_call(invocation_kind);
 `.trim();

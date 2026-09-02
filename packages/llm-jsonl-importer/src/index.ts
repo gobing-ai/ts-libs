@@ -23,6 +23,7 @@ export type {
     LlmJsonlSource,
     ReconcileSummary,
     RedactionRule,
+    SkillCall,
     SourceDefinition,
     SplitConfig,
     SplitEntry,

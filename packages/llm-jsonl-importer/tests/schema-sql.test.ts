@@ -13,6 +13,16 @@ describe('HISTORY_IMPORT_SCHEMA_SQL', () => {
         expect(HISTORY_IMPORT_SCHEMA_SQL).toMatch(/history_import_ledger/);
         expect(HISTORY_IMPORT_SCHEMA_SQL).toMatch(/history_message/);
         expect(HISTORY_IMPORT_SCHEMA_SQL).toMatch(/history_tool_call/);
+        expect(HISTORY_IMPORT_SCHEMA_SQL).toMatch(/history_skill_call/);
+    });
+
+    test('creates history_skill_call with the frozen 0735 columns and four indexes', () => {
+        expect(HISTORY_IMPORT_SCHEMA_SQL).toContain('CREATE TABLE IF NOT EXISTS history_skill_call');
+        expect(HISTORY_IMPORT_SCHEMA_SQL).toContain("CHECK (invocation_kind IN ('user', 'model'))");
+        expect(HISTORY_IMPORT_SCHEMA_SQL).toContain('idx_history_skill_call_session');
+        expect(HISTORY_IMPORT_SCHEMA_SQL).toContain('idx_history_skill_call_skill_name');
+        expect(HISTORY_IMPORT_SCHEMA_SQL).toContain('idx_history_skill_call_message_hash');
+        expect(HISTORY_IMPORT_SCHEMA_SQL).toContain('idx_history_skill_call_invocation_kind');
     });
 
     test('does not create any history_etl_* table (generic targets are lazy)', () => {
