@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { sha256 } from './hash';
-import type { JsonObject, SplitEntry, TransformContext } from './types';
+import type { JsonObject, SkillCallSplitRecord, SplitEntry, TransformContext } from './types';
 
 // ---------------------------------------------------------------------------
 // Helper: identity field map for typed columns
@@ -50,6 +50,23 @@ const TOOL_CALL_MAPPER_KEYS: readonly string[] = [
     'error_text',
 ];
 
+/** Columns the mapper may produce for history_skill_call (0736). */
+const SKILL_CALL_MAPPER_KEYS: readonly string[] = [
+    '_messageSplitIndex',
+    'session_id',
+    'seq',
+    'skill_name',
+    'invocation_kind',
+    'skill_path',
+    'args_raw',
+    'args_digest',
+    'call_id',
+    'status',
+    'started_at',
+    'completed_at',
+    'duration_ms',
+];
+
 /** Build an identity fieldMap for the given column list. */
 function identityFieldMap(keys: readonly string[]): Record<string, string> {
     const map: Record<string, string> = {};
@@ -57,6 +74,261 @@ function identityFieldMap(keys: readonly string[]): Record<string, string> {
         map[key] = key;
     }
     return map;
+}
+
+// ---------------------------------------------------------------------------
+// Skill-load extraction (0736)
+// ---------------------------------------------------------------------------
+
+/** Harness skill packages whose dialect spelling swaps ':' for '-' (storm report §10.1). */
+const HARNESS_SKILL_PACKAGES = new Set(['sp', 'rd3']);
+
+/**
+ * Canonicalize a harness skill name: `sp-dev-run` / `$sp-dev-run` / `/skill:sp-dev-run` →
+ * `sp:dev-run`; `rd3-*` → `rd3:*`. Only the frozen harness package set is rewritten — an
+ * unqualified name like `code-review` is kept verbatim (exact structural match, 0736 R4).
+ */
+export function canonicalizeSkillName(raw: string): string {
+    let name = raw.trim();
+    if (name.startsWith('/') || name.startsWith('$')) name = name.slice(1);
+    if (name.startsWith('skill:')) name = name.slice('skill:'.length);
+    const canonical = name.match(/^([a-z][a-z0-9]*):([a-z0-9-]+)$/);
+    if (canonical !== null && HARNESS_SKILL_PACKAGES.has(canonical[1] ?? '')) return name;
+    const dialect = name.match(/^([a-z][a-z0-9]*)-([a-z0-9-]+)$/);
+    if (dialect !== null && HARNESS_SKILL_PACKAGES.has(dialect[1] ?? '')) return `${dialect[1]}:${dialect[2]}`;
+    return name;
+}
+
+/** Identity fields a split already computed for its parent message (skill rows join it). */
+export interface SkillCallIdentity {
+    readonly sessionId: string;
+    readonly seq: number;
+    /** Split index of the parent message entry in the same split batch (_messageSplitIndex). */
+    readonly messageSplitIndex: number;
+}
+
+/**
+ * Detect skill-load events in one raw source record (0736 R1/R2). Dispatches on the source in
+ * the transform context; unknown sources return nothing. Detection signatures per source are
+ * the verified ones from the storm report §10.3:
+ *
+ * - L1 native load tool is authoritative (claude/omp `Skill`, agy `view_file` skill reads,
+ *   grok `read_file` on SKILL.md, opencode native `skill`).
+ * - Sources with no L1 trigger on their structural signal: pi's `<skill name= location=>`
+ *   wrapper, codex's `<skill><name>/<path>` block, gemini's L0 harness prefix.
+ * - L0/L2 never trigger for agents that have an L1 (false-positive suppression, 0736 R4).
+ */
+export function extractSkillCalls(
+    raw: JsonObject,
+    context: TransformContext | undefined,
+    identity: SkillCallIdentity,
+): readonly SkillCallSplitRecord[] {
+    switch (context?.source) {
+        case 'claude':
+            return detectClaudeSkillCalls(raw, identity);
+        case 'pi':
+            return detectPiSkillCalls(raw, identity);
+        case 'omp':
+            return detectOmpSkillCalls(raw, identity);
+        case 'codex':
+            return detectCodexSkillCalls(raw, identity);
+        case 'agy':
+            return detectAgySkillCalls(raw, identity);
+        case 'gemini':
+            return detectGeminiSkillCalls(raw, identity);
+        case 'grok':
+            return detectGrokSkillCalls(raw, identity);
+        default:
+            return [];
+    }
+}
+
+/**
+ * Route one skill-load row to `history_skill_call` exactly like tool calls route to
+ * `history_tool_call`: a SplitEntry whose record the importer normalizes, hashes, dedups,
+ * and inserts through the typed-column path.
+ */
+export function skillCallEntry(record: SkillCallSplitRecord): SplitEntry {
+    // The split record's keys are exactly the history_skill_call typed columns; the index
+    // signature is supplied at this boundary (runtime shape is JSON-compatible by construction).
+    return { targetTable: 'history_skill_call', record: record as unknown as JsonObject };
+}
+
+/** Build a fully-populated skill row: every optional column set explicitly for hash stability. */
+function skillRecord(
+    identity: SkillCallIdentity,
+    skillName: string,
+    invocationKind: 'user' | 'model',
+    extra: Partial<SkillCallSplitRecord> = {},
+): SkillCallSplitRecord {
+    return {
+        _messageSplitIndex: identity.messageSplitIndex,
+        session_id: identity.sessionId,
+        seq: identity.seq,
+        skill_name: canonicalizeSkillName(skillName),
+        invocation_kind: invocationKind,
+        skill_path: null,
+        args_raw: null,
+        args_digest: null,
+        call_id: null,
+        status: 'ok',
+        started_at: null,
+        completed_at: null,
+        duration_ms: null,
+        ...extra,
+    };
+}
+
+/** Skill name from a `.../skills/<name>/SKILL.md` path; falls back to the SKILL.md sibling. */
+function skillNameFromPath(path: string): string {
+    const normalized = path.replace(/\\/g, '/');
+    const bySkillsSegment = normalized.match(/\/skills\/([^/]+)\/SKILL\.md$/i);
+    if (bySkillsSegment !== null) return bySkillsSegment[1] ?? '';
+    const stem = normalized.slice(0, normalized.length - '/SKILL.md'.length);
+    return stem.split('/').pop() ?? stem;
+}
+
+function detectClaudeSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+    const contentBlocks = raw.content ?? o(raw.message).content;
+    if (!Array.isArray(contentBlocks)) return [];
+    const rows: SkillCallSplitRecord[] = [];
+    for (const block of contentBlocks) {
+        if (typeof block !== 'object' || block === null) continue;
+        const b = block as Record<string, unknown>;
+        if (b.type !== 'tool_use' || b.name !== 'Skill') continue;
+        const input = (b.input ?? {}) as Record<string, unknown>;
+        const skill = s(input.skill);
+        if (skill === undefined) continue;
+        // caller.type "direct" = user-invoked (storm report §10.3); absence = model-invoked.
+        rows.push(
+            skillRecord(identity, skill, s(o(b.caller).type) === 'direct' ? 'user' : 'model', {
+                args_raw: maybeArgsRaw('claude', 'Skill', input) ?? null,
+                args_digest: argsDigest(input),
+                call_id: s(b.id) ?? null,
+            }),
+        );
+    }
+    return rows;
+}
+
+/** pi is inline-only: the `<skill name= location=>` wrapper in a user message is the sole trigger. */
+const PI_SKILL_WRAPPER = /<skill\s+name="([^"]+)"(?:\s+location="([^"]*)")?\s*>/g;
+
+function detectPiSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+    const msg = raw.message as Record<string, unknown> | undefined;
+    if (piRole(msg?.role ?? raw.role ?? raw.recordType ?? raw.type) !== 'user') return [];
+    const text = extractContentText(msg?.content ?? raw.content);
+    if (text === undefined) return [];
+    const rows: SkillCallSplitRecord[] = [];
+    for (const match of text.matchAll(PI_SKILL_WRAPPER)) {
+        rows.push(skillRecord(identity, match[1] ?? '', 'user', { skill_path: match[2] || null }));
+    }
+    return rows;
+}
+
+function detectOmpSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+    const msg = raw.message as Record<string, unknown> | undefined;
+    if (mapRole(msg?.role ?? raw.type ?? raw.role) !== 'assistant') return [];
+    const contentBlocks = msg?.content ?? raw.content;
+    if (!Array.isArray(contentBlocks)) return [];
+    const rows: SkillCallSplitRecord[] = [];
+    for (const block of contentBlocks as Record<string, unknown>[]) {
+        const call = normalizeOmpToolCall(block);
+        if (call === null || call.name !== 'Skill') continue;
+        const input = call.input ?? call.arguments;
+        const skill = s((input as Record<string, unknown> | undefined)?.skill);
+        if (skill === undefined) continue;
+        rows.push(
+            skillRecord(identity, skill, 'model', {
+                args_raw: maybeArgsRaw('omp', 'Skill', input) ?? null,
+                args_digest: argsDigest(input),
+                call_id: s(call.id) ?? null,
+            }),
+        );
+    }
+    return rows;
+}
+
+/** Codex has no native load tool call: the child-element `<skill>` block is the trigger. */
+const CODEX_SKILL_BLOCK = /<skill>\s*<name>([^<]+)<\/name>\s*<path>([^<]+)<\/path>\s*<\/skill>/g;
+
+function detectCodexSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+    const payload = (raw.payload ?? raw) as Record<string, unknown>;
+    const recordType = String(raw.type ?? '');
+    const payloadType = String(payload.type ?? '');
+    let role: string;
+    if (recordType === 'response_item') {
+        role =
+            payloadType === 'message' ? mapRole(payload.role) : payloadType === 'agent_message' ? 'assistant' : 'meta';
+    } else if (recordType === 'user' || recordType === 'assistant') {
+        role = mapRole(recordType);
+    } else if (recordType === 'message') {
+        role = mapRole(raw.role ?? payload.role);
+    } else {
+        return [];
+    }
+    if (role !== 'user') return [];
+    const text = extractContentText(payload.content ?? raw.content) ?? s(payload.text, raw.text);
+    if (text === undefined) return [];
+    const rows: SkillCallSplitRecord[] = [];
+    for (const match of text.matchAll(CODEX_SKILL_BLOCK)) {
+        rows.push(skillRecord(identity, match[1] ?? '', 'user', { skill_path: match[2] ?? null }));
+    }
+    return rows;
+}
+
+/** agy loads skills via `view_file` with toolAction "Viewing skill file" on a SKILL.md path. */
+function detectAgySkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+    if (String(raw.type ?? '') !== 'PLANNER_RESPONSE' || !Array.isArray(raw.tool_calls)) return [];
+    const rows: SkillCallSplitRecord[] = [];
+    for (const tc of raw.tool_calls as Record<string, unknown>[]) {
+        const tool = s(tc.name, tc.tool_name);
+        if (tool !== 'view_file') continue;
+        const args = (tc.args ?? tc.arguments ?? {}) as Record<string, unknown>;
+        if (args.toolAction !== 'Viewing skill file') continue;
+        const path = s(args.AbsolutePath, args.absolute_path);
+        if (path === undefined || !path.replace(/\\/g, '/').endsWith('/SKILL.md')) continue;
+        const summary = s(args.toolSummary);
+        const skillName = summary?.match(/SKILL\.md for (.+)$/)?.[1] ?? skillNameFromPath(path);
+        rows.push(
+            skillRecord(identity, skillName, 'model', {
+                skill_path: path,
+                args_raw: maybeArgsRaw('agy', 'view_file', args) ?? null,
+                args_digest: argsDigest(args),
+            }),
+        );
+    }
+    return rows;
+}
+
+/** Gemini has no verified L1: the L0 harness prefix in a user message is the trigger. */
+const GEMINI_L0_PREFIX = /^\s*\/((?:sp|rd3)-[a-z0-9-]+)/;
+
+function detectGeminiSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+    if (String(raw.type ?? '') !== 'user') return [];
+    const content = geminiContent(raw);
+    if (content === null) return [];
+    const match = content.match(GEMINI_L0_PREFIX);
+    if (match === null) return [];
+    return [skillRecord(identity, match[1] ?? '', 'user')];
+}
+
+/** grok loads skills via `read_file` (grok_build namespace) targeting a SKILL.md path. */
+function detectGrokSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+    const n = normalizeGrokRecord(raw);
+    if (n.recordType !== 'tool_call' || n.toolName !== 'read_file') return [];
+    const meta = (n.body._meta ?? raw._meta ?? {}) as Record<string, unknown>;
+    if (o(meta['x.ai/tool']).namespace !== 'grok_build') return [];
+    const targetFile = s(o(n.toolArgs).target_file);
+    if (targetFile === undefined || !targetFile.replace(/\\/g, '/').endsWith('/SKILL.md')) return [];
+    return [
+        skillRecord(identity, skillNameFromPath(targetFile), 'model', {
+            skill_path: targetFile,
+            args_raw: maybeArgsRaw('grok', 'read_file', n.toolArgs) ?? null,
+            args_digest: argsDigest(n.toolArgs),
+            started_at: n.ts ?? null,
+        }),
+    ];
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +503,7 @@ export function maybeArgsRaw(_source: string, toolName: string, args: unknown): 
 // ---------------------------------------------------------------------------
 
 /** Map a Claude Code JSONL record into one or more ETL split entries. */
-export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
+export function claudeSplit(raw: Record<string, unknown>, context?: TransformContext): readonly SplitEntry[] {
     const entries: SplitEntry[] = [];
     const sessionId = s(raw.sessionId, raw.conversation_uuid) ?? 'unknown';
     const seq = typeof raw.seq === 'number' ? raw.seq : typeof raw.messageIndex === 'number' ? raw.messageIndex : 0;
@@ -342,6 +614,11 @@ export function claudeSplit(raw: Record<string, unknown>): readonly SplitEntry[]
                 });
             }
         }
+    }
+
+    // Skill-load rows (0736): claude's L1 is the native Skill tool_use; L0/L2 never trigger.
+    for (const record of extractSkillCalls(raw, context, { sessionId, seq, messageSplitIndex })) {
+        entries.push(skillCallEntry(record));
     }
 
     return entries;
@@ -464,6 +741,11 @@ export function piSplit(raw: Record<string, unknown>, context?: TransformContext
                 },
             });
         }
+    }
+
+    // Skill-load rows (0736): pi is inline-only — the user-message wrapper is the sole trigger.
+    for (const record of extractSkillCalls(raw, context, { sessionId, seq, messageSplitIndex })) {
+        entries.push(skillCallEntry(record));
     }
 
     return entries;
@@ -595,6 +877,11 @@ export function ompSplit(raw: Record<string, unknown>, context?: TransformContex
                 },
             });
         }
+    }
+
+    // Skill-load rows (0736): omp's L1 is the native Skill toolCall; the L2 wrapper never triggers.
+    for (const record of extractSkillCalls(raw, context, { sessionId, seq, messageSplitIndex })) {
+        entries.push(skillCallEntry(record));
     }
 
     return entries;
@@ -908,6 +1195,11 @@ export function codexSplit(raw: Record<string, unknown>, context?: TransformCont
         });
     }
 
+    // Skill-load rows (0736): codex has no native load call — the child-element block is the trigger.
+    for (const record of extractSkillCalls(raw, context, { sessionId, seq, messageSplitIndex })) {
+        entries.push(skillCallEntry(record));
+    }
+
     return entries;
 }
 
@@ -1046,6 +1338,11 @@ export function agySplit(raw: Record<string, unknown>, context?: TransformContex
         }
     }
 
+    // Skill-load rows (0736): agy's L1 is the view_file "Viewing skill file" tool call.
+    for (const record of extractSkillCalls(raw, context, { sessionId, seq, messageSplitIndex })) {
+        entries.push(skillCallEntry(record));
+    }
+
     return entries;
 }
 
@@ -1134,6 +1431,12 @@ export function geminiSplit(raw: Record<string, unknown>, context?: TransformCon
         }
     }
 
+    // Skill-load rows (0736): gemini has no verified L1 — the L0 prefix in a user message triggers.
+    // messageSplitIndex stays the literal 0, matching the gemini tool-call linkage above.
+    for (const record of extractSkillCalls(raw, context, { sessionId, seq, messageSplitIndex: 0 })) {
+        entries.push(skillCallEntry(record));
+    }
+
     return entries;
 }
 
@@ -1175,7 +1478,7 @@ function sessionIdFromContext(context: TransformContext | undefined, raw: Record
 }
 
 function geminiContent(raw: Record<string, unknown>): string | null {
-    const content = extractContentText(raw.content);
+    const content = extractContentText(raw.content) ?? s(raw.text);
     const thoughts = Array.isArray(raw.thoughts)
         ? raw.thoughts
               .map((value) => (value !== null && typeof value === 'object' ? s(o(value).description) : undefined))
@@ -1358,7 +1661,7 @@ const GROK_META_TYPES = new Set([
 ]);
 
 /** Map a Grok JSONL record into one or more ETL split entries. */
-export function grokSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
+export function grokSplit(raw: Record<string, unknown>, context?: TransformContext): readonly SplitEntry[] {
     const entries: SplitEntry[] = [];
     const n = normalizeGrokRecord(raw);
     const { recordType, sessionId, ts, seq } = n;
@@ -1527,6 +1830,10 @@ export function grokSplit(raw: Record<string, unknown>): readonly SplitEntry[] {
                 error_text: n.errorText,
             },
         });
+        // Skill-load rows (0736): grok's L1 is a grok_build read_file targeting SKILL.md.
+        for (const record of extractSkillCalls(raw, context, { sessionId, seq, messageSplitIndex })) {
+            entries.push(skillCallEntry(record));
+        }
         return entries;
     }
 
@@ -1753,19 +2060,31 @@ export function stableFieldShape(raw: JsonObject): string {
 // ---------------------------------------------------------------------------
 
 /** Identity field map for the Claude mapper. */
-export const CLAUDE_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS));
+export const CLAUDE_FIELD_MAP = identityFieldMap(
+    MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS, SKILL_CALL_MAPPER_KEYS),
+);
 /** Identity field map for the Pi mapper. */
-export const PI_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS));
+export const PI_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS, SKILL_CALL_MAPPER_KEYS));
 /** Identity field map for the OMP mapper. */
-export const OMP_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS));
+export const OMP_FIELD_MAP = identityFieldMap(
+    MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS, SKILL_CALL_MAPPER_KEYS),
+);
 /** Identity field map for the Codex mapper. */
-export const CODEX_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS));
+export const CODEX_FIELD_MAP = identityFieldMap(
+    MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS, SKILL_CALL_MAPPER_KEYS),
+);
 /** Identity field map for the AGY mapper. */
-export const AGY_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS));
+export const AGY_FIELD_MAP = identityFieldMap(
+    MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS, SKILL_CALL_MAPPER_KEYS),
+);
 /** Identity field map for the Grok mapper. */
-export const GROK_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS));
+export const GROK_FIELD_MAP = identityFieldMap(
+    MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS, SKILL_CALL_MAPPER_KEYS),
+);
 /** Identity field map for the Gemini mapper. */
-export const GEMINI_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS));
+export const GEMINI_FIELD_MAP = identityFieldMap(
+    MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS, SKILL_CALL_MAPPER_KEYS),
+);
 
 // ---------------------------------------------------------------------------
 // Zod schemas for the six source mappers

@@ -155,6 +155,28 @@ export interface ImportResult {
  * load tool); `skill_path` is nullable because some producers inline the skill body without
  * a resolvable path.
  */
+/**
+ * Split-time skill-load record routed to `history_skill_call` (0736). The importer/DAO manage
+ * `record_hash`, `message_hash` (resolved from `_messageSplitIndex`), the source identity
+ * columns, and `imported_at`; keeping them out of the split record also keeps them out of the
+ * record_hash input, so re-imports hash identically (0736 R5 idempotency).
+ */
+export interface SkillCallSplitRecord {
+    readonly _messageSplitIndex?: number;
+    readonly session_id: string;
+    readonly seq: number;
+    readonly skill_name: string;
+    readonly invocation_kind: 'user' | 'model';
+    readonly skill_path?: string | null;
+    readonly args_raw?: string | null;
+    readonly args_digest?: string | null;
+    readonly call_id?: string | null;
+    readonly status?: string | null;
+    readonly started_at?: string | null;
+    readonly completed_at?: string | null;
+    readonly duration_ms?: number | null;
+}
+
 export interface SkillCall {
     readonly record_hash: string;
     readonly message_hash: string;

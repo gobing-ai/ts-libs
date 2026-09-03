@@ -667,7 +667,7 @@ export interface OpenCodeExistingEntry {
 
 /** Normalized OpenCode entry awaiting a history-table write. */
 export interface OpenCodeQueuedEntry {
-    targetTable: 'history_message' | 'history_tool_call';
+    targetTable: 'history_message' | 'history_tool_call' | 'history_skill_call';
     splitIndex: number;
     record: JsonObject;
     recordHash: string;
@@ -752,7 +752,7 @@ export function openCodeBulkWriteOperations(
 ): DbBatchOp[] {
     const importedAt = timestamp(now);
     const operations: DbBatchOp[] = [];
-    for (const table of ['history_message', 'history_tool_call'] as const) {
+    for (const table of ['history_message', 'history_tool_call', 'history_skill_call'] as const) {
         const tableEntries = entries.filter((entry) => entry.targetTable === table);
         for (let offset = 0; offset < tableEntries.length; offset += 100) {
             const chunk = tableEntries.slice(offset, offset + 100);

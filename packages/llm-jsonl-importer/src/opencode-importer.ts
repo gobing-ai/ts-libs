@@ -27,7 +27,7 @@ const SOURCE = 'opencode';
 const PAGE_SIZE = 250;
 
 interface PreparedEntry {
-    targetTable: 'history_message' | 'history_tool_call';
+    targetTable: 'history_message' | 'history_tool_call' | 'history_skill_call';
     splitIndex: number;
     record: JsonObject;
     recordHash: string;
@@ -256,6 +256,45 @@ function prepareEntries(
         const output = stringValue(state.output);
         const status = stringValue(state.status) ?? 'unknown';
         const splitIndex = entries.length;
+        const toolName = stringValue(part.tool) ?? 'unknown';
+        // 0736: OpenCode's native `skill({name})` load tool is the skill-call trigger; it gets a
+        // history_skill_call row instead of a tool-call row (one row per load, same provenance).
+        if (toolName === 'skill') {
+            const input = objectValue(state.input);
+            const skillName = stringValue(input.name);
+            if (skillName !== undefined) {
+                const skillRecord = redactRecord(
+                    {
+                        message_hash: messageHash,
+                        source: SOURCE,
+                        source_file: sourceFile,
+                        source_line: 1,
+                        session_id: row.session_id,
+                        seq: started ?? created,
+                        skill_name: skillName,
+                        invocation_kind: 'model',
+                        skill_path: null,
+                        args_raw: maybeArgsRaw(SOURCE, 'skill', state.input) ?? null,
+                        args_digest: sha256(state.input ?? null),
+                        status,
+                        started_at: started === undefined ? null : isoTime(started),
+                        completed_at: completedAt === undefined ? null : isoTime(completedAt),
+                        duration_ms:
+                            started === undefined || completedAt === undefined
+                                ? null
+                                : Math.max(0, completedAt - started),
+                    },
+                    redactionRules,
+                );
+                entries.push({
+                    targetTable: 'history_skill_call',
+                    splitIndex,
+                    record: skillRecord,
+                    recordHash: recordHash(sourceFile, splitIndex, skillRecord),
+                });
+                continue;
+            }
+        }
         const toolRecord = redactRecord(
             {
                 message_hash: messageHash,
@@ -264,7 +303,7 @@ function prepareEntries(
                 source_line: 1,
                 session_id: row.session_id,
                 seq: started ?? created,
-                tool_name: stringValue(part.tool) ?? 'unknown',
+                tool_name: toolName,
                 args_raw: maybeArgsRaw(SOURCE, stringValue(part.tool) ?? 'unknown', state.input),
                 args_digest: sha256(state.input ?? null),
                 status,

@@ -1507,7 +1507,24 @@ describe('field maps', () => {
     ];
 
     // 0678 R3: _codexUsageCarrier is an internal transport key the importer deletes before write.
-    const ALL_KEYS = [...new Set([...MESSAGE_KEYS, ...TOOL_CALL_KEYS, '_codexUsageCarrier'])];
+    // 0736: history_skill_call columns join the same identity field maps so normalizeRecord keeps them.
+    const SKILL_CALL_KEYS = [
+        '_messageSplitIndex',
+        'session_id',
+        'seq',
+        'skill_name',
+        'invocation_kind',
+        'skill_path',
+        'args_raw',
+        'args_digest',
+        'call_id',
+        'status',
+        'started_at',
+        'completed_at',
+        'duration_ms',
+    ];
+
+    const ALL_KEYS = [...new Set([...MESSAGE_KEYS, ...TOOL_CALL_KEYS, ...SKILL_CALL_KEYS, '_codexUsageCarrier'])];
 
     function checkFieldMap(_name: string, map: Record<string, string>) {
         expect(Object.keys(map).sort()).toEqual([...ALL_KEYS].sort());

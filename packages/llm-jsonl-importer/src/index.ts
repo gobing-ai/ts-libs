@@ -2,7 +2,13 @@ export { HistoryImportError } from './errors';
 export { sha256, stableJson } from './hash';
 export { runJsonlImport } from './importer';
 export { applyHistoryImportSchema, normalizeSourceFilePaths } from './jsonl-importer-dao';
-export { sessionIdFromSourcePath } from './mappers';
+export {
+    canonicalizeSkillName,
+    extractSkillCalls,
+    type SkillCallIdentity,
+    sessionIdFromSourcePath,
+    skillCallEntry,
+} from './mappers';
 export { type OpenCodeImportOptions, runOpenCodeImport } from './opencode-importer';
 export { DEFAULT_REDACTION_RULES, redactRecord, redactValue } from './redaction';
 export { HISTORY_IMPORT_SCHEMA_SQL } from './schema-sql';
@@ -24,6 +30,7 @@ export type {
     ReconcileSummary,
     RedactionRule,
     SkillCall,
+    SkillCallSplitRecord,
     SourceDefinition,
     SplitConfig,
     SplitEntry,
