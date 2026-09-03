@@ -17,6 +17,13 @@ export interface SourceCheckpoint {
     readonly mtimeMs: number | null;
 }
 
+/**
+ * Typed contract tables created and populated by the importer.
+ *
+ * Promoted to public surface per task 0749 (ADR-105).
+ */
+export const TYPED_HISTORY_TABLES = ['history_message', 'history_tool_call', 'history_skill_call'] as const;
+
 /** Column allowlist per typed contract table; order is the INSERT column order. */
 const TYPED_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     history_message: [

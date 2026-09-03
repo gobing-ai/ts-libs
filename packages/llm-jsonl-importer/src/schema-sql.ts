@@ -1,4 +1,12 @@
 /**
+ * Schema version of the history import DDL.
+ *
+ * Guaranteed to match the package version; a bump-or-fail test enforces that
+ * any modification to HISTORY_IMPORT_SCHEMA_SQL must be accompanied by a version bump.
+ */
+export const HISTORY_IMPORT_SCHEMA_VERSION = '0.4.55';
+
+/**
  * DDL string that creates the history import checkpoint, ledger, and typed contract tables.
  *
  * Generic `history_etl_*` blob tables are created lazily when an accepted record actually targets
@@ -39,6 +47,7 @@ CREATE TABLE IF NOT EXISTS history_message (
     disposition        TEXT NOT NULL,
     ts                 TEXT,
     duration_ms        INTEGER,
+    duration_source    TEXT,
     model              TEXT,
     input_tokens       INTEGER,
     output_tokens      INTEGER,
