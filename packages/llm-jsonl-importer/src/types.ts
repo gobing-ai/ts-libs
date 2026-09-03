@@ -177,6 +177,7 @@ export interface SkillCallSplitRecord {
     readonly duration_ms?: number | null;
 }
 
+/** Normalized skill-call record imported into history_skill_call. */
 export interface SkillCall {
     readonly record_hash: string;
     readonly message_hash: string;

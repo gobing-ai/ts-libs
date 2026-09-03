@@ -8,6 +8,13 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.55] - 2026-09-03
+
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: repatriate DDL ownership, schema version, and table registry (E92).**
+  `HISTORY_IMPORT_SCHEMA_SQL` gains a `duration_source TEXT` column on `history_message` so derived assistant-step durations are distinguishable from provider-reported ones; the `deriveAssistantDurations` function and its `DURATION_SOURCE_DERIVED` / `DERIVED_DURATION_CEILING_MS` constants move to a new `assistant-duration.ts` seam. A versioned `HISTORY_IMPORT_SCHEMA_VERSION = '0.4.55'` is exported with a hash-pinned test that locks both the version string and the embedded DDL hash, and two table registries are exposed — `IMPORTER_OWNED_TABLES` (15 tables) and the already-public `TYPED_HISTORY_TABLES` — so consumers can discover the importer's contract without re-reading the DDL (d799a0d).
+
 ## [0.4.52] - 2026-09-02
 
 ### Added

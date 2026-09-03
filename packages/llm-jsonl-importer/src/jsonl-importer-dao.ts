@@ -402,6 +402,51 @@ export async function ledgerExistingHashes(db: ImportOptions['db'], hashes: read
     return existing;
 }
 
+/** Candidate assistant-message row for duration derivation. */
+export interface AssistantDurationCandidate {
+    readonly recordHash: string;
+    readonly deltaMs: number | null;
+}
+
+/**
+ * Fetch candidate assistant rows lacking duration_ms along with timestamp delta to preceding record.
+ */
+export async function findAssistantDurationCandidates(db: DbAdapter): Promise<AssistantDurationCandidate[]> {
+    const candidateSql = `
+        WITH ordered AS (
+            SELECT record_hash,
+                   role,
+                   duration_ms,
+                   ts,
+                   LAG(ts) OVER (PARTITION BY source, session_id ORDER BY seq) AS prev_ts
+            FROM history_message
+            WHERE ts IS NOT NULL AND ts LIKE '____-__-__T%'
+        )
+        SELECT record_hash AS recordHash,
+               CAST(ROUND((unixepoch(ts, 'subsec') - unixepoch(prev_ts, 'subsec')) * 1000) AS INTEGER) AS deltaMs
+        FROM ordered
+        WHERE role = 'assistant' AND duration_ms IS NULL AND prev_ts IS NOT NULL`;
+
+    return db.queryAll<AssistantDurationCandidate>(candidateSql);
+}
+
+/**
+ * Update duration_ms and duration_source for a previously unmeasured assistant row.
+ */
+export async function updateAssistantDuration(
+    db: DbAdapter,
+    recordHash: string,
+    durationMs: number,
+    durationSource: string,
+): Promise<void> {
+    await db.run(
+        'UPDATE history_message SET duration_ms = ?, duration_source = ? WHERE record_hash = ? AND duration_ms IS NULL',
+        durationMs,
+        durationSource,
+        recordHash,
+    );
+}
+
 async function insertRecord(
     db: ImportOptions['db'],
     targetTable: string,

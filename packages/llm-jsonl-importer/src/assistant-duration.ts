@@ -1,4 +1,5 @@
 import type { DbAdapter } from '@gobing-ai/ts-db';
+import { findAssistantDurationCandidates, updateAssistantDuration } from './jsonl-importer-dao';
 
 /**
  * ETL-derived assistant-step duration (repatriated upstream from Spur task 0747 / ADR-105).
@@ -43,22 +44,7 @@ export interface DeriveAssistantDurationsResult {
  * import only fills rows the earlier pass could not reach.
  */
 export async function deriveAssistantDurations(db: DbAdapter): Promise<DeriveAssistantDurationsResult> {
-    const candidateSql = `
-        WITH ordered AS (
-            SELECT record_hash,
-                   role,
-                   duration_ms,
-                   ts,
-                   LAG(ts) OVER (PARTITION BY source, session_id ORDER BY seq) AS prev_ts
-            FROM history_message
-            WHERE ts IS NOT NULL AND ts LIKE '____-__-__T%'
-        )
-        SELECT record_hash AS recordHash,
-               CAST(ROUND((unixepoch(ts, 'subsec') - unixepoch(prev_ts, 'subsec')) * 1000) AS INTEGER) AS deltaMs
-        FROM ordered
-        WHERE role = 'assistant' AND duration_ms IS NULL AND prev_ts IS NOT NULL`;
-
-    const rows = await db.queryAll<{ recordHash: string; deltaMs: number | null }>(candidateSql);
+    const rows = await findAssistantDurationCandidates(db);
 
     let derived = 0;
     let skippedOverCeiling = 0;
@@ -71,12 +57,7 @@ export async function deriveAssistantDurations(db: DbAdapter): Promise<DeriveAss
             skippedOverCeiling += 1;
             continue;
         }
-        await db.run(
-            'UPDATE history_message SET duration_ms = ?, duration_source = ? WHERE record_hash = ? AND duration_ms IS NULL',
-            row.deltaMs,
-            DURATION_SOURCE_DERIVED,
-            row.recordHash,
-        );
+        await updateAssistantDuration(db, row.recordHash, row.deltaMs, DURATION_SOURCE_DERIVED);
         derived += 1;
     }
     return { derived, skippedOverCeiling };
