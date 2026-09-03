@@ -8,6 +8,13 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.52] - 2026-09-02
+
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: `history_skill_call` derived table for skill-load behavior (spur task 0735).**
+  `HISTORY_IMPORT_SCHEMA_SQL` gains the frozen `history_skill_call` DDL — a provenance contract mirroring `history_tool_call`, plus `skill_name`, an `invocation_kind` `CHECK (user|model)`, and nullable `skill_path` / `args` / `timing`, with four indexes on `session`, `skill_name`, `message_hash`, and `invocation_kind`. A `SkillCall` domain type is exported; the typed-column map and `TYPED_TABLE_COLUMNS_SOURCE_FILE` gain matching entries. Schema application stays idempotent and additive, so zero-skill imports leave the table empty-but-created. Coverage: in-memory DDL assertions (columns / NOT NULL / indexes), DAO typed round-trip, NOT NULL + CHECK + unknown-key rejections, and an import fixture with zero skill activity (827e33c).
+
 ## [0.4.51] - 2026-09-02
 
 ### Added
