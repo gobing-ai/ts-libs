@@ -8,6 +8,13 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.56] - 2026-09-03
+
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: effective tool name and alias on `history_tool_call` rows (0739).**
+  The DDL gains `effective_tool_name TEXT NOT NULL DEFAULT 'unknown'` and `tool_name_alias TEXT NOT NULL DEFAULT 'unknown'`, appended last so guarded-ALTER databases converge on fresh-DDL column order. `resolveToolIdentity(payload)` derives `effective` by preferring a supplied `effective_tool_name`, then the recorded `tool_name`, then extraction from wrapper arguments (`tool`/`tool_name`/`toolName`/`name`/`command` keys of `args_raw`) and `call_id` prefixes (`call_bash_`, `call_read_`, …); `alias` starts at identity, leaving canonicalization to the consumer. Resolution mirrors Spur migration 0034's backfill CASE and runs at the single insert choke point — typed inserts map the columns directly, while `openCodeBulkWriteOperations` folds them into the payload before its `json_extract` path (94ec779).
+
 ## [0.4.55] - 2026-09-03
 
 ### Added
