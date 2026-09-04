@@ -11,6 +11,7 @@ import { HISTORY_IMPORT_SCHEMA_SQL, HISTORY_IMPORT_SCHEMA_VERSION } from '../src
  */
 const KNOWN_SCHEMA_HASHES: Readonly<Record<string, string>> = {
     '0.4.55': 'bd0fa9887415ab40e5c3c82afa23535f9ad34cad61fce72c74179ad7104964a5',
+    '0.4.56': '55b98f429f806219de417976dd9196a16b2f0629f3e13335b065a42f58faf13e',
 };
 
 describe('HISTORY_IMPORT_SCHEMA_VERSION (0748 R1)', () => {

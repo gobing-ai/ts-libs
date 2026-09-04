@@ -4,7 +4,7 @@
  * Guaranteed to match the package version; a bump-or-fail test enforces that
  * any modification to HISTORY_IMPORT_SCHEMA_SQL must be accompanied by a version bump.
  */
-export const HISTORY_IMPORT_SCHEMA_VERSION = '0.4.55';
+export const HISTORY_IMPORT_SCHEMA_VERSION = '0.4.56';
 
 /**
  * DDL string that creates the history import checkpoint, ledger, and typed contract tables.
@@ -81,7 +81,13 @@ CREATE TABLE IF NOT EXISTS history_tool_call (
     duration_ms   INTEGER,
     result_bytes  INTEGER,
     error_text    TEXT,
-    imported_at   TEXT NOT NULL
+    imported_at   TEXT NOT NULL,
+    -- Tool identity (0739). Appended last so a database that gained these columns
+    -- via Spur's guarded ALTER converges on the same PRAGMA column order as a
+    -- database created fresh from this DDL. 'unknown' is the unresolved sentinel
+    -- every consumer already falls back from.
+    effective_tool_name TEXT NOT NULL DEFAULT 'unknown',
+    tool_name_alias     TEXT NOT NULL DEFAULT 'unknown'
 );
 
 CREATE INDEX IF NOT EXISTS idx_history_message_session

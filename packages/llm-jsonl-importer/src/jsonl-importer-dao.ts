@@ -72,6 +72,8 @@ const TYPED_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
         'result_bytes',
         'error_text',
         'imported_at',
+        'effective_tool_name',
+        'tool_name_alias',
     ],
     history_skill_call: [
         'record_hash',
@@ -252,6 +254,84 @@ async function ledgerExists(db: ImportOptions['db'], recordHash: string): Promis
  * Typed tables validate unknown keys here; the caller must have ensured the
  * target table exists (the import loop ensures accepted targets before batching).
  */
+/** Wrapper-style `call_id` prefixes that name the tool the wrapper actually ran. */
+const CALL_ID_TOOL_PREFIXES: readonly (readonly [string, string])[] = [
+    ['call_bash_', 'bash'],
+    ['call_read_', 'read'],
+    ['call_edit_', 'edit'],
+    ['call_write_', 'write'],
+    ['call_grep_', 'grep'],
+    ['call_find_', 'find'],
+    ['call_ls_', 'ls'],
+];
+
+/** Argument keys, in precedence order, that carry the tool name when `tool_name` is empty. */
+const ARGS_TOOL_NAME_KEYS = ['tool', 'tool_name', 'toolName', 'name', 'command'] as const;
+
+/**
+ * Tool identity for one `history_tool_call` row (0739).
+ *
+ * `effective` is extraction — recover the name when the agent recorded it inside a wrapper's
+ * arguments or only in the call id. `alias` is canonicalization — grouping the same logical tool
+ * across agents — and starts at identity, because the alias vocabulary is a curated decision
+ * that belongs to the consumer, not to the importer.
+ *
+ * Mirrors Spur migration 0034's backfill CASE so a row imported after the migration and a row
+ * backfilled by it resolve identically.
+ */
+export function resolveToolIdentity(payload: JsonObject): { effective: string; alias: string } {
+    const supplied = trimmedString(payload.effective_tool_name);
+    const effective = supplied !== undefined ? supplied : deriveEffectiveToolName(payload);
+    return { effective, alias: trimmedString(payload.tool_name_alias) ?? effective };
+}
+
+/** Returns the record with tool identity resolved, for insert paths that read columns off the payload. */
+function withToolIdentity(record: JsonObject): JsonObject {
+    const { effective, alias } = resolveToolIdentity(record);
+    return { ...record, effective_tool_name: effective, tool_name_alias: alias };
+}
+
+function trimmedString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed === '' ? undefined : trimmed;
+}
+
+function deriveEffectiveToolName(payload: JsonObject): string {
+    const recorded = trimmedString(payload.tool_name);
+    if (recorded !== undefined && recorded !== 'unknown') return recorded;
+
+    const fromArgs = toolNameFromArgs(payload.args_raw);
+    if (fromArgs !== undefined) return fromArgs;
+
+    const callId = typeof payload.call_id === 'string' ? payload.call_id : '';
+    for (const [prefix, tool] of CALL_ID_TOOL_PREFIXES) {
+        if (callId.startsWith(prefix)) return tool;
+    }
+    return 'unknown';
+}
+
+function toolNameFromArgs(argsRaw: unknown): string | undefined {
+    if (typeof argsRaw !== 'string') return undefined;
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(argsRaw);
+    } catch {
+        // Non-JSON arguments are the `json_valid(args_raw)` false branch in SQL: fall through.
+        return undefined;
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    for (const key of ARGS_TOOL_NAME_KEYS) {
+        const candidate = trimmedString((parsed as Record<string, unknown>)[key]);
+        if (candidate !== undefined) return candidate;
+    }
+    return undefined;
+}
+
+/**
+ * Build the insert op for one imported record, routing to the typed or JSON
+ * column path per target table.
+ */
 export function recordInsertOp(
     targetTable: string,
     recordHash: string,
@@ -275,9 +355,16 @@ export function recordInsertOp(
         }
         // record_hash and imported_at come from the function parameters, not the payload.
         const ts = timestamp(now);
+        // Tool identity is derived here rather than in each mapper: this is the single insert
+        // choke point for every typed table, so one derivation covers every source (0739 R1).
+        const toolIdentity = table === 'history_tool_call' ? resolveToolIdentity(payload) : undefined;
         const values = typedColumns.map((col) => {
             if (col === 'record_hash') return recordHash;
             if (col === 'imported_at') return ts;
+            if (toolIdentity !== undefined) {
+                if (col === 'effective_tool_name') return toolIdentity.effective;
+                if (col === 'tool_name_alias') return toolIdentity.alias;
+            }
             const v = payload[col];
             return v === undefined ? null : v;
         });
@@ -826,7 +913,14 @@ export function openCodeBulkWriteOperations(
                 FROM input
                 WHERE true
                 ON CONFLICT(record_hash) DO NOTHING`,
-                params: chunk.flatMap((entry) => [entry.recordHash, JSON.stringify(entry.record), importedAt]),
+                // Tool identity is folded into the payload rather than the SQL: this path
+                // json_extracts every column from payload_json, so a column the record lacks
+                // arrives NULL and violates the NOT NULL constraint (0739 R1).
+                params: chunk.flatMap((entry) => [
+                    entry.recordHash,
+                    JSON.stringify(table === 'history_tool_call' ? withToolIdentity(entry.record) : entry.record),
+                    importedAt,
+                ]),
             });
         }
     }
