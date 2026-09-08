@@ -8,6 +8,12 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.57] - 2026-09-07
+
+### Added
+
+- **`@gobing-ai/ts-ai-runner`: precise, attributed quota-exhaustion observations (task 0065).** New `packages/ai-runner/src/quota.ts` classifies only confirmed usage-allowance/credit exhaustion (exact allowlist over structured error envelopes — generic 429, throttling, overload, auth, context/output limits, timeouts and quoted prompt content never classify), bounds evidence to the trailing 8 KiB (`MAX_QUOTA_EVIDENCE_BYTES`), and produces `AgentQuotaObservation` events with a deterministic sha256 `observationId` (stable across redelivery) and UTC-ms `observedAt`. `QuotaObservationProducer` emits `agent.quota.exhausted` at most once per observationId across buffered (ai-runner), streaming/team (team-agent-process, bounded stderr tail) and explicitly opted-in health-probe paths; ordinary doctor stays read-only. Optional `AgentRunOptions.quotaContext` / `AgentProcessOptions.quotaContext` carry exact projectId/executor/agent/model attribution; missing attribution stays observable without inference. `agent.quota.recovered` and its explicit-recovery payload are reserved with `produceRecovery` as the only delivery path — no producer, timer or polling ships (9285ab4).
+
 ## [0.4.56] - 2026-09-03
 
 ### Added
