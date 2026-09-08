@@ -10,6 +10,12 @@ import {
 import { type AgentName, getAgentShim, type PromptOptions, type ShimCommand } from './agents/shims';
 import type { AgentEvents, AiRunnerProcessEvents } from './events';
 import { buildIdentityPreamble } from './identity';
+import {
+    buildQuotaObservation,
+    classifyQuotaErrorRecord,
+    type QuotaAttribution,
+    QuotaObservationProducer,
+} from './quota';
 import { translateSlashCommand } from './slash-command';
 
 /** Result returned by every AI runner dispatch method. */
@@ -38,6 +44,12 @@ export interface AgentRunOptions {
     onOutput?: (output: ProcessOutputChunk) => void;
     /** Optional application-owned correlation propagated unchanged to agent lifecycle events. */
     correlation?: AgentRunCorrelation;
+    /**
+     * Optional exact attribution for quota observations (Spur task 0798). Purely
+     * additive metadata: existing callers without it keep byte-identical results,
+     * and missing fields stay absent on emitted observations — never inferred.
+     */
+    quotaContext?: QuotaAttribution;
 }
 
 /** Application-owned execution identity carried without coupling the runner to a workflow model. */
@@ -121,6 +133,8 @@ export class AiRunner {
     private readonly defaultTimeout: number | undefined;
     private readonly logger: Logger;
     private readonly events: EventBus<AgentEvents> | undefined;
+    /** Single producer path for quota events; no-ops when no agent event bus is configured. */
+    private readonly quotaProducer: QuotaObservationProducer;
     /** Internal process-level observability bus, parented to `lifecycleBus` when auto-constructed. Exposed for introspection/testing. */
     readonly processEvents: EventBus<AiRunnerProcessEvents> | undefined;
 
@@ -153,6 +167,7 @@ export class AiRunner {
         this.defaultTimeout = options.defaultTimeout;
         this.logger = options.logger ?? getLogger('ai-runner');
         this.events = events;
+        this.quotaProducer = new QuotaObservationProducer(events);
         this.processEvents = processEvents;
     }
 
@@ -251,6 +266,19 @@ export class AiRunner {
             ...(options.correlation !== undefined ? { correlation: options.correlation } : {}),
             severity: result.exitCode === 0 || result.exitCode === null ? 'info' : 'error',
         });
+        if (result.exitCode !== null && result.exitCode !== 0) {
+            const classification = classifyQuotaErrorRecord(result.stderr);
+            if (classification.quota) {
+                this.quotaProducer.produce(
+                    buildQuotaObservation({
+                        source: 'buffered-error',
+                        reason: classification.reason,
+                        attribution: { agent, ...options.quotaContext },
+                        ...(options.correlation !== undefined ? { correlation: options.correlation } : {}),
+                    }),
+                );
+            }
+        }
         return {
             exitCode: result.exitCode,
             stdout: result.stdout,

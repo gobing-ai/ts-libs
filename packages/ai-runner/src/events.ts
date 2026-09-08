@@ -1,6 +1,7 @@
 import type { EventSeverity } from '@gobing-ai/ts-infra';
 import type { ProcessEvents } from '@gobing-ai/ts-runtime';
 import type { AgentRunCorrelation } from './ai-runner';
+import type { AgentQuotaObservation, AgentQuotaRecovery } from './quota';
 
 /** Typed event map for agent-runner observability. All events prefixed `agent.`. */
 export type AgentEvents = {
@@ -34,6 +35,10 @@ export type AgentEvents = {
     'agent.stopped': (data: { agentId: string; exitCode: number | null; severity: EventSeverity }) => void;
     /** Emitted when a message is sent to a team agent process. */
     'agent.message.sent': (data: { agentId: string; ok: boolean; severity: EventSeverity }) => void;
+    /** Emitted once per verified quota-exhaustion observation (confirmed usage-allowance or credit exhaustion). */
+    'agent.quota.exhausted': (data: AgentQuotaObservation) => void;
+    /** Explicit-recovery signal; type contract only — no automatic producer exists upstream. */
+    'agent.quota.recovered': (data: AgentQuotaRecovery) => void;
 };
 
 /** Event map for process-level observability emitted by AiRunner-owned executors. */

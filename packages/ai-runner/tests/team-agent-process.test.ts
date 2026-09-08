@@ -8,7 +8,13 @@ import {
     type ProcessExecutor,
     type ProcessSignal,
 } from '@gobing-ai/ts-runtime';
-import { type AgentSpec, type AiRunnerProcessEvents, TeamAgentProcess } from '../src';
+import {
+    type AgentEvents,
+    type AgentQuotaObservation,
+    type AgentSpec,
+    type AiRunnerProcessEvents,
+    TeamAgentProcess,
+} from '../src';
 
 const spec: AgentSpec = {
     id: 'coder',
@@ -266,3 +272,96 @@ function errorStream(message: string): ReadableStream<Uint8Array> {
         },
     });
 }
+
+describe('TeamAgentProcess — streaming quota observation (Spur 0798 R1/R2)', () => {
+    test('confirmed streaming quota failure emits one attributed event; subscribers still see raw chunks', async () => {
+        const events = new EventBus<AgentEvents>();
+        const seen: AgentQuotaObservation[] = [];
+        events.on('agent.quota.exhausted', (o) => seen.push(o));
+        const raw: string[] = [];
+        const process = new TeamAgentProcess({
+            spec,
+            events,
+            quotaContext: { projectId: 'proj-1', executor: 'omp', model: 'zai/glm-5.2' },
+            command: [
+                'bun',
+                '-e',
+                "process.stderr.write(JSON.stringify({error:{type:'insufficient_quota',code:'insufficient_quota'}})); process.exit(3);",
+            ],
+        });
+        const unsubscribe = process.subscribe((data) => raw.push(data.toString()));
+
+        await process.start();
+        await waitFor(() => process.getStatus() !== 'running');
+        unsubscribe();
+
+        expect(process.getStatus()).toBe('errored');
+        expect(process.getExitCode()).toBe(3);
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.evidenceSource).toBe('streaming-error');
+        expect(seen[0]?.reason).toBe('insufficient_quota');
+        expect(seen[0]?.attribution).toEqual({
+            projectId: 'proj-1',
+            executor: 'omp',
+            agent: 'coder',
+            model: 'zai/glm-5.2',
+        });
+        expect(raw.join('')).toContain('insufficient_quota');
+    });
+
+    test('rate-limited streaming failure emits no quota event', async () => {
+        const events = new EventBus<AgentEvents>();
+        const seen: AgentQuotaObservation[] = [];
+        events.on('agent.quota.exhausted', (o) => seen.push(o));
+        const process = new TeamAgentProcess({
+            spec,
+            events,
+            command: [
+                'bun',
+                '-e',
+                "process.stderr.write(JSON.stringify({error:{type:'rate_limit_error',code:'429'}})); process.exit(1);",
+            ],
+        });
+        await process.start();
+        await waitFor(() => process.getStatus() !== 'running');
+
+        expect(process.getStatus()).toBe('errored');
+        expect(seen).toHaveLength(0);
+    });
+
+    test('spec fallback attribution when no quotaContext is supplied', async () => {
+        const events = new EventBus<AgentEvents>();
+        const seen: AgentQuotaObservation[] = [];
+        events.on('agent.quota.exhausted', (o) => seen.push(o));
+        const process = new TeamAgentProcess({
+            spec,
+            events,
+            command: [
+                'bun',
+                '-e',
+                "process.stderr.write(JSON.stringify({error:{code:'credits_exhausted'}})); process.exit(2);",
+            ],
+        });
+        await process.start();
+        await waitFor(() => process.getStatus() !== 'running');
+
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.attribution).toEqual({ agent: 'coder', executor: 'codex' });
+    });
+
+    test('successful streaming runs emit no quota event', async () => {
+        const events = new EventBus<AgentEvents>();
+        const seen: AgentQuotaObservation[] = [];
+        events.on('agent.quota.exhausted', (o) => seen.push(o));
+        const process = new TeamAgentProcess({
+            spec,
+            events,
+            command: ['bun', '-e', 'process.exit(0)'],
+        });
+        await process.start();
+        await waitFor(() => process.getStatus() !== 'running');
+
+        expect(process.getStatus()).toBe('stopped');
+        expect(seen).toHaveLength(0);
+    });
+});

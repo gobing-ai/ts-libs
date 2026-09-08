@@ -1,5 +1,17 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { extractModelName, extractProvider, ModelHealthProbeRegistry, OmpModelProbe } from '../src/model-health-probe';
+import { EventBus, setLoggerMuted } from '@gobing-ai/ts-infra';
+import type { AgentEvents } from '../src/events';
+import {
+    extractModelName,
+    extractProvider,
+    ModelHealthProbeRegistry,
+    type ModelHealthResult,
+    OmpModelProbe,
+    observeQuotaHealthResult,
+} from '../src/model-health-probe';
+import { type AgentQuotaObservation, QuotaObservationProducer } from '../src/quota';
+
+setLoggerMuted(true);
 
 // --- fetch mocking helpers ---------------------------------------------------
 
@@ -170,5 +182,52 @@ describe('OmpModelProbe', () => {
         } finally {
             globalThis.setTimeout = originalSetTimeout;
         }
+    });
+});
+
+describe('opted-in quota health observation (Spur 0798 R1/R2)', () => {
+    test('quota_exhausted produces one observation and event; every other status produces none', () => {
+        const events = new EventBus<AgentEvents>();
+        const seen: AgentQuotaObservation[] = [];
+        events.on('agent.quota.exhausted', (o) => seen.push(o));
+        const producer = new QuotaObservationProducer(events);
+        const quotaResult: ModelHealthResult = {
+            status: 'quota_exhausted',
+            detail: 'quota exceeded',
+            checkedAt: '2026-09-07T12:00:00.000Z',
+        };
+
+        const observation = observeQuotaHealthResult(quotaResult, {
+            events,
+            producer,
+            attribution: { projectId: 'p-1', executor: 'omp', model: 'zai/glm-5.2' },
+        });
+
+        expect(observation).not.toBeNull();
+        expect(observation?.observedAt).toBe('2026-09-07T12:00:00.000Z');
+        expect(observation?.evidenceSource).toBe('health-probe');
+        expect(observation?.reason).toBe('provider_quota_exhausted');
+        expect(observation?.detail).toBe('quota exceeded');
+        expect(observation?.attribution).toEqual({ projectId: 'p-1', executor: 'omp', model: 'zai/glm-5.2' });
+        expect(seen).toHaveLength(1);
+
+        expect(
+            observeQuotaHealthResult(quotaResult, {
+                events,
+                producer,
+                attribution: { projectId: 'p-1', executor: 'omp', model: 'zai/glm-5.2' },
+            }),
+        ).not.toBeNull();
+        expect(seen).toHaveLength(1);
+
+        // A different identity (no attribution) is a distinct observation and emits again.
+        expect(observeQuotaHealthResult(quotaResult, { events, producer })).not.toBeNull();
+        expect(seen).toHaveLength(2);
+        for (const status of ['rate_limited', 'unavailable', 'unknown', 'available'] as const) {
+            expect(
+                observeQuotaHealthResult({ status, checkedAt: quotaResult.checkedAt }, { events, producer }),
+            ).toBeNull();
+        }
+        expect(seen).toHaveLength(2);
     });
 });

@@ -9,6 +9,7 @@ export * from './identity';
 export * from './message-store';
 export * from './messages';
 export * from './model-health-probe';
+export * from './quota';
 export * from './slash-command';
 export * from './team-agent-process';
 export * from './team-orchestrator';

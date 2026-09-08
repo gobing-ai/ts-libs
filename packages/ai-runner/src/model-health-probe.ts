@@ -10,7 +10,15 @@
  * issuing a minimal 1-token completion request and interpreting the HTTP
  * response (R3).
  */
-import { APIClient, type APIClientConfig, APIError, type RawHttpResponse } from '@gobing-ai/ts-infra';
+import { APIClient, type APIClientConfig, APIError, type EventBus, type RawHttpResponse } from '@gobing-ai/ts-infra';
+import type { AgentRunCorrelation } from './ai-runner';
+import type { AgentEvents } from './events';
+import {
+    type AgentQuotaObservation,
+    buildQuotaObservation,
+    type QuotaAttribution,
+    QuotaObservationProducer,
+} from './quota';
 
 /** Health status for a single model endpoint. */
 export type ModelHealthStatus = 'available' | 'quota_exhausted' | 'rate_limited' | 'unavailable' | 'unknown';
@@ -239,3 +247,40 @@ export class OmpModelProbe implements ModelHealthProbe {
 
 /** Default probe timeout in milliseconds (R8). */
 export { DEFAULT_PROBE_TIMEOUT_MS };
+
+/** Options for the explicitly opted-in quota health observation. */
+export interface QuotaHealthObservationOptions {
+    /** Agent event bus receiving `agent.quota.exhausted`. */
+    events: EventBus<AgentEvents>;
+    /** Optional exact attribution; absent fields stay absent — never inferred. */
+    attribution?: QuotaAttribution;
+    /** Optional run correlation carried unchanged onto the observation. */
+    correlation?: AgentRunCorrelation;
+    /** Optional shared producer so multiple observations dedupe across one observation session. */
+    producer?: QuotaObservationProducer;
+}
+
+/**
+ * Explicitly opted-in health observation → quota event. The ONLY producer seam
+ * on the health path: ordinary doctor runs never call this, so read-only
+ * behavior is preserved. Returns the emitted observation, or null when the
+ * result is not a confirmed quota exhaustion (rate_limited / unavailable /
+ * unknown never produce events).
+ */
+export function observeQuotaHealthResult(
+    result: ModelHealthResult,
+    options: QuotaHealthObservationOptions,
+): AgentQuotaObservation | null {
+    if (result.status !== 'quota_exhausted') return null;
+    const producer = options.producer ?? new QuotaObservationProducer(options.events);
+    const observation = buildQuotaObservation({
+        source: 'health-probe',
+        reason: 'provider_quota_exhausted',
+        observedAt: new Date(result.checkedAt),
+        ...(result.detail !== undefined ? { detail: result.detail } : {}),
+        attribution: options.attribution,
+        ...(options.correlation !== undefined ? { correlation: options.correlation } : {}),
+    });
+    producer.produce(observation);
+    return observation;
+}

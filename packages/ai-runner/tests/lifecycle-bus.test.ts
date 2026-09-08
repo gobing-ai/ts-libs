@@ -4,6 +4,7 @@ import { EventBus, setLoggerMuted } from '@gobing-ai/ts-infra';
 import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import { AiRunner } from '../src';
 import type { AgentEvents, AiRunnerProcessEvents } from '../src/events';
+import type { AgentQuotaObservation } from '../src/quota';
 
 setLoggerMuted(true);
 
@@ -85,5 +86,97 @@ describe('AiRunner — lifecycle bus propagation (R4)', () => {
 
         await runner.runHelpCommand('claude');
         expect(seen).toContain('claude');
+    });
+});
+
+/** Executor that fails with a fixed stderr — quota classification fixtures. */
+class FailingExecutor implements ProcessExecutor {
+    readonly calls: ProcessOptions[] = [];
+
+    constructor(private readonly stderr: string) {}
+
+    async run(options: ProcessOptions): Promise<ProcessResult> {
+        this.calls.push(options);
+        return {
+            command: options.command,
+            args: options.args ?? [],
+            exitCode: 1,
+            stdout: '',
+            stderr: this.stderr,
+            durationMs: 2,
+        };
+    }
+
+    runStreaming(): never {
+        throw new Error('FakeExecutor.runStreaming not implemented');
+    }
+}
+
+describe('AiRunner — buffered quota observation (Spur 0798 R1/R2)', () => {
+    const QUOTA_STDERR = JSON.stringify({ error: { type: 'insufficient_quota', code: 'insufficient_quota' } });
+    const RATE_STDERR = JSON.stringify({ error: { type: 'rate_limit_error', code: '429' } });
+
+    test('confirmed quota failure emits one attributed event and preserves the original result', async () => {
+        const events = new EventBus<AgentEvents>();
+        const seen: AgentQuotaObservation[] = [];
+        events.on('agent.quota.exhausted', (o) => seen.push(o));
+        const runner = new AiRunner({ processExecutor: new FailingExecutor(QUOTA_STDERR), events });
+
+        const result = await runner.runHelpCommand('codex', {
+            quotaContext: { projectId: 'p-1', executor: 'codex' },
+            correlation: { runId: 'r-1', executionId: 'e-1' },
+        });
+
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain('insufficient_quota');
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.evidenceSource).toBe('buffered-error');
+        expect(seen[0]?.reason).toBe('insufficient_quota');
+        expect(seen[0]?.attribution).toEqual({ projectId: 'p-1', executor: 'codex', agent: 'codex' });
+        expect(seen[0]?.correlation).toEqual({ runId: 'r-1', executionId: 'e-1' });
+    });
+
+    test('redelivery of the same quota fact is suppressed to one event', async () => {
+        const events = new EventBus<AgentEvents>();
+        const seen: AgentQuotaObservation[] = [];
+        events.on('agent.quota.exhausted', (o) => seen.push(o));
+        const runner = new AiRunner({ processExecutor: new FailingExecutor(QUOTA_STDERR), events });
+
+        await runner.runHelpCommand('codex');
+        await runner.runHelpCommand('codex');
+        expect(seen).toHaveLength(1);
+    });
+
+    test('generic 429 throttling emits no quota event and the failure result stays intact', async () => {
+        const events = new EventBus<AgentEvents>();
+        const seen: AgentQuotaObservation[] = [];
+        events.on('agent.quota.exhausted', (o) => seen.push(o));
+        const runner = new AiRunner({ processExecutor: new FailingExecutor(RATE_STDERR), events });
+
+        const result = await runner.runHelpCommand('codex', { quotaContext: { projectId: 'p-1' } });
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain('rate_limit_error');
+        expect(seen).toHaveLength(0);
+    });
+
+    test('missing quotaContext stays observable without inferred attribution', async () => {
+        const events = new EventBus<AgentEvents>();
+        const seen: AgentQuotaObservation[] = [];
+        events.on('agent.quota.exhausted', (o) => seen.push(o));
+        const runner = new AiRunner({ processExecutor: new FailingExecutor(QUOTA_STDERR), events });
+
+        await runner.runHelpCommand('gemini');
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.attribution).toEqual({ agent: 'gemini' });
+    });
+
+    test('successful invocations never classify', async () => {
+        const events = new EventBus<AgentEvents>();
+        const seen: AgentQuotaObservation[] = [];
+        events.on('agent.quota.exhausted', (o) => seen.push(o));
+        const runner = new AiRunner({ processExecutor: new FakeExecutor(), events });
+
+        await runner.runHelpCommand('codex');
+        expect(seen).toHaveLength(0);
     });
 });

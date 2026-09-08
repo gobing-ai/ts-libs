@@ -1,7 +1,15 @@
 import { Buffer } from 'node:buffer';
-import { getLogger, type Logger } from '@gobing-ai/ts-infra';
+import { type EventBus, getLogger, type Logger } from '@gobing-ai/ts-infra';
 import { nodeBunFactory, type PipeProcess, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { AgentSpec } from './agent-spec';
+import type { AgentEvents } from './events';
+import {
+    buildQuotaObservation,
+    classifyQuotaErrorRecord,
+    MAX_QUOTA_EVIDENCE_BYTES,
+    type QuotaAttribution,
+    QuotaObservationProducer,
+} from './quota';
 
 /** Options for spawning a team agent subprocess. */
 export interface AgentProcessOptions {
@@ -11,6 +19,10 @@ export interface AgentProcessOptions {
     cwd?: string;
     processExecutor?: ProcessExecutor;
     logger?: Logger;
+    /** Optional agent event bus; when present, confirmed quota failures emit `agent.quota.exhausted` (Spur task 0798). */
+    events?: EventBus<AgentEvents>;
+    /** Optional exact quota attribution; absent fields stay absent on observations — never inferred. */
+    quotaContext?: QuotaAttribution;
 }
 
 type ProcessStatus = 'running' | 'stopped' | 'errored';
@@ -30,6 +42,11 @@ export class TeamAgentProcess {
     private status: ProcessStatus = 'stopped';
     private exitCode: number | null = null;
     private readonly subscribers = new Set<(data: Buffer) => void>();
+    /** Bounded trailing stderr window retained for quota classification — never a full transcript. */
+    private stderrTail = '';
+    private readonly quotaProducer: QuotaObservationProducer;
+    private readonly spec: AgentSpec;
+    private readonly quotaContext: QuotaAttribution | undefined;
 
     constructor(options: AgentProcessOptions) {
         this.agentId = options.spec.id;
@@ -38,6 +55,9 @@ export class TeamAgentProcess {
         this.cwd = options.cwd ?? options.spec.workspace;
         this.processExecutor = options.processExecutor ?? nodeBunFactory.createProcessExecutor();
         this.logger = options.logger ?? getLogger('team-agent');
+        this.quotaProducer = new QuotaObservationProducer(options.events);
+        this.spec = options.spec;
+        this.quotaContext = options.quotaContext;
     }
 
     async start(): Promise<void> {
@@ -53,11 +73,15 @@ export class TeamAgentProcess {
         });
         this.status = 'running';
         this.exitCode = null;
-        if (this.subprocess.stdout !== null) this.pipe(this.subprocess.stdout);
-        if (this.subprocess.stderr !== null) this.pipe(this.subprocess.stderr);
+        this.stderrTail = '';
+        if (this.subprocess.stdout !== null) this.pipe(this.subprocess.stdout, false);
+        if (this.subprocess.stderr !== null) this.pipe(this.subprocess.stderr, true);
         void this.subprocess.exited.then((code) => {
             this.exitCode = code;
-            if (this.status === 'running') this.status = code === 0 ? 'stopped' : 'errored';
+            if (this.status === 'running') {
+                this.status = code === 0 ? 'stopped' : 'errored';
+                if (this.status === 'errored') this.classifyQuota();
+            }
         });
     }
 
@@ -121,13 +145,14 @@ export class TeamAgentProcess {
         return this.exitCode;
     }
 
-    private async pipe(stream: ReadableStream<Uint8Array>): Promise<void> {
+    private async pipe(stream: ReadableStream<Uint8Array>, isStderr: boolean): Promise<void> {
         const reader = stream.getReader();
         try {
             while (true) {
                 const chunk = await reader.read();
                 if (chunk.done) break;
                 const buffer = Buffer.from(chunk.value);
+                if (isStderr) this.retainStderrTail(buffer.toString('utf8'));
                 for (const subscriber of this.subscribers) subscriber(buffer);
             }
         } catch (error) {
@@ -136,6 +161,28 @@ export class TeamAgentProcess {
         } finally {
             reader.releaseLock();
         }
+    }
+
+    /** Keep only the trailing {@link MAX_QUOTA_EVIDENCE_BYTES} of stderr; subscribers still see every chunk unchanged. */
+    private retainStderrTail(text: string): void {
+        this.stderrTail = (this.stderrTail + text).slice(-MAX_QUOTA_EVIDENCE_BYTES);
+    }
+
+    /** Classify the retained stderr window and emit one attributed quota observation on confirmation. */
+    private classifyQuota(): void {
+        const classification = classifyQuotaErrorRecord(this.stderrTail);
+        if (!classification.quota) return;
+        this.quotaProducer.produce(
+            buildQuotaObservation({
+                source: 'streaming-error',
+                reason: classification.reason,
+                attribution: {
+                    ...this.quotaContext,
+                    agent: this.quotaContext?.agent ?? this.spec.id,
+                    executor: this.quotaContext?.executor ?? this.spec.executor ?? this.spec.type,
+                },
+            }),
+        );
     }
 
     private warn(message: string, op: string, error?: unknown): void {
