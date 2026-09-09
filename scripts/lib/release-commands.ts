@@ -42,7 +42,13 @@ async function publishWithResolvedRanges(
 ) {
     const manifestPath = `${repoRoot}${dir}/package.json`;
     const original = await Bun.file(manifestPath).text();
-    const parsed = JSON.parse(original) as ManifestLike;
+    let parsed: ManifestLike;
+    try {
+        parsed = JSON.parse(original) as ManifestLike;
+    } catch (error) {
+        // Rethrow with the file named — fail-closed, but diagnosable mid-publish.
+        throw new Error(`${manifestPath} is not valid JSON: ${String(error)}`, { cause: error });
+    }
 
     const { manifest, changed } = substituteWorkspaceRanges(parsed, versions);
     assertNoWorkspaceRanges(manifest, name);
