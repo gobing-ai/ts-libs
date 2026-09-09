@@ -8,9 +8,18 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.60] - 2026-09-08
+
 ### Added
 
 - **`@gobing-ai/ts-llm-jsonl-importer`: cooperative cancellation settles writes and checkpoints before rejecting (feature A21 / ADR-112).** `ImportOptions.signal` / `OpenCodeImportOptions.signal` accept an `AbortSignal` checked at safe boundaries — before schema and checkpoint writes, before each source file, between bounded per-line batches (JSONL), and per source page plus before the single settlement batch (OpenCode) — never inside a transaction: in-flight batch work settles first, then the run rejects with the new `ImportCancelledError` (a `HistoryImportError` carrying `signal.reason`). No invocation-owned write happens after settlement; incremental resume continues from the last committed checkpoint, and the per-file identity stamp moved after each file's line loop so a cancelled mid-file run can never arm the 0675 file-identity short-circuit and silently skip the un-imported tail on resume. Omitting `signal` preserves existing behavior. A cancellation cannot interrupt a synchronous SQLite call — the containing process remains the hard fallback.
+- **`@gobing-ai/ts-db` + `@gobing-ai/ts-infra`: per-job execution deadlines with lease-aware consumption (feature A21).**
+  `QueueJobDao.enqueue` accepts `timeoutMs` — a positive per-job millisecond deadline or explicit `null` for unlimited;
+  omitted inherits the consumer default — persisted alongside the job and surfaced through the embedded migrations.
+  `ts-infra` gains the shared `execution-policy` module — one clock per execution, cancellation requested on expiry,
+  settlement awaited (never a second timer racing the deadline) — wired through `DbJobQueue` lease consumption, the
+  scheduler `register(cron, action, options?)` surface (node + cloudflare adapters), `wrap-handler`, and
+  `application-node`.
 
 ## [0.4.58] - 2026-09-08
 
