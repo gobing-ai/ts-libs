@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-llm-jsonl-importer",
-    "version": "0.4.57",
+    "version": "0.4.58",
     "description": "@gobing-ai/ts-llm-jsonl-importer — Generic JSONL importer for LLM agent history files.",
     "keywords": [
         "typescript",
