@@ -238,7 +238,7 @@ describe('R6 unknown capture + stable field shape', () => {
         const etl = await db.queryFirst<{ name: string }>(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'history_etl_agy'",
         );
-        expect(etl).toBeNull();
+        expect(etl).toBeUndefined();
     });
 
     test('grok record with no type discriminator is unknown and counted', async () => {

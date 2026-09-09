@@ -1350,7 +1350,7 @@ describe('runJsonlImport atomic validation (0504 R2)', () => {
         const table = await db.queryFirst<{ name: string }>(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'history_etl_atomic'",
         );
-        expect(table).toBeNull();
+        expect(table).toBeUndefined();
     });
 });
 describe('runJsonlImport dryRun mode', () => {
@@ -1376,7 +1376,7 @@ describe('runJsonlImport dryRun mode', () => {
         const table = await db.queryFirst<{ name: string }>(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'history_etl_antigravity'",
         );
-        expect(table).toBeNull();
+        expect(table).toBeUndefined();
         const ledgerRows = await db.queryAll<{ record_hash: string }>('SELECT record_hash FROM history_import_ledger');
         expect(ledgerRows).toEqual([]);
         const checkpoints = await db.queryAll<{ last_imported_line: number }>(
