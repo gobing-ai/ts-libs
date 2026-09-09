@@ -8,6 +8,12 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.61] - 2026-09-09
+
+### Fixed
+
+- **`@gobing-ai/ts-db`: `BunSqliteAdapter.queryFirst` no longer returns `null` on no row.** `bun:sqlite`'s `Statement.get()` resolves `null` when nothing matches; the adapter passed it through with a cast to `T | undefined`, so the declared contract lied at runtime and diverged from the D1 adapter (which already normalizes). The no-row result is now `undefined`, matching `DbAdapter.queryFirst` and every call site's `=== undefined` reasoning. Repaired two test assertions that codified the `null` behavior (`adapters/bun-sqlite.test.ts`, `adapter.test.ts`) to `toBeUndefined()`.
+
 ## [0.4.60] - 2026-09-08
 
 ### Added
