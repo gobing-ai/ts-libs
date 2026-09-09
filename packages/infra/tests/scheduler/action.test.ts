@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { EventBus } from '../../src/event-bus/event-bus';
 import type { QueueEvents } from '../../src/events';
+import { unlimitedExecutionContext } from '../../src/execution-policy';
 import { setLoggerMuted } from '../../src/logger';
 import {
     ActionRegistry,
@@ -39,7 +40,7 @@ describe('toScheduledAction', () => {
                 ran = true;
             },
         };
-        await toScheduledAction(action)();
+        await toScheduledAction(action)(unlimitedExecutionContext());
         expect(ran).toBe(true);
     });
 });

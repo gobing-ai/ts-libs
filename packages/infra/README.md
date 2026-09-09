@@ -70,7 +70,7 @@ classDiagram
     namespace scheduler {
         class SchedulerAdapter {
             <<interface>>
-            +register(cron, action) void
+            +register(cron, action, options?) void
             +start() Promise~void~
             +stop() Promise~void~
         }
@@ -249,17 +249,25 @@ await queue.enqueue(
     { to: 'alice@example.com', subject: 'Welcome' },
     // maxRetries is a total attempt budget, not retries after the first:
     // 5 means up to 5 attempts, and `maxRetries: 1` runs the job once with no retry.
-    { maxRetries: 5, delay: 1_000, ttlMs: 86_400_000 },
+    // timeoutMs is the per-job execution policy: positive ms, or `null` = unlimited.
+    { maxRetries: 5, delay: 1_000, ttlMs: 86_400_000, timeoutMs: 60_000 },
 );
 
 const consumer = new DBQueueConsumer<{ to: string; subject: string }>(dao, {
     batchSize: 10,
     maxConcurrency: 4,
     visibilityTimeout: 30_000,
+    // Execution policy: defaultTimeoutMs applies to jobs without their own
+    // timeoutMs (job timeoutMs wins; explicit null = unlimited). Handlers that
+    // overrun are failed with a deadline message; lease loss or cancel(jobId)
+    // aborts the handler context and fences the ack.
+    defaultTimeoutMs: 120_000,
+    drainPolicy: 'bounded',
 });
 
-consumer.register('send-email', async (job) => {
-    await sendEmail(job.payload.to, job.payload.subject);
+consumer.register('send-email', async (job, context) => {
+    // context.signal aborts on deadline expiry, lease loss, or cancel(jobId).
+    await sendEmail(job.payload.to, job.payload.subject, context.signal);
 });
 
 await consumer.start();
@@ -272,6 +280,8 @@ const processed = await consumer.processOnce();
 ```
 
 The consumer claims ready jobs, resets stuck processing jobs after the visibility timeout, retries failed jobs with exponential backoff, and marks expired jobs failed through `QueueJobDao`. Corrupt payloads are failed individually without rejecting the batch. Poll-cycle errors are logged and retried on the next cycle — a single DAO hiccup will not crash the process.
+
+**Execution deadlines (A21):** every attempt runs under one shared deadline clock from `@gobing-ai/ts-infra` (`resolveExecutionTimeoutMs`, `runWithExecutionDeadline`). Resolution is first-match-wins: job `timeoutMs` (explicit `null` = unlimited) → consumer `defaultTimeoutMs` → unlimited. A deadline aborts the handler's `context.signal` and fails the job; lease loss or `consumer.cancel(jobId)` reports `cancelled` and skips all acks (ownership fencing via attempt tokens).
 
 `stop()` drains gracefully: it stops polling, then waits for work already in flight — including a poll cycle that has claimed nothing yet — before resolving. The wait is capped by `drainTimeoutMs` (default 30s) so a stuck handler cannot block shutdown; when the cap is hit, `queue.consumer.stopped` reports `drained: false` with the outstanding `inFlightAtStop` count.
 

@@ -19,7 +19,11 @@ beforeAll(async () => {
         next_retry_at INTEGER,
         last_error TEXT,
         processing_at INTEGER,
-        expires_at INTEGER
+        expires_at INTEGER,
+        timeout_ms INTEGER,
+        timeout_unlimited INTEGER NOT NULL DEFAULT 0,
+        attempt_token TEXT,
+        lease_expires_at INTEGER
     )`);
     await adapter.exec('CREATE INDEX queue_jobs_ready_idx ON queue_jobs (status, next_retry_at, created_at)');
     dao = new QueueJobDao(adapter);

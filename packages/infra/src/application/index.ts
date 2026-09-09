@@ -15,6 +15,7 @@ import { EventBus } from '../event-bus/event-bus';
 import { attachFileObserver } from '../event-bus/file-observer';
 import type { BusLifecycleEvents, EventMap } from '../event-bus/types';
 import type { InfraEvents } from '../events';
+import { resolveExecutionTimeoutMs } from '../execution-policy';
 import { getLogger, type Logger } from '../logger';
 import { initScheduler } from '../scheduler/factory';
 import type { SchedulerAdapter } from '../scheduler/types';
@@ -126,6 +127,8 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
         enabled: schedOpts?.enabled ?? false,
         autoStart: schedOpts?.autoStart ?? true,
         jobs: schedOpts?.jobs ?? [],
+        // Bootstrap-level execution policy (A21): omitted resolves to unlimited.
+        timeoutMs: resolveExecutionTimeoutMs('bootstrap.scheduler', schedOpts?.timeoutMs),
     };
     const eventsEnabled = options.config?.events?.enabled ?? true;
     const eventsLifecycle = options.config?.events?.lifecycle ?? true;

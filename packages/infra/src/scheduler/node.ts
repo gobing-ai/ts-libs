@@ -6,7 +6,9 @@
  * internal `scheduler/cron.ts` grammar shared with `application-node.ts`.
  */
 
+import { type ExecutionDeadlineMs, resolveExecutionTimeoutMs, runWithExecutionDeadline } from '../execution-policy';
 import { settleWithin } from '../internals/drain';
+import { getLogger } from '../logger';
 import {
     getSchedulerJobDuration,
     getSchedulerJobExecutedTotal,
@@ -60,6 +62,7 @@ type ScheduledEntry =
           cron: string;
           action: ScheduledAction;
           intervalMs: number;
+          timeoutMs: ExecutionDeadlineMs;
           timer?: ReturnType<typeof setInterval>;
       }
     | {
@@ -68,11 +71,18 @@ type ScheduledEntry =
           action: ScheduledAction;
           expr: CronExpression;
           target: number;
+          timeoutMs: ExecutionDeadlineMs;
           timer?: ReturnType<typeof setTimeout>;
       };
 
 /** Constructor options for {@link NodeSchedulerAdapter}. */
 export interface NodeSchedulerAdapterConfig {
+    /**
+     * Default execution policy (A21) for entries registered without their own
+     * `timeoutMs` option: a positive integer ms deadline or explicit `null` =
+     * unlimited. Invalid values throw at construction.
+     */
+    readonly timeoutMs?: number | null;
     /**
      * Upper bound (ms) on how long `stop()` waits for an in-flight tick to settle.
      * A hung action is abandoned at this deadline so it cannot block shutdown.
@@ -98,6 +108,7 @@ export interface NodeSchedulerAdapterConfig {
 export class NodeSchedulerAdapter implements SchedulerAdapter {
     private readonly entries: ScheduledEntry[] = [];
     private readonly drainTimeoutMs: number;
+    private readonly defaultTimeoutMs: ExecutionDeadlineMs;
     private readonly now: () => number;
     private running = false;
     private readonly inflight = new Set<Promise<void>>();
@@ -110,30 +121,39 @@ export class NodeSchedulerAdapter implements SchedulerAdapter {
             );
         }
         this.drainTimeoutMs = drainTimeoutMs ?? 30_000;
+        this.defaultTimeoutMs = resolveExecutionTimeoutMs('NodeSchedulerAdapter', config.timeoutMs ?? undefined);
         this.now = now ?? (() => Date.now());
     }
 
-    register(cron: string, action: ScheduledAction): void {
+    register(cron: string, action: ScheduledAction, options?: { timeoutMs?: number | null }): void {
         // Fail at registration time: an unsupported expression must never reach
         // start(), where it would otherwise create a silently-wrong interval
         // (task 0060 F7) or a never-firing cron (task 0734 R1).
-        const entry = this.parseEntry(cron, action);
+        const entry = this.parseEntry(cron, action, options);
         this.entries.push(entry);
         if (this.running) {
             this.startEntry(entry);
         }
     }
 
-    private parseEntry(cron: string, action: ScheduledAction): ScheduledEntry {
+    private parseEntry(cron: string, action: ScheduledAction, options?: { timeoutMs?: number | null }): ScheduledEntry {
+        // Resolve the entry's execution policy now: an explicit option (including
+        // explicit null) wins, absence inherits the adapter default. Invalid
+        // options throw here rather than leaving a tick to discover it mid-flight.
+        const timeoutMs = resolveExecutionTimeoutMs(
+            `scheduler entry "${cron}"`,
+            options?.timeoutMs,
+            this.defaultTimeoutMs,
+        );
         const intervalMs = parseInterval(cron);
         if (intervalMs !== undefined) {
-            return { kind: 'interval', cron, action, intervalMs };
+            return { kind: 'interval', cron, action, intervalMs, timeoutMs };
         }
         // Real five-field cron. Validate and verify a next occurrence exists at
         // registration (bounded scan) so an unsatisfiable expression fails here.
         const expr = parseCronExpression(cron);
         const target = nextCronTime(expr, this.now()).getTime();
-        return { kind: 'cron', cron, action, expr, target };
+        return { kind: 'cron', cron, action, expr, target, timeoutMs };
     }
 
     async start(): Promise<void> {
@@ -247,7 +267,20 @@ export class NodeSchedulerAdapter implements SchedulerAdapter {
         const startMs = performance.now();
         getSchedulerJobExecutedTotal().add(1, { cron: entry.cron });
         try {
-            await entry.action();
+            // One shared deadline clock per tick (A21): expiry aborts the
+            // context and the action is always awaited to settlement. Timeout
+            // counts as a failure; the adapter keeps ticking.
+            const outcome = await runWithExecutionDeadline(entry.action, { timeoutMs: entry.timeoutMs });
+            if (outcome.timedOut) {
+                getSchedulerJobFailedTotal().add(1, { cron: entry.cron });
+                getLogger('scheduler').warn('scheduled tick exceeded its execution deadline', {
+                    cron: entry.cron,
+                    timeoutMs: entry.timeoutMs,
+                    elapsedMs: Math.round(outcome.elapsedMs),
+                });
+            } else if (outcome.outcome === 'error') {
+                getSchedulerJobFailedTotal().add(1, { cron: entry.cron });
+            }
         } catch {
             // Swallow — scheduler errors should not crash the process
             getSchedulerJobFailedTotal().add(1, { cron: entry.cron });

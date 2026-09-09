@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { EventBus } from '../../src/event-bus/event-bus';
 import type { BusLifecycleEvents } from '../../src/event-bus/types';
+import { unlimitedExecutionContext } from '../../src/execution-policy';
 import type { JobQueue } from '../../src/job-queue/types';
 import { setLoggerMuted } from '../../src/logger';
 
@@ -375,18 +376,24 @@ describe('EventBus', () => {
 
         const jobHandler = bus.createJobHandler();
 
-        await jobHandler({
-            id: 'j1',
-            type: 'user.created',
-            payload: { event: 'user.created', args: ['id1', 'Bob'], handlerId: 'create-handler' },
-        } as never);
+        await jobHandler(
+            {
+                id: 'j1',
+                type: 'user.created',
+                payload: { event: 'user.created', args: ['id1', 'Bob'], handlerId: 'create-handler' },
+            } as never,
+            unlimitedExecutionContext(),
+        );
         expect(received).toEqual(['created:id1:Bob']);
 
-        await jobHandler({
-            id: 'j2',
-            type: 'data.synced',
-            payload: { event: 'data.synced', args: [99], handlerId: 'sync-handler' },
-        } as never);
+        await jobHandler(
+            {
+                id: 'j2',
+                type: 'data.synced',
+                payload: { event: 'data.synced', args: [99], handlerId: 'sync-handler' },
+            } as never,
+            unlimitedExecutionContext(),
+        );
         expect(received).toEqual(['created:id1:Bob', 'synced:99']);
     });
 
@@ -396,11 +403,14 @@ describe('EventBus', () => {
 
         const jobHandler = bus.createJobHandler();
         await expect(
-            jobHandler({
-                id: 'j1',
-                type: 'user.created',
-                payload: { event: 'user.created', args: [], handlerId: 'nobody' },
-            } as never),
+            jobHandler(
+                {
+                    id: 'j1',
+                    type: 'user.created',
+                    payload: { event: 'user.created', args: [], handlerId: 'nobody' },
+                } as never,
+                unlimitedExecutionContext(),
+            ),
         ).rejects.toThrow('No async handler registered for id "nobody"');
     });
 });

@@ -7,6 +7,7 @@ import type {
     QueueJobFailedDetail,
     QueueJobRetryingDetail,
 } from '../events';
+import { resolveExecutionTimeoutMs, runWithExecutionDeadline } from '../execution-policy';
 import { settleWithin } from '../internals/drain';
 import { getLogger, type Logger } from '../logger';
 import {
@@ -67,7 +68,7 @@ function enqueuedDetail(jobId: string, type: string, options: EnqueueOptions | u
     return detail;
 }
 
-/** DB-backed queue consumer with polling, retry, and visibility-timeout handling. */
+/** DB-backed queue consumer with polling, retry, lease ownership, and execution-deadline handling. */
 export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
     private readonly handlers = new Map<string, JobHandler<T>>();
     private readonly pollInterval: number;
@@ -77,6 +78,11 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
     private readonly baseDelay: number;
     private readonly maxDelay: number;
     private readonly drainTimeoutMs: number;
+    private readonly drainPolicy: 'bounded' | 'drain-to-completion';
+    /** Default execution policy for jobs without their own persisted decision; `null` = unlimited. */
+    private readonly defaultTimeoutMs: number | null;
+    /** Live attempts owned by this consumer, keyed by job id — the target of `cancel()`. */
+    private readonly activeAttempts = new Map<string, { controller: AbortController; state: AttemptState }>();
     /**
      * Validated event sink: the bus plus the non-empty queue name its lifecycle rows
      * require (ADR-068). `undefined` for silent consumers — no `events`, no identity.
@@ -98,6 +104,19 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         this.baseDelay = nonNegativeFiniteConfig('baseDelay', config.baseDelay ?? 1_000);
         this.maxDelay = nonNegativeFiniteConfig('maxDelay', config.maxDelay ?? 60_000);
         this.drainTimeoutMs = nonNegativeFiniteConfig('drainTimeoutMs', config.drainTimeoutMs ?? 30_000);
+        this.drainPolicy = config.drainPolicy ?? 'bounded';
+        if (
+            config.defaultTimeoutMs !== undefined &&
+            config.defaultTimeoutMs !== null &&
+            (typeof config.defaultTimeoutMs !== 'number' ||
+                !Number.isInteger(config.defaultTimeoutMs) ||
+                config.defaultTimeoutMs <= 0)
+        ) {
+            throw new RangeError(
+                `Queue consumer defaultTimeoutMs must be a positive integer or null; received ${String(config.defaultTimeoutMs)}`,
+            );
+        }
+        this.defaultTimeoutMs = config.defaultTimeoutMs ?? null;
         this.eventSink = resolveEventSink(config);
     }
 
@@ -131,6 +150,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
             this.timer = null;
         }
 
+        const drainToCompletion = this.drainPolicy === 'drain-to-completion';
         const deadline = Date.now() + this.drainTimeoutMs;
 
         // Wait for an already-running poll cycle before consulting `inFlight`.
@@ -140,11 +160,25 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         // to claim and process jobs after stop() resolved.
         const pending = this.pollPromise;
         if (pending !== null) {
-            await settleWithin(pending, deadline);
+            if (drainToCompletion) {
+                await pending;
+            } else {
+                await settleWithin(pending, deadline);
+            }
         }
 
-        while (this.inFlight > 0 && Date.now() < deadline) {
-            await sleep(10);
+        if (drainToCompletion) {
+            // Shutdown policy (A21): wait for every in-flight attempt to settle,
+            // however long that takes. Leases keep renewing while we wait.
+            while (this.inFlight > 0) {
+                await sleep(10);
+            }
+        } else {
+            while (this.inFlight > 0 && Date.now() < deadline) {
+                await sleep(10);
+            }
+            // Bounded drain expiry (A21): attempts still running keep ownership —
+            // their leases keep renewing and they are acknowledged when they settle.
         }
         if (wasRunning) {
             const drained = this.inFlight === 0;
@@ -162,6 +196,14 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         }
     }
 
+    async cancel(jobId: string): Promise<boolean> {
+        const attempt = this.activeAttempts.get(jobId);
+        if (attempt === undefined) return false;
+        attempt.state.cancelled = true;
+        attempt.controller.abort();
+        return true;
+    }
+
     async stats(): Promise<QueueStats> {
         return this.dao.getStats();
     }
@@ -172,7 +214,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
             await this.dao.resetStuckJobs(this.visibilityTimeout);
             await this.dao.failExpiredJobs();
 
-            const jobs = await this.dao.claimReady(this.batchSize);
+            const jobs = await this.dao.claimReady(this.batchSize, { leaseMs: this.visibilityTimeout });
             let processed = 0;
 
             for (let index = 0; index < jobs.length; index += this.maxConcurrency) {
@@ -229,7 +271,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         } catch (error) {
             // Corrupt payload — the job can never parse; route it through the
             // retry/fail path instead of rejecting the whole batch.
-            await this.failOrRetry(record, error, 0);
+            await this.failOrRetry(record, error, 0, record.attemptToken ?? undefined);
             return;
         }
         return traceAsync('queue.job.process', async () => {
@@ -240,43 +282,146 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
             });
 
             const handler = this.handlers.get(job.type);
+            const token = record.attemptToken ?? undefined;
             if (handler === undefined) {
-                await this.failOrRetry(job, new Error(`No handler registered for job type "${job.type}"`), 0);
+                await this.failOrRetry(job, new Error(`No handler registered for job type "${job.type}"`), 0, token);
                 return;
             }
 
-            const startMs = performance.now();
+            // Per-attempt ownership (A21): the fresh claim token fences every
+            // acknowledgement, and the external controller carries lease-loss and
+            // manual cancellation into the shared deadline clock.
+            let attemptWake: (() => void) | undefined;
+            const attempt: AttemptState = { lost: false, cancelled: false, settled: false };
+            const attemptAbort = new AbortController();
+            if (token !== undefined) {
+                const { promise: settledSignal, resolve: resolveSettled } = Promise.withResolvers<void>();
+                attempt.settledSignal = settledSignal;
+                attemptWake = resolveSettled;
+                // Shares the `attempt` object reference so cancel() mutations are
+                // visible in the outcome dispatch below.
+                this.activeAttempts.set(record.id, { controller: attemptAbort, state: attempt });
+            }
+            const renewal =
+                token === undefined
+                    ? undefined
+                    : this.renewUntilSettled(record.id, token, attempt, attemptAbort).catch(() => {});
             try {
-                await handler(job);
-                await this.dao.markCompleted(job.id);
+                const resolvedTimeout = resolveExecutionTimeoutMs(
+                    `job "${job.type}"`,
+                    record.timeoutUnlimited === 1 ? null : (record.timeoutMs ?? undefined),
+                    this.defaultTimeoutMs,
+                );
+                const startMs = performance.now();
+                const outcome = await runWithExecutionDeadline((context) => handler(job, context), {
+                    timeoutMs: resolvedTimeout,
+                    signal: attemptAbort.signal,
+                });
+                attempt.settled = true;
+                attemptWake?.();
                 const durationMs = performance.now() - startMs;
-                getQueueJobCompletedTotal().add(1, { type: job.type });
-                getQueueJobProcessingDuration().record(durationMs, { type: job.type });
-                const completed: QueueJobCompletedDetail = {
-                    jobId: job.id,
+                getQueueJobProcessingDuration().record(Number.isFinite(durationMs) ? durationMs : 0, {
                     type: job.type,
-                    durationMs: Number.isFinite(durationMs) ? durationMs : 0,
-                    attempt: job.attempts,
-                    severity: 'info',
-                };
-                await this.eventSink?.bus.emit('queue.job.completed', completed);
-            } catch (error) {
-                const durationMs = performance.now() - startMs;
-                getQueueJobProcessingDuration().record(durationMs, { type: job.type });
-                await this.failOrRetry(job, error, Number.isFinite(durationMs) ? durationMs : 0);
+                });
+
+                if (attempt.lost) {
+                    // Ownership was lost: the row now belongs to a replacement attempt
+                    // claimed through the expired lease. Fence every acknowledgement —
+                    // a stale ack must never mutate the replacement's work (R4).
+                    queueLogger().warn('queue attempt lost lease ownership; acknowledgement fenced', {
+                        jobId: record.id,
+                        type: job.type,
+                        outcome: outcome.outcome,
+                    });
+                    return;
+                }
+
+                if (outcome.outcome === 'error') {
+                    await this.failOrRetry(job, outcome.error, Number.isFinite(durationMs) ? durationMs : 0, token);
+                } else if (outcome.timedOut) {
+                    // Deadline expiry is a failure like any other, reported only after
+                    // the handler has settled — even if it ignored the abort.
+                    await this.failOrRetry(job, outcome.error, Number.isFinite(durationMs) ? durationMs : 0, token);
+                } else if (attempt.cancelled) {
+                    // Manual cancellation is terminal: settle, then fail without retry.
+                    const message = 'job cancelled';
+                    const applied = await this.dao.markFailed(record.id, job.attempts + 1, message, token);
+                    if (applied) {
+                        getQueueJobFailedTotal().add(1, { type: job.type });
+                        await this.eventSink?.bus.emit('queue.job.failed', {
+                            jobId: job.id,
+                            type: job.type,
+                            error: message,
+                            attempt: job.attempts + 1,
+                            maxRetries: job.maxRetries,
+                            durationMs: Number.isFinite(durationMs) ? durationMs : 0,
+                            severity: 'warning',
+                        });
+                    }
+                } else {
+                    await this.dao.markCompleted(record.id, token);
+                    getQueueJobCompletedTotal().add(1, { type: job.type });
+                    const completed: QueueJobCompletedDetail = {
+                        jobId: job.id,
+                        type: job.type,
+                        durationMs: Number.isFinite(durationMs) ? durationMs : 0,
+                        attempt: job.attempts,
+                        severity: 'info',
+                    };
+                    await this.eventSink?.bus.emit('queue.job.completed', completed);
+                }
+            } finally {
+                attempt.settled = true;
+                attemptWake?.();
+                if (renewal !== undefined) await renewal;
+                if (token !== undefined) this.activeAttempts.delete(record.id);
             }
         });
+    }
+
+    /**
+     * Extend the attempt's lease on an interval derived from the visibility
+     * timeout, proving this consumer is still alive and working. A failed or
+     * erroring renewal means ownership was lost: abort the attempt so the
+     * handler can stop, and mark the attempt fenced.
+     */
+    private async renewUntilSettled(
+        id: string,
+        token: string,
+        attempt: AttemptState,
+        attemptAbort: AbortController,
+    ): Promise<void> {
+        const intervalMs = Math.max(1, Math.floor(this.visibilityTimeout / 3));
+        while (!attempt.settled) {
+            // Settle-aware wait: wakes early when the attempt finishes so a long
+            // visibility timeout never delays acknowledgement past the handler.
+            await Promise.race([sleep(intervalMs), attempt.settledSignal]);
+            if (attempt.settled) return;
+            let renewed = false;
+            try {
+                renewed = await this.dao.renewLease(id, token, this.visibilityTimeout);
+            } catch {
+                renewed = false; // DB unavailability is treated like ownership loss
+            }
+            if (attempt.settled) return;
+            if (!renewed) {
+                attempt.lost = true;
+                attemptAbort.abort();
+                return;
+            }
+        }
     }
 
     private async failOrRetry(
         job: Pick<Job<T>, 'id' | 'type' | 'attempts' | 'maxRetries'>,
         error: unknown,
         durationMs: number,
+        attemptToken?: string,
     ): Promise<void> {
         const attempts = job.attempts + 1;
         const message = error instanceof Error ? error.message : String(error);
         if (attempts >= job.maxRetries) {
-            await this.dao.markFailed(job.id, attempts, message);
+            await this.dao.markFailed(job.id, attempts, message, attemptToken);
             getQueueJobFailedTotal().add(1, { type: job.type });
             const failed: QueueJobFailedDetail = {
                 jobId: job.id,
@@ -293,7 +438,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
 
         const delay = Math.min(this.maxDelay, this.baseDelay * 2 ** Math.max(0, attempts - 1));
         const nextRetryAt = Date.now() + delay;
-        await this.dao.markForRetry(job.id, attempts, message, nextRetryAt);
+        await this.dao.markForRetry(job.id, attempts, message, nextRetryAt, attemptToken);
         const retrying: QueueJobRetryingDetail = {
             jobId: job.id,
             type: job.type,
@@ -306,6 +451,18 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         await this.eventSink?.bus.emit('queue.job.retrying', retrying);
     }
 }
+
+/** Live per-attempt state shared between `processJob`, the renewal loop, and `cancel()`. */
+type AttemptState = {
+    /** Set when the lease was lost — the attempt's acknowledgements are fenced. */
+    lost: boolean;
+    /** Set by a manual `cancel()` — the attempt is failed without retry after settling. */
+    cancelled: boolean;
+    /** Set once the handler has settled — stops the renewal loop. */
+    settled: boolean;
+    /** Resolved when the attempt settles so the renewal wait wakes early. */
+    settledSignal?: Promise<void>;
+};
 
 function toJob<T>(record: QueueJobRecord): Job<T> {
     return {
@@ -320,6 +477,8 @@ function toJob<T>(record: QueueJobRecord): Job<T> {
         nextRetryAt: record.nextRetryAt,
         lastError: record.lastError,
         processingAt: record.processingAt,
+        // Persisted job policy: explicit unlimited stays `null`, absence stays undefined.
+        timeoutMs: record.timeoutUnlimited === 1 ? null : (record.timeoutMs ?? undefined),
     };
 }
 
