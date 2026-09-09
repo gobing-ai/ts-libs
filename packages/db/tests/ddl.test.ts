@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { Database } from '@gobing-ai/ts-runtime/bun-sqlite';
 import { sql } from 'drizzle-orm';
 import { blob, integer, numeric, primaryKey, real, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 import { standardColumns } from '../src/schema/common';
@@ -16,9 +17,7 @@ type SqliteConn = {
 };
 
 function openMemory(): SqliteConn {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { Database } = require('bun:sqlite') as { Database: new (url: string) => SqliteConn };
-    return new Database(':memory:');
+    return new Database(':memory:') as unknown as SqliteConn;
 }
 
 // ---------------------------------------------------------------------------
