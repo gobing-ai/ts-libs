@@ -265,6 +265,13 @@ const stats = await queue.getStats();
 // → { pending: 5, processing: 2, completed: 100, failed: 3 }
 ```
 
+**Delivery semantics:** the lease path is **at-least-once, never exactly-once**. A
+claimed job whose lease expires (crash, lost renewal, stalled event loop) becomes
+claimable again and will execute a second time; the attempt token only fences the
+*ack* (a stale `markCompleted`/`markFailed` from the lost owner is ignored), it
+does not fence execution. Handlers must therefore be idempotent or carry their own
+dedup key — assume any claimed job can run more than once under failure.
+
 ### InboxMessageDao — durable inter-agent messages
 
 `InboxMessageDao` persists directed messages for team-mode or multi-agent workflows. It lives on the
