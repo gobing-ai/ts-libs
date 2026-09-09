@@ -110,7 +110,11 @@ the bootstrap never closes them. `stop()` is idempotent.
 ## llm-jsonl-importer
 
 `@gobing-ai/ts-llm-jsonl-importer` provides source-neutral JSONL ingestion, mapping, redaction, hashing,
-and persistence for LLM-agent history exports.
+and persistence for LLM-agent history exports. Import runs accept a cooperative `AbortSignal`
+(feature A21 / ADR-112): cancellation is observed at safe boundaries only — in-flight batches settle
+atomically before the run rejects with `ImportCancelledError`, no invocation-owned write lands after
+settlement, and incremental resume continues from the last committed checkpoint. The containing
+process remains the hard fallback for blocking synchronous work.
 
 ## rule-engine
 

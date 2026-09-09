@@ -69,6 +69,32 @@ values, same `ImportResult`).
 When `readFileStream` is unavailable (e.g. Cloudflare Workers), the importer falls back to
 `readFile` + split transparently.
 
+## Cancellation
+
+Both entry points accept a cooperative `signal` (`AbortSignal`, feature A21 / ADR-112):
+
+```ts
+const controller = new AbortController();
+const resultPromise = runJsonlImport('codex', {
+    db,
+    roots: ['./agent-history'],
+    mode: 'incremental',
+    signal: controller.signal,
+});
+controller.abort(); // cancel from a watchdog, shutdown hook, or deadline
+```
+
+Cancellation is cooperative: the signal is checked at safe boundaries — before schema and
+checkpoint writes, before each source file, and between bounded batches — never inside a
+transaction. A batch already in flight settles first (its record, ledger, and checkpoint writes
+commit atomically), then the run rejects with `ImportCancelledError` (a `HistoryImportError`).
+No invocation-owned write happens after settlement, and incremental resume continues from the
+last committed checkpoint; a cancelled mid-file run never arms the file-identity short-circuit.
+`runOpenCodeImport` discards queued-but-unissued operations when cancelled, so the OpenCode
+store stays authoritative for the next run. A cancellation cannot interrupt a synchronous SQLite
+call mid-flight — the containing process remains the hard fallback for blocking work. Omitting
+`signal` preserves existing behavior.
+
 ## Import Specific Files
 
 ```ts
