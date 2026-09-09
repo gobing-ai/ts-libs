@@ -8,6 +8,35 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.58] - 2026-09-08
+
+### Added
+
+- **`@gobing-ai/ts-runtime`: process-tree deadline and cancellation containment (spur task 0810).**
+  The native `ProcessExecutor` path now owns the full termination lifecycle: an optional finite
+  `timeout` deadline and an optional external `cancelSignal` feed a first-wins trigger into one
+  group-owned escalation path (group `SIGTERM` → `killGraceMs` grace (default 5000) → group
+  `SIGKILL` with a bounded settle), reaping owned Unix descendants that survive the leader while
+  holding output pipes or a SQLite write transaction; completion is decided by group liveness,
+  never by the leader exiting first. Results distinguish `outcome: 'timeout' | 'cancelled' |
+  'signal' | 'exit'` (plus `killGraceMs`, and `defaultTimeout: null` for explicit unlimited).
+
+### Changed
+
+- **`@gobing-ai/ts-runtime`: `timeout: 0` no longer disables the deadline — it is rejected.**
+  Omitted still inherits the configured default and explicit `null` still means unlimited;
+  `0`, negative, fractional, non-finite and out-of-range values now throw `TypeError` before
+  spawn instead of silently disabling the deadline. Callers that previously passed `0` to opt
+  out must pass `null` (unlimited) or omit the field (default).
+
+### Fixed
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: restored the schema-version ↔ package-version invariant.**
+  The `0.4.57` lockstep release bumped package manifests but left the exported
+  `HISTORY_IMPORT_SCHEMA_VERSION` constant at `0.4.56`, tripping the bump-or-fail pin in
+  `schema-version.test.ts`. The constant now matches `package.json` and the (unchanged) SQL hash
+  is pinned under the released version.
+
 ## [0.4.57] - 2026-09-07
 
 ### Added
