@@ -12,7 +12,7 @@ import {
     sortPackagesByDependencyOrder,
     tagPushArgs,
 } from './release';
-import { findWorkspacePackages } from './workspace';
+import { findWorkspacePackages, type WorkspacePackage } from './workspace';
 import { assertNoWorkspaceRanges, type ManifestLike, substituteWorkspaceRanges } from './workspace-deps';
 
 export interface BumpVersionOptions {
@@ -42,7 +42,13 @@ async function publishWithResolvedRanges(
 ) {
     const manifestPath = `${repoRoot}${dir}/package.json`;
     const original = await Bun.file(manifestPath).text();
-    const parsed = JSON.parse(original) as ManifestLike;
+    let parsed: ManifestLike;
+    try {
+        parsed = JSON.parse(original) as ManifestLike;
+    } catch (error) {
+        // Rethrow with the file named — fail-closed, but diagnosable mid-publish.
+        throw new Error(`${manifestPath} is not valid JSON: ${String(error)}`, { cause: error });
+    }
 
     const { manifest, changed } = substituteWorkspaceRanges(parsed, versions);
     assertNoWorkspaceRanges(manifest, name);
@@ -185,7 +191,8 @@ export async function bumpVersion(
 
     const manifestPaths = packages.map((pkg) => (pkg.dir === '.' ? 'package.json' : `${pkg.dir}/package.json`));
     const optional = ['CHANGELOG.md', 'bun.lock'].filter((path) => Bun.file(`${repoRoot}${path}`).size > 0);
-    mustGit(['add', ...manifestPaths, ...optional], 'git add', spawn);
+    const schemaPaths = await syncHistoryImportSchemaVersion(version, packages, log);
+    mustGit(['add', ...manifestPaths, ...optional, ...schemaPaths], 'git add', spawn);
 
     const commitMessage = `${releaseConfig.releaseCommitType}(${releaseConfig.releaseCommitScope}): ${releaseConfig.releaseCommitSubject(version)}`;
     mustGit(['commit', '-m', commitMessage], 'git commit', spawn);
@@ -390,6 +397,61 @@ function mustGit(args: string[], label: string, spawn: Spawn = spawnSync): void 
     if (!result.ok) {
         throw new Error(`\n${label} failed:\n${result.stderr || result.stdout}`);
     }
+}
+
+const HISTORY_IMPORT_PACKAGE = '@gobing-ai/ts-llm-jsonl-importer';
+
+/**
+ * Keep the llm-jsonl-importer schema version and its pinned SQL hash in
+ * lockstep with a release. `bumpVersion` bumps every manifest, but
+ * `HISTORY_IMPORT_SCHEMA_VERSION` and the bump-or-fail `KNOWN_SCHEMA_HASHES`
+ * pin are a second, easily-missed bump point (the 0.4.58 CI failure). A pure
+ * version bump never changes the DDL, so the previous version's hash is
+ * carried forward verbatim. Returns the repo-relative paths to stage.
+ */
+async function syncHistoryImportSchemaVersion(
+    version: string,
+    packages: WorkspacePackage[],
+    log: (message: string) => void,
+): Promise<string[]> {
+    const pkg = packages.find((p) => p.name === HISTORY_IMPORT_PACKAGE);
+    if (!pkg) return [];
+
+    const srcRel = `${pkg.dir}/src/schema-sql.ts`;
+    const testRel = `${pkg.dir}/tests/schema-version.test.ts`;
+    const srcPath = `${repoRoot}${srcRel}`;
+    const testPath = `${repoRoot}${testRel}`;
+    const srcFile = Bun.file(srcPath);
+    const testFile = Bun.file(testPath);
+    const [srcExists, testExists] = await Promise.all([srcFile.exists(), testFile.exists()]);
+    if (!srcExists || !testExists) {
+        throw new Error(
+            `${HISTORY_IMPORT_PACKAGE} is present but its schema-version files are missing: ${srcRel}, ${testRel}.`,
+        );
+    }
+
+    const src = await srcFile.text();
+    const bumped = src.replace(
+        /HISTORY_IMPORT_SCHEMA_VERSION = '[^']*'/,
+        `HISTORY_IMPORT_SCHEMA_VERSION = '${version}'`,
+    );
+    if (bumped === src) {
+        log(`  ${HISTORY_IMPORT_PACKAGE}: schema version already ${version}`);
+        return [];
+    }
+
+    const testText = await testFile.text();
+    const hash = [...testText.matchAll(/'[0-9.]+':\s*'([0-9a-f]{64})'/g)].at(-1)?.[1];
+    const anchor = testText.indexOf('KNOWN_SCHEMA_HASHES');
+    const close = testText.indexOf('};\n', anchor);
+    if (hash === undefined || anchor === -1 || close === -1) {
+        throw new Error(`Could not locate a pinned SQL hash in ${testRel} to carry forward to ${version}.`);
+    }
+
+    await Bun.write(srcPath, bumped);
+    await Bun.write(testPath, `${testText.slice(0, close)}    '${version}': '${hash}',\n${testText.slice(close)}`);
+    log(`  ${HISTORY_IMPORT_PACKAGE}: HISTORY_IMPORT_SCHEMA_VERSION -> ${version} (hash carried forward)`);
+    return [srcRel, testRel];
 }
 
 /** Default lockfile regenerator: `bun install --lockfile-only` (no node_modules write). */

@@ -402,6 +402,52 @@ describe('bumpVersion', () => {
         expect(ghCalls).toHaveLength(1);
         expect(ghCalls[0]).toContain('run list');
     });
+
+    test('syncs HISTORY_IMPORT_SCHEMA_VERSION and its pinned hash with the bump', async () => {
+        const root = await mkdtemp(join(repoRoot, '.tmp-rel-test-'));
+        fixtureRoots.push(root);
+        const pkgDir = join(root.replace(repoRoot, ''), 'packages', 'llm-jsonl-importer');
+        const pkgAbs = join(repoRoot, pkgDir);
+        await mkdir(join(pkgAbs, 'src'), { recursive: true });
+        await mkdir(join(pkgAbs, 'tests'), { recursive: true });
+        const HASH = 'a'.repeat(64);
+        await writeFile(
+            join(pkgAbs, 'src', 'schema-sql.ts'),
+            "export const HISTORY_IMPORT_SCHEMA_VERSION = '0.1.5';\nexport const HISTORY_IMPORT_SCHEMA_SQL = 'create table x;';\n",
+        );
+        await writeFile(
+            join(pkgAbs, 'tests', 'schema-version.test.ts'),
+            `const KNOWN_SCHEMA_HASHES = {\n    '0.1.5': '${HASH}',\n};\n`,
+        );
+        const manifestPath = join(pkgAbs, 'package.json');
+        await writeFile(
+            manifestPath,
+            `${JSON.stringify({ name: '@gobing-ai/ts-llm-jsonl-importer', version: '0.1.5', private: false }, null, 4)}\n`,
+        );
+        fixture = {
+            root,
+            packages: [
+                {
+                    path: manifestPath,
+                    dir: pkgDir,
+                    name: '@gobing-ai/ts-llm-jsonl-importer',
+                    version: '0.1.5',
+                    private: false,
+                    dependencies: {},
+                },
+            ],
+        };
+
+        const { spawn } = cleanGitSpawn(false);
+        await bumpVersion(VERSION, bumpOpts(false), spawn);
+
+        expect(await readFile(join(pkgAbs, 'src', 'schema-sql.ts'), 'utf8')).toContain(
+            `HISTORY_IMPORT_SCHEMA_VERSION = '${VERSION}'`,
+        );
+        expect(await readFile(join(pkgAbs, 'tests', 'schema-version.test.ts'), 'utf8')).toContain(
+            `'${VERSION}': '${HASH}'`,
+        );
+    });
 });
 
 // ── defaultRegenerateLockfile ───────────────────────────────────────────────

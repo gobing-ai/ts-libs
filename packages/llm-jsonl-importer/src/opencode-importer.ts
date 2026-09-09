@@ -6,6 +6,7 @@ import {
     joinPath,
     type RuntimePaths,
 } from '@gobing-ai/ts-runtime';
+import { throwIfImportAborted } from './cancellation';
 import { sha256 } from './hash';
 import {
     applyHistoryImportSchema,
@@ -43,10 +44,21 @@ export interface OpenCodeImportOptions {
     dryRun?: boolean;
     redactionRules?: readonly RedactionRule[];
     now?: () => Date;
+    /**
+     * Cooperative cancellation signal (feature A21 / ADR-112). Checked before the schema
+     * write, between source pages, and before the single settlement batch. Work already
+     * queued but not yet issued is discarded (the OpenCode store stays authoritative and a
+     * later run re-reads it); a batch already in flight settles before the run rejects with
+     * {@link ImportCancelledError}. Omitting the signal preserves existing behavior.
+     */
+    signal?: AbortSignal;
 }
 
 /** Import OpenCode's current SQLite history store into the forensic contract tables. */
 export async function runOpenCodeImport(options: OpenCodeImportOptions): Promise<ImportResult> {
+    // Cancellation boundary (feature A21): before ANY invocation-owned write, including the
+    // schema setup below. An already-aborted signal must leave both databases untouched.
+    throwIfImportAborted(options.signal);
     const paths = options.paths ?? ambientRuntimePaths();
     const sourceDatabase = options.sourceDatabase ?? joinPath(paths.home, '.local/share/opencode/opencode.db');
     const fileSystem = options.fileSystem ?? createNodeFileSystem();
@@ -82,6 +94,10 @@ export async function runOpenCodeImport(options: OpenCodeImportOptions): Promise
 
     try {
         while (true) {
+            // Cancellation boundary between bounded pages: stop before reading/queueing
+            // further work. Operations queued but not yet issued are discarded below —
+            // nothing was written, so the OpenCode store stays authoritative for resume.
+            throwIfImportAborted(options.signal);
             const messages = await readOpenCodeMessages(sourceDb, lastTime, lastId, PAGE_SIZE);
             if (messages.length === 0) break;
 
@@ -160,6 +176,10 @@ export async function runOpenCodeImport(options: OpenCodeImportOptions): Promise
             }
             reconciliation = { staleTargetRows, staleLedgerRows, staleCheckpointRows };
         }
+        // Cancellation boundary before the single settlement batch: everything queued above
+        // is discarded (never issued), so a cancelled run writes nothing and the checkpoint
+        // stays where the previous run left it.
+        throwIfImportAborted(options.signal);
         if (operations.length > 0) await options.db.batch(operations);
     } finally {
         sourceDb.close();
