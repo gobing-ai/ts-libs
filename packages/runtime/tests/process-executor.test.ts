@@ -1,4 +1,8 @@
-import { describe, expect, test } from 'bun:test';
+import { Database } from 'bun:sqlite';
+import { afterAll, describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
     BunPipeProcessSpawner,
     BunSyncProcessExecutor,
@@ -411,5 +415,242 @@ describe('NodeProcessExecutor', () => {
         proc.endStdin();
 
         await expect(proc.exited).resolves.toBe(0);
+    });
+});
+
+// ── Deadline and process-group containment (A21 / task 0810 R1) ──────────
+
+describe('deadline and process-group containment (0810 R1)', () => {
+    const isUnix = process.platform !== 'win32';
+    /** Descendant that ignores SIGTERM, forcing the SIGTERM→SIGKILL escalation. */
+    const TERM_RESISTANT = 'sh -c \'trap "" TERM; sleep 30\'';
+    const spawnedPids: number[] = [];
+    const trackSpawn = (): ((pid: number) => void) => (pid) => {
+        spawnedPids.push(pid);
+    };
+
+    afterAll(() => {
+        // Insurance against a failing assertion leaving containment stragglers behind.
+        for (const pid of spawnedPids.splice(0)) {
+            try {
+                process.kill(-pid, 'SIGKILL');
+            } catch {
+                // group already gone
+            }
+            try {
+                process.kill(pid, 'SIGKILL');
+            } catch {
+                // process already gone
+            }
+        }
+    });
+
+    /** Fails unless the owned group around `pid` is fully reaped within `budgetMs`. */
+    async function expectGroupGone(pid: number, budgetMs = 2000): Promise<void> {
+        const giveUpAt = Date.now() + budgetMs;
+        while (Date.now() < giveUpAt) {
+            try {
+                process.kill(-pid, 0);
+            } catch {
+                return;
+            }
+            await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error(`expected process group -${pid} to be reaped within ${budgetMs}ms`);
+    }
+
+    test.skipIf(!isUnix)(
+        'deadline expiry escalates past a TERM-resistant descendant retaining pipes after leader exit (0810 R1)',
+        async () => {
+            const { events, sink } = recordEvents();
+            const startedAt = Date.now();
+            // Leader exits immediately; the TERM-resistant descendant inherits the output
+            // pipes, so pre-0810 behavior hangs run() forever past the deadline.
+            const result = await new NodeProcessExecutor({ events: sink }).run({
+                command: 'sh',
+                args: ['-c', `${TERM_RESISTANT} & exit 0`],
+                timeout: 100,
+                killGraceMs: 50,
+                onSpawn: trackSpawn(),
+            });
+
+            expect(result.outcome).toBe('timeout');
+            // The leader itself exited 0 before the deadline fired; the executor-owned
+            // timeout is conveyed by `outcome`, not by the leader's exit code.
+            expect(result.exitCode).toBe(0);
+            expect(events.at(-1)?.detail.reason).toBe('timeout');
+            expect(Date.now() - startedAt).toBeLessThan(5000);
+        },
+    );
+
+    test.skipIf(!isUnix)(
+        'external abort escalates with SIGTERM-to-SIGKILL grace and reports cancelled (0810 R1)',
+        async () => {
+            const { events, sink } = recordEvents();
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), 20);
+            const startedAt = Date.now();
+            const result = await new NodeProcessExecutor({ events: sink }).run({
+                command: 'sh',
+                args: ['-c', `${TERM_RESISTANT} & wait`],
+                signal: controller.signal,
+                killGraceMs: 50,
+                onSpawn: trackSpawn(),
+            });
+
+            expect(result.outcome).toBe('cancelled');
+            expect(result.exitCode).toBeNull();
+            expect(events.at(-1)?.detail.reason).toBe('cancelled');
+            expect(Date.now() - startedAt).toBeLessThan(5000);
+        },
+    );
+
+    test.skipIf(!isUnix)(
+        'explicit null timeout overrides a finite default while abort stays effective (0810 R1)',
+        async () => {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), 150);
+            const result = await new NodeProcessExecutor({ defaultTimeout: 80 }).run({
+                command: 'sh',
+                args: ['-c', 'sleep 30'],
+                timeout: null,
+                signal: controller.signal,
+                killGraceMs: 50,
+                onSpawn: trackSpawn(),
+            });
+
+            // Null must not inherit the 80 ms default: the run ends cancelled, not timed out.
+            expect(result.outcome).toBe('cancelled');
+        },
+    );
+
+    test.skipIf(!isUnix)(
+        'omitted timeout inherits the configured default and contains the group (0810 R1)',
+        async () => {
+            const result = await new NodeProcessExecutor({ defaultTimeout: 80 }).run({
+                command: 'sh',
+                args: ['-c', 'sleep 30'],
+                onSpawn: trackSpawn(),
+            });
+
+            expect(result.outcome).toBe('timeout');
+            expect(result.exitCode).toBeNull();
+        },
+    );
+
+    test.skipIf(!isUnix)(
+        'natural leader exit reaps a TERM-resistant straggler without pipes before completing (0810 R1)',
+        async () => {
+            let pid: number | undefined;
+            const startedAt = Date.now();
+            const result = await new NodeProcessExecutor().run({
+                command: 'sh',
+                args: ['-c', `${TERM_RESISTANT} >/dev/null 2>&1 & exit 0`],
+                timeout: 3000,
+                killGraceMs: 50,
+                onSpawn: (spawned) => {
+                    pid = spawned;
+                    trackSpawn()(spawned);
+                },
+            });
+
+            expect(result.outcome).toBe('exit');
+            expect(Date.now() - startedAt).toBeLessThan(2000);
+            expect(pid).toBeDefined();
+            await expectGroupGone(pid as number);
+        },
+    );
+
+    test.skipIf(!isUnix)(
+        'completion reaps a straggler holding a SQLite write transaction and permits lock reacquisition (0810 R1)',
+        async () => {
+            const dir = mkdtempSync(join(tmpdir(), 'ts-runtime-0810-'));
+            try {
+                const dbPath = join(dir, 'lock.sqlite');
+                const readyPath = join(dir, 'locked.ready');
+                const holder =
+                    "const {Database} = require('bun:sqlite');const fs = require('node:fs');" +
+                    'process.on("SIGTERM", () => {});' +
+                    `const db = new Database(${JSON.stringify(dbPath)});` +
+                    "db.exec('CREATE TABLE IF NOT EXISTS lock_probe(x INTEGER)');" +
+                    "db.exec('BEGIN EXCLUSIVE');" +
+                    "db.exec('INSERT INTO lock_probe VALUES (1)');" +
+                    `fs.writeFileSync(${JSON.stringify(readyPath)}, '1');` +
+                    'setInterval(() => {}, 1000);';
+                // Leader exits only after the holder confirms its exclusive write lock, then
+                // the executor must still reap the TERM-resistant holder before completion.
+                const wrapper =
+                    `${JSON.stringify(process.execPath)} -e ${JSON.stringify(holder)} >/dev/null 2>&1 & ` +
+                    `while [ ! -f ${JSON.stringify(readyPath)} ]; do sleep 0.02; done; exit 0`;
+                const startedAt = Date.now();
+                const result = await new NodeProcessExecutor().run({
+                    command: 'sh',
+                    args: ['-c', wrapper],
+                    timeout: 5000,
+                    killGraceMs: 50,
+                    onSpawn: trackSpawn(),
+                });
+
+                expect(result.outcome).toBe('exit');
+                expect(Date.now() - startedAt).toBeLessThan(5000);
+
+                const reacquireStartedAt = Date.now();
+                const probe = new Database(dbPath);
+                probe.exec('INSERT INTO lock_probe VALUES (2)');
+                const rows = probe.query('SELECT COUNT(*) AS n FROM lock_probe').get() as { n: number };
+                probe.close();
+                expect(Date.now() - reacquireStartedAt).toBeLessThan(2000);
+                // The holder's uncommitted transaction rolled back; only the probe's row remains.
+                expect(rows.n).toBe(1);
+            } finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        },
+    );
+
+    test('explicit unlimited runs without a deadline and completes normally (0810 R1)', async () => {
+        const result = await new NodeProcessExecutor().run({
+            command: 'sh',
+            args: ['-c', 'echo done'],
+            timeout: null,
+        });
+
+        expect(result.outcome).toBe('exit');
+        expect(result.exitCode).toBe(0);
+    });
+
+    test.skipIf(!isUnix)('a supplied abort signal keeps normal completion classified as exit (0810 R1)', async () => {
+        const { events, sink } = recordEvents();
+        const result = await new NodeProcessExecutor({ events: sink }).run({
+            command: 'sh',
+            args: ['-c', 'sleep 0.2; echo done'],
+            timeout: null,
+            signal: new AbortController().signal,
+            onSpawn: trackSpawn(),
+        });
+
+        expect(result.outcome).toBe('exit');
+        expect(result.exitCode).toBe(0);
+        expect(events.at(-1)?.detail.reason).toBe('exit');
+    });
+
+    test('rejects invalid deadline and grace values before spawn (0810 R1)', async () => {
+        const executor = new NodeProcessExecutor();
+        const invalidTimeouts = [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648];
+        for (const timeout of invalidTimeouts) {
+            // No spawn happens: `sleep 30` must never start for a rejected configuration.
+            await expect(executor.run({ command: 'sleep', args: ['30'], timeout })).rejects.toThrow(
+                /Process timeout must be/,
+            );
+        }
+        await expect(executor.run({ command: 'sleep', args: ['30'], timeout: 1000, killGraceMs: -1 })).rejects.toThrow(
+            /Process killGraceMs must be/,
+        );
+        await expect(
+            executor.run({ command: 'sleep', args: ['30'], timeout: 1000, killGraceMs: Number.NaN }),
+        ).rejects.toThrow(/Process killGraceMs must be/);
+        await expect(
+            new NodeProcessExecutor({ defaultTimeout: 0 }).run({ command: 'echo', args: ['hi'] }),
+        ).rejects.toThrow(/Process timeout must be/);
     });
 });

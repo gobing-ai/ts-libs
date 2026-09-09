@@ -133,6 +133,11 @@ path utilities, and optional process inventory.
 - Inject the same registry into every executor that should appear in one watch list
   (`ProcessExecutorConfig.registry`). No registry ⇒ prior behavior unchanged.
 - Not durable across restarts; retention capped (default 1000). Cloudflare has no process execution.
+- **Owned deadline containment (A21)** — on Unix a finite `timeout` or abort `signal` puts the run
+  under one executor-owned process-group escalation (group `SIGTERM` → `killGraceMs` grace →
+  group `SIGKILL`), so completion reaps descendants that outlive the leader while holding pipes
+  or locks; `timeout: null` is explicit unlimited and invalid values are rejected before spawn.
+  Semantics: `packages/runtime/README.md` (“Deadlines, cancellation, and process-group containment”).
 
 ## utils
 

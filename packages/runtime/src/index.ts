@@ -26,6 +26,7 @@ export type {
     ProcessExecutorConfig,
     ProcessExitReason,
     ProcessOptions,
+    ProcessOutcome,
     ProcessOutputChunk,
     ProcessResult,
     ProcessSignal,
