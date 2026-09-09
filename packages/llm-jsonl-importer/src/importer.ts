@@ -7,6 +7,7 @@ import {
     resolvePath,
     walkDir,
 } from '@gobing-ai/ts-runtime';
+import { throwIfImportAborted } from './cancellation';
 import { sha256 } from './hash';
 import {
     applyHistoryImportSchema,
@@ -127,6 +128,9 @@ function attachableDuration(
  * @param options - Importer options (database, roots/files, mode, etc.).
  */
 export async function runJsonlImport(source: string | SourceDefinition, options: ImportOptions): Promise<ImportResult> {
+    // Cancellation boundary (feature A21): before ANY invocation-owned write, including the
+    // schema setup below. An already-aborted signal must leave the database untouched.
+    throwIfImportAborted(options.signal);
     const definition = resolveSourceDefinition(source);
     const resolvedSource = definition.source;
     const fileSystem = options.fileSystem ?? createNodeFileSystem();
@@ -134,6 +138,9 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
 
     const mode = options.mode ?? 'incremental';
     const files = await discoverFiles(definition, options.roots, options.files, fileSystem, options.paths);
+    // Cancellation boundary: file discovery can walk many roots; a signal firing during it
+    // must stop before the full-mode checkpoint reset (an invocation-owned write).
+    throwIfImportAborted(options.signal);
     if (mode === 'full' && !options.dryRun) {
         await resetCheckpoints(options.db, resolvedSource, files);
     }
@@ -165,6 +172,8 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     const checkpoints = mode === 'incremental' ? await loadSourceCheckpoints(options.db, resolvedSource) : undefined;
 
     for (const file of files) {
+        // Cancellation boundary: stop before starting another file's work.
+        throwIfImportAborted(options.signal);
         const entry = checkpoints?.get(file);
         const checkpoint = entry?.line ?? 0;
         if (checkpoints !== undefined && entry !== undefined && entry.size !== null && entry.mtimeMs !== null) {
@@ -178,6 +187,10 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
         }
         let lineNumber = 0;
         for await (const rawLine of readLines(fileSystem, file)) {
+            // Cancellation boundary between bounded per-line batches: a batch already in
+            // flight settled above (its record + ledger + checkpoint writes commit
+            // atomically), so rejecting here never leaves a partial line behind.
+            throwIfImportAborted(options.signal);
             lineNumber += 1;
             const line = rawLine.trim();
             if (line.length === 0 || lineNumber <= checkpoint) continue;
@@ -469,32 +482,39 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                     checkpointUpdates += 1;
                 }
             }
-            // 0675 R1/R4: stamp file identity once per READ file (never for skipped ones).
-            // This is also what self-heals legacy rows whose stored identity is NULL — without
-            // it a fully-imported database never arms the short-circuit. Skipped when nothing
-            // changed since the stored checkpoint to keep no-op runs write-free. Degraded
-            // entries (pre-migration database without identity columns, 0678 fail-open) keep
-            // the old line-only write shape via checkpointUpsertOp's optional identity.
-            if (!options.dryRun && mode === 'incremental') {
-                const statAfter = await safeStat(fileSystem, file);
-                // Degraded = a STORED entry without identity (pre-migration database, 0678
-                // fail-open). No stored entry means first-ever import: stamp normally.
-                const identityDegraded = entry !== undefined && entry.size === null && entry.mtimeMs === null;
-                const identityChanged =
-                    entry !== undefined &&
-                    (entry.size !== (statAfter?.size ?? null) || entry.mtimeMs !== (statAfter?.mtimeMs ?? null));
-                if (statAfter !== null && !identityDegraded && (entry === undefined || identityChanged)) {
-                    await options.db.batch([
-                        checkpointUpsertOp(resolvedSource, file, Math.max(lineNumber, checkpoint), options.now, {
-                            size: statAfter.size,
-                            mtimeMs: statAfter.mtimeMs,
-                        }),
-                    ]);
-                    checkpointUpdates += 1;
-                }
+        }
+        // 0675 R1/R4 (relocated from the per-line loop for feature A21): stamp file identity
+        // once per READ file, only after the file's line loop COMPLETED. A cancelled run
+        // throws at the per-line boundary above and must not arm the identity short-circuit:
+        // a mid-file checkpoint carrying full-file identity would make the next incremental
+        // run skip the whole file and silently lose the un-imported tail. "Once per read file
+        // (never for skipped ones)" is also what self-heals legacy rows whose stored identity
+        // is NULL — without a stamp a fully-imported database never arms the short-circuit.
+        // Skipped when nothing changed since the stored checkpoint to keep no-op runs
+        // write-free. Degraded entries (pre-migration database without identity columns,
+        // 0678 fail-open) keep the line-only write shape via checkpointUpsertOp's optional
+        // identity.
+        if (!options.dryRun && mode === 'incremental') {
+            const statAfter = await safeStat(fileSystem, file);
+            // Degraded = a STORED entry without identity (pre-migration database, 0678
+            // fail-open). No stored entry means first-ever import: stamp normally.
+            const identityDegraded = entry !== undefined && entry.size === null && entry.mtimeMs === null;
+            const identityChanged =
+                entry !== undefined &&
+                (entry.size !== (statAfter?.size ?? null) || entry.mtimeMs !== (statAfter?.mtimeMs ?? null));
+            if (statAfter !== null && !identityDegraded && (entry === undefined || identityChanged)) {
+                await options.db.batch([
+                    checkpointUpsertOp(resolvedSource, file, Math.max(lineNumber, checkpoint), options.now, {
+                        size: statAfter.size,
+                        mtimeMs: statAfter.mtimeMs,
+                    }),
+                ]);
+                checkpointUpdates += 1;
             }
         }
     }
+    // Cancellation boundary: stop before the full-mode reconciliation deletes.
+    throwIfImportAborted(options.signal);
     let reconciliation: ReconcileSummary | undefined;
     if (mode === 'full') {
         reconciliation = await reconcileFullImport(

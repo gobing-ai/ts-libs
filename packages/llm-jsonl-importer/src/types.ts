@@ -94,6 +94,17 @@ export interface ImportOptions {
     readonly redactionRules?: readonly RedactionRule[];
     readonly now?: () => Date;
     /**
+     * Cooperative cancellation signal (feature A21 / ADR-112). Checked at safe boundaries —
+     * before schema and checkpoint writes, before each source file, and between bounded
+     * per-line batches — never inside a transaction: a batch already in flight settles first
+     * (its record, ledger, and checkpoint writes commit atomically), then the run rejects
+     * with {@link ImportCancelledError}. No invocation-owned write happens after settlement,
+     * and incremental resume continues from the last committed checkpoint. A cancellation
+     * cannot interrupt a synchronous SQLite call mid-flight — the containing process remains
+     * the hard fallback for blocking work. Omitting the signal preserves existing behavior.
+     */
+    readonly signal?: AbortSignal;
+    /**
      * Optional cwd/home anchor (ADR-023 A1 / task 0042). When set, registry `defaultRoots`
      * resolve against `paths.home` instead of the ambient working directory; explicit
      * {@link ImportOptions.roots} keep cwd semantics unchanged. Defaults to ambient cwd/home.

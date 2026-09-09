@@ -4,7 +4,7 @@ export {
     DURATION_SOURCE_DERIVED,
     deriveAssistantDurations,
 } from './assistant-duration';
-export { HistoryImportError } from './errors';
+export { HistoryImportError, ImportCancelledError } from './errors';
 export { sha256, stableJson } from './hash';
 export { runJsonlImport } from './importer';
 export { applyHistoryImportSchema, normalizeSourceFilePaths, TYPED_HISTORY_TABLES } from './jsonl-importer-dao';
