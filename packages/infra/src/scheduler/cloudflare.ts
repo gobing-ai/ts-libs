@@ -2,6 +2,8 @@
  * Cloudflare Workers scheduler adapter using Cron Triggers.
  * Uses minimal local type declarations — no @cloudflare/workers-types dependency.
  */
+
+import { unlimitedExecutionContext } from '../execution-policy';
 import {
     getSchedulerJobDuration,
     getSchedulerJobExecutedTotal,
@@ -60,7 +62,7 @@ export class CloudflareSchedulerAdapter implements SchedulerAdapter {
             const startMs = performance.now();
             getSchedulerJobExecutedTotal().add(1, { cron: event.cron });
             ctx.waitUntil(
-                action()
+                action(unlimitedExecutionContext())
                     .catch((error: unknown) => {
                         getSchedulerJobFailedTotal().add(1, { cron: event.cron });
                         throw error;

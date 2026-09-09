@@ -43,7 +43,9 @@ export type {
     SchedulerJobExecutedDetail,
     WithEventSeverity,
 } from './events';
-
+// Execution policy (A21) — shared deadline/cancellation seam for background work
+export type { ExecutionContext, ExecutionDeadlineMs, ExecutionOutcome } from './execution-policy';
+export { resolveExecutionTimeoutMs, runWithExecutionDeadline } from './execution-policy';
 export type {
     EnqueueOptions,
     Job,

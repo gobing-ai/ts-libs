@@ -2,8 +2,25 @@
  * Scheduler types and interface.
  */
 
-/** Signature for scheduled action handlers. */
-export type ScheduledAction = () => Promise<void>;
+import type { ExecutionContext } from '../execution-policy';
+
+/**
+ * Signature for scheduled action handlers. The context carries the shared
+ * execution-deadline clock for this tick (A21); zero-argument handlers stay
+ * assignable — notably the Cloudflare adapter, which invokes actions with an
+ * unlimited execution context (no wall-clock deadline on that runtime).
+ */
+export type ScheduledAction = (context: ExecutionContext) => Promise<void>;
+
+/** Per-entry execution policy options for {@link SchedulerAdapter.register}. */
+export interface ScheduledActionOptions {
+    /**
+     * Execution policy for this entry's ticks: a positive integer ms deadline,
+     * explicit `null` = unlimited, omitted = inherit the adapter default.
+     * Invalid explicit values throw at registration time.
+     */
+    timeoutMs?: number | null;
+}
 
 /**
  * Abstract scheduler interface — implementations for Node and Cloudflare.
@@ -13,7 +30,7 @@ export type ScheduledAction = () => Promise<void>;
  * action is abandoned at the deadline rather than blocking shutdown forever.
  */
 export interface SchedulerAdapter {
-    register(cron: string, action: ScheduledAction): void;
+    register(cron: string, action: ScheduledAction, options?: ScheduledActionOptions): void;
     start(): Promise<void>;
     stop(): Promise<void>;
 }
@@ -28,5 +45,17 @@ export interface SchedulerAdapter {
  * command handler.
  */
 export type SchedulerJobConfig =
-    | { readonly name: string; readonly command: string; readonly intervalMinutes: number; readonly cron?: never }
-    | { readonly name: string; readonly command: string; readonly cron: string; readonly intervalMinutes?: never };
+    | {
+          readonly name: string;
+          readonly command: string;
+          readonly intervalMinutes: number;
+          readonly cron?: never;
+          readonly timeoutMs?: number | null;
+      }
+    | {
+          readonly name: string;
+          readonly command: string;
+          readonly cron: string;
+          readonly intervalMinutes?: never;
+          readonly timeoutMs?: number | null;
+      };

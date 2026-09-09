@@ -972,6 +972,16 @@ bootstrap:
                 body: ['    jobs:', '      - name:   ', '        intervalMinutes: 5', '        command: c'].join('\n'),
                 pathFragment: 'bootstrap.scheduler.jobs.0.name',
             },
+            {
+                body: [
+                    '    jobs:',
+                    '      - name: badtimeout',
+                    '        intervalMinutes: 5',
+                    '        command: c',
+                    '        timeoutMs: 0',
+                ].join('\n'),
+                pathFragment: 'bootstrap.scheduler.jobs.0.timeoutMs',
+            },
         ];
 
         for (const { body, pathFragment } of cases) {
@@ -995,6 +1005,114 @@ bootstrap:
             } finally {
                 rmSync(dir, { recursive: true, force: true });
             }
+        }
+    });
+});
+
+describe('runNodeApplication — scheduler execution timeout policy (A21)', () => {
+    afterEach(resetModules);
+
+    test('resolves bootstrap.scheduler.timeoutMs and per-job overrides as data', async () => {
+        const dir = tmpDir();
+        const configPath = writeYaml(
+            dir,
+            'timeouts.yaml',
+            `
+bootstrap:
+  telemetry:
+    enabled: false
+  scheduler:
+    enabled: true
+    timeoutMs: 600000
+    jobs:
+      - name: default-policy
+        intervalMinutes: 5
+        command: bun a.ts
+      - name: explicit-unlimited
+        intervalMinutes: 5
+        command: bun b.ts
+        timeoutMs: null
+      - name: override
+        intervalMinutes: 5
+        command: bun c.ts
+        timeoutMs: 15000
+`,
+        );
+        try {
+            const app = await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                start: async () => {},
+            });
+
+            expect(app.config.scheduler.timeoutMs).toBe(600_000);
+            expect(app.config.scheduler.jobs).toEqual([
+                { name: 'default-policy', command: 'bun a.ts', intervalMinutes: 5 },
+                { name: 'explicit-unlimited', command: 'bun b.ts', intervalMinutes: 5, timeoutMs: null },
+                { name: 'override', command: 'bun c.ts', intervalMinutes: 5, timeoutMs: 15_000 },
+            ]);
+            await app.stop();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('omitted scheduler timeoutMs resolves to unlimited (upstream omission preserved)', async () => {
+        const dir = tmpDir();
+        const configPath = writeYaml(
+            dir,
+            'no-timeout.yaml',
+            `
+bootstrap:
+  telemetry:
+    enabled: false
+  scheduler:
+    enabled: true
+    jobs:
+      - name: plain
+        intervalMinutes: 5
+        command: bun a.ts
+`,
+        );
+        try {
+            const app = await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                start: async () => {},
+            });
+
+            expect(app.config.scheduler.timeoutMs).toBeNull();
+            expect(app.config.scheduler.jobs).toEqual([{ name: 'plain', command: 'bun a.ts', intervalMinutes: 5 }]);
+            await app.stop();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('invalid bootstrap.scheduler.timeoutMs aborts startup', async () => {
+        const dir = tmpDir();
+        const configPath = writeYaml(
+            dir,
+            'bad-default.yaml',
+            `
+bootstrap:
+  telemetry:
+    enabled: false
+  scheduler:
+    enabled: true
+    timeoutMs: -1
+`,
+        );
+        try {
+            let message = '';
+            await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                start: async () => {},
+            }).catch((error: unknown) => {
+                message = error instanceof Error ? error.message : String(error);
+                expect(error).toBeInstanceOf(ConfigValidationError);
+            });
+            expect(message).toContain('bootstrap.scheduler.timeoutMs');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
         }
     });
 });

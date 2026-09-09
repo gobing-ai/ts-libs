@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { EventBus } from '../../src/event-bus/event-bus';
 import type { SchedulerEvents } from '../../src/events';
+import { unlimitedExecutionContext } from '../../src/execution-policy';
 import { wrapScheduledHandler } from '../../src/scheduler/wrap-handler';
 
 describe('wrapScheduledHandler', () => {
@@ -18,7 +19,7 @@ describe('wrapScheduledHandler', () => {
             bus,
         );
 
-        await wrapped();
+        await wrapped(unlimitedExecutionContext());
 
         expect(ran).toBe(true);
         expect(events).toHaveLength(1);
@@ -42,7 +43,7 @@ describe('wrapScheduledHandler', () => {
             bus,
         );
 
-        await expect(wrapped()).rejects.toThrow('kaboom');
+        await expect(wrapped(unlimitedExecutionContext())).rejects.toThrow('kaboom');
         expect(captured?.name).toBe('boom');
         expect(captured?.error).toBe('kaboom');
     });
@@ -52,7 +53,7 @@ describe('wrapScheduledHandler', () => {
         const wrapped = wrapScheduledHandler('no-bus', async () => {
             ran = true;
         });
-        await expect(wrapped()).resolves.toBeUndefined();
+        await expect(wrapped(unlimitedExecutionContext())).resolves.toBeUndefined();
         expect(ran).toBe(true);
     });
 });

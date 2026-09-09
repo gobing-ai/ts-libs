@@ -233,21 +233,26 @@ const queue = new QueueJobDao(adapter);
 
 // Enqueue — maxRetries is a total attempt budget, not retries after the first:
 // 5 means up to 5 attempts, and `maxRetries: 1` runs the job once with no retry.
-const jobId = await queue.enqueue('send-email', { to: 'user@test.com' }, { maxRetries: 5 });
+// timeoutMs is the per-job execution policy: a positive ms deadline, or explicit
+// `null` = unlimited (omitted = inherit the consumer default).
+const jobId = await queue.enqueue('send-email', { to: 'user@test.com' }, { maxRetries: 5, timeoutMs: 60_000 });
 
-// Consumer: claim ready jobs atomically
-const jobs = await queue.claimReady(10);
+// Consumer: claim ready jobs atomically. claimReady leases each job (mints an
+// attempt token); renew the lease while the handler runs, then ack with the
+// token — fenced acks are ignored if ownership was lost mid-run.
+const jobs = await queue.claimReady(10, { leaseMs: 30_000 });
+await queue.renewLease(jobs[0].id, jobs[0].attemptToken, 30_000);
 
 for (const job of jobs) {
     try {
         await processJob(job);
-        await queue.markCompleted(job.id);
+        await queue.markCompleted(job.id, job.attemptToken);
     } catch (error) {
         if (job.attempts >= job.maxRetries) {
-            await queue.markFailed(job.id, job.attempts + 1, String(error));
+            await queue.markFailed(job.id, job.attempts + 1, String(error), job.attemptToken);
         } else {
             const retryAt = Date.now() + Math.pow(2, job.attempts) * 1000;
-            await queue.markForRetry(job.id, job.attempts + 1, String(error), retryAt);
+            await queue.markForRetry(job.id, job.attempts + 1, String(error), retryAt, job.attemptToken);
         }
     }
 }

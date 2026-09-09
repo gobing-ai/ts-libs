@@ -41,4 +41,9 @@ export const embeddedMigrations: EmbeddedMigration[] = [
         sql: 'CREATE INDEX `idx_inbox_messages_to_status` ON `inbox_messages` (`to_id`,`status`);',
         hash: '3c00f1bce4f569e442f3142df31ff478d6c9b3d460824d46575f50a324bfae61',
     },
+    {
+        tag: '0005_queue_attempt_ownership',
+        sql: 'ALTER TABLE `queue_jobs` ADD `timeout_ms` integer;\nALTER TABLE `queue_jobs` ADD `timeout_unlimited` integer DEFAULT 0 NOT NULL;\nALTER TABLE `queue_jobs` ADD `attempt_token` text;\nALTER TABLE `queue_jobs` ADD `lease_expires_at` integer;',
+        hash: 'f6a4eaf11eee838f424515e57eca3a46539260bb2fb5b0b112870ca5ed38d040',
+    },
 ];

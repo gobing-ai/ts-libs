@@ -13,7 +13,7 @@ import type { FileObserverWriter } from '../event-bus/file-observer';
 import type { BusLifecycleEvents, EventMap } from '../event-bus/types';
 import type { InfraEvents } from '../events';
 import type { Logger, LogLevel } from '../logger';
-import type { SchedulerAdapter, SchedulerJobConfig } from '../scheduler/types';
+import type { ScheduledAction, SchedulerAdapter, SchedulerJobConfig } from '../scheduler/types';
 import type { PluginHost } from './plugins/host';
 import type { Plugin } from './plugins/types';
 
@@ -81,7 +81,7 @@ export interface SchedulerOptions {
     /** Injected adapter (skips noop default when provided). */
     adapter?: SchedulerAdapter;
     /** Cron entries to register: `[cron, action][]`. */
-    entries?: Array<[string, () => Promise<void>]>;
+    entries?: Array<[string, ScheduledAction]>;
     /** Start scheduler immediately after registration. Default `true` when enabled. */
     autoStart?: boolean;
     /**
@@ -91,6 +91,13 @@ export interface SchedulerOptions {
      * job `command` itself.
      */
     jobs?: readonly SchedulerJobConfig[];
+    /**
+     * Bootstrap-level execution policy (A21): a positive integer ms deadline
+     * or explicit `null` = unlimited; omitted resolves to unlimited. Per-job
+     * `timeoutMs` overrides this default through the shared first-match-wins
+     * resolution.
+     */
+    timeoutMs?: number | null;
 }
 
 // ── Resolved bootstrap config ─────────────────────────────────────────────
@@ -113,7 +120,13 @@ export interface ApplicationBootstrapConfig {
         filePath?: string;
     };
     readonly telemetry: { enabled: boolean; serviceName: string; environment: string; dbStatementDebug: boolean };
-    readonly scheduler: { enabled: boolean; autoStart: boolean; jobs: readonly SchedulerJobConfig[] };
+    readonly scheduler: {
+        enabled: boolean;
+        autoStart: boolean;
+        jobs: readonly SchedulerJobConfig[];
+        /** Resolved bootstrap execution policy; `null` = unlimited. */
+        timeoutMs: number | null;
+    };
 }
 
 // ── Injected services ─────────────────────────────────────────────────────

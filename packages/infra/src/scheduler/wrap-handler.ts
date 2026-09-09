@@ -1,5 +1,6 @@
 import type { EventBus } from '../event-bus/event-bus';
 import type { SchedulerEvents } from '../events';
+import type { ExecutionContext } from '../execution-policy';
 import { addSpanAttributes, addSpanEvent, traceAsync } from '../telemetry/tracing';
 import type { ScheduledAction } from './types';
 
@@ -25,7 +26,7 @@ export function wrapScheduledHandler(
     action: ScheduledAction,
     systemBus?: EventBus<SchedulerEvents> | null,
 ): ScheduledAction {
-    return async () => {
+    return async (context: ExecutionContext) => {
         const startTime = performance.now();
 
         return traceAsync('scheduler.job', async (span) => {
@@ -33,7 +34,7 @@ export function wrapScheduledHandler(
 
             let execError: string | undefined;
             try {
-                await action();
+                await action(context);
             } catch (error) {
                 execError = error instanceof Error ? error.message : String(error);
                 addSpanEvent('scheduler.job.error', { 'scheduler.error': execError });

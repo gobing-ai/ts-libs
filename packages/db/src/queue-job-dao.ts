@@ -20,6 +20,45 @@ export interface QueueStats {
     failed: number;
 }
 
+/** Options for enqueuing a job: retry policy, delay, TTL, and execution policy. */
+export interface QueueEnqueueOptions {
+    /** Total attempts allowed (default 3). */
+    maxRetries?: number;
+    delay?: number;
+    ttlMs?: number;
+    /**
+     * Job execution policy persisted with the row: a positive integer ms
+     * deadline, explicit `null` = unlimited (disables this job's deadline),
+     * omitted = no job-level decision (consumers apply their own default).
+     * Invalid explicit values are rejected before the row is created.
+     */
+    timeoutMs?: number | null;
+}
+
+/** Options for an atomic claim that takes lease ownership. */
+export interface QueueClaimOptions {
+    /** Ownership lease length in ms; omitted claims keep the legacy recovery path. */
+    leaseMs?: number;
+}
+
+/**
+ * Validate the persisted execution-policy leaf value. The scope-resolution
+ * chain (inherit/unlimited/finite) lives in the consumer packages; the DAO
+ * only stores an already-resolved job option and refuses invalid ones.
+ */
+function assertValidTimeoutMs(value: number | null | undefined): void {
+    if (value === undefined || value === null) return;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+        throw new RangeError(`enqueue timeoutMs must be a positive integer or null; received ${String(value)}`);
+    }
+}
+
+/** Persisted execution-policy columns derived from a validated `timeoutMs` option. */
+function timeoutColumns(timeoutMs: number | null | undefined): { timeoutMs?: number; timeoutUnlimited?: number } {
+    if (timeoutMs === undefined) return {};
+    return timeoutMs === null ? { timeoutUnlimited: 1 } : { timeoutMs };
+}
+
 /**
  * Row type inferred from the queue_jobs Drizzle schema.
  */
@@ -39,11 +78,8 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
     /**
      * Enqueue a new job.
      */
-    async enqueue(
-        type: string,
-        payload: unknown,
-        options?: { maxRetries?: number; delay?: number; ttlMs?: number },
-    ): Promise<string> {
+    async enqueue(type: string, payload: unknown, options?: QueueEnqueueOptions): Promise<string> {
+        assertValidTimeoutMs(options?.timeoutMs);
         const now = this.now();
         const id = crypto.randomUUID();
 
@@ -56,6 +92,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
             maxRetries: options?.maxRetries ?? 3,
             nextRetryAt: options?.delay !== undefined ? now + options.delay : now,
             ...(options?.ttlMs !== undefined ? { expiresAt: now + options.ttlMs } : {}),
+            ...timeoutColumns(options?.timeoutMs),
         });
 
         return id;
@@ -64,9 +101,10 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
     /**
      * Enqueue multiple jobs in a single batch.
      */
-    async enqueueBatch(
-        jobs: Array<{ type: string; payload: unknown } & { maxRetries?: number; delay?: number; ttlMs?: number }>,
-    ): Promise<string[]> {
+    async enqueueBatch(jobs: Array<{ type: string; payload: unknown } & QueueEnqueueOptions>): Promise<string[]> {
+        for (const job of jobs) {
+            assertValidTimeoutMs(job.timeoutMs);
+        }
         const now = this.now();
         const ids: string[] = [];
 
@@ -83,6 +121,7 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
                 maxRetries: job.maxRetries ?? 3,
                 nextRetryAt: job.delay !== undefined ? now + job.delay : now,
                 ...(job.ttlMs !== undefined ? { expiresAt: now + job.ttlMs } : {}),
+                ...timeoutColumns(job.timeoutMs),
             };
         });
 
@@ -158,30 +197,57 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
     }
 
     /**
-     * Atomically claim ready pending jobs for processing.
+     * Atomically claim ready pending jobs — and recover expired leased
+     * attempts — for processing.
      *
      * The update and selection happen in one SQLite statement so competing
      * consumers only receive rows they actually transitioned to processing.
+     * When `options.leaseMs` is provided the claimed row takes an ownership
+     * lease and a fresh attempt token; the token fences mutations and keeps
+     * rival consumers from re-claiming the live attempt until the lease
+     * expires. Expired leased rows (worker loss) are recovered here with a
+     * fresh token — not by the age-based `resetStuckJobs` sweep, which skips
+     * token-carrying rows. Claims WITHOUT `leaseMs` mint no ownership markers
+     * (and clear any stale ones on reclaim) so the row keeps the legacy
+     * recovery path through the age sweep — a token without a lease would
+     * make the row unrecoverable by both paths.
      */
-    async claimReady(batchSize: number): Promise<QueueJobRecord[]> {
+    async claimReady(batchSize: number, options?: QueueClaimOptions): Promise<QueueJobRecord[]> {
         const limit = Math.floor(batchSize);
         if (limit <= 0) return [];
 
         const now = this.now();
+        const leaseMs = options?.leaseMs;
+        const leased = leaseMs !== undefined;
+        const leaseExpiresAt = leased ? now + leaseMs : null;
+        const reclaimable = sql`(
+            ${queueJobs.status} = 'pending'
+            AND (${queueJobs.nextRetryAt} IS NULL OR ${queueJobs.nextRetryAt} <= ${now})
+        ) OR (
+            ${queueJobs.status} = 'processing'
+            AND ${queueJobs.attemptToken} IS NOT NULL
+            AND ${queueJobs.leaseExpiresAt} IS NOT NULL
+            AND ${queueJobs.leaseExpiresAt} <= ${now}
+        )`;
 
         const result = await (this.db as UpdateReturningDb)
             .update(queueJobs)
-            .set({ status: 'processing', processingAt: now, updatedAt: now })
+            .set({
+                status: 'processing',
+                processingAt: now,
+                updatedAt: now,
+                attemptToken: leased ? sql`lower(hex(randomblob(16)))` : null,
+                leaseExpiresAt,
+            })
             .where(
                 sql`${queueJobs.id} IN (
                     SELECT id
                     FROM ${queueJobs}
-                    WHERE status = 'pending'
-                      AND (next_retry_at IS NULL OR next_retry_at <= ${now})
+                    WHERE ${reclaimable}
                     ORDER BY created_at
                     LIMIT ${limit}
                 )
-                AND ${queueJobs.status} = 'pending'`,
+                AND ${reclaimable}`,
             )
             .returning();
 
@@ -204,41 +270,106 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
 
     /**
      * Mark a job as completed.
+     *
+     * When `attemptToken` is supplied the mutation is fenced: it applies only
+     * if the row is still owned by that attempt. Returns whether it applied.
      */
-    async markCompleted(id: string): Promise<void> {
-        await this.update(id, {
-            status: 'completed',
-            processingAt: null,
-        });
+    async markCompleted(id: string, attemptToken?: string): Promise<boolean> {
+        const where =
+            attemptToken === undefined
+                ? eq(queueJobs.id, id)
+                : and(eq(queueJobs.id, id), eq(queueJobs.attemptToken, attemptToken));
+        const result = await (this.db as UpdateChangesDb)
+            .update(queueJobs)
+            .set({
+                status: 'completed',
+                processingAt: null,
+                attemptToken: null,
+                leaseExpiresAt: null,
+                updatedAt: this.now(),
+            })
+            .where(where);
+        return (result as { changes: number }).changes === 1;
     }
 
     /**
-     * Mark a job as failed.
+     * Mark a job as failed, fenced by fresh attempt ownership when supplied.
      */
-    async markFailed(id: string, attempts: number, error: string): Promise<void> {
-        await this.update(id, {
-            status: 'failed',
-            attempts,
-            lastError: error,
-            processingAt: null,
-        });
+    async markFailed(id: string, attempts: number, error: string, attemptToken?: string): Promise<boolean> {
+        const where =
+            attemptToken === undefined
+                ? eq(queueJobs.id, id)
+                : and(eq(queueJobs.id, id), eq(queueJobs.attemptToken, attemptToken));
+        const result = await (this.db as UpdateChangesDb)
+            .update(queueJobs)
+            .set({
+                status: 'failed',
+                attempts,
+                lastError: error,
+                processingAt: null,
+                attemptToken: null,
+                leaseExpiresAt: null,
+                updatedAt: this.now(),
+            })
+            .where(where);
+        return (result as { changes: number }).changes === 1;
     }
 
     /**
-     * Reset a job to pending for retry with backoff.
+     * Reset a job to pending for retry with backoff, fenced by fresh attempt
+     * ownership when supplied.
      */
-    async markForRetry(id: string, attempts: number, errorMessage: string, nextRetryAt: number): Promise<void> {
-        await this.update(id, {
-            status: 'pending',
-            attempts,
-            lastError: errorMessage,
-            nextRetryAt,
-            processingAt: null,
-        });
+    async markForRetry(
+        id: string,
+        attempts: number,
+        errorMessage: string,
+        nextRetryAt: number,
+        attemptToken?: string,
+    ): Promise<boolean> {
+        const where =
+            attemptToken === undefined
+                ? eq(queueJobs.id, id)
+                : and(eq(queueJobs.id, id), eq(queueJobs.attemptToken, attemptToken));
+        const result = await (this.db as UpdateChangesDb)
+            .update(queueJobs)
+            .set({
+                status: 'pending',
+                attempts,
+                lastError: errorMessage,
+                nextRetryAt,
+                processingAt: null,
+                attemptToken: null,
+                leaseExpiresAt: null,
+                updatedAt: this.now(),
+            })
+            .where(where);
+        return (result as { changes: number }).changes === 1;
+    }
+
+    /**
+     * Extend the ownership lease of a claimed attempt.
+     *
+     * Applies only while the row is still owned by `attemptToken`; a `false`
+     * return means ownership was lost (expired and reclaimed by another
+     * consumer) and the caller must abort and fence its acknowledgements.
+     */
+    async renewLease(id: string, attemptToken: string, leaseMs: number): Promise<boolean> {
+        const now = this.now();
+        const result = await (this.db as UpdateChangesDb)
+            .update(queueJobs)
+            .set({ leaseExpiresAt: now + leaseMs, updatedAt: now })
+            .where(
+                and(eq(queueJobs.id, id), eq(queueJobs.attemptToken, attemptToken), eq(queueJobs.status, 'processing')),
+            );
+        return (result as { changes: number }).changes === 1;
     }
 
     /**
      * Reset stuck processing jobs (processing beyond visibility timeout).
+     *
+     * Age-based legacy recovery only: rows carrying an attempt token are
+     * lease-owned and recover exclusively through their expired lease in
+     * `claimReady`, never by processing age.
      */
     async resetStuckJobs(visibilityTimeout: number): Promise<number> {
         const cutoff = this.now() - visibilityTimeout;
@@ -247,7 +378,8 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
             .update(queueJobs)
             .set({ status: 'pending', processingAt: null, updatedAt: this.now() })
             .where(
-                sql`${queueJobs.status} = 'processing' AND ${queueJobs.processingAt} IS NOT NULL AND ${queueJobs.processingAt} <= ${cutoff}`,
+                sql`${queueJobs.status} = 'processing' AND ${queueJobs.processingAt} IS NOT NULL AND ${queueJobs.processingAt} <= ${cutoff}
+                AND ${queueJobs.attemptToken} IS NULL`,
             );
 
         return (result as { changes: number }).changes;

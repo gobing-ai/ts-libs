@@ -39,6 +39,7 @@ import type {
     SchedulerOptions,
     TelemetryOptions,
 } from './application/types';
+import { resolveExecutionTimeoutMs } from './execution-policy';
 import { parseCronExpression } from './scheduler/cron';
 import type { SchedulerJobConfig } from './scheduler/types';
 import { NodeSchedulerAdapter } from './scheduler-node';
@@ -97,7 +98,22 @@ function validateAppConfig<TAppConfig>(
     throw new ConfigValidationError(`Unsupported validator shape for section "${section}"`);
 }
 
-// ── Scheduler job validation (task 0734) ────────────────────────────────────
+// ── Scheduler job validation (task 0734) ────────────────────────────
+
+/**
+ * Resolve and validate the bootstrap-level scheduler execution policy (A21),
+ * rethrowing invalid values as {@link ConfigValidationError} with the exact
+ * config path so startup aborts before the user `start` callback.
+ */
+function resolveBootstrapSchedulerTimeout(value: number | null | undefined): number | null {
+    try {
+        return resolveExecutionTimeoutMs('bootstrap.scheduler', value);
+    } catch {
+        throw new ConfigValidationError(
+            `bootstrap.scheduler.timeoutMs must be a positive integer or null; received ${String(value)}`,
+        );
+    }
+}
 
 /** Max `intervalMinutes` so that `intervalMinutes * 60_000` fits in the platform timer maximum. */
 const MAX_INTERVAL_MINUTES = Math.floor(MAX_TIMEOUT_MS / 60_000);
@@ -131,6 +147,22 @@ function normalizeSchedulerJobs(raw: unknown): readonly SchedulerJobConfig[] {
         const command = typeof entry.command === 'string' ? entry.command.trim() : '';
         const cron = typeof entry.cron === 'string' ? entry.cron.trim() : '';
         const interval = entry.intervalMinutes;
+        // Per-job execution policy (A21): undefined inherits, explicit null is
+        // unlimited, otherwise a positive integer. Validated here so a bad
+        // value aborts startup with the exact job path.
+        const rawTimeout = entry.timeoutMs;
+        let timeoutMs: number | null | undefined;
+        if (rawTimeout !== undefined) {
+            if (
+                rawTimeout !== null &&
+                (typeof rawTimeout !== 'number' || !Number.isInteger(rawTimeout) || rawTimeout <= 0)
+            ) {
+                throw new ConfigValidationError(
+                    `bootstrap.scheduler.jobs.${index}.timeoutMs must be a positive integer or null`,
+                );
+            }
+            timeoutMs = rawTimeout as number | null;
+        }
 
         if (name === '') {
             throw new ConfigValidationError(`bootstrap.scheduler.jobs.${index}.name must be a non-empty string`);
@@ -165,7 +197,7 @@ function normalizeSchedulerJobs(raw: unknown): readonly SchedulerJobConfig[] {
                     `bootstrap.scheduler.jobs.${index}.intervalMinutes must be an integer in 1..${MAX_INTERVAL_MINUTES}`,
                 );
             }
-            jobs.push({ name, command, intervalMinutes: interval as number });
+            jobs.push({ name, command, intervalMinutes: interval as number, timeoutMs });
         } else {
             if (cron === '') {
                 throw new ConfigValidationError(`bootstrap.scheduler.jobs.${index}.cron must be a non-empty string`);
@@ -176,7 +208,7 @@ function normalizeSchedulerJobs(raw: unknown): readonly SchedulerJobConfig[] {
                 const detail = error instanceof Error ? error.message : String(error);
                 throw new ConfigValidationError(`bootstrap.scheduler.jobs.${index}.cron: ${detail}`);
             }
-            jobs.push({ name, command, cron });
+            jobs.push({ name, command, cron, timeoutMs });
         }
     });
 
@@ -369,9 +401,13 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
         enabled: schedulerOpts.enabled === true,
         autoStart: schedulerOpts.autoStart,
         jobs: normalizeSchedulerJobs((schedulerOpts as Partial<SchedulerOptions>).jobs),
+        // Bootstrap-level execution policy (A21): validated with the exact
+        // config path so a bad value aborts startup before the user callback.
+        timeoutMs: resolveBootstrapSchedulerTimeout(schedulerOpts.timeoutMs),
     };
     if (schedulerConfig.enabled) {
-        schedulerConfig.adapter = schedulerOpts.adapter ?? new NodeSchedulerAdapter();
+        schedulerConfig.adapter =
+            schedulerOpts.adapter ?? new NodeSchedulerAdapter({ timeoutMs: schedulerConfig.timeoutMs });
         if (schedulerOpts.entries) {
             schedulerConfig.entries = schedulerOpts.entries;
         }
