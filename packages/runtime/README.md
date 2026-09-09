@@ -598,16 +598,40 @@ unsub();
 ```
 
 `rejectOnError: true` throws on non-zero exits. `OutputPolicy` controls
-buffered vs streamed output. `ProcessOptions` supports timeout, env, cwd,
+buffered vs streamed output. `ProcessOptions` supports `timeout`, env, cwd,
 maxOutput, forceBuffered, an optional synchronous `onOutput({ stream, chunk,
 timestamp })` observer, and registry fields (`source`, `teamId`, `agentId`).
 `onOutput` observes live chunks while the returned `ProcessResult` retains the
 complete buffered stdout/stderr; observers must enqueue and return, and thrown
-observer errors are isolated from the child. When `signal` is supplied, one-shot
-commands run in an isolated process group on Unix so abort terminates descendants
-that could otherwise retain the output pipes; Windows falls back to direct-child
-cancellation. Inject the same `ProcessRegistry` into every executor that should
+observer errors are isolated from the child. Inject the same `ProcessRegistry` into every executor that should
 appear in one watch list; without a registry, behavior is unchanged.
+
+#### Deadlines, cancellation, and process-group containment (Unix)
+
+On Unix, a finite `timeout` or a supplied `signal` puts the run under executor-owned
+process-group containment: the child is spawned detached as a process-group leader, the
+executor runs one termination sequence (group `SIGTERM`, a `killGraceMs` grace — default
+5000 ms — then group `SIGKILL`), and escalation is driven by group liveness, never by the
+leader exiting first. Completion therefore reaps descendants that survive the leader while
+holding inherited output pipes or a SQLite write transaction, so `run()` completion is a
+containment barrier: after it resolves, no owned descendant remains (best-effort for
+SIGKILL-immune members — escalation gives up after a bounded settle). `runStreaming` keeps
+direct-child semantics and provides no group containment.
+
+- `timeout: number` — positive-integer deadline in ms; expiry reports `outcome: 'timeout'`.
+- `timeout: null` — unlimited; overrides a finite `defaultTimeout` from `ProcessExecutorConfig`.
+- omitted — inherits `defaultTimeout` (which may itself be `null`/unlimited).
+- `timeout: 0`, negative, fractional, `NaN`, `±Infinity`, or beyond the native timer range —
+  rejected with `TypeError` before spawn; `killGraceMs` must be a non-negative integer.
+- abort `signal` — reports `outcome: 'cancelled'`; a deadline is never a cancellation and
+  vice versa. Deadline and abort feed one escalation path, so callers must not arm a
+  competing watchdog over the same child.
+
+`ProcessResult.outcome` (`'exit' | 'timeout' | 'cancelled' | 'signal' | 'error'`, aliased as
+`ProcessExitReason`) states why the run ended; `process.exited` events carry the same reason.
+On Windows (and when no deadline or signal is supplied), execa's direct-child timeout and
+cancellation semantics apply unchanged: only the direct child is killed, and the outcome is
+classified from the result.
 
 Cloudflare Workers do not expose process execution; check
 `factory.capabilities.hasProcessExecution` first.

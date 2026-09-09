@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-libs",
-    "version": "0.4.57",
+    "version": "0.4.59",
     "description": "Monorepo of TypeScript libraries — shared runtime abstractions, database layer, infrastructure backbone and etc",
     "keywords": [
         "bun",
@@ -37,8 +37,8 @@
         "format": "biome check . --write",
         "autofix": "bun run format && bun run typecheck",
         "test": "NODE_ENV=test bun test --coverage --coverage-dir=.coverage --reporter=dots",
-        "test-pre-check": "spur rule run --preset recommended-pre-check --fail-on warning --verbose",
-        "test-post-check": "spur rule run --preset recommended-post-check --fail-on warning --verbose",
+        "test-pre-check": "spur rule run --preset recommended-pre-check --fail-on warning",
+        "test-post-check": "spur rule run --preset recommended-post-check --fail-on warning",
         "spur-check": "bun run lint && bun run test-pre-check && bun run test && bun run test-post-check",
         "check": "bun run lint && bun run test",
         "test:full": "NODE_ENV=test bun test --update-snapshots --coverage --coverage-dir=.coverage",

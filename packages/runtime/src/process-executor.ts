@@ -24,7 +24,11 @@ export type OutputPolicy = { mode: 'buffered' } | { mode: 'stream'; isTTY?: bool
 
 /** Shared configuration for a process executor (default timeout, output buffering, output policy). */
 export interface ProcessExecutorConfig {
-    defaultTimeout?: number;
+    /**
+     * Default execution deadline inherited by runs that omit `timeout`. `null` makes the
+     * default policy unlimited; value validation follows `ProcessOptions.timeout`.
+     */
+    defaultTimeout?: number | null;
     defaultMaxOutput?: number;
     output?: OutputPolicy;
     events?: ProcessEventSink;
@@ -56,7 +60,23 @@ export interface ProcessOptions {
      * `run` and `runStreaming` share one contract.
      */
     envMode?: 'merge' | 'replace';
-    timeout?: number;
+    /**
+     * Execution deadline in milliseconds. Omitted inherits
+     * {@link ProcessExecutorConfig.defaultTimeout}; explicit `null` runs without a deadline
+     * (a supplied `signal` still cancels). On Unix, a finite deadline activates owned
+     * process-group containment: the executor arms its own timer — callers must not race a
+     * second watchdog — and expiry reaps the whole group with SIGTERM-to-SIGKILL escalation.
+     * Zero, negative, fractional, non-finite, or beyond-timer-range values are rejected
+     * before spawn; `null` replaces the previous `0`-disables behavior.
+     */
+    timeout?: number | null;
+    /**
+     * Grace in milliseconds between the owned group SIGTERM and the SIGKILL escalation
+     * (Unix group containment; see {@link ProcessOptions.timeout}). `0` escalates
+     * immediately; omitted defaults to 5000 ms. Out-of-range values are rejected before
+     * spawn. Without a finite deadline or `signal`, this option has no effect.
+     */
+    killGraceMs?: number;
     maxOutput?: number;
     label?: string;
     rejectOnError?: boolean;
@@ -101,6 +121,13 @@ export interface ProcessOutputChunk {
     readonly timestamp: string;
 }
 
+/**
+ * Terminal classification of how a run ended: normal `exit`, deadline `timeout`, external
+ * `cancelled` abort, termination by an outside `signal`, or `error` (spawn/runtime failure).
+ * Reaping surviving owned descendants after a natural leader exit keeps the outcome `exit`.
+ */
+export type ProcessOutcome = 'exit' | 'timeout' | 'cancelled' | 'signal' | 'error';
+
 /** Result of a completed child process, including exit code, captured output, and duration. */
 export interface ProcessResult {
     command: string;
@@ -110,14 +137,20 @@ export interface ProcessResult {
     stderr: string;
     signal?: string;
     durationMs: number;
+    /**
+     * How the run terminated, distinguishing deadline expiry from external cancellation,
+     * an outside signal, runtime failure, and normal completion. Optional for backward
+     * compatibility with hand-built results; `NodeProcessExecutor` always sets it.
+     */
+    outcome?: ProcessOutcome;
 }
 
-/** Reason a process completion event was emitted. */
-export type ProcessExitReason = 'exit' | 'signal' | 'timeout' | 'error';
+/** Reason a process completion event was emitted (mirrors {@link ProcessOutcome}). */
+export type ProcessExitReason = ProcessOutcome;
 
 function processEventSeverity(reason: ProcessExitReason, exitCode: number | null): ProcessEventDetail['severity'] {
     if (reason === 'error') return 'error';
-    if (reason === 'timeout') return 'warning';
+    if (reason === 'timeout' || reason === 'cancelled') return 'warning';
     if (exitCode !== null && exitCode !== 0) return 'warning';
     return 'info';
 }
@@ -263,15 +296,26 @@ export class NodeProcessExecutor implements ProcessExecutor {
 
     private async runUntraced(options: ProcessOptions): Promise<ProcessResult> {
         const args = options.args ?? [];
+        // Validate before spawn and before any registry/event side effects: an invalid
+        // deadline or grace is caller configuration error, not a process outcome.
+        const deadline = resolveDeadline(options.timeout, this.config.defaultTimeout);
+        const killGraceMs = resolveKillGraceMs(options.killGraceMs);
+        // Unix group containment activates on a finite deadline or a caller abort signal:
+        // the executor then owns group isolation, SIGTERM, escalation, output settlement
+        // and the final outcome, so callers must not arm a competing watchdog. Other
+        // platforms keep execa's direct-child timeout/cancellation semantics explicit.
+        const groupOwned =
+            process.platform !== 'win32' && (typeof deadline === 'number' || options.signal !== undefined);
         const execaOptions = buildExecaOptions({
             cwd: options.cwd ?? this.config.paths?.cwd,
             env: options.env,
-            timeout: options.timeout ?? this.config.defaultTimeout,
+            timeout: typeof deadline === 'number' ? deadline : undefined,
             maxOutput: options.maxOutput ?? this.config.defaultMaxOutput,
             rejectOnError: options.rejectOnError ?? false,
             outputPolicy: this.config.output,
             forceBuffered: options.forceBuffered ?? false,
             signal: options.signal,
+            groupOwned,
         });
         const startedAt = Date.now();
         const startedIso = new Date(startedAt).toISOString();
@@ -293,8 +337,17 @@ export class NodeProcessExecutor implements ProcessExecutor {
             ...(options.label !== undefined ? { label: options.label } : {}),
         });
 
+        let ownership: ProcessGroupOwnership | undefined;
         try {
             const subprocess = execa(options.command, args, execaOptions);
+            if (groupOwned && subprocess.pid !== undefined) {
+                ownership = ownProcessGroupLifecycle({
+                    pid: subprocess.pid,
+                    deadlineMs: typeof deadline === 'number' ? deadline : undefined,
+                    signal: options.signal,
+                    graceMs: killGraceMs,
+                });
+            }
             // execa@9's resolved Result carries no pid, but the live handle does.
             // Publish it while the child is running so observers can identify the
             // subprocess, and record it against the registry entry opened above.
@@ -308,10 +361,14 @@ export class NodeProcessExecutor implements ProcessExecutor {
                     }
                 }
             }
-            const stopGroupCancellation = observeProcessGroupCancellation(subprocess, options.signal);
+            const stopOwnedTermination = (): void => ownership?.stop();
             observeOutput(subprocess.stdout, 'stdout', options.onOutput);
             observeOutput(subprocess.stderr, 'stderr', options.onOutput);
-            const result = await subprocess.finally(stopGroupCancellation);
+            const result = await subprocess.finally(stopOwnedTermination);
+            // Settle the owned termination path before reporting: a deadline or abort that
+            // fired keeps escalating until the group is empty, and a natural leader exit
+            // reaps surviving owned descendants so completion cannot leak pipes or locks.
+            const ownedOutcome = ownership !== undefined ? await ownership.finish() : undefined;
             const processResult = {
                 command: options.command,
                 args,
@@ -320,6 +377,8 @@ export class NodeProcessExecutor implements ProcessExecutor {
                 stderr: asString(result.stderr),
                 ...(result.signalDescription !== undefined ? { signal: result.signalDescription } : {}),
                 durationMs: result.durationMs,
+                outcome:
+                    ownedOutcome ?? (result.signalDescription !== undefined ? ('signal' as const) : ('exit' as const)),
             };
             this.completeRegistry(registryId, processResult.exitCode);
             this.emitExitedFromResult(options, processResult, result);
@@ -333,8 +392,13 @@ export class NodeProcessExecutor implements ProcessExecutor {
                 signal?: string;
                 durationMs?: number;
                 timedOut?: boolean;
+                isCanceled?: boolean;
+                isTerminated?: boolean;
                 message?: string;
             };
+            // Termination containment settles before the failure is reported — and before
+            // rejectOnError rethrows — so a rejected run never leaks owned descendants.
+            const ownedOutcome = ownership !== undefined ? await ownership.finish() : undefined;
             const processResult = {
                 command: options.command,
                 args,
@@ -347,6 +411,7 @@ export class NodeProcessExecutor implements ProcessExecutor {
                       ? { signal: failed.signal }
                       : {}),
                 durationMs: failed.durationMs ?? Date.now() - startedAt,
+                outcome: ownedOutcome ?? classifyFailedCompletion(failed),
             };
             this.completeRegistry(registryId, processResult.exitCode);
             this.emitExitedFromResult(options, processResult, error, error);
@@ -465,13 +530,9 @@ export class NodeProcessExecutor implements ProcessExecutor {
         completion: unknown,
         error?: unknown,
     ): void {
-        const reason = isTimedOut(completion)
-            ? 'timeout'
-            : result.signal !== undefined
-              ? 'signal'
-              : error
-                ? 'error'
-                : 'exit';
+        const reason =
+            result.outcome ??
+            (isTimedOut(completion) ? 'timeout' : result.signal !== undefined ? 'signal' : error ? 'error' : 'exit');
         this.emitProcessEvent('process.exited', {
             command: result.command,
             args: result.args,
@@ -678,6 +739,7 @@ function buildExecaOptions(opts: {
     outputPolicy: OutputPolicy | undefined;
     forceBuffered: boolean;
     signal?: AbortSignal;
+    groupOwned: boolean;
 }): ExecaOptions {
     const mode = opts.forceBuffered ? 'buffered' : (opts.outputPolicy?.mode ?? 'buffered');
     const streamToTerminal =
@@ -695,37 +757,191 @@ function buildExecaOptions(opts: {
               : { all: true }),
         ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
         ...(opts.env !== undefined ? { env: opts.env } : {}),
-        ...(opts.timeout !== undefined ? { timeout: opts.timeout } : {}),
+        ...(opts.timeout !== undefined && !opts.groupOwned ? { timeout: opts.timeout } : {}),
         ...(opts.maxOutput !== undefined ? { maxBuffer: opts.maxOutput } : {}),
-        ...(opts.signal !== undefined
-            ? {
-                  cancelSignal: opts.signal,
-                  // Node's negative-pid group signal requires the child to lead
-                  // a distinct process group. Windows has no equivalent.
-                  ...(process.platform !== 'win32' ? { detached: true } : {}),
-              }
-            : {}),
+        // Group-owned runs make the child lead a distinct process group so negative-pid
+        // signaling can reach the whole tree; termination itself runs through the
+        // executor's own escalation path (deadline and abort feed one sequence).
+        // Platforms without Unix group semantics cancel the direct child via execa.
+        ...(opts.groupOwned ? { detached: true } : {}),
+        ...(opts.signal !== undefined && !opts.groupOwned ? { cancelSignal: opts.signal } : {}),
     };
 }
 
-function observeProcessGroupCancellation(
-    subprocess: { pid?: number; kill(signal?: NodeJS.Signals | number): boolean },
-    signal: AbortSignal | undefined,
-): () => void {
-    const pid = subprocess.pid;
-    if (signal === undefined || process.platform === 'win32' || pid === undefined) return () => {};
-    const abort = (): void => {
-        try {
-            process.kill(-pid, 'SIGTERM');
-        } catch {
-            // The leader may already have exited through execa's cancelSignal.
-            // Fall back to the direct child without changing cancellation semantics.
-            subprocess.kill('SIGTERM');
-        }
+// ── Deadline and process-group containment ───────────────────────────
+
+/**
+ * Largest delay accepted by native timers; anything larger would overflow onto an
+ * immediate timer, so deadline/grace values beyond it are rejected before spawn.
+ */
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/** Default grace between the owned group SIGTERM and the SIGKILL escalation. */
+const DEFAULT_KILL_GRACE_MS = 5000;
+
+/** Poll cadence while waiting for an owned process group to empty. */
+const GROUP_POLL_INTERVAL_MS = 25;
+
+/** Bounded patience after group SIGKILL before giving up on unkillable (D-state) members. */
+const GROUP_KILL_PATIENCE_MS = 2000;
+
+/**
+ * Resolve the effective deadline: omitted inherits the executor default (which may itself
+ * be unlimited), explicit `null` is unlimited and overrides any finite default, and a
+ * finite value must be a positive integer within the native timer range. Invalid values
+ * are rejected before spawn — never clamped and never overflowed onto a timer.
+ */
+function resolveDeadline(
+    optionTimeout: number | null | undefined,
+    defaultTimeout: number | null | undefined,
+): number | null | undefined {
+    if (optionTimeout === null) return null;
+    const candidate = optionTimeout === undefined ? defaultTimeout : optionTimeout;
+    if (candidate === undefined || candidate === null) return candidate;
+    if (!Number.isInteger(candidate) || candidate <= 0 || candidate > MAX_TIMEOUT_MS) {
+        throw new TypeError(
+            `Process timeout must be a positive integer within the native timer range (1-${MAX_TIMEOUT_MS} ms), got ${String(candidate)}`,
+        );
+    }
+    return candidate;
+}
+
+/**
+ * Resolve the SIGTERM→SIGKILL escalation grace: omitted uses {@link DEFAULT_KILL_GRACE_MS},
+ * `0` escalates immediately, and anything outside the native timer range is rejected.
+ */
+function resolveKillGraceMs(optionGraceMs: number | undefined): number {
+    if (optionGraceMs === undefined) return DEFAULT_KILL_GRACE_MS;
+    if (!Number.isInteger(optionGraceMs) || optionGraceMs < 0 || optionGraceMs > MAX_TIMEOUT_MS) {
+        throw new TypeError(
+            `Process killGraceMs must be a non-negative integer within the native timer range (0-${MAX_TIMEOUT_MS} ms), got ${String(optionGraceMs)}`,
+        );
+    }
+    return optionGraceMs;
+}
+
+/** Whether any member of the owned process group is still alive (signal 0 probe on `-pid`). */
+function groupExists(pid: number): boolean {
+    try {
+        process.kill(-pid, 0);
+        return true;
+    } catch (error) {
+        // EPERM means the group exists but is not signallable from here.
+        return (error as NodeJS.ErrnoException).code === 'EPERM';
+    }
+}
+
+/** Signal the owned process group; `false` when the group is already gone (ESRCH). */
+function signalGroup(pid: number, signal: NodeJS.Signals | number): boolean {
+    try {
+        process.kill(-pid, signal);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function waitForGroupExit(pid: number, budgetMs: number): Promise<boolean> {
+    const giveUpAt = Date.now() + budgetMs;
+    while (groupExists(pid)) {
+        if (Date.now() >= giveUpAt) return false;
+        await new Promise<void>((resolve) => setTimeout(resolve, GROUP_POLL_INTERVAL_MS));
+    }
+    return true;
+}
+
+/**
+ * The one termination sequence for an owned Unix process group: group SIGTERM, wait the
+ * grace for the whole group to empty, then group SIGKILL and a bounded settle wait.
+ * Group liveness — not direct-child exit — decides completion, so escalation is never
+ * cancelled because the leader exited first while descendants retain pipes or locks.
+ * Resolves `true` only when a group signal was actually delivered.
+ */
+async function reapProcessGroup(pid: number, graceMs: number): Promise<boolean> {
+    if (!signalGroup(pid, 'SIGTERM')) return false;
+    if (await waitForGroupExit(pid, graceMs)) return true;
+    signalGroup(pid, 'SIGKILL');
+    await waitForGroupExit(pid, GROUP_KILL_PATIENCE_MS);
+    return true;
+}
+
+/** Handle for the executor-owned termination of one spawned process group. */
+interface ProcessGroupOwnership {
+    /**
+     * Settle the run's termination: resolve the outcome delivered by the executor's own
+     * path (deadline `timeout` or external `cancelled`) after the escalation completed, or
+     * reap surviving owned descendants after a natural leader exit (outcome stays `exit`).
+     * Call exactly once, after the execa promise has settled; bounded, never hangs.
+     */
+    finish(): Promise<ProcessOutcome | undefined>;
+    /** Release the deadline timer and abort listener once the execa promise has settled. */
+    stop(): void;
+}
+
+/**
+ * Own one detached child's process group on Unix. A deadline timer and the caller's abort
+ * signal both feed a single termination path — group SIGTERM, grace, SIGKILL — and after a
+ * natural leader exit surviving owned descendants are reaped with the same sequence, so
+ * completion cannot leak group members holding inherited pipes or database write locks.
+ */
+function ownProcessGroupLifecycle(ownership: {
+    pid: number;
+    deadlineMs: number | undefined;
+    signal: AbortSignal | undefined;
+    graceMs: number;
+}): ProcessGroupOwnership {
+    const { pid, graceMs } = ownership;
+    let trigger: 'timeout' | 'cancelled' | undefined;
+    let termination: Promise<boolean> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const initiate = (reason: 'timeout' | 'cancelled'): void => {
+        if (trigger !== undefined) return;
+        trigger = reason;
+        termination = reapProcessGroup(pid, graceMs);
     };
-    if (signal.aborted) abort();
-    else signal.addEventListener('abort', abort, { once: true });
-    return () => signal.removeEventListener('abort', abort);
+
+    if (ownership.deadlineMs !== undefined) {
+        timer = setTimeout(() => initiate('timeout'), ownership.deadlineMs);
+    }
+    const onAbort = (): void => initiate('cancelled');
+    if (ownership.signal !== undefined) {
+        if (ownership.signal.aborted) onAbort();
+        else ownership.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    return {
+        finish: async () => {
+            if (trigger === undefined) {
+                // Natural completion: reap stragglers (no-op when the group is already empty).
+                await reapProcessGroup(pid, graceMs);
+                return undefined;
+            }
+            // An undeliverable trigger (group already gone — the child finished first)
+            // yields undefined so the outcome falls back to the natural classification.
+            return (await termination) ? trigger : undefined;
+        },
+        stop: () => {
+            if (timer !== undefined) clearTimeout(timer);
+            ownership.signal?.removeEventListener('abort', onAbort);
+        },
+    };
+}
+
+/** Classify an execa rejection on paths where the executor did not own the termination. */
+function classifyFailedCompletion(error: {
+    timedOut?: boolean;
+    isCanceled?: boolean;
+    isTerminated?: boolean;
+    signalDescription?: string;
+    signal?: string;
+}): ProcessOutcome {
+    if (error.timedOut === true) return 'timeout';
+    if (error.isCanceled === true) return 'cancelled';
+    if (error.isTerminated === true || error.signalDescription !== undefined || error.signal !== undefined) {
+        return 'signal';
+    }
+    return 'error';
 }
 
 function observeOutput(
