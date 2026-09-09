@@ -98,7 +98,10 @@ export class BunSqliteAdapter implements DbAdapter {
 
     async queryFirst<T>(sql: string, ...params: unknown[]): Promise<T | undefined> {
         const stmt = this.getStatement(sql);
-        return (stmt as unknown as { get: (...p: unknown[]) => T | undefined }).get(...params) as T | undefined;
+        // bun:sqlite's get() returns null on no match; the DbAdapter contract (and D1) say undefined.
+        return ((stmt as unknown as { get: (...p: unknown[]) => T | null }).get(...params) ?? undefined) as
+            | T
+            | undefined;
     }
 
     async queryAll<T>(sql: string, ...params: unknown[]): Promise<T[]> {

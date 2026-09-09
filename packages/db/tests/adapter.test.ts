@@ -47,9 +47,9 @@ describe('BunSqliteAdapter', () => {
         expect(row).toEqual({ name: 'first' });
     });
 
-    test('queryFirst returns null for no match', async () => {
+    test('queryFirst returns undefined for no match', async () => {
         const row = await adapter.queryFirst<{ name: string }>('SELECT name FROM test_first WHERE id = ?', 999);
-        expect(row).toBeNull();
+        expect(row).toBeUndefined();
     });
 
     test('queryAll returns all rows', async () => {

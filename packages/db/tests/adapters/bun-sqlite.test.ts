@@ -86,7 +86,7 @@ describe('BunSqliteAdapter', () => {
             'SELECT * FROM test_first_miss WHERE id = ?',
             999,
         );
-        expect(row).toBeNull();
+        expect(row).toBeUndefined();
     });
 
     test('queryAll returns multiple rows', async () => {
