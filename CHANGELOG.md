@@ -8,6 +8,10 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+### Added
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: cooperative cancellation settles writes and checkpoints before rejecting (feature A21 / ADR-112).** `ImportOptions.signal` / `OpenCodeImportOptions.signal` accept an `AbortSignal` checked at safe boundaries — before schema and checkpoint writes, before each source file, between bounded per-line batches (JSONL), and per source page plus before the single settlement batch (OpenCode) — never inside a transaction: in-flight batch work settles first, then the run rejects with the new `ImportCancelledError` (a `HistoryImportError` carrying `signal.reason`). No invocation-owned write happens after settlement; incremental resume continues from the last committed checkpoint, and the per-file identity stamp moved after each file's line loop so a cancelled mid-file run can never arm the 0675 file-identity short-circuit and silently skip the un-imported tail on resume. Omitting `signal` preserves existing behavior. A cancellation cannot interrupt a synchronous SQLite call — the containing process remains the hard fallback.
+
 ## [0.4.57] - 2026-09-07
 
 ### Added
