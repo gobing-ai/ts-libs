@@ -1,6 +1,7 @@
 # Output boundary rules — keep terminal writes behind logging/output utilities.
 include:
   - "packages/**/src/**/*.ts"
+  - "scripts/**/*.ts"
 exclude:
   - "**/node_modules/**"
   - "**/dist/**"
@@ -16,6 +17,8 @@ rules:
     exclude:
       - "packages/infra/src/logger.ts"
       - "packages/db/src/migrate.ts"
+      - "scripts/lib/release-commands.ts"
+      - "scripts/builder.ts"
 
   - id: no-raw-stdout-stderr
     description: "Use @gobing-ai/ts-utils output helpers instead of process.stdout/stderr.write directly."
