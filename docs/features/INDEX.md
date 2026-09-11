@@ -12,4 +12,5 @@
 [backlog] **F**: ts-rule-engine ([F_ts-rule-engine.md](./F_ts-rule-engine.md))
 [backlog] **G**: ts-runtime ([G_ts-runtime.md](./G_ts-runtime.md))
 [backlog] **H**: ts-utils ([H_ts-utils.md](./H_ts-utils.md))
+[backlog] **I**: Add DeepSeek dsh coding agent support ([I_add-deepseek-dsh-coding-agent-support.md](./I_add-deepseek-dsh-coding-agent-support.md))
 <!-- END AUTO-GENERATED -->
