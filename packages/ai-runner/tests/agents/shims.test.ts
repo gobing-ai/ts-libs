@@ -24,6 +24,7 @@ describe('Agent shims', () => {
         expect(isAgentName('hermes')).toBe(true);
         expect(isAgentName('omp')).toBe(true);
         expect(isAgentName('grok')).toBe(true);
+        expect(isAgentName('deepseek')).toBe(true);
         expect(isAgentName('agy')).toBe(true);
 
         expect(isAgentName('')).toBe(false);
@@ -68,6 +69,7 @@ describe('Agent shims', () => {
         expect(DISPLAY_ORDER.length).toBeGreaterThanOrEqual(10);
         expect(new Set(DISPLAY_ORDER).size).toBe(DISPLAY_ORDER.length);
         expect(DISPLAY_ORDER).toContain('grok');
+        expect(DISPLAY_ORDER).toContain('deepseek');
         for (const name of DISPLAY_ORDER) {
             expect(isAgentName(name)).toBe(true);
         }
@@ -448,5 +450,45 @@ describe('session-affinity argv matrix (0447 R3/R5)', () => {
             const args = getAgentShim(agent).getPromptCommand({ input: '' }).args;
             expect(args).toContain('--no-session');
         }
+    });
+});
+
+describe('deepseek shim (task 0066)', () => {
+    test('deepseek is a known canonical id resolving to the dsh shim', () => {
+        expect(isAgentName('deepseek')).toBe(true);
+        expect(resolveAgentName('deepseek')).toBe('deepseek');
+        const shim = getAgentShim('deepseek');
+        expect(shim.name).toBe('deepseek');
+        expect(shim.command).toBe('dsh');
+        expect(shim.tier).toBe(1);
+        expect(shim.getHelpCommand()).toEqual({ command: 'dsh', args: ['--help'] });
+        expect(shim.getVersionCommand()).toEqual({ command: 'dsh', args: ['--version'] });
+    });
+
+    test('getPromptCommand maps input to dsh headless one-shot argv', () => {
+        expect(getAgentShim('deepseek').getPromptCommand({ input: 'run the tests' })).toEqual({
+            command: 'dsh',
+            args: ['--profile', 'headless', 'run the tests'],
+        });
+    });
+
+    test('session/continue/model options degrade to a fresh headless one-shot without error', () => {
+        const shim = getAgentShim('deepseek');
+        const expected = { command: 'dsh', args: ['--profile', 'headless', 'fix the bug'] };
+        expect(shim.getPromptCommand({ input: 'fix the bug', sessionId: 's1' })).toEqual(expected);
+        expect(shim.getPromptCommand({ input: 'fix the bug', sessionDir: '/tmp/s' })).toEqual(expected);
+        expect(shim.getPromptCommand({ input: 'fix the bug', continue: true })).toEqual(expected);
+        expect(shim.getPromptCommand({ input: 'fix the bug', model: 'deepseek-chat' })).toEqual(expected);
+    });
+
+    test('getAuthCommand is null (no auth subcommand)', () => {
+        expect(getAgentShim('deepseek').getAuthCommand()).toBeNull();
+    });
+
+    test('deepseek has no resume-by-id and no session-dir (fresh degrade)', () => {
+        expect(getAgentSessionCapability('deepseek')).toEqual({
+            supportsResumeById: false,
+            supportsSessionDir: false,
+        });
     });
 });

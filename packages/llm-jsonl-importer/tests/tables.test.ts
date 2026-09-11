@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { BOOKKEEPING_HISTORY_TABLES, IMPORTER_OWNED_TABLES, SOURCE_DEFINITIONS, TYPED_HISTORY_TABLES } from '../src';
 
 describe('IMPORTER_OWNED_TABLES (0749 R1)', () => {
-    test('contains exactly the 15 importer-owned tables', () => {
+    test('contains exactly the 16 importer-owned tables', () => {
         const expected = [
             'history_message',
             'history_tool_call',
@@ -13,6 +13,7 @@ describe('IMPORTER_OWNED_TABLES (0749 R1)', () => {
             'history_etl_antigravity',
             'history_etl_claude',
             'history_etl_codex',
+            'history_etl_deepseek',
             'history_etl_gemini',
             'history_etl_grok',
             'history_etl_omp',
@@ -21,7 +22,7 @@ describe('IMPORTER_OWNED_TABLES (0749 R1)', () => {
             'history_etl_pi',
         ];
 
-        expect(IMPORTER_OWNED_TABLES.length).toBe(15);
+        expect(IMPORTER_OWNED_TABLES.length).toBe(16);
         expect([...IMPORTER_OWNED_TABLES].sort()).toEqual([...expected].sort());
     });
 

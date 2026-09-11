@@ -112,6 +112,18 @@ describe('AgentDetector', () => {
         expect(result.error).toBeNull();
     });
 
+    test('detectOne parses deepseek dsh --version output (task 0066)', async () => {
+        // Real dsh --version shape at 0.1.5-rc.1: plain semver, no prefix.
+        const executor = new FakeExecutor(() => ({ stdout: '0.1.5-rc.1' }));
+        const detector = new AgentDetector({
+            runner: new AiRunner({ processExecutor: executor }),
+        });
+        const result = await detector.detectOne('deepseek');
+
+        expect(result).toMatchObject({ name: 'deepseek', installed: true, error: null });
+        expect(result.version).toContain('0.1.5-rc.1');
+    });
+
     test('detectOne reports distinct signal and null-exit errors', async () => {
         const signalDetector = new AgentDetector({
             runner: new AiRunner({ processExecutor: new FakeExecutor(() => ({ exitCode: null, signal: 'SIGTERM' })) }),

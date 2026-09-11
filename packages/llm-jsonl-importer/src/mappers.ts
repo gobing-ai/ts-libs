@@ -1440,8 +1440,95 @@ export function geminiSplit(raw: Record<string, unknown>, context?: TransformCon
     return entries;
 }
 
+// ---------------------------------------------------------------------------
+// DeepSeek dsh mapper (task 0067)
+// ---------------------------------------------------------------------------
+
+/**
+ * Map one DeepSeek dsh `session.v3.jsonl` line into forensic ETL entries (task 0067 R2).
+ *
+ * dsh layout: line 1 is the session header `{type:"session", version:3, id, createdAt, cwd, ...}`;
+ *
+ * any remaining lines are append-only events `{type, seq, time, data}` whose
+ * vocabulary is plugin-extensible. Only chat events (`user/message`,
+ * `assistant/message`) become history_message rows (content is an array of
+ * `{text}` blocks — the existing extractContentText joined-text rule); every
+ * unrecognized event type (compaction/*, hook/*, turn/*, session/title, …) is
+ * tolerated and skipped, and torn crash tails never reach the mapper because
+ * the source registers `corruptLinePolicy: 'skip'`. Session identity comes from
+ * the `session-<uuid>` dir path (stateless — message events carry no session id),
+ * mirroring the agy/codex path-identity precedent.
+ */
+export function dshSplit(raw: Record<string, unknown>, context?: TransformContext): readonly SplitEntry[] {
+    const recordType = String(raw.type ?? '');
+
+    // Session header: bookkeeping meta row carrying cwd/createdAt for the session.
+    if (recordType === 'session') {
+        const sessionId = s(raw.id) ?? sessionIdFromSourcePath('deepseek', context?.sourceFile ?? '') ?? 'unknown';
+        return [
+            {
+                targetTable: 'history_message',
+                record: {
+                    session_id: sessionId,
+                    seq: 0,
+                    role: 'meta',
+                    record_type: 'session',
+                    disposition: 'meta',
+                    ts: timestampOf(raw.createdAt),
+                    cwd: s(raw.cwd) ?? null,
+                    content_text: null,
+                    provenance: 'ambient',
+                },
+            },
+        ];
+    }
+
+    // Chat events only — unknown plugin-extensible types are dropped, not records.
+    if (recordType !== 'user/message' && recordType !== 'assistant/message') return [];
+
+    const data = o(raw.data);
+    const msg = o(data.message);
+    const seq = typeof raw.seq === 'number' ? raw.seq : (context?.sourceLine ?? 0);
+    const sessionId = sessionIdFromSourcePath('deepseek', context?.sourceFile ?? '') ?? 'unknown';
+    const role = recordType === 'user/message' ? 'user' : 'assistant';
+    const source = o(data.source ?? msg.source);
+    const model = s(source.model, o(data.model ?? msg.model).model);
+    const usage = (data.usage ?? msg.usage) as Record<string, unknown> | undefined;
+    // Task 0067 R2: the message id is the record identity — it rides the normalized
+    // record into the record_hash, so identity derives from `data.message.id` when
+    // present and falls back to the importer's line-derived record hash when absent.
+    const messageId = s(msg.id, data.id);
+
+    return [
+        {
+            targetTable: 'history_message',
+            record: {
+                session_id: sessionId,
+                seq,
+                role,
+                record_type: recordType,
+                disposition: 'keep',
+                ...(messageId !== undefined ? { source_record_id: messageId } : {}),
+                ts: timestampOf(raw.time, data.time, msg.time),
+                duration_ms: null,
+                model: model ?? null,
+                input_tokens: numberOrNull(usage?.input_tokens ?? usage?.input) ?? null,
+                output_tokens: numberOrNull(usage?.output_tokens ?? usage?.output) ?? null,
+                cache_read_tokens: null,
+                cache_write_tokens: null,
+                cost_usd: null,
+                content_text: extractContentText(data.content ?? msg.content) ?? s(data.text, msg.text) ?? null,
+                cwd: null,
+                provenance: 'ambient',
+            },
+        },
+    ];
+}
+
 const UUID_PATTERN = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
 const AGY_BRAIN_REGEX = new RegExp(`(?:^|\\/)brain\\/(${UUID_PATTERN})(?:\\/|$)`, 'i');
+/** DSH session-dir identity: `<normalized-abs-cwd>--/session-<uuid>/`. */
+const DSH_SESSION_REGEX = new RegExp(`(?:^|\\/)session-(${UUID_PATTERN})(?:\\/|$)`, 'i');
 const CODEX_ROLLOUT_REGEX = new RegExp(`(?:^|-|_)(${UUID_PATTERN})$`, 'i');
 
 /**
@@ -1456,6 +1543,10 @@ export function sessionIdFromSourcePath(source: string, sourceFile: string): str
     const sLower = source.toLowerCase();
     if (sLower === 'agy' || sLower === 'antigravity') {
         const match = normalized.match(AGY_BRAIN_REGEX);
+        return match?.[1];
+    }
+    if (sLower === 'deepseek') {
+        const match = normalized.match(DSH_SESSION_REGEX);
         return match?.[1];
     }
     if (sLower === 'codex') {
@@ -2085,6 +2176,8 @@ export const GROK_FIELD_MAP = identityFieldMap(
 export const GEMINI_FIELD_MAP = identityFieldMap(
     MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS, SKILL_CALL_MAPPER_KEYS),
 );
+/** Identity field map for the DeepSeek dsh mapper — message rows only, no tool-call rows. */
+export const DSH_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(['source_record_id']));
 
 // ---------------------------------------------------------------------------
 // Zod schemas for the six source mappers
@@ -2106,3 +2199,5 @@ export const AGY_SCHEMA = passthroughSchema;
 export const GROK_SCHEMA = passthroughSchema;
 /** Passthrough Zod schema for the Gemini mapper. */
 export const GEMINI_SCHEMA = passthroughSchema;
+/** Passthrough Zod schema for the DeepSeek dsh mapper. */
+export const DSH_SCHEMA = passthroughSchema;

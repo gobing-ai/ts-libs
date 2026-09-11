@@ -10,6 +10,9 @@ import {
     CODEX_SCHEMA,
     claudeSplit,
     codexSplit,
+    DSH_FIELD_MAP,
+    DSH_SCHEMA,
+    dshSplit,
     GEMINI_FIELD_MAP,
     GEMINI_SCHEMA,
     GROK_FIELD_MAP,
@@ -214,6 +217,21 @@ export const SOURCE_DEFINITIONS: Readonly<Record<LlmJsonlSource, SourceDefinitio
         GEMINI_FIELD_MAP,
         GEMINI_SCHEMA,
     ),
+    deepseek: {
+        ...customSourceDefinition(
+            'deepseek',
+            'DeepSeek dsh',
+            ['.dsh/sessions'],
+            ['session.v3.jsonl', 'session.v3.jsonl.zstd'],
+            dshSplit,
+            DSH_FIELD_MAP,
+            DSH_SCHEMA,
+        ),
+        // dsh crash recovery can tear the final append-only line; unknown plugin
+        // event types interleave freely (task 0067 R4). Skipping keeps every good
+        // message record importable — same rationale as agy/task 0623.
+        corruptLinePolicy: 'skip',
+    },
     opencode: sourceDefinition('opencode', 'OpenCode', ['.opencode', '.local/share/opencode'], ['*.jsonl']),
     antigravity: sourceDefinition('antigravity', 'Antigravity', ['.antigravity'], ['*.jsonl']),
     openclaw: sourceDefinition('openclaw', 'OpenClaw', ['.openclaw'], ['*.jsonl']),

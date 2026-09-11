@@ -13,7 +13,8 @@ export type LlmJsonlSource =
     | 'openclaw'
     | 'omp'
     | 'grok'
-    | 'agy';
+    | 'agy'
+    | 'deepseek';
 
 /** Import mode controlling checkpoint behavior. */
 export type ImportMode = 'full' | 'incremental' | 'force-file';

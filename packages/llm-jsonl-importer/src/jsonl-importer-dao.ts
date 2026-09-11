@@ -98,7 +98,9 @@ const TYPED_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** Keys that a typed table mapper may produce that are not columns. */
-const TYPED_IGNORED_KEYS = new Set<string>(['_meta', 'split_index']);
+// `split_index` and `source_record_id` (task 0067 R2) ride the normalized record into the
+// record_hash but are not history_message columns — identity-relevant, never persisted.
+const TYPED_IGNORED_KEYS = new Set<string>(['_meta', 'split_index', 'source_record_id']);
 
 function targetTableFor(table: string): string {
     if (!VALID_TABLE_NAME.test(table)) {

@@ -3,6 +3,7 @@ import {
     ambientRuntimePaths,
     createNodeFileSystem,
     type FileSystem,
+    getProcessEnv,
     type RuntimePaths,
     resolvePath,
     walkDir,
@@ -36,6 +37,7 @@ import type {
     SourceDefinition,
     TransformContext,
 } from './types';
+import { zstdDecompress } from './zstd';
 
 interface SplitRecord {
     readonly targetTable: string;
@@ -645,10 +647,14 @@ async function discoverFiles(
     //    Previously both kinds anchored to ambient cwd, so a cwd ≠ $HOME silently skipped every
     //    registry source because the home-relative paths never existed relative to cwd.
     const ambient = paths ?? ambientRuntimePaths();
+    // deepseek (task 0067 R1): $DSH_HOME replaces the `~/.dsh` storage root when set;
+    // session-persistence-jsonl mounts its sessions under `<root>/sessions`.
+    const dshHome = definition.source === 'deepseek' ? nonEmptyString(getProcessEnv().DSH_HOME) : undefined;
+    const defaultRoots = dshHome !== undefined ? [`${dshHome}/sessions`] : (definition.defaultRoots ?? []);
     const resolvedRoots =
         roots !== undefined
             ? roots.map((root) => resolvePath(ambient.cwd, root))
-            : definition.defaultRoots.map((root) => resolvePath(ambient.home, root));
+            : defaultRoots.map((root) => resolvePath(ambient.home, root));
     const found = new Set<string>();
     for (const root of resolvedRoots) {
         if (!(await fileSystem.exists(root))) continue;
@@ -693,6 +699,14 @@ function matchesPattern(path: string, patterns: readonly string[]): boolean {
     });
 }
 
+/** First non-empty string among values (task 0067: $DSH_HOME env override). */
+function nonEmptyString(...values: readonly unknown[]): string | undefined {
+    for (const value of values) {
+        if (typeof value === 'string' && value.length > 0) return value;
+    }
+    return undefined;
+}
+
 /**
  * Stat a file for its identity, returning null on any failure (missing file, stat unsupported).
  * 0675 R2: the short-circuit fails OPEN — any null falls through to the normal read path.
@@ -715,6 +729,16 @@ async function safeStat(fileSystem: FileSystem, file: string): Promise<{ size: n
  * as before, preserving parity for stubs like CF Workers.
  */
 async function* readLines(fileSystem: FileSystem, file: string): AsyncGenerator<string> {
+    if (file.endsWith('.jsonl.zstd')) {
+        // task 0067: checksummed Zstandard session logs decompress through the
+        // system zstd CLI before line parsing; the same errors/checkpointing apply
+        // to the decompressed line stream.
+        const decompressed = await zstdDecompress(file);
+        for (const line of decompressed.split(/\r?\n/)) {
+            yield line;
+        }
+        return;
+    }
     if (fileSystem.readFileStream) {
         yield* fileSystem.readFileStream(file);
         return;

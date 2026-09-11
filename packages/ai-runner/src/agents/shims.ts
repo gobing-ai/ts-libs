@@ -11,7 +11,8 @@ export type AgentName =
     | 'openclaw'
     | 'hermes'
     | 'omp'
-    | 'grok';
+    | 'grok'
+    | 'deepseek';
 
 /** Output mode for prompt invocations. */
 export type OutputMode = 'text' | 'json';
@@ -331,6 +332,30 @@ const grokShim: AgentShim = {
     getAuthCommand: () => null,
 };
 
+/**
+ * DeepSeek coding agent (`dsh`, @deepseek-ai/dsh) — tier-1. Boot model is
+ * `dsh --profile <name>`; the headless one-shot surface is the `headless`
+ * profile: `dsh --profile headless "<task>"` streams reasoning to stderr and
+ * prints the final assistant message to stdout. At 0.1.5-rc.1 the headless
+ * app accepts only the positional task and `-h` — no resume/model/mode flags.
+ * No auth subcommand; credentials resolve via env references / `~/.dsh`.
+ */
+const dshShim: AgentShim = {
+    name: 'deepseek',
+    command: 'dsh',
+    tier: 1,
+    getHelpCommand: () => ({ command: 'dsh', args: ['--help'] }),
+    getVersionCommand: () => ({ command: 'dsh', args: ['--version'] }),
+    getPromptCommand: (options) => {
+        // Always a fresh one-shot headless dispatch: sessionId/sessionDir/
+        // continue/model degrade silently — the HEADLESS app takes only the
+        // task + `-h`; no resume/model flags exist at dsh 0.1.5-rc.1.
+        // mode/workspace/timeoutMs have no dsh flag — best-effort ignored.
+        return { command: 'dsh', args: ['--profile', 'headless', options.input ?? ''] };
+    },
+    getAuthCommand: () => null,
+};
+
 /** All bundled agent shims keyed by canonical agent name. */
 export const AGENT_SHIMS: Readonly<Record<AgentName, AgentShim>> = {
     claude: claudeShim,
@@ -343,6 +368,7 @@ export const AGENT_SHIMS: Readonly<Record<AgentName, AgentShim>> = {
     hermes: hermesShim,
     omp: ompShim,
     grok: grokShim,
+    deepseek: dshShim,
 };
 
 /** Session-affinity capability for one coding agent (ADR-047). */
@@ -376,6 +402,8 @@ const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapabilit
     opencode: { supportsResumeById: false, supportsSessionDir: false },
     openclaw: { supportsResumeById: false, supportsSessionDir: false },
     hermes: { supportsResumeById: false, supportsSessionDir: false },
+    // dsh headless has no resume/session flags — fresh-dispatch degrade.
+    deepseek: { supportsResumeById: false, supportsSessionDir: false },
 };
 
 /** Query a bundled agent's session-affinity capability by canonical name. */
@@ -393,6 +421,7 @@ export const TIER1_PRIORITY: readonly AgentName[] = [
     'hermes',
     'opencode',
     'grok',
+    'deepseek',
 ];
 
 /** Display order for doctor and list commands. */
@@ -407,6 +436,7 @@ export const DISPLAY_ORDER: readonly AgentName[] = [
     'openclaw',
     'hermes',
     'grok',
+    'deepseek',
 ];
 
 /** Set of gateway/TUI-constrained agents. */

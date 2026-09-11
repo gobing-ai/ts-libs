@@ -43,3 +43,4 @@ export type {
     SplitEntry,
     TransformContext,
 } from './types';
+export { zstdDecompress } from './zstd';
