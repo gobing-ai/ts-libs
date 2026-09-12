@@ -23,6 +23,7 @@ export {
     type InboxMessageEventSink,
     type InboxMessageEvents,
     type InjectedMessageDetail,
+    RequestKeyConflictError,
 } from './inbox-message-dao';
 export { applyMigrations, type MigrationLogger, type MigrationOptions } from './migrate';
 export {

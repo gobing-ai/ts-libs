@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { BunSqliteAdapter } from '../src/adapters/bun-sqlite';
-import { InboxMessageDao, type InboxMessageEventSink, type InboxMessageEvents } from '../src/inbox-message-dao';
+import {
+    InboxMessageDao,
+    type InboxMessageEventSink,
+    type InboxMessageEvents,
+    RequestKeyConflictError,
+} from '../src/inbox-message-dao';
 import { applyMigrations } from '../src/migrate';
 
 const silentMigrationLogger = {
@@ -324,5 +329,80 @@ describe('InboxMessageDao — event sink (R4)', () => {
         await Promise.resolve();
 
         expect(await rejectingDao.getById(id)).toMatchObject({ id, status: 'queued' });
+    });
+});
+
+describe('InboxMessageDao — enqueueIdempotent (task 0832)', () => {
+    beforeEach(async () => {
+        adapter = new BunSqliteAdapter({ databaseUrl: ':memory:' });
+        await migrateInboxDatabase(adapter);
+        dao = new InboxMessageDao(adapter);
+    });
+
+    test('fresh insert returns { replayed: false } and persists request_key', async () => {
+        const { id, replayed } = await dao.enqueueIdempotent('planner', 'coder', 'do the thing', 'req-1');
+        expect(replayed).toBeFalse();
+        expect(await dao.getById(id)).toMatchObject({
+            id,
+            toId: 'coder',
+            body: 'do the thing',
+            status: 'queued',
+            requestKey: 'req-1',
+        });
+        expect(await dao.countPending('coder')).toBe(1);
+    });
+
+    test('same key + same body replays with no new row and no second message.enqueued', async () => {
+        const sink = new RecordingSink();
+        const sinkDao = new InboxMessageDao(adapter, { events: sink });
+        const first = await sinkDao.enqueueIdempotent('planner', 'coder', 'do the thing', 'req-2');
+        const second = await sinkDao.enqueueIdempotent('planner', 'coder', 'do the thing', 'req-2');
+
+        expect(second).toEqual({ id: first.id, replayed: true });
+        expect(sink.events.filter(({ event }) => event === 'message.enqueued')).toHaveLength(1);
+        expect(await dao.countPending('coder')).toBe(1);
+        // No message.enqueued carries a replay flag — replay emits nothing.
+        const firstEmit = sink.events[0] as { detail: Record<string, unknown> };
+        expect(firstEmit.detail).not.toHaveProperty('requestKey');
+    });
+
+    test('same key + different body throws RequestKeyConflictError, original row untouched', async () => {
+        const first = await dao.enqueueIdempotent('planner', 'coder', 'original body', 'req-3');
+        let caught: RequestKeyConflictError | undefined;
+        try {
+            await dao.enqueueIdempotent('planner', 'coder', 'different body', 'req-3');
+        } catch (error) {
+            caught = error as RequestKeyConflictError;
+        }
+        expect(caught).toBeInstanceOf(RequestKeyConflictError);
+        expect(caught?.requestKey).toBe('req-3');
+        expect(caught?.existingId).toBe(first.id);
+        expect((await dao.getById(first.id))?.body).toBe('original body');
+        expect(await dao.countPending('coder')).toBe(1);
+
+        // Different to_id under the same key conflicts too.
+        await expect(dao.enqueueIdempotent(null, 'reviewer', 'original body', 'req-3')).rejects.toBeInstanceOf(
+            RequestKeyConflictError,
+        );
+    });
+
+    test('two concurrent inserts of one key yield one row and one replay (constraint arbitrates)', async () => {
+        const results = await Promise.all([
+            dao.enqueueIdempotent('planner', 'coder', 'concurrent body', 'req-4'),
+            dao.enqueueIdempotent('planner', 'coder', 'concurrent body', 'req-4'),
+        ]);
+
+        expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+        expect(new Set(results.map((r) => r.id))).toHaveLength(1);
+        expect(await dao.countPending('coder')).toBe(1);
+        expect((await dao.inbox('coder')).length).toBe(1);
+    });
+
+    test('keyless enqueue stays first-class: many NULL request_key rows coexist', async () => {
+        const id1 = await dao.enqueue(null, 'coder', 'no key one');
+        const id2 = await dao.enqueue(null, 'coder', 'no key two');
+        expect(id1).not.toBe(id2);
+        expect(await dao.countPending('coder')).toBe(2);
+        expect((await dao.getById(id1))?.requestKey ?? null).toBeNull();
     });
 });

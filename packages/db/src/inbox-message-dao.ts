@@ -88,6 +88,34 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
     );
 }
 
+/**
+ * Thrown by `InboxMessageDao.enqueueIdempotent` when a request key is re-used for a
+ * *different* payload (different `body` or `to_id`). Never a silent overwrite.
+ */
+export class RequestKeyConflictError extends Error {
+    readonly requestKey: string;
+    readonly existingId: string;
+
+    constructor(requestKey: string, existingId: string) {
+        super(
+            `Request key conflict: key is already bound to another payload` +
+                (existingId ? ` (existing message id: ${existingId})` : ''),
+        );
+        this.name = 'RequestKeyConflictError';
+        this.requestKey = requestKey;
+        this.existingId = existingId;
+    }
+}
+
+/** True when the error is SQLite's unique violation on the request-key partial index. */
+function isRequestKeyUniqueViolation(error: unknown): boolean {
+    const msg = error instanceof Error ? error.message : String(error);
+    return (
+        msg.includes('UNIQUE constraint failed') &&
+        (msg.includes('idx_inbox_messages_request_key') || msg.includes('inbox_messages.request_key'))
+    );
+}
+
 // ---------------------------------------------------------------------------
 // DAO
 // ---------------------------------------------------------------------------
@@ -125,6 +153,60 @@ export class InboxMessageDao extends EntityDao<typeof inboxMessages, typeof inbo
             timestamp: now,
         });
         return id;
+    }
+
+    /**
+     * Insert-first idempotent enqueue (task 0832): the caller-supplied request key
+     * is the arbiter, enforced by the partial unique index
+     * `idx_inbox_messages_request_key` (request_key IS NOT NULL) — no read-then-write
+     * window exists, so two concurrent submissions of one key cannot both insert.
+     *
+     * Same key + same body + same to_id → replay: returns the original row's id with
+     * `replayed: true` and emits nothing. Same key + different payload → throws
+     * `RequestKeyConflictError`. Emits `message.enqueued` only on a fresh insert.
+     */
+    async enqueueIdempotent(
+        fromId: string | null,
+        toId: string,
+        body: string,
+        requestKey: string,
+        inReplyTo?: string,
+    ): Promise<{ id: string; replayed: boolean }> {
+        const id = crypto.randomUUID();
+        const now = this.now();
+        try {
+            await this.create({
+                id,
+                fromId,
+                toId,
+                body,
+                status: 'queued',
+                injectAttempts: 0,
+                requestKey,
+                createdAt: now,
+                updatedAt: now,
+                ...(inReplyTo !== undefined ? { inReplyTo } : {}),
+            });
+        } catch (error) {
+            if (isRequestKeyUniqueViolation(error)) {
+                // The constraint won the race (or the row already existed): fetch the
+                // winner and decide replay vs conflict by comparing the payload.
+                const existing = await this.findBy(inboxMessages.requestKey, requestKey);
+                if (existing && existing.body === body && existing.toId === toId) {
+                    return { id: existing.id, replayed: true };
+                }
+                throw new RequestKeyConflictError(requestKey, existing?.id ?? '');
+            }
+            throw error;
+        }
+        this.emitEvent('message.enqueued', {
+            id,
+            fromId,
+            toId,
+            ...(inReplyTo !== undefined ? { inReplyTo } : {}),
+            timestamp: now,
+        });
+        return { id, replayed: false };
     }
 
     async drainPending(toId: string, options?: { limit?: number }): Promise<InboxMessage[]> {

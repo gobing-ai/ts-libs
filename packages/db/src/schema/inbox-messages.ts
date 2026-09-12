@@ -17,6 +17,7 @@ export const inboxMessages = sqliteTable(
         deliveredAt: integer('delivered_at'),
         injectAttempts: integer('inject_attempts').notNull().default(0),
         injectError: text('inject_error'),
+        requestKey: text('request_key'),
     },
     (table) => [index('idx_inbox_messages_to_status').on(table.toId, table.status)],
 );

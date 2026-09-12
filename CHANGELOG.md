@@ -8,6 +8,12 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.65] - 2026-09-12
+
+### Added
+
+- **`@gobing-ai/ts-db`: idempotent message send with receipt replay (spur task 0832 / G61).** New additive verb `InboxMessageDao.enqueueIdempotent(fromId, toId, body, requestKey, inReplyTo?): Promise<{ id, replayed }>` — insert-first, arbitered by a new partial unique index `idx_inbox_messages_request_key` (`WHERE request_key IS NOT NULL`, embedded migration `0014_inbox_messages_request_key`): the same key replayed with the same body + to_id returns the original `{ id, replayed: true }` with no second row, no second `message.enqueued`, and no second delivery; the same key with a different payload throws the new exported `RequestKeyConflictError{ requestKey, existingId }`. Two concurrent submissions of one key cannot both insert — the constraint resolves the race. Keyless sends are untouched (`enqueue` unchanged; NULL keys coexist freely); old rows with a null key keep working. Unit tests cover fresh insert, replay (no new row / no event), body conflict, concurrency, and the keyless path.
+
 ## [0.4.64] - 2026-09-12
 
 ### Added
