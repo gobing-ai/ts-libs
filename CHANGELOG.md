@@ -8,6 +8,12 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.64] - 2026-09-12
+
+### Added
+
+- **`@gobing-ai/ts-db`: `InboxMessageDao.release(msgIds)` — release claimed (`injected`) rows back to `queued` (spur task 0831 / G61).** The one missing delivery primitive behind commit-after-claim consumption: `UPDATE inbox_messages SET status = 'queued', updated_at = ? WHERE id IN (…) AND status = 'injected'`, so a drain whose invocation never started stays redeliverable. Only `injected` rows match the guard — a `queued` or `delivered` row is untouched, making double-release a no-op. `injectAttempts` and `injectError` are left intact (the claim counter IS the budget). Emits one `message.requeued` event per released row via the structural sink; new additive `RequeuedMessageDetail` payload type. Unit tests cover the status guard, attempts preservation, redelivery after release, empty-id no-op, and the event payload.
+
 ## [0.4.63] - 2026-09-11
 
 ### Added

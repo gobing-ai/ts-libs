@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { DbAdapter } from './adapter';
 import type { UpdateReturningDb } from './drizzle-builders';
 import { EntityDao } from './entity-dao';
@@ -48,12 +48,21 @@ export interface FailedMessageDetail {
     timestamp: number;
 }
 
+/** Payload for a `message.requeued` event (one per row returned by `release`). */
+export interface RequeuedMessageDetail {
+    id: string;
+    fromId: string | null;
+    toId: string;
+    timestamp: number;
+}
+
 /** Typed event map for inbox message lifecycle transitions. */
 export type InboxMessageEvents = {
     'message.enqueued': (detail: EnqueuedMessageDetail) => void;
     'message.injected': (detail: InjectedMessageDetail) => void;
     'message.delivered': (detail: DeliveredMessageDetail) => void;
     'message.failed': (detail: FailedMessageDetail) => void;
+    'message.requeued': (detail: RequeuedMessageDetail) => void;
 };
 
 /**
@@ -191,6 +200,35 @@ export class InboxMessageDao extends EntityDao<typeof inboxMessages, typeof inbo
                 timestamp: updated.updatedAt,
             });
         }
+    }
+
+    /**
+     * Release claimed (`injected`) messages back to `queued` so a drain whose
+     * invocation never started stays redeliverable. Only rows currently in
+     * `status = 'injected'` are touched — a `queued` or `delivered` row is
+     * left alone, so double-release is a no-op. `injectAttempts` and
+     * `injectError` are left untouched: the claim counter IS the budget.
+     * Emits one `message.requeued` event per released row.
+     */
+    async release(msgIds: string[]): Promise<number> {
+        if (msgIds.length === 0) return 0;
+        const now = this.now();
+        const rows = (await (this.db as UpdateReturningDb)
+            .update(inboxMessages)
+            .set({ status: 'queued', updatedAt: now })
+            .where(and(inArray(inboxMessages.id, msgIds), eq(inboxMessages.status, 'injected')))
+            .returning()) as InboxMessage[];
+
+        for (const row of rows) {
+            this.emitEvent('message.requeued', {
+                id: row.id,
+                fromId: row.fromId,
+                toId: row.toId,
+                timestamp: now,
+            });
+        }
+
+        return rows.length;
     }
 
     async inbox(toId: string, limit?: number, offset?: number): Promise<InboxMessage[]> {

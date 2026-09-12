@@ -79,6 +79,42 @@ describe('InboxMessageDao', () => {
         await expect(dao.drainPending('b', { limit: -3 })).rejects.toThrow(RangeError);
     });
 
+    test('release returns only injected rows to queued, leaving attempts and errors untouched', async () => {
+        const releasedId = await dao.enqueue('planner', 'coder', 'retry me');
+        const injected = await dao.drainPending('coder');
+        expect(injected).toHaveLength(1);
+
+        const count = await dao.release([releasedId]);
+        expect(count).toBe(1);
+        const row = await dao.getById(releasedId);
+        expect(row).toMatchObject({ status: 'queued', injectAttempts: 1 });
+        expect(await dao.countPending('coder')).toBe(1);
+
+        // Redelivery works after release, and the attempt counter keeps counting.
+        await dao.drainPending('coder');
+        const redelivered = await dao.getById(releasedId);
+        expect(redelivered?.status).toBe('injected');
+        expect(redelivered?.injectAttempts).toBe(2);
+    });
+
+    test('release only touches injected rows — queued and delivered rows are untouched', async () => {
+        const deliveredId = await dao.enqueue('planner', 'coder', 'claimed then delivered');
+        await dao.drainPending('coder');
+        await dao.markDelivered(deliveredId);
+        const queuedId = await dao.enqueue('planner', 'coder', 'still queued');
+
+        // Neither a delivered row nor a queued row matches the release guard.
+        const count = await dao.release([deliveredId, queuedId]);
+        expect(count).toBe(0);
+        expect((await dao.getById(deliveredId))?.status).toBe('delivered');
+        expect((await dao.getById(queuedId))?.status).toBe('queued');
+        expect(await dao.countPending('coder')).toBe(1);
+    });
+
+    test('release with an empty id list is a no-op', async () => {
+        expect(await dao.release([])).toBe(0);
+    });
+
     test('markDelivered and markFailed update lifecycle columns', async () => {
         const deliveredId = await dao.enqueue('planner', 'coder', 'done?');
         await dao.markDelivered(deliveredId);
@@ -231,6 +267,26 @@ describe('InboxMessageDao — event sink (R4)', () => {
         expect(emitted.detail.fromId).toBe('planner');
         expect(emitted.detail.error).toBe('connection reset');
         expect(emitted.detail.timestamp).toBe((await dao.getById(id))?.updatedAt);
+    });
+
+    test('release emits one message.requeued per released row', async () => {
+        const firstId = await dao.enqueue('planner', 'coder', 'retry first');
+        const secondId = await dao.enqueue('planner', 'coder', 'retry second');
+        await dao.drainPending('coder');
+
+        const count = await dao.release([firstId, secondId]);
+        expect(count).toBe(2);
+
+        const requeued = sink.events.filter(({ event }) => event === 'message.requeued');
+        expect(requeued).toHaveLength(2);
+        expect(requeued.map(({ detail }) => (detail as { id: string }).id)).toEqual([firstId, secondId]);
+        const first = requeued[0] as { detail: Record<string, unknown> };
+        expect(first.detail).toEqual({
+            id: firstId,
+            fromId: 'planner',
+            toId: 'coder',
+            timestamp: (await dao.getById(firstId))?.updatedAt,
+        });
     });
 
     test('construction without sink is silent — no errors, full contract preserved', async () => {
