@@ -8,8 +8,23 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
-## [0.4.61] - 2026-09-09
+## [0.4.63] - 2026-09-11
 
+### Added
+
+- **`@gobing-ai/ts-ai-runner`: `deepseek` coding agent (`dsh`) shipped as a tier-1 shim (feature I, spur task 0066).** `'deepseek'` joins the canonical agent-id union; the new `dshShim` detects `dsh` via `dsh --version`, runs prompts headless with `--profile headless <input>`, degrades session/model/display options without error (fresh headless run whenever session state or auth cannot be honored — `dsh` reports null auth in headless), and carries null auth/persist/sessions semantics. Registered in the shim registry across tiers, documented in every README capability/registry matrix, and covered by dedicated `shims` + `agent-detector` tests.
+- **`@gobing-ai/ts-llm-jsonl-importer`: `deepseek` session-history source over the dsh session store (feature I, spur task 0067).** Discovery roots at `$HOME/.dsh/sessions` (or `<$DSH_HOME>/sessions` when set), matching `session.v3.jsonl` and `session.v3.jsonl.zstd`; walked v3 streams skip the per-session header meta line and map user/assistant messages with the same keep/disposition contract as the other sources, deriving `source_record_id` from `data.message.id` (falling back to the line-hash identity when absent). `.jsonl.zstd` sources decompress through the system `zstd -dc` binary via the ADR-014 `ProcessExecutor` seam before line splitting — a missing binary or corrupt frame raises an actionable `HistoryImportError` naming `zstd` and the file. Raw and compressed imports of the same stream are record-equal modulo storage artifacts; unknown event lines and torn tails follow the registry's `corruptLinePolicy: 'skip'`. README documents the source.
+
+### Fixed
+
+- **`@gobing-ai/ts-llm-jsonl-importer`: deepseek importer tests now isolate `$DSH_HOME`.** The discovery tests read the operator shell's exported `DSH_HOME`, repointing discovery at the real `~/.dsh/sessions` tree in full-suite runs (scanned files 5 vs fixture 2/1) while passing in isolation. `beforeEach`/`afterEach` now save, clear, and restore the variable, and the override test sets `DSH_HOME` to the fixture `.dsh` dir explicitly so the override path is exercised by construction.
+
+### Other
+
+- `chore(spur)`: `no-console-output` rule extended to `scripts/`.
+- `docs(spur)`: feature I corpus capture (tasks 0066/0067) and README refresh.
+
+## [0.4.62] - 2026-09-09
 ### Fixed
 
 - **`@gobing-ai/ts-db`: `BunSqliteAdapter.queryFirst` no longer returns `null` on no row.** `bun:sqlite`'s `Statement.get()` resolves `null` when nothing matches; the adapter passed it through with a cast to `T | undefined`, so the declared contract lied at runtime and diverged from the D1 adapter (which already normalizes). The no-row result is now `undefined`, matching `DbAdapter.queryFirst` and every call site's `=== undefined` reasoning. Repaired two test assertions that codified the `null` behavior (`adapters/bun-sqlite.test.ts`, `adapter.test.ts`) to `toBeUndefined()`.
