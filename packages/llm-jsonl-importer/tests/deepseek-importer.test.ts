@@ -11,13 +11,20 @@ import type { JsonObject } from '../src/types';
 let db: DbAdapter;
 let root: string;
 const UUID = '3d2b7a1e-1111-4222-8333-444455556666';
+let savedDshHome: string | undefined;
 
 beforeEach(async () => {
     db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
     root = await mkdtemp(join(tmpdir(), 'dsh-test-'));
+    // Isolation: $DSH_HOME leaks from the operator shell into the full-suite run and
+    // repoints discovery at the real ~/.dsh sessions (scannedFiles 5 vs fixture 2/1).
+    savedDshHome = process.env.DSH_HOME;
+    delete process.env.DSH_HOME;
 });
 
 afterEach(async () => {
+    if (savedDshHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = savedDshHome;
     await rm(root, { recursive: true, force: true });
 });
 
@@ -108,6 +115,8 @@ describe('deepseek importer (task 0067)', () => {
 
     test('R1 — $DSH_HOME home-relative import resolves the sessions dir under an injected home', async () => {
         await writeSession(true);
+        // DSH root override: <DSH_HOME>/sessions, so point it at the fixture's .dsh dir.
+        process.env.DSH_HOME = join(root, '.dsh');
         const result = await runJsonlImport('deepseek', {
             db,
             mode: 'full',
