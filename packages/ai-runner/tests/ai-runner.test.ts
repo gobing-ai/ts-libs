@@ -40,6 +40,7 @@ class FakeExecutor implements ProcessExecutor {
     async run(options: ProcessOptions): Promise<ProcessResult> {
         this.calls.push(options);
         const response = this.responder(options);
+        options.onSpawn?.(12345);
         return {
             command: options.command,
             args: options.args ?? [],
@@ -57,6 +58,30 @@ class FakeExecutor implements ProcessExecutor {
 }
 
 describe('AiRunner', () => {
+    test('invocation acceptance follows spawn and is absent when spawning fails', async () => {
+        const events = new EventBus<AgentEvents>();
+        const observed: string[] = [];
+        events.on('agent.invoke.start', () => observed.push('accepted'));
+        const failing = new AiRunner({
+            events,
+            processExecutor: new FakeExecutor(() => {
+                expect(observed).toEqual([]);
+                throw new Error('spawn failed');
+            }),
+        });
+        await expect(failing.runPromptCommand('codex', { input: 'work' })).rejects.toThrow('spawn failed');
+        expect(observed).toEqual([]);
+        const started = new AiRunner({
+            events,
+            processExecutor: new FakeExecutor(() => {
+                expect(observed).toEqual([]);
+                return { exitCode: 7 };
+            }),
+        });
+        await started.runPromptCommand('codex', { input: 'work' });
+        expect(observed).toEqual(['accepted']);
+    });
+
     test('builds vendor-specific prompt commands through shims', async () => {
         const executor = new FakeExecutor(() => ({ stdout: 'ok' }));
         const runner = new AiRunner({ processExecutor: executor });

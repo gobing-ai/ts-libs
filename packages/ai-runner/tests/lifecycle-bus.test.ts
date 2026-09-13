@@ -13,6 +13,7 @@ class FakeExecutor implements ProcessExecutor {
 
     async run(options: ProcessOptions): Promise<ProcessResult> {
         this.calls.push(options);
+        options.onSpawn?.(12345);
         return {
             command: options.command,
             args: options.args ?? [],

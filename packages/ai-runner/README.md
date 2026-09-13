@@ -99,9 +99,10 @@ sequenceDiagram
     end
     AiRunner->>AgentShim: getPromptCommand(enrichedOptions)
     AgentShim-->>AiRunner: { command, args }
-    AiRunner->>EventBus: emit("agent.invoke.start")
     AiRunner->>Executor: run({ command, args, cwd, timeout })
     Executor->>Agent: spawn CLI subprocess
+    Executor->>AiRunner: onSpawn(pid)
+    AiRunner->>EventBus: emit("agent.invoke.start")
     Agent-->>Executor: stdout / stderr / exit
     Executor-->>AiRunner: ProcessResult { exitCode, stdout, stderr, durationMs }
     AiRunner->>EventBus: emit("agent.invoke.exit")
@@ -367,7 +368,7 @@ Available events:
 
 | Event | When |
 | ------- | ------ |
-| `agent.invoke.start` | Immediately before an agent CLI invocation starts |
+| `agent.invoke.start` | After the process executor confirms spawn; absent on pre-spawn failure |
 | `agent.invoke.exit` | After an agent CLI invocation exits |
 | `agent.started` | When a long-running team agent process starts |
 | `agent.stopped` | When a long-running team agent process stops |

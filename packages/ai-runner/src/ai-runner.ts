@@ -229,13 +229,6 @@ export class AiRunner {
     ): Promise<AgentRunResult> {
         const label = `ai-runner.${agent}.${operation}`;
         this.logger.debug('invoke', { label, command: command.command, args: command.args.join(' ') });
-        void this.events?.emit('agent.invoke.start', {
-            agent,
-            operation,
-            label,
-            ...(options.correlation !== undefined ? { correlation: options.correlation } : {}),
-            severity: 'info',
-        });
         const correlationEnv = options.correlation === undefined ? undefined : buildCorrelationEnv(options.correlation);
         const result: ProcessResult = await this.processExecutor.run({
             command: command.command,
@@ -245,6 +238,17 @@ export class AiRunner {
             forceBuffered,
             cwd: options.cwd ?? this.defaultCwd,
             timeout: options.timeout ?? this.defaultTimeout,
+            // A request is accepted only once a process exists; pre-spawn
+            // failures must leave claimed inbox messages safe to retry.
+            onSpawn: () => {
+                void this.events?.emit('agent.invoke.start', {
+                    agent,
+                    operation,
+                    label,
+                    ...(options.correlation !== undefined ? { correlation: options.correlation } : {}),
+                    severity: 'info',
+                });
+            },
             ...(correlationEnv !== undefined ? { env: correlationEnv } : {}),
             ...(options.signal !== undefined ? { signal: options.signal } : {}),
             ...(options.onOutput !== undefined ? { onOutput: options.onOutput } : {}),
