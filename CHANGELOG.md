@@ -8,6 +8,12 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.66] - 2026-09-13
+
+### Fixed
+
+- `ts-ai-runner` emits `agent.invoke.start` only after the process executor confirms spawn. Pre-spawn failures no longer falsely acknowledge claimed messages, preserving bounded redelivery in Spur (G61 / 0831).
+
 ## [0.4.65] - 2026-09-12
 
 ### Added
