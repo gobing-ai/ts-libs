@@ -52,3 +52,18 @@ tasks:
 
 features:
   dir: docs/features
+
+# ── Release (spur builder bump-ver / drop-tags) ──
+# Release plumbing knobs, declared explicitly. Values match the built-in
+# defaults; adjust here instead of patching release code when conventions
+# change. Version carriers beyond the built-ins: none needed — this repo is a
+# workspace:* lockstep monorepo, so workspace package.json covers everything
+# (the root package is always in the --all set via its own name).
+builder:
+  bump-ver:
+    tagVersionSeparator: "-v"
+    publishWorkflow: publish.yml
+    releaseCommitType: chore
+    releaseCommitScope: release
+    ghRunListLimit: 5
+    versionCarriers: []
