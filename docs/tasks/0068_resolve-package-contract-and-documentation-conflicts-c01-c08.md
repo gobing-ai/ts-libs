@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Resolve package contract and documentation conflicts C01-C08
-status: backlog
+status: todo
 template: standard
 created_at: 2026-09-16T16:43:29.624Z
-updated_at: "2026-09-16T16:48:55.149Z"
+updated_at: "2026-09-16T17:14:24.289Z"
 feature_id: E
 
 priority: P1
@@ -582,3 +582,6 @@ Whole-file SHA-256 values captured by the audit and matched again at task creati
 - Excluded follow-up U01: 43 historical task records failed the current validator at audit time; not implementation failures and not repair scope for this task.
 
 ### History
+
+- 2026-09-16T17:14:24.289Z backlog → todo (system)
+
