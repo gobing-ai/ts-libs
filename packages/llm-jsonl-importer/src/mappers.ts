@@ -1447,11 +1447,13 @@ export function geminiSplit(raw: Record<string, unknown>, context?: TransformCon
 /**
  * Map one DeepSeek dsh `session.v3.jsonl` line into forensic ETL entries (task 0067 R2).
  *
- * dsh layout: line 1 is the session header `{type:"session", version:3, id, createdAt, cwd, ...}`;
+ * dsh layout: line 1 is the session header `{type:"session", version:3, id, createdAt, cwd, ...}` and is
+ * persisted as one `history_message` metadata row (role/disposition `meta`) carrying session
+ * identity, cwd and creation time;
  *
  * any remaining lines are append-only events `{type, seq, time, data}` whose
  * vocabulary is plugin-extensible. Only chat events (`user/message`,
- * `assistant/message`) become history_message rows (content is an array of
+ * `assistant/message`) become conversational `keep` rows (content is an array of
  * `{text}` blocks — the existing extractContentText joined-text rule); every
  * unrecognized event type (compaction/*, hook/*, turn/*, session/title, …) is
  * tolerated and skipped, and torn crash tails never reach the mapper because

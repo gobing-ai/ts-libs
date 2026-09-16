@@ -28,6 +28,8 @@ Provide the feature-tree home for this package's public capabilities and mainten
 | WBS | Task | Status |
 | --- | ---- | ------ |
 | 0063 | Support Antigravity CLI conversation history import from history.jsonl and conversation databases in ts-llm-jsonl-importer | done |
+| 0064 | Retain forensic tool call metadata in ts-llm-jsonl-importer args_raw across all agents and tool types | done |
+| 0068 | Resolve package contract and documentation conflicts C01-C08 | done |
 <!-- END AUTO-GENERATED -->
 
 ## Notes

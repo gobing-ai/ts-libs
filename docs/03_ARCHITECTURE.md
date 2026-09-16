@@ -3,10 +3,10 @@ name: Architecture
 doc: 03_ARCHITECTURE
 owns: HOW — module boundaries, data flow, runtime model, invariants, rationale-in-depth
 authority: derived
-version: 1.1.0
+version: 1.2.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-08-12
+updated_at: 2026-09-16
 read_before: cross-package, seam, or schema work
 edit_rules: 99 §6.4
 sync: [T1]
@@ -69,7 +69,7 @@ adapters. Runtime-specific wiring lives behind explicit subpaths:
 | `./scheduler-node`         | `NodeSchedulerAdapter` (interval + real five-field cron, local time)  |
 | `./scheduler-cloudflare`   | `CloudflareSchedulerAdapter` (Workers Cron Trigger)                |
 
-**Scheduler ownership (task 0734).** The `NodeSchedulerAdapter` preserves the three legacy
+**Scheduler ownership ([Spur task 0734](https://github.com/gobing-ai/spur/blob/main/docs/tasks4/0734_configurable-scheduler-jobs-interval-real-cron-in-ts-libs-ad.md)).** The `NodeSchedulerAdapter` preserves the three legacy
 interval cadences (a positive ms string, `* * * * *`, and the step-N wildcard form) and adds real
 five-field cron evaluated in local wall-clock time with self-rescheduling `setTimeout` (no overlap,
 missed occurrences skipped, delays beyond the platform timer maximum chunked). The cron grammar
@@ -111,7 +111,7 @@ the bootstrap never closes them. `stop()` is idempotent.
 
 `@gobing-ai/ts-llm-jsonl-importer` provides source-neutral JSONL ingestion, mapping, redaction, hashing,
 and persistence for LLM-agent history exports. Import runs accept a cooperative `AbortSignal`
-(feature A21 / ADR-112): cancellation is observed at safe boundaries only — in-flight batches settle
+([Spur feature A21](https://github.com/gobing-ai/spur/blob/main/docs/features/A21_reusable-execution-deadlines-and-unlimited-jobs.md) / [Spur ADR-112](https://github.com/gobing-ai/spur/blob/main/docs/00_ADR.md)): cancellation is observed at safe boundaries only — in-flight batches settle
 atomically before the run rejects with `ImportCancelledError`, no invocation-owned write lands after
 settlement, and incremental resume continues from the last committed checkpoint. The containing
 process remains the hard fallback for blocking synchronous work.
@@ -137,7 +137,7 @@ path utilities, and optional process inventory.
 - Inject the same registry into every executor that should appear in one watch list
   (`ProcessExecutorConfig.registry`). No registry ⇒ prior behavior unchanged.
 - Not durable across restarts; retention capped (default 1000). Cloudflare has no process execution.
-- **Owned deadline containment (A21)** — on Unix a finite `timeout` or abort `signal` puts the run
+- **Owned deadline containment (Spur A21)** — on Unix a finite `timeout` or abort `signal` puts the run
   under one executor-owned process-group escalation (group `SIGTERM` → `killGraceMs` grace →
   group `SIGKILL`), so completion reaps descendants that outlive the leader while holding pipes
   or locks; `timeout: null` is explicit unlimited and invalid values are rejected before spawn.

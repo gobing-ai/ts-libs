@@ -19,7 +19,7 @@ Generic JSONL import pipeline for AI-agent history-style files: discover files, 
 | `sha256()` / `stableJson()` | Stable hash helpers used by the ledger |
 | `HISTORY_IMPORT_SCHEMA_SQL` | SQL schema string for explicit migration flows |
 
-Built-in source keys are `claude`, `codex`, `gemini`, `pi`, `opencode`, `antigravity`, `openclaw`, `omp`, `grok`, and `agy`. The `agy` source scans `~/.gemini/antigravity-cli`, covering both `history.jsonl` and `brain/**` transcripts; conversation `.db` stores under `conversations/` are not imported.
+Built-in source keys are `claude`, `codex`, `gemini`, `pi`, `opencode`, `antigravity`, `openclaw`, `omp`, `grok`, `agy`, and `deepseek`. The `agy` source scans `~/.gemini/antigravity-cli`, covering both `history.jsonl` and `brain/**` transcripts; conversation `.db` stores under `conversations/` are not imported.
 
 The `deepseek` source scans `$DSH_HOME/sessions` (falling back to `~/.dsh/sessions`) for `session-<uuid>/` directories containing `session.v3.jsonl` or `session.v3.jsonl.zstd`. Compressed session logs are decompressed through the system `zstd` CLI — zstd must be on `PATH`, else the import fails with an actionable error naming zstd and the file. The session header line is imported as a `meta` row with the session `cwd`; `user/message` and `assistant/message` events map to user/assistant message rows (joined text content, epoch-ms `time` → ISO timestamp, `source.model` when present), while any other plugin-extensible event type (compaction, hooks, titles) is tolerated and skipped; torn crash tails are skipped (`corruptLinePolicy: 'skip'`).
 
@@ -63,17 +63,25 @@ All modes preserve parse and validation issues in the returned `ImportResult`; m
 
 ## Streaming
 
-The importer uses `FileSystem.readFileStream` when available (ADR-021), reading one line at a time
-for **O(line) memory usage** — enabling multi-MB or multi-GB LLM history files without buffering
-the entire file. Behavior is identical to the previous `readFile` + split approach (same `source_line`
-values, same `ImportResult`).
+For uncompressed JSONL, the importer uses `FileSystem.readFileStream` when available (ADR-021), reading
+one line at a time — **O(line) memory** for the line-reading component, so multi-MB or multi-GB history
+files need no full-text buffer. Behavior is identical to the previous `readFile` + split approach (same
+`source_line` values, same `ImportResult`).
 
-When `readFileStream` is unavailable (e.g. Cloudflare Workers), the importer falls back to
-`readFile` + split transparently.
+Two paths buffer the complete text before line splitting, so their memory scales with the **decompressed
+or file size** rather than the line count:
+
+- `*.jsonl.zstd` files (the `deepseek` source) are decompressed whole through the system `zstd` CLI
+  before splitting.
+- When `readFileStream` is unavailable (e.g. Cloudflare Workers), the importer falls back to
+  `readFile` + split transparently.
+
+The `O(line)` bound describes the line reader only — registry discovery, checkpoint maps, and ledger
+batches are outside that claim.
 
 ## Cancellation
 
-Both entry points accept a cooperative `signal` (`AbortSignal`, feature A21 / ADR-112):
+Both entry points accept a cooperative `signal` (`AbortSignal`, [Spur feature A21](https://github.com/gobing-ai/spur/blob/main/docs/features/A21_reusable-execution-deadlines-and-unlimited-jobs.md) / [Spur ADR-112](https://github.com/gobing-ai/spur/blob/main/docs/00_ADR.md)):
 
 ```ts
 const controller = new AbortController();

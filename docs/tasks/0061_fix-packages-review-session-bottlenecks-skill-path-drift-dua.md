@@ -13,7 +13,7 @@ tags: ["meta"]
 dependencies: ["0060"]
 ac_numbering: task-local
 created_at: "2026-08-12T18:41:45.051Z"
-updated_at: "2026-08-12T21:21:39.707Z"
+updated_at: "2026-09-16T17:33:10.432Z"
 ---
 
 ## 0061. Fix packages-review session bottlenecks: skill path drift, dual-pass waste, L3 first-write
@@ -98,6 +98,7 @@ Feature: 0060 deferred R16/R17 are implemented
     And no test is skipped to go green
 ```
 ### Q&A
+
 **Q: Why is this the same WBS as the session-bottleneck write-up?**
 A: 0060 deferred R16/R17 with “WBS to assign”. The operator designated 0061 as that follow-up. The previous 0061 body (Grok session forensics, `~/.agents/` skill paths) was the wrong subject and is vacated. Harness work belongs in `spur-new`, not this repo’s package task.
 
@@ -115,6 +116,13 @@ A: It is still a published (deprecated) ts-runtime export. This task only stops 
 
 **Q: Feature id?**
 A: Two packages (E importer, A ai-runner). Leave `feature_id` unset; depend on 0060 instead.
+
+#### Q&A entry — 2026-09-16T17:33:10.432Z
+
+**Supersession note (2026-09-16, task 0068 C02).** R2's eager guarantee — "`applyHistoryImportSchema` must still create **all** built-in ETL tables (loop `SOURCE_DEFINITIONS` / `ensureTargetTables`)" — is **no longer the live contract**, and this task's historical R2/R3 acceptance record and PASS receipt are preserved unchanged as history; nothing here re-opens or unchecks them.
+
+What changed after this task closed: commit `22f891f8b88eca7b323a8e02bfc5a1cd354afc79` (2026-08-21) intentionally removed the `SOURCE_DEFINITIONS` loop from `applyHistoryImportSchema` and updated the tests and importer README to the lazy contract. `docs/00_ADR.md` ADR-023 now carries a dated **Amendment (2026-09-16, task 0068 C02)** superseding only the R16 eager-materialization sentence; R1 (`HISTORY_IMPORT_SCHEMA_SQL` carries no `history_etl_*` CREATE) and the single-owner `ETL_TABLE_DDL` direction from this task both remain in force. Live behavior: static contract/bookkeeping tables on schema apply, each generic `history_etl_*` table materialized on the first accepted write (`packages/llm-jsonl-importer/src/jsonl-importer-dao.ts`, `packages/llm-jsonl-importer/README.md` Stored Tables).
+
 ### Design
 **Chosen approach:** two surgical package changes. No new packages. No skill edits. Do not touch `~/.agents/`.
 

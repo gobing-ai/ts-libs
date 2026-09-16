@@ -36,7 +36,7 @@ erDiagram
 | `CapabilityRegistry<T>` | Generic named registry (shared with `ts-rule-engine`, `ts-dual-workflow-engine`) that tags each entry with its `origin` (`'builtin'`, `'extension'`, `'caller'`). |
 | `ConstraintRule` | Declarative policy unit: id, severity, include/exclude globs, evaluator type + config, and optional fix config. |
 | `Preset` | YAML/JSON composition: extends rule categories and other presets, declares `disable`/`overrides`, and exposes extension modules. |
-| `ExtensionRef` | Resolved extension: a capability kind (`resolvers` / `evaluators` / `fixers` / `formatters`), an absolute module path, and its source preset name. |
+| `ExtensionRef` | Extension reference: capability kind (`resolvers` / `evaluators` / `fixers` / `formatters`), the authored relative path, the absolute declaring `baseDir`, and `sourceName`. The loader validates the authored path before resolving it. |
 | `Evaluator` | Implements one rule type (e.g. `regex`, `coverage-gate`, `import-boundary`), emitting findings and optional evaluator-native fixes. |
 | `Resolver` | Maps a source file path to an expected test path for rules such as `test-location`; supports TypeScript, Python, Go, and Rust conventions. |
 | `Formatter` | Renders a `RuleEngineResult` as text (for CLI) or JSON (for automation). |

@@ -3,10 +3,10 @@ name: Features
 doc: 05_FEATURES
 owns: STATUS — feature decomposition + state; index over docs/features/
 authority: derived
-version: 1.2.0
+version: 1.3.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-08-13
+updated_at: 2026-09-16
 read_before: finding a feature's state
 edit_rules: 99 §6.6
 sync: [T4, T9]
@@ -32,5 +32,6 @@ Feature satellites are owned by `spur feature`. The generated, authoritative ros
 | F | ts-rule-engine | ⏳ planned | [`F_ts-rule-engine.md`](features/F_ts-rule-engine.md) |
 | G | ts-runtime | ⏳ planned | [`G_ts-runtime.md`](features/G_ts-runtime.md) |
 | H | ts-utils | ⏳ planned | [`H_ts-utils.md`](features/H_ts-utils.md) |
+| I | Add DeepSeek dsh coding agent support | 🔶 partial | [`I_add-deepseek-dsh-coding-agent-support.md`](features/I_add-deepseek-dsh-coding-agent-support.md) |
 
 **Status legend:** ✅ done · 🔶 partial · ⏳ planned · 💤 deferred

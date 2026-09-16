@@ -3,9 +3,9 @@ name: Architecture Decision Records
 doc: 00_ADR
 owns: WHY — which cross-cutting decision was made, and the one-line reason
 authority: authoritative
-version: 1.0.0
+version: 1.1.0
 owner: Robin Min
-updated_at: 2026-08-12
+updated_at: 2026-09-16
 read_before: any structural change
 edit_rules: 99 §6.1
 sync: [T1, T2]
@@ -354,6 +354,13 @@ this package stopped default-constructing it. R16 (importer ETL table/DDL locali
 same task: `HISTORY_IMPORT_SCHEMA_SQL` no longer hard-codes any `history_etl_*` CREATE; every built-in
 ETL table is created solely by `ETL_TABLE_DDL` / `ensureTargetTables` looping `SOURCE_DEFINITIONS`, so
 adding a built-in source no longer requires editing the static SQL.
+
+**Amendment (2026-09-16, task 0068 C02).** The R16 eager-materialization guarantee above is
+**superseded**: `applyHistoryImportSchema` installs the static contract and bookkeeping tables only,
+and each generic `history_etl_*` table is materialized lazily by `ETL_TABLE_DDL` on the first accepted
+write. Reason: schema application and empty scans must not leave unused empty tables behind.
+**Detail:** `packages/llm-jsonl-importer/README.md` (Stored Tables),
+`packages/llm-jsonl-importer/src/jsonl-importer-dao.ts`.
 
 ---
 
