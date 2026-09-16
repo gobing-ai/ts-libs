@@ -119,6 +119,8 @@ export interface QueueJobRetryingDetail extends QueueJobRef, WithEventSeverity {
 export interface SchedulerJobExecutedDetail extends WithEventSeverity {
     /** Job name. */
     name: string;
+    /** Human-readable action label stamped at registration time, if provided. */
+    action?: string;
     /** Wall-clock duration in milliseconds. */
     durationMs: number;
     /** Error message if the job threw. */

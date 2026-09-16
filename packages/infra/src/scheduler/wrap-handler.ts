@@ -20,11 +20,14 @@ import type { ScheduledAction } from './types';
  * @param name - Job name, surfaced as `scheduler.job_name` on the span/event.
  * @param action - The action to wrap (new no-arg `ScheduledAction` signature).
  * @param systemBus - Optional bus to emit `scheduler.job.executed` on.
+ * @param actionLabel - Optional human-readable action label stamped into the
+ * emitted event payload, so consumers can show what the job does.
  */
 export function wrapScheduledHandler(
     name: string,
     action: ScheduledAction,
     systemBus?: EventBus<SchedulerEvents> | null,
+    actionLabel?: string,
 ): ScheduledAction {
     return async (context: ExecutionContext) => {
         const startTime = performance.now();
@@ -46,6 +49,7 @@ export function wrapScheduledHandler(
 
                 void systemBus?.emit('scheduler.job.executed', {
                     name,
+                    ...(actionLabel !== undefined ? { action: actionLabel } : {}),
                     durationMs,
                     ...(execError !== undefined ? { error: execError } : {}),
                     severity: execError !== undefined ? 'error' : 'info',
