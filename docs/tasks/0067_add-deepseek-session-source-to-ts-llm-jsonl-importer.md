@@ -4,7 +4,7 @@ name: Add deepseek session source to ts-llm-jsonl-importer
 status: done
 template: feature-impl
 created_at: 2026-09-11T22:58:21.875Z
-updated_at: "2026-09-11T23:47:11.807Z"
+updated_at: "2026-09-16T19:43:40.604Z"
 feature_id: I
 
 ---
@@ -25,7 +25,7 @@ Verified facts (source review of `~/tools/deepseek-harness` + live session inspe
 ### Requirements
 
 - [x] R1 (feature I/R4): built-in source `deepseek` discovers `session.v3.jsonl` and `session.v3.jsonl.zstd` under `$DSH_HOME` (or `~/.dsh`) `sessions/<cwd>--/session-*/` directories.
-- [x] R2 (feature I/R5): header event (first line `type:"session"`) is skipped; `user/message` and `assistant/message` events map to records with `role`, `content` (joined text), `created_at` (event `time` ms → ISO), `model`/provider when present, and `source_record_id` derived from the message id; session id/`createdAt`/`cwd` from the header line.
+- [x] R2 (feature I/R5): the header event (first line `type:"session"`) is retained as one `history_message` metadata row (`role=meta`, `disposition=meta`) carrying session id, `cwd` and `createdAt`; `user/message` and `assistant/message` events map to conversational records with `role`, `content` (joined text), `created_at` (event `time` ms → ISO), `model`/provider when present, and `source_record_id` derived from the message id.
 - [x] R3 (feature I/R6): the same fixture stored uncompressed maps to identical records except storage artifacts.
 - [x] R4 (feature I/R7): truncated tail and unknown event types do not abort the import (`corruptLinePolicy: 'skip'`).
 - [x] R5 (feature I/R8): a `*.jsonl.zstd` file processed without a `zstd` executable on PATH fails with an actionable error naming zstd and the file path.
@@ -46,7 +46,7 @@ Feature: Add deepseek session source to ts-llm-jsonl-importer
   Scenario: R5 — zstd session log imports
     Given a session.v3.jsonl.zstd fixture with a session header line plus user/message and assistant/message events
     When the deepseek source import runs
-    Then the header line is skipped, message events map to records with role, content, created_at, model/provider when present, and source_record_id derived from message id
+    Then the header line is retained as one history_message metadata row (role=meta, disposition=meta) carrying session id, cwd and creation time, message events map to conversational rows with role, content, created_at, model/provider when present, and source_record_id derived from message id
 
   @core
   Scenario: R6 — raw session log imports identically
@@ -78,7 +78,15 @@ Feature: Add deepseek session source to ts-llm-jsonl-importer
 #### Q&A entry — 2026-09-11T22:59Z
 - Zstd handling: decompress via ProcessExecutor + system `zstd` (ts-runtime sanctioned seam, ADR-014 boundary) — no new dependency; actionable failure when missing (`ponytail:` upgrade path — bundled WASM zstd only if a no-system-zstd environment materializes).
 - Message derivation limited to `user/message` + `assistant/message` (matches every observed session); unknown event types tolerated, not extended.
-- Pre-release format (`version: 3` in header) may shift; header-skip keeps the mapper version-agnostic for future v4.
+- Pre-release format (`version: 3` in header) may shift; header-skip keeps the mapper version-agnostic for future v4. *(Superseded 2026-09-16 by the clarification below: the shipped mapper retains the `type:"session"` header as one `meta` row rather than skipping it.)*
+
+#### Q&A entry — 2026-09-16T17:35:37.589Z
+
+**Clarification (2026-09-16, task 0068 C01).** The original R2 and AC R5 wording said the session header line "is skipped". That wording was **wrong about what shipped**, and it is superseded here; the requirement checkbox and the PASS receipt in Testing are preserved unchanged as the historical record — this note is the correction, not a re-run.
+
+- **What the code does** (`packages/llm-jsonl-importer/src/mappers.ts`, `dshSplit`): the `type:"session"` header is persisted as one `history_message` row with `role=meta`, `record_type=session`, `disposition=meta`, carrying session id, `cwd` and `createdAt`; `user/message` / `assistant/message` events become conversational `keep` rows. The fixture's header + two messages therefore import as three records (`packages/llm-jsonl-importer/tests/deepseek-importer.test.ts`), and `importedRecords` counts the metadata row too — no consumer-side filtering or counting change exists or is authorized.
+- **Authority:** feature I's Scope and AC R5 now state the retained-metadata-row contract (amended 2026-09-16). R2, AC R5 and the Design bullets here were aligned to that amended AC.
+- **Not chosen:** literal header removal. It would drop `cwd`/creation-time provenance and is a behavior change requiring its own scope and decision; it was explicitly not selected.
 
 ### Design
 
@@ -88,10 +96,10 @@ Approach: extend the existing registry pattern in `packages/llm-jsonl-importer/s
 - `sources.ts`: `deepseek: customSourceDefinition(...)` with:
   - dirs `['.dsh/sessions']` (+ `$DSH_HOME` env override honored by the dir-resolution layer, mirroring how other sources express home-relative paths); recursive scan into `session-*` dirs; glob `session.v3.jsonl*`.
   - `corruptLinePolicy: 'skip'` (torn tails from crash recovery; same rationale as agy/task 0623).
-  - split fn (`dshSplit`): parse each line; skip `type:"session"` header; emit records only for `type:"user/message"` / `type:"assistant/message"`; tolerate unknown types.
+  - split fn (`dshSplit`): parse each line; emit one metadata row for the `type:"session"` header (session identity, `cwd`, `createdAt`); emit conversational records for `type:"user/message"` / `type:"assistant/message"`; tolerate unknown types.
   - field map (`DSH_FIELD_MAP`) + zod `DSH_SCHEMA`: `source_record_id` ← `data.message.id` (fallback hash of seq+content), `created_at` ← event `time` (epoch ms → ISO), `content` ← joined `data.message.content[].text`, `role` ← `data.message.role`, `model` ← `data.message.source.model`, `provider` passthrough.
 - Decompression: pre-line stage for `*.jsonl.zstd` — stream file bytes through ProcessExecutor running `zstd -dc <path>` to stdout, reading the event stream; when `zstd` is absent, fail the record/file with an error naming zstd + file path. No new package dependency.
-- Tests (`tests/`): fixture session log (header + messages + unknown event + torn tail) in raw and `.zstd` form; assert record equality, header skip, torn-tail skip, missing-zstd error text.
+- Tests (`tests/`): fixture session log (header + messages + unknown event + torn tail) in raw and `.zstd` form; assert record equality, the header metadata row, torn-tail skip, missing-zstd error text.
 - README: document the deepseek source + zstd prerequisite.
 
 Tradeoff: derives only chat messages; titles/usage/compaction events are dropped (extend later if needed). `zstd -dc` assumes system zstd available — checked first.

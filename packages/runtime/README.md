@@ -181,7 +181,7 @@ import { createRuntimeContextFromFactory } from '@gobing-ai/ts-runtime';
 const ctx = await createRuntimeContextFromFactory();
 // ctx.runtimeName → 'node-bun' (auto-detected)
 // ctx.capabilities → { hasFilesystem: true, hasProcessExecution: true }
-// ctx.require('fileSystem') → NodeFileSystem
+// ctx.require('fileSystem') → canonical FileSystem (createNodeFileSystem)
 // ctx.require('config') → Config from config.yaml
 ```
 
@@ -435,8 +435,9 @@ if (fs.realPath) {
 
 Both are optional — CF Workers stubs omit them. The JSONL importer falls back to `readFile` + split when `readFileStream` is absent; the extension loader skips the symlink check when `realPath` is absent.
 
-The old `getFs()` / `setFileSystem` global swap and `SyncFileSystem` are marked `@deprecated` —
-use `createNodeFileSystem()` or `ctx.require('fileSystem')` instead.
+The legacy `getFs()` / `setFileSystem()` global swap, `SyncFileSystem`, and the old filesystem
+classes were removed in ADR-019. Use `createNodeFileSystem()`, `createCfFileSystem()`, or
+`ctx.require('fileSystem')` instead.
 
 ### 8. Database adapter (`createDbAdapter`)
 
