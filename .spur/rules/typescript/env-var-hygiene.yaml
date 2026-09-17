@@ -1,0 +1,38 @@
+# Environment-variable hygiene — env access funnels through the `@gobing-ai/ts-utils`
+# gateway (ported from gobing-ai/spur's `boundary/env-var-hygiene`, task 0902).
+#
+# Contract:
+# - `packages/utils/src/env.ts` is the ONLY direct-access zone: `getEnvVar` /
+#   `getEnvVars` (live environment reference) / `setEnvVar` / `removeEnvVar` live
+#   there. Runtime options belong in config `bootstrap.options` via `getAppOptions`.
+# - `scripts/lib/env.ts` is a dependency-free `getEnvVar` mirror for root release
+#   tooling (bun isolated installs: root cannot import workspace packages).
+# - `packages/runtime/src/config.ts` re-exposes typed accessors (`getNodeEnv`,
+#   `getDatabaseUrl`, …) on top of the gateway — node-bun only (ADR-008).
+# - `apps`-plane equivalents (Vite `import.meta.env`, Workers `env` bindings) are
+#   injected config, not process env, and never match.
+#
+# Scope: packages/** and scripts/** — src AND tests. Only the gateway itself is
+# excluded.
+include:
+  - "packages/**/src/**/*.{ts,tsx}"
+  - "packages/**/tests/**/*.{ts,tsx}"
+  - "scripts/**/*.ts"
+exclude:
+  - "packages/utils/src/env.ts"
+  - "scripts/lib/env.ts"
+
+rules:
+  - id: env-var-hygiene
+    description: >
+      No direct `process.env` or `Bun.env` access outside the packages/utils gateway.
+      Read via `getEnvVar` (single var, undefined-only fallback), seed/compose via
+      `getEnvVars()` (live record — also the sanctioned form for setting/deleting
+      parent→child contract markers via `setEnvVar`/`removeEnvVar`), or take an
+      injected `env` record parameter. Aliasing (`const env = process.env`) is caught
+      too — it must touch the gateway.
+    severity: error
+    evaluator:
+      type: rg
+      config:
+        pattern: "process\\.env|\\bBun\\.env\\b"

@@ -190,27 +190,6 @@ rules:
             - "**/dist/**"
             - "packages/runtime/src/platform.ts"
 
-  # ── Environment variables ───────────────────────────────────────────────
-
-  - id: no-direct-process-env
-    description: "Direct process.env access must go through @gobing-ai/ts-runtime config helpers."
-    severity: error
-    evaluator:
-      type: forbidden-import
-      config:
-        forbidden:
-          - pattern: "process\\.env"
-            matchMode: usage
-        scope:
-          include:
-            - "packages/**/*.ts"
-          exclude:
-            - "**/tests/**"
-            - "**/*.d.ts"
-            - "**/dist/**"
-            - "packages/runtime/src/config.ts"
-            - "packages/runtime/src/bun-sqlite.ts"
-
 
   # ── Optional peer / build-order cycle ─────────────────────────────────
 
