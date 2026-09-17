@@ -8,6 +8,26 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.67] - 2026-09-16
+
+### Added
+
+- **`@gobing-ai/ts-utils`: env-var gateway (`env.ts`).** The sanctioned funnel for `process.env` access, so the set of env consumers stays greppable: `getEnvVar` (only an unset variable yields the fallback — an empty string is a set value), `getEnvVars()` (returns the live `process.env` record, not a copy, so `{ ...getEnvVars(), ...vars }` child-spawn composition sees later mutations), `setEnvVar` (passing `undefined` removes the key, so the save/restore idiom restores absence exactly), `removeEnvVar`, and the null-safe `getAppOptions` reader for `bootstrap.options`. Node-bun only (ADR-008): on `cloudflare-workers` there is no `process` — inject config explicitly (207a6ee).
+- **`scripts/lib/env.ts`: dependency-free env gateway mirror for root release tooling.** Root scripts cannot import workspace packages under bun isolated installs, so `getEnvVar`/`setEnvVar`/`removeEnvVar` are mirrored from the ts-utils gateway (keep in sync), and `release-commands.ts` is migrated onto them (1be59f8).
+
+### Changed
+
+- **`@gobing-ai/ts-runtime`: config env access routed through the ts-utils gateway.** Direct `process.env` reads/writes in the config helpers, and in runtime, scheduler, and deepseek-importer tests, now go through `getEnvVar`/`setEnvVar`/`removeEnvVar`. No behavior change (381dffa).
+- **Rules: `no-direct-process-env` replaced by the broader `env-var-hygiene` rule.** The old forbidden-import rule only covered src and missed `Bun.env` and aliasing; the new rg-based gate spans `packages/**` and `scripts/**` — src **and** tests — with only the two gateway modules exempt (002723c).
+
+### Fixed
+
+- **`@gobing-ai/ts-infra`: `scheduler.job.executed` events now carry an optional `action` label.** `wrapScheduledHandler` accepts a human-readable `actionLabel` stamped at registration time into the emitted event payload, so consumers can show what the job does (64a85d5).
+
+### Other
+
+- Spur task bookkeeping for the verified chained run 0068 (merge `5e6c772`, contract/doc conflict resolution `868390d`, task-status docs `f51e719`/`ad37bc1`/`ec78378`) and the `builder.bump-ver` config block declaration `3d1d074`.
+
 ## [0.4.66] - 2026-09-13
 
 ### Fixed
