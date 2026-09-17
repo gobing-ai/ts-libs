@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { releaseConfig, repoRoot, SEMVER } from '../config';
 import { runCommand, type Spawn } from './command';
+import { getEnvVar } from './env';
 import {
     branchPushArgs,
     createAggregateReleaseTag,
@@ -83,8 +84,8 @@ export interface PublishPackagesDeps {
 }
 
 export async function publishPackages(
-    refType = process.env.GITHUB_REF_TYPE,
-    refName = process.env.GITHUB_REF_NAME,
+    refType = getEnvVar('GITHUB_REF_TYPE'),
+    refName = getEnvVar('GITHUB_REF_NAME'),
     deps: PublishPackagesDeps = {},
 ): Promise<void> {
     const findPkgs = deps.findWorkspacePackages ?? findWorkspacePackages;
