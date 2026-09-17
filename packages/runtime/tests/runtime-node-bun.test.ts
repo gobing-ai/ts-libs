@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { removeEnvVar, setEnvVar } from '@gobing-ai/ts-utils';
 import { _resetNodeFileSystem, nodeBunFactory } from '../src/runtime-node-bun';
 
 const PROJECT_ROOT = nodeBunFactory.createFileSystem().getProjectRoot();
@@ -29,7 +30,7 @@ function cleanupConfig(): void {
     } catch {
         /* ok */
     }
-    delete process.env.CONFIG_PATH;
+    removeEnvVar('CONFIG_PATH');
     _resetNodeFileSystem();
 }
 
@@ -106,7 +107,7 @@ describe('nodeBunFactory', () => {
         afterAll(cleanupConfig);
 
         beforeEach(() => {
-            delete process.env.CONFIG_PATH;
+            removeEnvVar('CONFIG_PATH');
             _resetNodeFileSystem();
         });
 
@@ -161,7 +162,7 @@ app:
 `,
                 TEMP_CONFIG,
             );
-            process.env.CONFIG_PATH = TEMP_CONFIG;
+            setEnvVar('CONFIG_PATH', TEMP_CONFIG);
             _resetNodeFileSystem();
 
             const config = await nodeBunFactory.loadConfig();
@@ -185,7 +186,7 @@ app:
 `,
                 TEMP_CONFIG,
             );
-            process.env.CONFIG_PATH = TEMP_CONFIG;
+            setEnvVar('CONFIG_PATH', TEMP_CONFIG);
             _resetNodeFileSystem();
 
             const config = await nodeBunFactory.loadConfig();

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { getEnvVar, removeEnvVar, setEnvVar } from '@gobing-ai/ts-utils';
 
 import {
     buildConfigFromObject,
@@ -17,7 +18,7 @@ import {
 
 describe('config helpers', () => {
     test('interpolates environment variables in strings and trees', () => {
-        process.env.RUNTIME_TEST_VALUE = 'secret';
+        setEnvVar('RUNTIME_TEST_VALUE', 'secret');
         const existing = '$' + '{RUNTIME_TEST_VALUE}';
         const missing = '$' + '{MISSING_RUNTIME_TEST_VALUE}';
 
@@ -27,7 +28,7 @@ describe('config helpers', () => {
             list: ['secret'],
         });
 
-        delete process.env.RUNTIME_TEST_VALUE;
+        removeEnvVar('RUNTIME_TEST_VALUE');
     });
 
     test('builds frozen validated config with overrides', () => {
@@ -57,25 +58,25 @@ describe('config helpers', () => {
     });
 
     test('reads runtime environment helpers', () => {
-        const previousNodeEnv = process.env.NODE_ENV;
-        const previousDatabaseUrl = process.env.DATABASE_URL;
+        const previousNodeEnv = getEnvVar('NODE_ENV');
+        const previousDatabaseUrl = getEnvVar('DATABASE_URL');
 
-        process.env.NODE_ENV = 'test';
-        process.env.DATABASE_URL = 'sqlite://test';
+        setEnvVar('NODE_ENV', 'test');
+        setEnvVar('DATABASE_URL', 'sqlite://test');
 
         expect(getNodeEnv()).toBe('test');
         expect(isTestEnv()).toBe(true);
         expect(getDatabaseUrl()).toBe('sqlite://test');
 
         if (previousNodeEnv === undefined) {
-            delete process.env.NODE_ENV;
+            removeEnvVar('NODE_ENV');
         } else {
-            process.env.NODE_ENV = previousNodeEnv;
+            setEnvVar('NODE_ENV', previousNodeEnv);
         }
         if (previousDatabaseUrl === undefined) {
-            delete process.env.DATABASE_URL;
+            removeEnvVar('DATABASE_URL');
         } else {
-            process.env.DATABASE_URL = previousDatabaseUrl;
+            setEnvVar('DATABASE_URL', previousDatabaseUrl);
         }
     });
 });

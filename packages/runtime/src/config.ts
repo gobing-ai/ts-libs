@@ -1,4 +1,4 @@
-import { deepMerge } from '@gobing-ai/ts-utils';
+import { deepMerge, getEnvVar, getEnvVars } from '@gobing-ai/ts-utils';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { type ZodIssue, z } from 'zod';
 
@@ -77,36 +77,39 @@ export class ConfigLoadError extends Error {
     }
 }
 
-// These accessors read `process.env` directly and are node-bun only (ADR-008). On
-// `cloudflare-workers` there is no `process`; inject config explicitly rather than calling these.
+// Environment access funnels through the `@gobing-ai/ts-utils` gateway
+// (`getEnvVar` / `getEnvVars`); direct environment access is banned by the
+// `boundary/env-var-hygiene` rule. These accessors are node-bun only (ADR-008):
+// on `cloudflare-workers` there is no `process`; inject config explicitly rather
+// than calling them.
 
-/** Returns the value of `process.env.NODE_ENV`, or `"development"` as default. Node/Bun only. */
+/** Returns the value of `NODE_ENV`, or `"development"` as default. Node/Bun only. */
 export function getNodeEnv(): string {
-    return process.env.NODE_ENV ?? 'development';
+    return getEnvVar('NODE_ENV') ?? 'development';
 }
 /** Returns `true` when `NODE_ENV` is `"test"`. Node/Bun only. */
 export function isTestEnv(): boolean {
     return getNodeEnv() === 'test';
 }
 
-/** Returns `process.env` as a plain object. Node/Bun only. */
+/** Returns the live environment as a plain object. Node/Bun only. */
 export function getProcessEnv(): Record<string, string | undefined> {
-    return process.env;
+    return getEnvVars();
 }
 
-/** Returns `process.env.DATABASE_URL`, or `undefined` if not set. Node/Bun only. */
+/** Returns `DATABASE_URL`, or `undefined` if not set. Node/Bun only. */
 export function getDatabaseUrl(): string | undefined {
-    return process.env.DATABASE_URL;
+    return getEnvVar('DATABASE_URL');
 }
 
 /** Returns the user's home directory (`HOME`, falling back to `USERPROFILE` on Windows), or `undefined` if unset. Node/Bun only. */
 export function getHomeDir(): string | undefined {
-    return process.env.HOME ?? process.env.USERPROFILE;
+    return getEnvVar('HOME') ?? getEnvVar('USERPROFILE');
 }
 
-/** Node-bun only: interpolates `${VAR}` from `process.env` (see note above). */
+/** Node-bun only: interpolates `${VAR}` from the environment (see note above). */
 export function interpolateEnv(value: string): string {
-    return value.replace(ENV_INTERPOLATION_RE, (_match, name: string) => process.env[name] ?? `\${${name}}`);
+    return value.replace(ENV_INTERPOLATION_RE, (_match, name: string) => getEnvVar(name) ?? `\${${name}}`);
 }
 
 /** Recursively interpolates `${VAR}` environment variables in all string leaves of a nested object or array. Node/Bun only. */

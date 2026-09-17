@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { getEnvVar, setEnvVar } from '@gobing-ai/ts-utils';
 import { nextCronTime, parseCronExpression } from '../../src/scheduler/cron';
 import type { ScheduledAction } from '../../src/scheduler/types';
 import { NodeSchedulerAdapter } from '../../src/scheduler-node';
@@ -179,8 +180,8 @@ describe('NodeSchedulerAdapter', () => {
     });
 
     test('R2 — DST fall-back day fires both distinct 01:30 instants once each (0734)', () => {
-        const prevTz = process.env.TZ;
-        process.env.TZ = 'America/Los_Angeles';
+        const prevTz = getEnvVar('TZ');
+        setEnvVar('TZ', 'America/Los_Angeles');
         try {
             const expr = parseCronExpression('30 1 * * *');
             // 2026-11-01 01:30 PDT = 08:30Z; 01:30 PST = 09:30Z. Both are wall-clock 01:30.
@@ -193,7 +194,7 @@ describe('NodeSchedulerAdapter', () => {
             // Strictly-after: from the second instant, the next match is the next day.
             expect(nextCronTime(expr, second).getTime()).not.toBe(second);
         } finally {
-            process.env.TZ = prevTz;
+            setEnvVar('TZ', prevTz);
         }
     });
 

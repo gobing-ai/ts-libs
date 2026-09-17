@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
 import type { RuntimePaths } from '@gobing-ai/ts-runtime';
+import { getEnvVar, removeEnvVar, setEnvVar } from '@gobing-ai/ts-utils';
 import { getSourceDefinition, HistoryImportError, runJsonlImport, VALID_TABLE_NAME, zstdDecompress } from '../src';
 import { dshSplit } from '../src/mappers';
 import type { JsonObject } from '../src/types';
@@ -18,13 +19,13 @@ beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-test-'));
     // Isolation: $DSH_HOME leaks from the operator shell into the full-suite run and
     // repoints discovery at the real ~/.dsh sessions (scannedFiles 5 vs fixture 2/1).
-    savedDshHome = process.env.DSH_HOME;
-    delete process.env.DSH_HOME;
+    savedDshHome = getEnvVar('DSH_HOME');
+    removeEnvVar('DSH_HOME');
 });
 
 afterEach(async () => {
-    if (savedDshHome === undefined) delete process.env.DSH_HOME;
-    else process.env.DSH_HOME = savedDshHome;
+    setEnvVar('DSH_HOME', savedDshHome);
+
     await rm(root, { recursive: true, force: true });
 });
 
@@ -116,7 +117,7 @@ describe('deepseek importer (task 0067)', () => {
     test('R1 — $DSH_HOME home-relative import resolves the sessions dir under an injected home', async () => {
         await writeSession(true);
         // DSH root override: <DSH_HOME>/sessions, so point it at the fixture's .dsh dir.
-        process.env.DSH_HOME = join(root, '.dsh');
+        setEnvVar('DSH_HOME', join(root, '.dsh'));
         const result = await runJsonlImport('deepseek', {
             db,
             mode: 'full',

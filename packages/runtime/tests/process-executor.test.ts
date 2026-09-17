@@ -3,6 +3,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { removeEnvVar, setEnvVar } from '@gobing-ai/ts-utils';
 import {
     BunPipeProcessSpawner,
     BunSyncProcessExecutor,
@@ -276,15 +277,15 @@ describe('NodeProcessExecutor', () => {
         expect(events.at(-1)?.detail.error).toBeDefined();
     });
 
-    test('a partial env extends rather than replaces process.env (extendEnv merge — task 0056 R2)', async () => {
-        // execa defaults extendEnv:true, so a partial env merges with process.env.
+    test('a partial env extends rather than replaces the parent environment (extendEnv merge — task 0056 R2)', async () => {
+        // execa defaults extendEnv:true, so a partial env merges with the parent environment.
         // This is load-bearing: a regression to extendEnv:false would strip PATH, HOME,
         // and every provider credential from agent subprocesses. Use a process-local
         // sentinel so the assertion is environment-independent (PATH/HOME vary by host
         // and Bun injects a minimal PATH even under extendEnv:false, so PATH is an
         // unreliable merge signal — HOME/sentinel are not).
         const sentinel = `RUNTIME_MERGE_SENTINEL_${Date.now()}`;
-        process.env[sentinel] = 'parent-survives';
+        setEnvVar(sentinel, 'parent-survives');
         try {
             const result = await new NodeProcessExecutor().run({
                 command: 'sh',
@@ -298,15 +299,15 @@ describe('NodeProcessExecutor', () => {
             // Forwarded variable reaches the child.
             expect(result.stdout).toContain('FORWARDED=run-merge-1');
         } finally {
-            delete process.env[sentinel];
+            removeEnvVar(sentinel);
         }
     });
-    test('runStreaming merges a partial env with process.env (envMode merge — task 0060 R5)', async () => {
+    test('runStreaming merges a partial env with the parent environment (envMode merge — task 0060 R5)', async () => {
         // runStreaming used to hand env straight to Bun.spawn, which REPLACES the parent
         // environment — stripping PATH/HOME/provider credentials from agent subprocesses.
         // The unified contract now merges by default, exactly like run() (task 0056).
         const sentinel = `RUNTIME_MERGE_SENTINEL_${Date.now()}`;
-        process.env[sentinel] = 'parent-survives';
+        setEnvVar(sentinel, 'parent-survives');
         try {
             const proc = new NodeProcessExecutor().runStreaming({
                 command: 'sh',
@@ -321,12 +322,12 @@ describe('NodeProcessExecutor', () => {
             // Forwarded variable reaches the child.
             expect(stdout).toContain('FORWARDED=run-stream-merge-1');
         } finally {
-            delete process.env[sentinel];
+            removeEnvVar(sentinel);
         }
     });
     test('runStreaming envMode replace drops the parent environment (task 0060 R5)', async () => {
         const sentinel = `RUNTIME_REPLACE_SENTINEL_${Date.now()}`;
-        process.env[sentinel] = 'parent-survives';
+        setEnvVar(sentinel, 'parent-survives');
         try {
             const proc = new NodeProcessExecutor().runStreaming({
                 command: 'sh',
@@ -340,7 +341,7 @@ describe('NodeProcessExecutor', () => {
             expect(stdout).not.toContain('SENTINEL=parent-survives');
             expect(stdout).toContain('MINIMAL=run-stream-replace-1');
         } finally {
-            delete process.env[sentinel];
+            removeEnvVar(sentinel);
         }
     });
     test('runStreaming emits process events and opens a spawn span', async () => {
