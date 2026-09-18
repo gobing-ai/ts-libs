@@ -131,13 +131,20 @@ const codexShim: AgentShim = {
     getVersionCommand: () => ({ command: 'codex', args: ['--version'] }),
     getPromptCommand: (options) => {
         const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
-        // Session/pin path degrades to a fresh `exec` — codex has no reliable
-        // one-shot resume-by-id, so never `exec resume --last` (no global last).
         if (options.continue === true && !hasSession && options.input !== undefined) {
             throw new Error('Codex resume mode does not accept a new prompt');
         }
+        // Non-interactive resume-by-id (verified codex-cli 0.154.0): `exec resume
+        // <id> <prompt>` continues the recorded thread headlessly — the former
+        // interactive-picker-only gap is closed (feature B8 R3). sessionDir-only
+        // still degrades to fresh exec (no session-dir flag); bare `continue`
+        // stays `resume --last` (input omitted — resume-last rejects a prompt).
         const args =
-            options.continue === true && !hasSession ? ['exec', 'resume', '--last'] : ['exec', options.input ?? ''];
+            hasSession && options.sessionId !== undefined
+                ? ['exec', 'resume', options.sessionId, options.input ?? '']
+                : options.continue === true && !hasSession
+                  ? ['exec', 'resume', '--last']
+                  : ['exec', options.input ?? ''];
         if (options.model !== undefined) args.push('-m', options.model);
         if ((options.mode ?? 'text') === 'json') args.push('--json');
         return { command: 'codex', args };
@@ -377,6 +384,14 @@ export interface AgentSessionCapability {
     readonly supportsResumeById: boolean;
     /** Can isolate session storage into a caller-supplied directory. */
     readonly supportsSessionDir: boolean;
+    /** Multi-turn conversation over stdin in one process (e.g. `--input-format stream-json`, `--mode rpc`). */
+    readonly supportsPersistentStdin: boolean;
+    /** Structured machine-readable output mode (json / stream-json). */
+    readonly supportsStructuredOutput: boolean;
+    /** Agent CLI version this row was last verified against; `'unverified …'` when the CLI was absent. */
+    readonly verifiedAgainst: string;
+    /** Recorded reason for any `false` — a CLI gap, or a CLI-supported flag the shim argv does not wire yet. */
+    readonly note?: string;
 }
 
 /**
@@ -385,25 +400,108 @@ export interface AgentSessionCapability {
  * `supportsResumeById` decides resume-by-id vs fresh-degrade, and
  * `supportsSessionDir` decides whether `sessionDir` is honored (ADR-047 R2).
  *
- * Agents not in the six-agent affinity matrix default to no resume-by-id and no
- * session-dir — they get the isolated-fresh / no-resume degrade.
+ * Each row records what the agent CLI verifiably supports at the version named
+ * in `verifiedAgainst` (probed via `<agent> --help` / documented flags; feature
+ * B8). Every `false` carries a `note` naming the gap — an unexplained `false`
+ * is a defect — and a CLI-supported flag the shim argv does not wire yet is
+ * called out in the note instead of being silently degraded or guessed `true`.
+ * CLIs that were absent on the probing host carry `verifiedAgainst:
+ * 'unverified …'`, never a fabricated version.
  */
 const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapability>> = {
-    omp: { supportsResumeById: true, supportsSessionDir: true },
-    pi: { supportsResumeById: true, supportsSessionDir: true },
-    claude: { supportsResumeById: true, supportsSessionDir: false },
-    // codex resume is interactive-only (`exec resume` picker); no one-shot
-    // resume-by-id and no session-dir — degrades to fresh exec.
-    codex: { supportsResumeById: false, supportsSessionDir: false },
-    'antigravity-cli': { supportsResumeById: true, supportsSessionDir: false },
-    grok: { supportsResumeById: true, supportsSessionDir: false },
-    // Non-matrix agents: conservative default (isolated-fresh / no-resume).
-    gemini: { supportsResumeById: false, supportsSessionDir: false },
-    opencode: { supportsResumeById: false, supportsSessionDir: false },
-    openclaw: { supportsResumeById: false, supportsSessionDir: false },
-    hermes: { supportsResumeById: false, supportsSessionDir: false },
+    omp: {
+        supportsResumeById: true,
+        supportsSessionDir: true,
+        supportsPersistentStdin: true,
+        supportsStructuredOutput: true,
+        verifiedAgainst: '18.2.3',
+    },
+    pi: {
+        supportsResumeById: true,
+        supportsSessionDir: true,
+        supportsPersistentStdin: true,
+        supportsStructuredOutput: true,
+        verifiedAgainst: '0.85.1',
+    },
+    claude: {
+        supportsResumeById: true,
+        supportsSessionDir: false,
+        supportsPersistentStdin: true,
+        supportsStructuredOutput: true,
+        verifiedAgainst: '2.1.274',
+        // Verified `--input-format stream-json` (realtime streaming input) at CLI
+        // 2.1.274, but the shim has no persistent-stdin dispatch mode yet.
+        note: 'no session-dir flag — sessionDir is ignored (best-effort isolate); persistent stdin (--input-format stream-json) is not yet shim-wired',
+    },
+    codex: {
+        supportsResumeById: true,
+        supportsSessionDir: false,
+        supportsPersistentStdin: false,
+        supportsStructuredOutput: true,
+        verifiedAgainst: '0.154.0',
+        // R3 branch 2: `exec resume <id> <prompt>` is the working non-interactive
+        // resume (verified 0.154.0) — wired in getPromptCommand below.
+        note: 'no session-dir flag — sessionDir is ignored; `exec` carries one prompt arg (stdin `-` is one-shot), so no multi-turn stdin',
+    },
+    'antigravity-cli': {
+        supportsResumeById: true,
+        supportsSessionDir: false,
+        supportsPersistentStdin: false,
+        supportsStructuredOutput: false,
+        verifiedAgainst: 'unverified (CLI not installed)',
+        // resume-by-id is provenance from the shim's own `--conversation <id>`
+        // argv, not a guess; agy itself was absent at verification (2026-09-18).
+        note: 'resume-by-id per the shim’s documented --conversation <id> argv; agy absent at verification (2026-09-18) — no session-dir, stdin, or structured-output flags documented',
+    },
+    grok: {
+        supportsResumeById: true,
+        supportsSessionDir: false,
+        supportsPersistentStdin: false,
+        supportsStructuredOutput: true,
+        verifiedAgainst: '1.0.34',
+        note: 'no session-dir flag — sessionDir is ignored (best-effort isolate); no multi-turn stdin input mode',
+    },
+    gemini: {
+        supportsResumeById: false,
+        supportsSessionDir: false,
+        supportsPersistentStdin: false,
+        supportsStructuredOutput: true,
+        verifiedAgainst: '0.46.0',
+        note: '`-r/--resume` accepts `latest` or a `--list-sessions` index, not a session id; no session-dir flag; no stdin input mode',
+    },
+    opencode: {
+        supportsResumeById: false,
+        supportsSessionDir: false,
+        supportsPersistentStdin: false,
+        supportsStructuredOutput: true,
+        verifiedAgainst: '1.17.15',
+        note: 'CLI `run -s/--session <id>` supports resume-by-id but the shim argv does not wire it yet (follow-up before declaring true); no session-dir flag; no stdin input mode',
+    },
+    openclaw: {
+        supportsResumeById: false,
+        supportsSessionDir: false,
+        supportsPersistentStdin: false,
+        supportsStructuredOutput: true,
+        verifiedAgainst: '2026.6.11',
+        note: 'CLI `agent --session-id <id>` and `--json` are not yet shim-wired (follow-up before declaring resume-by-id true); gateway turns have no persistent stdin',
+    },
+    hermes: {
+        supportsResumeById: false,
+        supportsSessionDir: false,
+        supportsPersistentStdin: false,
+        supportsStructuredOutput: false,
+        verifiedAgainst: 'unverified (CLI not installed)',
+        note: 'CLI absent at verification (2026-09-18) — conservative defaults; `chat --continue` resumes the last session only, no session-dir/stdin/structured-output flags documented',
+    },
     // dsh headless has no resume/session flags — fresh-dispatch degrade.
-    deepseek: { supportsResumeById: false, supportsSessionDir: false },
+    deepseek: {
+        supportsResumeById: false,
+        supportsSessionDir: false,
+        supportsPersistentStdin: false,
+        supportsStructuredOutput: false,
+        verifiedAgainst: '0.1.5-rc.1',
+        note: 'headless app takes only the task positional and -h at 0.1.5-rc.1 — no resume/session/mode flags; fresh-dispatch degrade',
+    },
 };
 
 /** Query a bundled agent's session-affinity capability by canonical name. */

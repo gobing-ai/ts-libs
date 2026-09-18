@@ -314,12 +314,15 @@ interactive session (ADR-047).
 3. else → fresh open.
 
 **Capability query (R2):** consult `getAgentSessionCapability(agent)` rather than inventing per-agent
-argv. It reports `supportsResumeById` and `supportsSessionDir`.
+argv. It reports `supportsResumeById`, `supportsSessionDir`, `supportsPersistentStdin`,
+`supportsStructuredOutput`, the `verifiedAgainst` CLI version the row was probed on, and a `note`
+naming the reason for any `false` (including CLI flags that exist but are not shim-wired yet).
+Uninstalled CLIs carry `verifiedAgainst: 'unverified …'` — never a fabricated version.
 
 ```ts
 import { getAgentSessionCapability, getAgentShim } from '@gobing-ai/ts-ai-runner';
 
-const cap = getAgentSessionCapability('omp'); // { supportsResumeById: true, supportsSessionDir: true }
+const cap = getAgentSessionCapability('omp'); // { supportsResumeById: true, supportsSessionDir: true, supportsPersistentStdin: true, … }
 const { args } = getAgentShim('omp').getPromptCommand({
     input: '',
     sessionDir: '.spur/run/r1/agent-sessions/omp',
@@ -328,21 +331,31 @@ const { args } = getAgentShim('omp').getPromptCommand({
 // args: ['-p', '', '--session-dir', '.spur/run/r1/...', '-r', 'abc123', '--mode', 'text']
 ```
 
-**Shim / capability matrix:**
+**Shim / capability matrix** (probed 2026-09-18; `verifiedAgainst` per row in `getAgentSessionCapability`):
 
-| Agent | `supportsResumeById` | `supportsSessionDir` | sessionDir flag | sessionId resume flag | Legacy continue |
-| ----- | -------------------- | -------------------- | --------------- | --------------------- | --------------- |
-| omp | ✓ | ✓ | `--session-dir <dir>` | `-r <id>` | `-c` |
-| pi | ✓ | ✓ | `--session-dir <dir>` | `-r <id>` | `-c` |
-| claude | ✓ | ✗ (ignored) | — | `--resume <id>` | `--continue` |
-| codex | ✗ | ✗ (ignored) | — | degrade → fresh `exec` | `exec resume --last` |
-| agy | ✓ | ✗ (ignored) | — | `--conversation <id>` | `--continue` |
-| grok | ✓ | ✗ (ignored) | — | `--resume <id>` | `-c` |
-| deepseek | ✗ | ✗ (ignored) | — | degrade → fresh headless one-shot | degrade → fresh headless one-shot |
+| Agent | resumeById | sessionDir | sessionId resume flag | persistentStdin | structuredOutput |
+| ----- | ---------- | ---------- | --------------------- | --------------- | ---------------- |
+| omp | ✓ | ✓ | `-r <id>` | ✓ (`--mode rpc`) | ✓ (`--mode json`) |
+| pi | ✓ | ✓ | `-r <id>` | ✓ (`--mode rpc`) | ✓ (`--mode json`) |
+| claude | ✓ | ✗ (ignored) | `--resume <id>` | ✓ (`--input-format stream-json`; not shim-wired) | ✓ (`--output-format json`) |
+| codex | ✓ (0.154.0) | ✗ (ignored) | `exec resume <id> <prompt>` | ✗ | ✓ (`--json`) |
+| agy | ✓ | ✗ (ignored) | `--conversation <id>` | ✗ | ✗ (unverified) |
+| grok | ✓ | ✗ (ignored) | `--resume <id>` | ✗ | ✓ (`--output-format json`) |
+| gemini | ✗ (`-r` = latest/index) | ✗ | degrade → fresh `-p` | ✗ | ✓ (`-o json`) |
+| opencode | ✗ (CLI `-s <id>` unwired) | ✗ | degrade → fresh `run` | ✗ | ✓ (`--format json`) |
+| openclaw | ✗ (CLI `--session-id` unwired) | ✗ | degrade → fresh `agent` | ✗ | ✓ (CLI `--json`; unwired) |
+| hermes | ✗ (unverified) | ✗ | degrade → fresh `chat` | ✗ | ✗ (unverified) |
+| deepseek | ✗ | ✗ | degrade → fresh headless one-shot | ✗ | ✗ |
+
+**Claude session discovery:** claude has no session-dir flag and does not accept a caller-chosen
+session id at open; the headless run's session id is discovered from the process output after the
+run (the `discoverSessionId` contract consumers implement). The capability row encodes exactly
+that: `supportsResumeById: true` (resume later via `--resume <id>`), `supportsSessionDir: false`.
 
 **Degrade rule:** when `sessionDir`/`sessionId` is set and the agent lacks resume-by-id or a
 session-store flag, the shim opens **fresh in isolation** (or plain fresh) — never bare global
-continue/last. codex, which has no one-shot resume-by-id, always degrades to a fresh `exec`.
+continue/last. codex pins via non-interactive `exec resume <id> <prompt>` (verified 0.154.0); a
+sessionDir-only request still degrades to a fresh `exec` (no session-dir flag).
 
 **Durable vs ephemeral (R4):** for omp/pi, setting `sessionDir` implies a durable session — the shim
 omits `--no-session` so a session file is written and discoverable. The legacy fresh path (no session

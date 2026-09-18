@@ -8,6 +8,13 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.68] - 2026-09-18
+
+### Added
+
+- **`@gobing-ai/ts-ai-runner`: verified per-agent capability matrix on `AgentSessionCapability` (spur 0888, feature B8).** The session-affinity record gains `supportsPersistentStdin` (multi-turn over stdin in one process — claude `--input-format stream-json`, pi/omp `--mode rpc`), `supportsStructuredOutput` (json / stream-json output mode), `verifiedAgainst` (the agent CLI version each row was probed on, e.g. `2.1.274` / `0.154.0`), and optional `note` (the recorded reason for any `false` — an unexplained `false` is a defect). Every `AgentName` row was probed against its installed CLI on 2026-09-18 (`<agent> --help` + `--version`); CLIs absent from the probing host (agy, hermes) carry `verifiedAgainst: 'unverified …'` instead of a fabricated version, and CLI flags that exist but are not shim-wired yet (opencode `-s/--session <id>`, openclaw `agent --session-id <id>` / `--json`) are named in the note rather than guessed `true`. The existing two fields and `getAgentSessionCapability(agent)` keep their names and semantics.
+- **`@gobing-ai/ts-ai-runner`: codex non-interactive resume-by-id (spur 0888 R3).** `codex exec resume [SESSION_ID] [PROMPT]` (verified codex-cli 0.154.0) closes the former interactive-picker-only gap: `getPromptCommand` with `sessionId` now emits `exec resume <id> <prompt>` instead of degrading to a fresh `exec`. A `sessionDir`-only request still degrades to fresh `exec` (codex has no session-dir flag), and bare `continue` stays `exec resume --last`. The claude row documents its session model: resume via `--resume <id>`, no session dir — the session id is discovered from process output after the run (the `discoverSessionId` contract).
+
 ## [0.4.67] - 2026-09-16
 
 ### Added

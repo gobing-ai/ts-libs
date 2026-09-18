@@ -254,26 +254,54 @@ describe('deprecation metadata', () => {
 
 // ── 0447 R2/R3/R5: session-affinity capability + argv matrix ──────────────
 
-describe('getAgentSessionCapability (0447 R2)', () => {
-    test('omp and pi fully support resume-by-id and session-dir', () => {
-        expect(getAgentSessionCapability('omp')).toEqual({ supportsResumeById: true, supportsSessionDir: true });
-        expect(getAgentSessionCapability('pi')).toEqual({ supportsResumeById: true, supportsSessionDir: true });
+describe('getAgentSessionCapability (0447 R2 + B8 R1/R3)', () => {
+    test('omp and pi fully support resume-by-id, session-dir, stdin, structured output', () => {
+        expect(getAgentSessionCapability('omp')).toEqual({
+            supportsResumeById: true,
+            supportsSessionDir: true,
+            supportsPersistentStdin: true,
+            supportsStructuredOutput: true,
+            verifiedAgainst: '18.2.3',
+        });
+        expect(getAgentSessionCapability('pi').verifiedAgainst).toBe('0.85.1');
     });
 
-    test('claude supports resume-by-id but no session-dir', () => {
-        expect(getAgentSessionCapability('claude')).toEqual({ supportsResumeById: true, supportsSessionDir: false });
+    test('claude supports resume-by-id and structured output but no session-dir (B8 R4)', () => {
+        const cap = getAgentSessionCapability('claude');
+        expect(cap.supportsResumeById).toBe(true);
+        expect(cap.supportsSessionDir).toBe(false);
+        expect(cap.supportsStructuredOutput).toBe(true);
+        // Session id is discovered from output (discoverSessionId contract), not
+        // from a caller-owned session dir — the note records the ignore.
+        expect(cap.note).toContain('sessionDir is ignored');
+        expect(cap.verifiedAgainst).toBe('2.1.274');
     });
 
-    test('codex degrades (no resume-by-id, no session-dir)', () => {
-        expect(getAgentSessionCapability('codex')).toEqual({ supportsResumeById: false, supportsSessionDir: false });
+    test('codex resumes by id via the non-interactive `exec resume <id>` (B8 R3)', () => {
+        const cap = getAgentSessionCapability('codex');
+        expect(cap.supportsResumeById).toBe(true);
+        expect(cap.supportsSessionDir).toBe(false);
+        // R3 branch 2 (true + wired): the non-interactive resume command itself is
+        // proven by the argv matrix below (`exec resume <id> <prompt>`).
+        expect(cap.verifiedAgainst).toBe('0.154.0');
     });
 
     test('agy and grok support resume-by-id, no session-dir', () => {
-        expect(getAgentSessionCapability('antigravity-cli')).toEqual({
-            supportsResumeById: true,
-            supportsSessionDir: false,
-        });
-        expect(getAgentSessionCapability('grok')).toEqual({ supportsResumeById: true, supportsSessionDir: false });
+        const agy = getAgentSessionCapability('antigravity-cli');
+        expect(agy.supportsResumeById).toBe(true);
+        expect(agy.supportsSessionDir).toBe(false);
+        expect(agy.verifiedAgainst).toMatch(/^unverified/);
+        const grok = getAgentSessionCapability('grok');
+        expect(grok.supportsResumeById).toBe(true);
+        expect(grok.supportsSessionDir).toBe(false);
+        expect(grok.verifiedAgainst).toBe('1.0.34');
+    });
+
+    test('gemini has no resume-by-id (`-r` is latest/index only) but has structured output', () => {
+        const cap = getAgentSessionCapability('gemini');
+        expect(cap.supportsResumeById).toBe(false);
+        expect(cap.note).toContain('--list-sessions');
+        expect(cap.supportsStructuredOutput).toBe(true);
     });
 
     test('every bundled agent has a capability entry', () => {
@@ -367,9 +395,11 @@ describe('session-affinity argv matrix (0447 R3/R5)', () => {
             agent: 'codex',
             name: 'codex',
             fresh: ['exec', ''],
-            // codex has no resume-by-id → session* set degrades to fresh exec
+            // codex 0.154.0: non-interactive `exec resume <id> <prompt>` (B8 R3) —
+            // the session pin works; sessionDir-only still degrades to fresh exec
+            // (no session-dir flag).
             sessionDirOnly: ['exec', ''],
-            sessionIdAndDir: ['exec', ''],
+            sessionIdAndDir: ['exec', 'resume', 'abc123', ''],
             continueOnly: ['exec', 'resume', '--last'],
         },
         {
@@ -489,6 +519,56 @@ describe('deepseek shim (task 0066)', () => {
         expect(getAgentSessionCapability('deepseek')).toEqual({
             supportsResumeById: false,
             supportsSessionDir: false,
+            supportsPersistentStdin: false,
+            supportsStructuredOutput: false,
+            verifiedAgainst: '0.1.5-rc.1',
+            note: expect.any(String),
+        });
+    });
+
+    // B8 R1/R2/R5: every AgentName resolves a complete, verified record — shape,
+    // boolean enum, non-empty version provenance, and an explained `false`.
+    describe('AgentSessionCapability matrix (B8 R5)', () => {
+        const REQUIRED_BOOLEAN_FIELDS = [
+            'supportsResumeById',
+            'supportsSessionDir',
+            'supportsPersistentStdin',
+            'supportsStructuredOutput',
+        ] as const;
+
+        test('every agent resolves a complete record (shape + enum + provenance)', () => {
+            for (const name of Object.keys(AGENT_SHIMS) as AgentName[]) {
+                const cap = getAgentSessionCapability(name);
+                for (const field of REQUIRED_BOOLEAN_FIELDS) {
+                    expect(typeof cap[field]).toBe('boolean');
+                    expect([true, false]).toContain(cap[field]);
+                }
+                expect(typeof cap.verifiedAgainst).toBe('string');
+                expect(cap.verifiedAgainst.length).toBeGreaterThan(0);
+            }
+        });
+
+        test('every `false` is explained by a non-empty note (no silent degradation)', () => {
+            for (const name of Object.keys(AGENT_SHIMS) as AgentName[]) {
+                const cap = getAgentSessionCapability(name);
+                const hasFalse = REQUIRED_BOOLEAN_FIELDS.some((field) => !cap[field]);
+                if (hasFalse) {
+                    expect(cap.note).toBeDefined();
+                    expect(cap.note?.length ?? 0).toBeGreaterThan(0);
+                }
+            }
+        });
+
+        test('unverified rows never carry a fabricated CLI version', () => {
+            for (const name of Object.keys(AGENT_SHIMS) as AgentName[]) {
+                const cap = getAgentSessionCapability(name);
+                if (cap.verifiedAgainst.startsWith('unverified')) {
+                    expect(cap.note).toBeDefined();
+                } else {
+                    // Real rows carry the probed CLI version (e.g. `2.1.274`).
+                    expect(cap.verifiedAgainst).toMatch(/^\d/);
+                }
+            }
         });
     });
 });
