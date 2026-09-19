@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { type EventBus, getLogger, type Logger } from '@gobing-ai/ts-infra';
 import { nodeBunFactory, type PipeProcess, type ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { AgentSpec } from './agent-spec';
+import type { StdinFrame } from './agents/shims';
 import type { AgentEvents } from './events';
 import {
     buildQuotaObservation,
@@ -23,6 +24,11 @@ export interface AgentProcessOptions {
     events?: EventBus<AgentEvents>;
     /** Optional exact quota attribution; absent fields stay absent on observations — never inferred. */
     quotaContext?: QuotaAttribution;
+    /**
+     * Frames each sent prompt for the agent's persistent-stdin dialect (from
+     * the shim's `persistentStdinProtocol.frame`); absent = raw text + newline.
+     */
+    stdinFramer?: StdinFrame;
 }
 
 type ProcessStatus = 'running' | 'stopped' | 'errored';
@@ -47,6 +53,7 @@ export class TeamAgentProcess {
     private readonly quotaProducer: QuotaObservationProducer;
     private readonly spec: AgentSpec;
     private readonly quotaContext: QuotaAttribution | undefined;
+    private readonly stdinFramer: StdinFrame | undefined;
 
     constructor(options: AgentProcessOptions) {
         this.agentId = options.spec.id;
@@ -58,6 +65,7 @@ export class TeamAgentProcess {
         this.quotaProducer = new QuotaObservationProducer(options.events);
         this.spec = options.spec;
         this.quotaContext = options.quotaContext;
+        this.stdinFramer = options.stdinFramer;
     }
 
     async start(): Promise<void> {
@@ -117,7 +125,7 @@ export class TeamAgentProcess {
             return { ok: false };
         }
         try {
-            this.subprocess.writeStdin(`${message}\n`);
+            this.subprocess.writeStdin(this.stdinFramer !== undefined ? this.stdinFramer(message) : `${message}\n`);
             return { ok: true };
         } catch (error) {
             this.warn('stdin write failed', 'send.writeStdin', error);

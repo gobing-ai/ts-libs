@@ -45,7 +45,8 @@
         "test-pre-check:full": "spur rule run --preset recommended-pre-check --fail-on warning --verbose",
         "test-post-check:full": "spur rule run --preset recommended-post-check --fail-on warning --verbose",
         "spur-check:full": "bun run lint && bun run test-pre-check:full && bun run test:full && bun run test-post-check:full",
-        "check:full": "bun run lint && bun run test:full"
+        "check:full": "bun run lint && bun run test:full",
+        "gate": "bun run autofix && bun run spur-check"
     },
     "devDependencies": {
         "@biomejs/biome": "2.4.16",

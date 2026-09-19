@@ -572,3 +572,79 @@ describe('deepseek shim (task 0066)', () => {
         });
     });
 });
+
+describe('persistent-stdin dispatch (feature B8 upstream)', () => {
+    test('pi/omp persistent argv: no -p positional, rpc mode, durable session flags kept', () => {
+        for (const name of ['pi', 'omp'] as const) {
+            const shim = getAgentShim(name);
+            // Persistent with pinned session — no --no-session, no -c, rpc wins over mode.
+            expect(
+                shim.getPromptCommand({
+                    persistentStdin: true,
+                    mode: 'json',
+                    sessionId: 's1',
+                    sessionDir: '/tmp/sd',
+                    model: 'm',
+                }),
+            ).toEqual({
+                command: name,
+                args: ['--session-dir', '/tmp/sd', '-r', 's1', '--model', 'm', '--mode', 'rpc'],
+            });
+            // Persistent without session: no --no-session, no -c, no input echo.
+            expect(shim.getPromptCommand({ persistentStdin: true }).args).toEqual(['--mode', 'rpc']);
+        }
+    });
+
+    test('claude persistent argv: stream-json input on the print path, no prompt positional', () => {
+        const shim = getAgentShim('claude');
+        expect(
+            shim.getPromptCommand({
+                persistentStdin: true,
+                input: 'ignored-in-persistent',
+                sessionId: 's1',
+                model: 'opus',
+            }),
+        ).toEqual({
+            command: 'claude',
+            args: [
+                '-p',
+                '--input-format',
+                'stream-json',
+                '--permission-mode',
+                'acceptEdits',
+                '--allowedTools',
+                'Write',
+                'Edit',
+                '--resume',
+                's1',
+                '--model',
+                'opus',
+                '--output-format',
+                'stream-json',
+            ],
+        });
+    });
+
+    test('persistentStdinProtocol framing produces single-line JSON prompts', () => {
+        const piFrame = getAgentShim('pi').persistentStdinProtocol?.frame;
+        expect(JSON.parse(piFrame?.('say ok') ?? '')).toEqual({ type: 'prompt', message: 'say ok' });
+        expect(piFrame?.('line1\nline2').endsWith('\n')).toBe(true);
+
+        const claudeFrame = getAgentShim('claude').persistentStdinProtocol?.frame;
+        expect(JSON.parse(claudeFrame?.('hi') ?? '')).toEqual({
+            type: 'user',
+            message: { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        });
+
+        // omp shares the pi rpc dialect; shims without wiring expose no protocol.
+        expect(getAgentShim('omp').persistentStdinProtocol?.frame).toBe(piFrame);
+        expect(getAgentShim('codex').persistentStdinProtocol).toBeUndefined();
+    });
+
+    test('persistentStdin capability rows stay honest about wired shims', () => {
+        for (const name of ['pi', 'omp', 'claude'] as const) {
+            expect(getAgentSessionCapability(name)?.supportsPersistentStdin).toBe(true);
+            expect(getAgentShim(name).persistentStdinProtocol).toBeDefined();
+        }
+    });
+});
