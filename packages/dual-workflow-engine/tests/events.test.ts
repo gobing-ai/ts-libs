@@ -28,6 +28,7 @@ describe('WorkflowEngineEvents', () => {
             'workflow.node.transition',
             'workflow.run.done',
             'workflow.run.failed',
+            'workflow.run.interrupted',
             'workflow.run.paused',
             'workflow.run.reseeded',
             'workflow.run.resumed',
