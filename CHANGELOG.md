@@ -8,6 +8,16 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.4.69] - 2026-09-18
+
+### Added
+
+- **`@gobing-ai/ts-ai-runner`: persistent-stdin dispatch for `claude`, `pi`, `omp` (feature B8).** The shim gains `PromptOptions.persistentStdin` (boolean) and a `persistentStdinProtocol.frame` per shim on `AgentShim`; `TeamAgentProcess` gains `AgentProcessOptions.stdinFramer` (default raw text + newline) so every `send()` writes through the frame, including the identity preamble. `claude`: `-p --input-format stream-json --output-format stream-json` keeps the print path alive reading JSONL envelopes until stdin closes (verified `--help`, CLI 2.1.274; `--input-format` only works with `--print`). `pi` / `omp`: `--mode rpc` with no `-p` positional and no `--no-session` — the rpc listener is the long-lived process. omp is a pi fork and shares pi's rpc-dialect frame (`{"type":"prompt","message":<input>}` per line); claude uses the stream-json user envelope (`{"type":"user","message":{"role":"user","content":[{"type":"text","text":<input>}]}}`). Capability-aware callers consult `getAgentSessionCapability(agent).supportsPersistentStdin` first; the `claude` capability row drops its "persistent stdin not yet shim-wired" note. Code paths that do not pass `persistentStdin: true` keep the prior one-shot dispatch unchanged. `5e65faa`.
+
+### Other
+
+- **Root `package.json`: new `gate` script.** Runs `bun run autofix && bun run spur-check` (lint + per-package typecheck + tests + both spur-rule presets) so the developer-side gate mirrors CI in one command. `5e65faa`.
+
 ## [0.4.68] - 2026-09-18
 
 ### Added
@@ -1118,6 +1128,7 @@ Initial public release.
 - **`@gobing-ai/ts-db`** — Drizzle ORM layer: adapters (Bun SQLite, Cloudflare D1), DAOs, schema builders, migrations.
 - **`@gobing-ai/ts-infra`** — infrastructure: API client, event bus, job queue, scheduler, logger, OpenTelemetry telemetry.
 
+[0.4.69]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.68...@gobing-ai/ts-libs-v0.4.69
 [0.4.23]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.22...@gobing-ai/ts-libs-v0.4.23
 [0.4.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.19...@gobing-ai/ts-libs-v0.4.20
 [0.4.18]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.16...@gobing-ai/ts-libs-v0.4.18
