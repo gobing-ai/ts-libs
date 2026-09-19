@@ -5,7 +5,29 @@ import type { EventBus } from '@gobing-ai/ts-infra';
 import type { WorkflowEngineEvents } from './events';
 
 /** Workflow execution status persisted for runs and phases. */
-export type WorkflowStatus = 'running' | 'done' | 'failed' | 'paused';
+export type WorkflowStatus = 'running' | 'done' | 'failed' | 'paused' | 'interrupted';
+
+/**
+ * How a resume re-enters the current state (task 0902 R1):
+ * - `skip-enter`: on-enter actions are NOT re-executed (pause semantics — they
+ *   completed before the pause was declared).
+ * - `rerun-enter`: on-enter actions ARE re-executed (interrupt semantics — they
+ *   may have half-completed at the interruption point). Only legal into states
+ *   explicitly marked `resumeRerun: true`.
+ */
+export type WorkflowResumeMode = 'skip-enter' | 'rerun-enter';
+
+/**
+ * Ownership claim for a resume (task 0902 R3). The adapter CAS records the
+ * attempt at the actual status mutation, so stale/concurrent resumers lose the
+ * claim deterministically instead of double-driving one run.
+ */
+export interface ResumeOwnership {
+    /** Unique id for this resume attempt (crypto.randomUUID() when caller omits it). */
+    readonly attemptId: string;
+    /** Optional OS pid of the resuming process, for crash-reconciliation diagnostics. */
+    readonly pid?: number;
+}
 
 /** Runtime variables and user variables available to workflow definitions. */
 export type Vars = Record<string, string>;
@@ -49,6 +71,13 @@ export interface StateDef {
     readonly onExit?: readonly ActionDef[];
     /** When true, the engine pauses the run at this state instead of auto-advancing. */
     readonly pause?: boolean;
+    /**
+     * Author declaration that this state's on-enter actions are safe to re-run
+     * after an interruption (idempotent, or deduped by runId+state context).
+     * Required for `rerun-enter` resume; unmarked states are refused loudly
+     * before any action executes (task 0902 R1/R2).
+     */
+    readonly resumeRerun?: boolean;
 }
 
 /** One transition in a state-machine workflow. */
@@ -95,6 +124,8 @@ export interface FlowNodeDef {
     readonly action?: ActionDef;
     /** When true, the engine pauses the run at this node instead of auto-advancing. */
     readonly pause?: boolean;
+    /** Author declaration that this node's action is safe to re-run after an interruption. See StateDef.resumeRerun. */
+    readonly resumeRerun?: boolean;
 }
 
 /** Transition-flow edge definition. */
@@ -202,6 +233,19 @@ export interface WorkflowRunOptions {
     readonly dryRun?: boolean;
     /** Optional caller-supplied external key, unique per workflow definition. */
     readonly externalKey?: string;
+    /**
+     * Resume semantics override (task 0902). Only meaningful on driver/service
+     * resume paths; fresh runs ignore it. Defaults derive from run status:
+     * paused → 'skip-enter', interrupted → 'rerun-enter'. Interrupted runs may
+     * downgrade to 'skip-enter' explicitly when re-execution is provably unsafe.
+     */
+    readonly resumeMode?: WorkflowResumeMode;
+    /**
+     * Ownership claim recorded atomically at the resume status flip (task 0902 R3).
+     * Omitted → a fresh attemptId is generated. Concurrent resumers: exactly one
+     * wins the CAS, the rest receive a typed resume error.
+     */
+    readonly resumeOwner?: ResumeOwnership;
 }
 
 /** Result returned by both driver loops. */
@@ -226,6 +270,12 @@ export interface WorkflowRunRecord {
     readonly metadata_json: string;
     /** Optional caller-supplied external key, unique per workflow definition. */
     readonly external_key?: string | null;
+    /** Attempt id of the last resume that won the ownership claim (task 0902 R3). */
+    readonly owner_attempt?: string | null;
+    /** OS pid recorded alongside the winning resume attempt, when supplied. */
+    readonly owner_pid?: number | null;
+    /** Reason recorded by the last interruption (task 0902 R2). */
+    readonly interrupt_reason?: string | null;
 }
 
 /** Result of force-setting the current state of a run. */
@@ -338,4 +388,22 @@ export interface WorkflowPersistenceAdapter {
     loadLatestStateSnapshot(runId: string): Promise<{ state: string; data: Record<string, unknown> } | undefined>;
     /** List runs with status 'paused'. Optional filters: workflow name, limit. Ordered most-recent-first. */
     listPausedRuns(options?: { workflowName?: string; limit?: number }): Promise<readonly WorkflowRunRecord[]>;
+    /**
+     * Atomically claim ownership of a resumable run (task 0902 R3). CAS: flips
+     * the run from one of `expectedStatuses` to 'running' and records the owner
+     * in the same update. Returns the claimed record, or undefined when the run
+     * is missing, already running/done, or was claimed by a competing resume —
+     * callers must treat undefined as a lost race, never retry blindly.
+     */
+    claimRunOwnership(
+        runId: string,
+        owner: ResumeOwnership,
+        expectedStatuses: readonly ('paused' | 'interrupted')[],
+    ): Promise<WorkflowRunRecord | undefined>;
+    /**
+     * Mark a running run as interrupted with a reason (task 0902 R2) —
+     * crash/lost-owner reconciliation. CAS running → 'interrupted'; returns the
+     * updated record, or undefined when the run is missing or not running.
+     */
+    interruptRun(runId: string, reason: string): Promise<WorkflowRunRecord | undefined>;
 }

@@ -67,7 +67,7 @@ export class StateMachineDriver {
         let lastActionResult: ActionResult | undefined;
         const iterationBound = workflow.iterationBound ?? 50;
         const defaultOnError = workflow.defaultOnError;
-        let isResume = resumeFromState !== undefined;
+        let resumeMode = resumeFromState !== undefined ? (options.resumeMode ?? 'skip-enter') : undefined;
         // When `commitHop` has already persisted the new state's snapshot +
         // phase atomically (every iteration after the first), `enter` must skip
         // the persist half to avoid duplicate INSERT rows (ADR-020).
@@ -79,11 +79,24 @@ export class StateMachineDriver {
         }
 
         while (true) {
-            if (isResume) {
+            if (resumeMode === 'skip-enter') {
                 // Resume: skip enter actions on the first iteration (already ran before pause).
-                isResume = false;
+                resumeMode = undefined;
                 persistedViaHop = true; // state already persisted before the pause
             } else {
+                if (resumeMode === 'rerun-enter') {
+                    // Rerun-resume re-executes on-enter actions; only states the author marked
+                    // resumable may be re-entered (0902: loud refusal before any action runs,
+                    // never a silent replay of unclassified side effects).
+                    if (current.resumeRerun !== true) {
+                        throw new FSMError(
+                            `Cannot rerun-resume into state "${current.id}": not marked resumeRerun: true ` +
+                                '(mark its on-enter actions as safe to re-run, or resume with resumeMode: "skip-enter")',
+                        );
+                    }
+                    resumeMode = undefined;
+                    persistedViaHop = true; // snapshot exists from the pre-interruption enter
+                }
                 // 1. Persist current state snapshot before work starts (skipped when
                 //    commitHop already persisted it atomically on the previous hop).
                 await lifecycle.enter(current.id, transitionsTaken, !persistedViaHop, vars);

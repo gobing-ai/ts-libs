@@ -67,6 +67,14 @@ function recordingPersistence(): { adapter: WorkflowPersistenceAdapter; calls: s
         loadCurrentState: async (runId) => inner.loadCurrentState(runId),
         loadLatestStateSnapshot: async (runId) => inner.loadLatestStateSnapshot(runId),
         listPausedRuns: async (options) => inner.listPausedRuns(options),
+        claimRunOwnership: async (runId, owner, expectedStatuses) => {
+            calls.push(`claimRunOwnership:${runId}:${owner.attemptId}`);
+            return inner.claimRunOwnership(runId, owner, expectedStatuses);
+        },
+        interruptRun: async (runId, reason) => {
+            calls.push(`interruptRun:${runId}:${reason}`);
+            return inner.interruptRun(runId, reason);
+        },
     };
     return { adapter, calls };
 }

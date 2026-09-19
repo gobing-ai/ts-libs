@@ -66,7 +66,7 @@ export class TransitionFlowDriver {
         let lastActionResult: ActionResult | undefined;
         const iterationBound = workflow.iterationBound ?? 50;
         const defaultOnError = workflow.defaultOnError;
-        let isResume = resumeFromNode !== undefined;
+        let resumeMode = resumeFromNode !== undefined ? (options.resumeMode ?? 'skip-enter') : undefined;
         // When `commitHop` has already persisted the new node's snapshot +
         // phase atomically (every iteration after the first), `enter` must skip
         // the persist half to avoid duplicate INSERT rows (ADR-020).
@@ -78,11 +78,23 @@ export class TransitionFlowDriver {
         }
 
         while (true) {
-            if (isResume) {
+            if (resumeMode === 'skip-enter') {
                 // Resume: skip enter + node action on the first iteration (already ran before pause).
-                isResume = false;
+                resumeMode = undefined;
                 persistedViaHop = true; // node already persisted before the pause
             } else {
+                if (resumeMode === 'rerun-enter') {
+                    // Rerun-resume re-executes the node action; only nodes the author marked
+                    // resumable may be re-entered (0902: loud refusal before any action runs).
+                    if (current.resumeRerun !== true) {
+                        throw new FSMError(
+                            `Cannot rerun-resume into node "${current.id}": not marked resumeRerun: true ` +
+                                '(mark its action as safe to re-run, or resume with resumeMode: "skip-enter")',
+                        );
+                    }
+                    resumeMode = undefined;
+                    persistedViaHop = true; // snapshot exists from the pre-interruption enter
+                }
                 // 1. Persist current node snapshot before action execution (skipped when
                 //    commitHop already persisted it atomically on the previous hop).
                 await lifecycle.enter(current.id, transitionsTaken, !persistedViaHop, vars);

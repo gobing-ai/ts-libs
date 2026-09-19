@@ -1,8 +1,9 @@
 import type { DbAdapter, DbBatchOp } from '@gobing-ai/ts-db';
 import { RunCollisionError } from './errors';
-import { WORKFLOW_ENGINE_SCHEMA_SQL } from './schema-sql';
+import { WORKFLOW_ENGINE_MIGRATIONS_SQL, WORKFLOW_ENGINE_SCHEMA_SQL } from './schema-sql';
 import type {
     ActionRedactor,
+    ResumeOwnership,
     WorkflowPersistenceAdapter,
     WorkflowReseedResult,
     WorkflowRunRecord,
@@ -14,6 +15,17 @@ export async function applyWorkflowEngineSchema(db: DbAdapter): Promise<void> {
     for (const statement of WORKFLOW_ENGINE_SCHEMA_SQL.split(';')) {
         const sql = statement.trim();
         if (sql.length > 0) await db.exec(sql);
+    }
+    // Fresh databases already have the new columns (duplicate-column error → ignored);
+    // pre-0.5.0 databases get them via these guarded ALTERs.
+    for (const statement of WORKFLOW_ENGINE_MIGRATIONS_SQL.split(';')) {
+        const sql = statement.trim();
+        if (sql.length === 0) continue;
+        try {
+            await db.exec(sql);
+        } catch (error) {
+            if (!/duplicate column/i.test(String(error))) throw error;
+        }
     }
 }
 
@@ -94,6 +106,40 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
             Date.now(),
             runId,
         );
+    }
+
+    /** CAS-claim a resumable run to running, recording the owner at the mutation. */
+    async claimRunOwnership(
+        runId: string,
+        owner: ResumeOwnership,
+        expectedStatuses: readonly ('paused' | 'interrupted')[],
+    ): Promise<WorkflowRunRecord | undefined> {
+        await this.ensureSchema();
+        const placeholders = expectedStatuses.map(() => '?').join(', ');
+        await this.db.run(
+            `UPDATE runs SET status = 'running', completed_at = NULL, owner_attempt = ?, owner_pid = ?, updated_at = ?
+             WHERE id = ? AND status IN (${placeholders})`,
+            owner.attemptId,
+            owner.pid ?? null,
+            Date.now(),
+            runId,
+            ...expectedStatuses,
+        );
+        const run = await this.loadRun(runId);
+        return run !== undefined && run.status === 'running' && run.owner_attempt === owner.attemptId ? run : undefined;
+    }
+
+    /** CAS running → interrupted with a reason (lost-owner / crash reconciliation). */
+    async interruptRun(runId: string, reason: string): Promise<WorkflowRunRecord | undefined> {
+        await this.ensureSchema();
+        await this.db.run(
+            "UPDATE runs SET status = 'interrupted', interrupt_reason = ?, completed_at = NULL, updated_at = ? WHERE id = ? AND status = 'running'",
+            reason,
+            Date.now(),
+            runId,
+        );
+        const run = await this.loadRun(runId);
+        return run !== undefined && run.status === 'interrupted' ? run : undefined;
     }
 
     /** Save one phase/state execution record. */
@@ -350,6 +396,40 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
     async finalizeRun(runId: string, status: WorkflowStatus, completedAt: string): Promise<void> {
         const run = this.runs.get(runId);
         if (run !== undefined) this.runs.set(runId, { ...run, status, completed_at: completedAt });
+    }
+
+    /** CAS-claim a resumable run to running, recording the owner at the mutation. */
+    async claimRunOwnership(
+        runId: string,
+        owner: ResumeOwnership,
+        expectedStatuses: readonly ('paused' | 'interrupted')[],
+    ): Promise<WorkflowRunRecord | undefined> {
+        const run = this.runs.get(runId);
+        if (run === undefined || !expectedStatuses.includes(run.status as 'paused' | 'interrupted')) {
+            return undefined;
+        }
+        const claimed: WorkflowRunRecord = {
+            ...run,
+            status: 'running',
+            completed_at: null,
+            owner_attempt: owner.attemptId,
+            owner_pid: owner.pid ?? null,
+        };
+        this.runs.set(runId, claimed);
+        return claimed;
+    }
+
+    /** CAS running → interrupted with a reason (lost-owner / crash reconciliation). */
+    async interruptRun(runId: string, reason: string): Promise<WorkflowRunRecord | undefined> {
+        const run = this.runs.get(runId);
+        if (run === undefined || run.status !== 'running') return undefined;
+        const interrupted: WorkflowRunRecord = {
+            ...run,
+            status: 'interrupted',
+            interrupt_reason: reason,
+        };
+        this.runs.set(runId, interrupted);
+        return interrupted;
     }
 
     readonly actionRuns: Array<{

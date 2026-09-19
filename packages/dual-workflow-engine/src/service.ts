@@ -7,12 +7,14 @@ import { RunLifecycle } from './run-lifecycle';
 import { StateMachineDriver } from './state-machine';
 import { TransitionFlowDriver } from './transition-flow';
 import type {
+    ResumeOwnership,
     StateMachineWorkflowDef,
     TransitionDenied,
     TransitionRequestResult,
     Vars,
     WorkflowDef,
     WorkflowPersistenceAdapter,
+    WorkflowResumeMode,
     WorkflowRunOptions,
     WorkflowRunRecord,
     WorkflowRunResult,
@@ -157,13 +159,21 @@ export class WorkflowService {
         if (run === undefined) {
             throw new WorkflowResumeError(`Run "${runId}" not found`);
         }
-        if (run.status !== 'paused') {
-            throw new WorkflowResumeError(`Run "${runId}" is not paused (status: ${run.status})`);
+        if (run.status !== 'paused' && run.status !== 'interrupted') {
+            throw new WorkflowResumeError(`Run "${runId}" is not resumable (status: ${run.status})`);
         }
         const currentState = await this.persistence.loadCurrentState(runId);
         if (currentState === undefined) {
             throw new WorkflowResumeError(`Run "${runId}" has no persisted state to resume from`);
         }
+
+        // Resolve recovery semantics (task 0902): interrupted runs default to re-running
+        // the current state's actions (they may have half-completed at the interruption);
+        // paused runs default to skipping them (pause is declared after actions complete).
+        // An explicit `resumeMode` option overrides either default.
+        const resumeMode: WorkflowResumeMode =
+            options?.resumeMode ?? (run.status === 'interrupted' ? 'rerun-enter' : 'skip-enter');
+        this.assertResumeRerunAllowed(workflow, currentState, resumeMode);
 
         // Restore effectiveVars persisted in the last state snapshot so resume
         // continues with the same runtime variables (e.g. `__hitlAnswer`). Caller
@@ -171,20 +181,33 @@ export class WorkflowService {
         const snapshot = await this.persistence.loadLatestStateSnapshot(runId);
         const persistedVars = extractEffectiveVars(snapshot?.data);
         const restoredVars = mergeVars(persistedVars, options?.vars);
-        const mergedOptions: WorkflowRunOptions = { ...options, vars: restoredVars };
+        const owner: ResumeOwnership = options?.resumeOwner ?? { attemptId: crypto.randomUUID() };
+        const mergedOptions: WorkflowRunOptions = { ...options, vars: restoredVars, resumeMode };
 
-        // Re-open the run as running.
-        const extKey = run.external_key ?? undefined;
-        await this.persistence.finalizeRun(runId, 'running', '');
+        // Atomically claim ownership (task 0902 R3): the status flip and owner recording
+        // happen in one CAS update, so exactly one concurrent resume wins; losers and
+        // stale owners get a typed error instead of double-driving the run.
+        const claimed = await this.persistence.claimRunOwnership(runId, owner, ['paused', 'interrupted']);
+        if (claimed === undefined) {
+            const current = await this.persistence.loadRun(runId);
+            throw new WorkflowResumeError(
+                `Run "${runId}" could not be claimed for resume ` +
+                    `(status: ${current?.status ?? 'unknown'}, owner: ${current?.owner_attempt ?? 'none'})`,
+            );
+        }
+
+        const extKey = claimed.external_key ?? undefined;
         const events = this.resolveEvents(mergedOptions.events);
         void events?.emit('workflow.run.resumed', {
             runId,
             node: currentState,
+            resumeMode,
+            ownerAttemptId: owner.attemptId,
             externalKey: extKey,
             severity: 'info',
         });
 
-        // Resume through the appropriate driver, starting from the paused state (skip on-enter).
+        // Resume through the appropriate driver, starting from the persisted state.
         if (workflow.kind === 'transition-flow') {
             return await new TransitionFlowDriver({
                 host: this.host,
@@ -195,6 +218,45 @@ export class WorkflowService {
             host: this.host,
             persistence: this.persistence,
         }).resume(workflow as StateMachineWorkflowDef, runId, currentState, extKey, mergedOptions);
+    }
+
+    /**
+     * Mark a running run as interrupted (task 0902 R2) — crash/lost-owner
+     * reconciliation so an abandoned run can later be rerun-resumed instead of
+     * wedging in 'running' forever. CAS: returns undefined when the run is
+     * missing or not running (already terminal/paused/claimed).
+     */
+    async interruptRun(runId: string, reason: string): Promise<WorkflowRunRecord | undefined> {
+        const interrupted = await this.persistence.interruptRun(runId, reason);
+        if (interrupted !== undefined) {
+            const events = this.resolveEvents(undefined);
+            void events?.emit('workflow.run.interrupted', {
+                runId,
+                reason,
+                externalKey: interrupted.external_key ?? undefined,
+                severity: 'warning',
+            });
+        }
+        return interrupted;
+    }
+
+    /** Refuse rerun-resume into states the author has not declared safe to re-run (task 0902 R1/R2). */
+    private assertResumeRerunAllowed(
+        workflow: WorkflowDef,
+        currentState: string,
+        resumeMode: WorkflowResumeMode,
+    ): void {
+        if (resumeMode !== 'rerun-enter') return;
+        const node =
+            workflow.kind === 'transition-flow'
+                ? workflow.nodes.find((candidate) => candidate.id === currentState)
+                : (workflow as StateMachineWorkflowDef).states.find((candidate) => candidate.id === currentState);
+        if (node !== undefined && node.resumeRerun !== true) {
+            throw new FSMError(
+                `Cannot rerun-resume into "${currentState}": not marked resumeRerun: true ` +
+                    '(mark its actions as safe to re-run — idempotent or deduped by runId+state — or resume with resumeMode: "skip-enter")',
+            );
+        }
     }
 
     /** List runs currently paused. Optional filters and ordering. */

@@ -11,7 +11,10 @@ CREATE TABLE IF NOT EXISTS runs (
     completed_at TEXT,
     metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at INTEGER NOT NULL DEFAULT 0,
-    updated_at INTEGER NOT NULL DEFAULT 0
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    owner_attempt TEXT,
+    owner_pid INTEGER,
+    interrupt_reason TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_external_key
@@ -66,4 +69,11 @@ CREATE TABLE IF NOT EXISTS action_runs (
     updated_at INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (run_id) REFERENCES runs(id)
 );
+`.trim();
+
+/** Guarded ALTERs adding the 0.5.0 ownership/interruption columns for databases created before them. */
+export const WORKFLOW_ENGINE_MIGRATIONS_SQL = `
+ALTER TABLE runs ADD COLUMN owner_attempt TEXT;
+ALTER TABLE runs ADD COLUMN owner_pid INTEGER;
+ALTER TABLE runs ADD COLUMN interrupt_reason TEXT;
 `.trim();

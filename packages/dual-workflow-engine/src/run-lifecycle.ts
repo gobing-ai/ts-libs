@@ -331,17 +331,6 @@ export class RunLifecycle {
         return this.result('paused', stateOrNodeId, transitionsTaken);
     }
 
-    /** Emit the resumed event (called by WorkflowService after re-creating a lifecycle for resume). */
-    emitResumed(node: string): void {
-        addSpanEvent('workflow.run.resumed', { runId: this.runId, node });
-        void this.events?.emit('workflow.run.resumed', {
-            runId: this.runId,
-            node,
-            externalKey: this.externalKey,
-            severity: 'info',
-        });
-    }
-
     /** Emit action-level observability before a host action is invoked. */
     actionStart(stateOrNodeId: string, kind: string): void {
         addSpanEvent('workflow.action.start', { runId: this.runId, node: stateOrNodeId, kind });

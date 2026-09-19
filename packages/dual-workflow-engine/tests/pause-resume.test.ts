@@ -165,7 +165,14 @@ describe('State-machine resume', () => {
 
     test('resume after restart emits externalKey from persisted run', async () => {
         const events = new EventBus<WorkflowEngineEvents>();
-        const resumedEvents: Array<{ runId: string; node: string; externalKey?: string; severity: string }> = [];
+        const resumedEvents: Array<{
+            runId: string;
+            node: string;
+            resumeMode: string;
+            ownerAttemptId: string;
+            externalKey?: string;
+            severity: string;
+        }> = [];
         void events.on('workflow.run.resumed', (data) => resumedEvents.push(data));
 
         const persistence = new MemoryWorkflowPersistenceAdapter();
@@ -177,11 +184,23 @@ describe('State-machine resume', () => {
             events,
         });
 
-        await new WorkflowService(host, persistence).resumeRun(wf, 'resume-key', { events });
+        await new WorkflowService(host, persistence).resumeRun(wf, 'resume-key', {
+            events,
+            resumeOwner: { attemptId: 'attempt-1' },
+        });
 
         expect(resumedEvents).toEqual([
-            { runId: 'resume-key', node: 'review', externalKey: 'entity/resume', severity: 'info' },
+            {
+                runId: 'resume-key',
+                node: 'review',
+                resumeMode: 'skip-enter',
+                ownerAttemptId: 'attempt-1',
+                externalKey: 'entity/resume',
+                severity: 'info',
+            },
         ]);
+        const run = await persistence.loadRun('resume-key');
+        expect(run?.owner_attempt).toBe('attempt-1');
     });
 
     test('resume on non-paused run throws WorkflowResumeError', async () => {

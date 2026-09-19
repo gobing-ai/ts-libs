@@ -848,7 +848,8 @@ output or control events without widening the persisted action schema.
 | `workflow.transition.requested` | `{ runId, from, to, trigger, externalKey? }` | When an external transition request is allowed and committed |
 | `workflow.transition.denied` | `{ runId, from, to, reason, externalKey? }` | When an external transition request is denied |
 | `workflow.run.paused` | `{ runId, node, transitionsTaken, externalKey? }` | When a run pauses at a declared pause point |
-| `workflow.run.resumed` | `{ runId, node, externalKey? }` | When a paused run is resumed |
+| `workflow.run.resumed` | `{ runId, node, resumeMode, ownerAttemptId, externalKey? }` | When a paused or interrupted run is resumed (`resumeMode`: `skip-enter` \| `rerun-enter`) |
+| `workflow.run.interrupted` | `{ runId, node?, reason, externalKey?, severity }` | When a running run is marked interrupted (crash marker / external stop) |
 ### Compatibility Policy
 
 The event map is a **cross-package public contract**. Policy: **additive-only** — new events allowed, new optional payload fields allowed; never rename, remove, or repurpose an existing event or field.
@@ -873,6 +874,21 @@ run-agnostic event history should build on the persistence layer instead.
 This design keeps the EventBus zero-config and test-friendly: no message broker, no serialization, no
 delivery guarantees. A subscriber in one process never receives events from another process's run
 execution.
+
+### Interruption & resume ownership (ADR-025)
+
+Durable runs survive crashes. A crashed owner leaves its run in `running`; an operator (or watchdog) marks
+it via `service.interruptRun(runId, reason)` — a CAS that only interrupts genuinely running runs — flipping
+status to `interrupted` with a persisted `interrupt_reason`.
+
+Resuming an interrupted run re-executes actions by default (`rerun-enter`), but only into states/nodes
+marked `resumeRerun: true`; anything else is refused loudly with `FSMError` before any mutation. Paused runs
+resume with `skip-enter` by default (pause-point actions treated as complete, execution advances past the
+pause). Both modes accept an explicit `resumeMode` override.
+
+Concurrent resumes are settled by the adapter's `claimRunOwnership` CAS: exactly one attempt flips the run
+to `running` and records its `owner_attempt`/`owner_pid`; losers receive `WorkflowResumeError` naming the
+winner. Never retry a lost claim blindly — interrupt the stale owner first.
 
 ### Usage
 

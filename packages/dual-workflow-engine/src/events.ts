@@ -120,10 +120,20 @@ export type WorkflowEngineEvents = {
         externalKey?: string;
         severity: EventSeverity;
     }) => void;
-    /** Emitted when a paused run is resumed. */
+    /** Emitted when a run is resumed. */
     'workflow.run.resumed': (data: {
         runId: string;
         node: string;
+        resumeMode: 'skip-enter' | 'rerun-enter';
+        ownerAttemptId: string;
+        externalKey?: string;
+        severity: EventSeverity;
+    }) => void;
+    /** Emitted when a running run is marked interrupted (crash/lost-owner reconciliation). */
+    'workflow.run.interrupted': (data: {
+        runId: string;
+        node?: string;
+        reason: string;
         externalKey?: string;
         severity: EventSeverity;
     }) => void;

@@ -399,3 +399,41 @@ drain. The contract — "future ticks cancelled, in-flight work bounded" — hol
 (`Promise<void>`) and callers that already `await stop()` continue to work. The only observable difference
 is timing — `stop()` may block up to `drainTimeoutMs` (default 30000) when a tick is in flight — which is
 the behaviour `Application`'s deterministic shutdown already assumed it had. Prior behaviour was a bug.
+
+## ADR-025: Run Interruption Contract — Ownership Claim, Rerun-Enter Resume, Interrupted Status
+
+**Status:** Accepted · **Date:** 2026-09-19 · **Targets:** `@gobing-ai/ts-dual-workflow-engine` · **Breaking:** 0.5.0
+
+**Decision:** Durable runs gain a first-class interruption lifecycle. `WorkflowStatus` widens with
+`'interrupted'`; `WorkflowPersistenceAdapter` gains two required methods — `claimRunOwnership(runId, owner,
+expectedStatuses)` (CAS paused/interrupted → running, recording `owner_attempt`/`owner_pid` at the mutation)
+and `interruptRun(runId, reason)` (CAS running → interrupted). `resumeRun` accepts interrupted runs via two
+modes: `skip-enter` (default for paused; pause-point actions are treated as complete) and `rerun-enter`
+(default for interrupted; re-executes on-enter actions, permitted only into states/nodes explicitly marked
+`resumeRerun: true`, refused loudly with `FSMError` otherwise). A lost claim race raises typed
+`WorkflowResumeError` carrying the winning owner.
+
+**Context.** Resume previously executed an unconditional `finalizeRun(runId, 'running', '')` — status flip
+without ownership. Two operators resuming the same durable run after a crash both proceeded: actions ran
+twice, the second writer's phase snapshots clobbered the first's, and nothing recorded which process owned
+the run. Separately, resume only accepted paused runs, so a crashed process left the run stuck in `running`
+forever (no crash marker, no recovery path), and the resume-skip semantics silently swallowed enter actions
+on state-machine runs that resumed from a persisted snapshot — correct for pauses, wrong for interruptions
+whose actions may never have executed.
+
+**Alternatives considered.** Lease/heartbeat ownership (expiring locks) was rejected: no runtime in this
+monorepo has a shared clock guarantee, and the failure mode (silent lease steal) is worse than the loud one
+(explicit interrupt + fresh claim). Resume-without-claim (status check only) was rejected as it preserves
+the original TOCTOU. Silent rerun of unmarked states was rejected — re-executing non-idempotent actions
+(onEnter that increments counters, emits messages) must be opt-in at the workflow author's level.
+
+**Schema.** The `runs` table gains `owner_attempt TEXT`, `owner_pid INTEGER`, `interrupt_reason TEXT`.
+Fresh databases get the columns in `CREATE TABLE`; existing databases via guarded `ALTER TABLE` statements
+in `WORKFLOW_ENGINE_MIGRATIONS_SQL` (duplicate-column errors swallowed). `claimRunOwnership` clears
+`completed_at` (the legacy resume wrote `''`; NULL is the real empty value).
+
+**Compatibility.** Breaking by design (0.5.0): the status union widened, two required adapter methods were
+added, `workflow.run.resumed` gained required payload fields (`resumeMode`, `ownerAttemptId`), and one event
+was added (`workflow.run.interrupted`). Known implementors (`ObservableWorkflowAdapter`,
+`WorkflowActionTraceWriter` in gobing.ai/spur-new) are updated in the same change window. Callers that never
+touch resume/interrupt semantics are source-compatible apart from the adapter interface.

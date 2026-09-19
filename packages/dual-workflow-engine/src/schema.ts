@@ -94,6 +94,8 @@ export const StateMachineWorkflowDefSchema = z
                     onExit: z.array(ActionDefSchema).optional(),
                     /** When true, the engine pauses the run at this state instead of auto-advancing. */
                     pause: z.boolean().optional(),
+                    /** Author declaration that re-running this state's on-enter actions after an interruption is safe. */
+                    resumeRerun: z.boolean().optional(),
                 })
                 .strict(),
         ),
@@ -136,6 +138,8 @@ export const TransitionFlowWorkflowDefSchema = z
                     action: ActionDefSchema.optional(),
                     /** When true, the engine pauses the run at this node instead of auto-advancing. */
                     pause: z.boolean().optional(),
+                    /** Author declaration that re-running this node's action after an interruption is safe. */
+                    resumeRerun: z.boolean().optional(),
                 })
                 .strict(),
         ),
