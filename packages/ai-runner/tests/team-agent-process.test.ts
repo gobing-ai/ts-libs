@@ -365,3 +365,25 @@ describe('TeamAgentProcess — streaming quota observation (Spur 0798 R1/R2)', (
         expect(seen).toHaveLength(0);
     });
 });
+
+describe('TeamAgentProcess stdin framing', () => {
+    test('stdinFramer frames each send; default stays raw + newline', async () => {
+        const process = new TeamAgentProcess({
+            spec,
+            command: [
+                'bun',
+                '-e',
+                "process.stdin.on('data', (chunk) => process.stdout.write(chunk)); setInterval(() => {}, 1000);",
+            ],
+            stdinFramer: (input) => `${JSON.stringify({ type: 'prompt', message: input })}\n`,
+        });
+        const output: string[] = [];
+        const unsubscribe = process.subscribe((data) => output.push(data.toString()));
+        await process.start();
+        await process.send('hello');
+        await waitFor(() => output.join('').includes('"type":"prompt"'));
+        await process.stop();
+        unsubscribe();
+        expect(JSON.parse(output.join(''))).toEqual({ type: 'prompt', message: 'hello' });
+    });
+});

@@ -66,7 +66,29 @@ export interface PromptOptions {
     taskId?: string;
     /** Peer agents included in the identity preamble. */
     peers?: Array<{ id: string; type: string; purpose?: string }>;
+    /**
+     * Request the agent's persistent-stdin dispatch: argv starts a long-lived
+     * process that reads framed prompts from stdin (one per line) instead of
+     * consuming a one-shot `-p <input>` and exiting. Only shims exposing a
+     * `persistentStdinProtocol` accept this — callers must consult
+     * {@link getAgentSessionCapability}.`supportsPersistentStdin` first. In
+     * persistent mode the shim omits `input` from argv entirely; the caller
+     * writes the identity preamble / prompts via the shim's `frame` (see
+     * `TeamAgentProcess` `stdinFramer`). rpc/stream-json modes supersede
+     * `mode` (the structured-output flag rides inside the protocol).
+     */
+    persistentStdin?: boolean;
 }
+
+/** Frames one user prompt as a single stdin line for a persistent-stdin dispatch. */
+export type StdinFrame = (input: string) => string;
+
+/** pi-family rpc dialect (pi docs/rpc.md): one JSON object per line. */
+const piRpcFrame: StdinFrame = (input) => `${JSON.stringify({ type: 'prompt', message: input })}\n`;
+
+/** claude stream-json input dialect: one user-message JSONL envelope per line. */
+const claudeStreamJsonFrame: StdinFrame = (input) =>
+    `${JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: input }] } })}\n`;
 
 /** Deprecation metadata attached to a retired or superseded agent shim. */
 export interface AgentDeprecation {
@@ -96,6 +118,13 @@ export interface AgentShim {
     getPromptCommand(options: PromptOptions): ShimCommand;
     /** Build an auth-status command, or null when unsupported. */
     getAuthCommand(): ShimCommand | null;
+    /**
+     * Persistent-stdin framing contract; present iff the shim wires a
+     * stdin-listener dispatch (mirrors `supportsPersistentStdin`). Callers
+     * frame every prompt (including the identity preamble) through it before
+     * writing to the process stdin.
+     */
+    readonly persistentStdinProtocol?: { readonly frame: StdinFrame };
 }
 
 const claudeShim: AgentShim = {
@@ -107,7 +136,22 @@ const claudeShim: AgentShim = {
     getPromptCommand: (options) => {
         // Headless dispatch cannot answer edit approval prompts. Keep the grant
         // scoped to file edits; shell and broader tools remain gated.
-        const args = ['-p', options.input ?? '', '--permission-mode', 'acceptEdits', '--allowedTools', 'Write', 'Edit'];
+        // Persistent stdin rides the print path: `--input-format` only works
+        // with --print, and stream-json input keeps the process alive reading
+        // JSONL envelopes until stdin closes (verified --help, CLI 2.1.274).
+        const persistent = options.persistentStdin === true;
+        const args = persistent
+            ? [
+                  '-p',
+                  '--input-format',
+                  'stream-json',
+                  '--permission-mode',
+                  'acceptEdits',
+                  '--allowedTools',
+                  'Write',
+                  'Edit',
+              ]
+            : ['-p', options.input ?? '', '--permission-mode', 'acceptEdits', '--allowedTools', 'Write', 'Edit'];
         const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
         if (hasSession) {
             // Session/pin path — never emit --continue. Claude has no session-dir
@@ -117,10 +161,13 @@ const claudeShim: AgentShim = {
             args.push('--continue');
         }
         if (options.model !== undefined) args.push('--model', options.model);
-        args.push('--output-format', options.mode ?? 'text');
+        // stream-json output is part of the persistent protocol (the framing
+        // assumes JSONL stdout); one-shot keeps the caller-requested mode.
+        args.push('--output-format', persistent ? 'stream-json' : (options.mode ?? 'text'));
         return { command: 'claude', args };
     },
     getAuthCommand: () => ({ command: 'claude', args: ['auth', 'status'] }),
+    persistentStdinProtocol: { frame: claudeStreamJsonFrame },
 };
 
 const codexShim: AgentShim = {
@@ -178,17 +225,22 @@ const piShim: AgentShim = {
     getPromptCommand: (options) => {
         const args: string[] = [];
         const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
+        const persistent = options.persistentStdin === true;
         // Session/pin path: durable — never ephemeral --no-session, never global -c.
-        if (!hasSession && options.continue !== true) args.push('--no-session');
-        args.push('-p', options.input ?? '');
-        if (!hasSession && options.continue === true) args.push('-c');
+        if (!hasSession && !persistent && options.continue !== true) args.push('--no-session');
+        // Persistent stdin: no -p positional (prompts arrive framed over stdin);
+        // rpc mode is the long-lived listener (verified headless probe + pi
+        // docs/rpc.md). It supersedes any text/json output mode.
+        if (!persistent) args.push('-p', options.input ?? '');
+        if (!hasSession && !persistent && options.continue === true) args.push('-c');
         if (options.sessionDir !== undefined) args.push('--session-dir', options.sessionDir);
         if (options.sessionId !== undefined) args.push('-r', options.sessionId);
         if (options.model !== undefined) args.push('--model', options.model);
-        args.push('--mode', options.mode ?? 'text');
+        args.push('--mode', persistent ? 'rpc' : (options.mode ?? 'text'));
         return { command: 'pi', args };
     },
     getAuthCommand: () => ({ command: 'pi', args: ['--list-models'] }),
+    persistentStdinProtocol: { frame: piRpcFrame },
 };
 
 const opencodeShim: AgentShim = {
@@ -292,17 +344,21 @@ const ompShim: AgentShim = {
     getPromptCommand: (options) => {
         const args: string[] = [];
         const hasSession = options.sessionId !== undefined || options.sessionDir !== undefined;
+        const persistent = options.persistentStdin === true;
         // Session/pin path: durable — never ephemeral --no-session, never global -c.
-        if (!hasSession && options.continue !== true) args.push('--no-session');
-        args.push('-p', options.input ?? '');
-        if (!hasSession && options.continue === true) args.push('-c');
+        if (!hasSession && !persistent && options.continue !== true) args.push('--no-session');
+        // Persistent stdin mirrors pi (omp is a pi fork; same rpc dialect) —
+        // verified `--mode rpc` in `omp --help` at the pi-compatible surface.
+        if (!persistent) args.push('-p', options.input ?? '');
+        if (!hasSession && !persistent && options.continue === true) args.push('-c');
         if (options.sessionDir !== undefined) args.push('--session-dir', options.sessionDir);
         if (options.sessionId !== undefined) args.push('-r', options.sessionId);
         if (options.model !== undefined) args.push('--model', options.model);
-        args.push('--mode', options.mode ?? 'text');
+        args.push('--mode', persistent ? 'rpc' : (options.mode ?? 'text'));
         return { command: 'omp', args };
     },
     getAuthCommand: () => ({ command: 'omp', args: ['--list-models'] }),
+    persistentStdinProtocol: { frame: piRpcFrame },
 };
 
 /**
@@ -429,9 +485,10 @@ const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapabilit
         supportsPersistentStdin: true,
         supportsStructuredOutput: true,
         verifiedAgainst: '2.1.274',
-        // Verified `--input-format stream-json` (realtime streaming input) at CLI
-        // 2.1.274, but the shim has no persistent-stdin dispatch mode yet.
-        note: 'no session-dir flag — sessionDir is ignored (best-effort isolate); persistent stdin (--input-format stream-json) is not yet shim-wired',
+        // Persistent stdin is shim-wired: `-p --input-format stream-json --output-format
+        // stream-json` keeps the process alive reading JSONL envelopes (verified --help;
+        // --input-format only works with --print).
+        note: 'no session-dir flag — sessionDir is ignored (best-effort isolate)',
     },
     codex: {
         supportsResumeById: true,
