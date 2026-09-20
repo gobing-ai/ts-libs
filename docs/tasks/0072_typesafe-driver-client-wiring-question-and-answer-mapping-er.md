@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: "TypeSafe driver: client wiring, question and answer mapping, error mapping"
-status: todo
+status: wip
 template: feature-impl
 created_at: 2026-09-20T05:08:59.653Z
-updated_at: "2026-09-20T05:16:53.270Z"
+updated_at: "2026-09-20T07:27:28.944Z"
 feature_id: A2
 priority: P2
 tags:
@@ -183,7 +183,10 @@ body the SDK produces.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+- `bun run typecheck` (ai-runner): clean.
+- `NODE_ENV=test bun test tests/decision/`: 34 pass / 0 fail — 13 tests in typesafe-driver.test.ts, all over injected fetch (no network, no live key).
+- `bun run spur-check` (workspace root): lint + typecheck + 2308 pass / 0 fail + all recommended-pre/post rules pass.
+- Coverage: single-request property asserted by counting fetch calls; wire body asserted from the serialized fetch body; every R7 table row exercised with status, retry-after, cause, and timeoutMs detail claims.
 
 ### Review
 
@@ -194,3 +197,6 @@ body the SDK produces.
 <!-- Links to the parent feature, design docs, related tasks, or external references. -->
 
 ### History
+
+- 2026-09-20T07:27:28.944Z todo → wip (system)
+
