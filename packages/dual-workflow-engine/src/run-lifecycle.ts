@@ -9,6 +9,7 @@ import {
 import { getProcessEnv } from '@gobing-ai/ts-runtime';
 import type { WorkflowEngineEvents } from './events';
 import type {
+    ActionResult,
     Vars,
     WorkflowPersistenceAdapter,
     WorkflowRunOptions,
@@ -136,19 +137,36 @@ export class RunLifecycle {
             'workflow.run',
             async () => {
                 const startedAt = new Date().toISOString();
-                const proposed = RunLifecycle.runRecord(
-                    options.runId ?? crypto.randomUUID(),
-                    workflowName,
-                    mode,
-                    startedAt,
-                    options.metadata,
-                    options.externalKey,
-                );
+                const proposed: WorkflowRunRecord = {
+                    ...RunLifecycle.runRecord(
+                        options.runId ?? crypto.randomUUID(),
+                        workflowName,
+                        mode,
+                        startedAt,
+                        options.metadata,
+                        options.externalKey,
+                    ),
+                    owner_attempt: crypto.randomUUID(),
+                };
                 let record = proposed;
                 if (options.externalKey === undefined) {
                     await deps.persistence.createRun(proposed);
                 } else {
                     record = await deps.persistence.createOrAttachRun(proposed);
+                    if (record.owner_attempt !== proposed.owner_attempt) {
+                        const snapshot = await deps.persistence.loadLatestStateSnapshot(record.id);
+                        return {
+                            runId: record.id,
+                            workflowName: record.workflow_name,
+                            mode:
+                                record.mode === 'transition-flow'
+                                    ? ('transition-flow' as const)
+                                    : ('state-machine' as const),
+                            status: record.status,
+                            finalState: snapshot?.state ?? '',
+                            transitionsTaken: snapshotTransitions(snapshot?.data),
+                        };
+                    }
                 }
                 const extKey = record.external_key ?? undefined;
                 const lifecycle = new RunLifecycle(record.id, workflowName, mode, deps, extKey);
@@ -167,7 +185,7 @@ export class RunLifecycle {
                     externalKey: extKey,
                     severity: 'info',
                 });
-                return await loop(lifecycle);
+                return await lifecycle.execute(loop);
             },
             { attributes: { 'workflow.name': workflowName, 'workflow.mode': mode } },
         );
@@ -190,10 +208,24 @@ export class RunLifecycle {
             async () => {
                 const lifecycle = new RunLifecycle(runId, workflowName, mode, deps, externalKey);
                 lifecycle.logger.info('workflow run resumed');
-                return await loop(lifecycle);
+                return await lifecycle.execute(loop);
             },
             { attributes: { 'workflow.name': workflowName, 'workflow.mode': mode } },
         );
+    }
+
+    private async execute(loop: (lifecycle: RunLifecycle) => Promise<WorkflowRunResult>): Promise<WorkflowRunResult> {
+        try {
+            return await loop(this);
+        } catch (error) {
+            // Preserve the original failure, including a failed attempt to mark the run failed.
+            try {
+                await this.persistence.finalizeRun(this.runId, 'failed', new Date().toISOString());
+            } catch (finalizeError) {
+                throw new AggregateError([error, finalizeError], 'Workflow execution and failure persistence failed');
+            }
+            throw error;
+        }
     }
 
     /**
@@ -313,9 +345,16 @@ export class RunLifecycle {
      * would otherwise be lost because the prior snapshot predates this state's
      * action execution (R3 of 0366).
      */
-    async pause(stateOrNodeId: string, transitionsTaken: number, vars?: Vars): Promise<WorkflowRunResult> {
+    async pause(
+        stateOrNodeId: string,
+        transitionsTaken: number,
+        vars?: Vars,
+        lastActionResult?: ActionResult,
+    ): Promise<WorkflowRunResult> {
         const data: Record<string, unknown> = { transitionsTaken };
         if (vars !== undefined) data.effectiveVars = vars;
+        // Only persist the control bit: raw action data must not bypass result redaction.
+        if (lastActionResult !== undefined) data.lastActionResult = { ok: lastActionResult.ok };
         await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, data);
         await this.persistence.savePhase(this.runId, stateOrNodeId, 'paused');
         await this.persistence.finalizeRun(this.runId, 'paused', new Date().toISOString());
@@ -437,4 +476,18 @@ export class RunLifecycle {
             external_key: externalKey ?? null,
         };
     }
+}
+
+/** Older snapshots have no run-wide counter or guard context. */
+export function snapshotTransitions(data: Record<string, unknown> | undefined): number {
+    const value = data?.transitionsTaken;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+/** Restore only the persisted guard success bit, never unredacted action data. */
+export function snapshotActionResult(data: Record<string, unknown> | undefined): ActionResult | undefined {
+    const value = data?.lastActionResult;
+    return value !== null && typeof value === 'object' && 'ok' in value && typeof value.ok === 'boolean'
+        ? { ok: value.ok }
+        : undefined;
 }

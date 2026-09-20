@@ -1,7 +1,7 @@
 import { runActionStep } from './action-step';
 import { FSMError } from './errors';
 import type { WorkflowEngineHost } from './host';
-import { allowedEnv, RunLifecycle } from './run-lifecycle';
+import { allowedEnv, RunLifecycle, snapshotActionResult, snapshotTransitions } from './run-lifecycle';
 import type {
     ActionResult,
     TransitionFlowWorkflowDef,
@@ -62,8 +62,10 @@ export class TransitionFlowDriver {
         let vars = mergeVars(workflow.vars, options.vars);
         const env = allowedEnv(workflow.env?.allow ?? [], options.env);
         let current = resumeFromNode !== undefined ? nodes.get(resumeFromNode) : nodes.get(workflow.initialNode);
-        let transitionsTaken = 0;
-        let lastActionResult: ActionResult | undefined;
+        const snapshot =
+            resumeFromNode === undefined ? undefined : await this.options.persistence.loadLatestStateSnapshot(runId);
+        let transitionsTaken = snapshotTransitions(snapshot?.data);
+        let lastActionResult: ActionResult | undefined = snapshotActionResult(snapshot?.data);
         const iterationBound = workflow.iterationBound ?? 50;
         const defaultOnError = workflow.defaultOnError;
         let resumeMode = resumeFromNode !== undefined ? (options.resumeMode ?? 'skip-enter') : undefined;
@@ -130,7 +132,7 @@ export class TransitionFlowDriver {
 
                 // Pause: if the node declares pause, stop advancing and persist the paused position.
                 if (current.pause === true) {
-                    return await lifecycle.pause(current.id, transitionsTaken, vars);
+                    return await lifecycle.pause(current.id, transitionsTaken, vars, lastActionResult);
                 }
             }
 

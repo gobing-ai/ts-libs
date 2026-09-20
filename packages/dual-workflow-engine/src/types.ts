@@ -270,7 +270,7 @@ export interface WorkflowRunRecord {
     readonly metadata_json: string;
     /** Optional caller-supplied external key, unique per workflow definition. */
     readonly external_key?: string | null;
-    /** Attempt id of the last resume that won the ownership claim (task 0902 R3). */
+    /** Attempt id of the creator or last resume that won the ownership claim (task 0902 R3). */
     readonly owner_attempt?: string | null;
     /** OS pid recorded alongside the winning resume attempt, when supplied. */
     readonly owner_pid?: number | null;

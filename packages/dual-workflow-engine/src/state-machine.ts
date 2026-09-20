@@ -1,7 +1,7 @@
 import { runActionSequence } from './action-step';
 import { FSMError } from './errors';
 import type { WorkflowEngineHost } from './host';
-import { allowedEnv, RunLifecycle } from './run-lifecycle';
+import { allowedEnv, RunLifecycle, snapshotActionResult, snapshotTransitions } from './run-lifecycle';
 import type {
     ActionResult,
     StateMachineWorkflowDef,
@@ -63,8 +63,10 @@ export class StateMachineDriver {
         let vars = mergeVars(workflow.vars, options.vars);
         const env = allowedEnv(workflow.env?.allow ?? [], options.env);
         let current = resumeFromState !== undefined ? states.get(resumeFromState) : states.get(workflow.initialState);
-        let transitionsTaken = 0;
-        let lastActionResult: ActionResult | undefined;
+        const snapshot =
+            resumeFromState === undefined ? undefined : await this.options.persistence.loadLatestStateSnapshot(runId);
+        let transitionsTaken = snapshotTransitions(snapshot?.data);
+        let lastActionResult: ActionResult | undefined = snapshotActionResult(snapshot?.data);
         const iterationBound = workflow.iterationBound ?? 50;
         const defaultOnError = workflow.defaultOnError;
         let resumeMode = resumeFromState !== undefined ? (options.resumeMode ?? 'skip-enter') : undefined;
@@ -135,7 +137,7 @@ export class StateMachineDriver {
 
                 // Pause: if the state declares pause, stop advancing and persist the paused position.
                 if (current.pause === true) {
-                    return await lifecycle.pause(current.id, transitionsTaken, vars);
+                    return await lifecycle.pause(current.id, transitionsTaken, vars, lastActionResult);
                 }
             }
 
@@ -184,6 +186,11 @@ export class StateMachineDriver {
                   });
             if (exit.result !== undefined) lastActionResult = exit.result;
             if (exit.setVars) vars = mergeSetVars(vars, exit.setVars);
+            if (exit.outcome === 'terminal') {
+                return failure.has(current.id)
+                    ? await lifecycle.fail(current.id, transitionsTaken, `terminal:${current.id}`)
+                    : await lifecycle.done(current.id, transitionsTaken);
+            }
             if (exit.outcome === 'fail') return await lifecycle.fail(current.id, transitionsTaken, exit.result?.error);
 
             // 7. Atomically commit the transition + new state snapshot + phase in a

@@ -92,25 +92,21 @@ export async function runActionStep(
             metadata: deps.options.metadata,
             events: deps.options.events,
         });
+    } catch (error) {
+        result = { ok: false, error: error instanceof Error ? error.message : String(error) };
     } finally {
         const durationMs = Date.now() - actionStartMs;
         lifecycle.actionDone(stateOrNodeId, action.kind, durationMs, result?.ok ?? false);
-        // Fire-and-forget the finalize write: the action row already exists (saveActionStart
-        // was awaited), and finalize only updates audit fields — the run's correctness never
-        // depends on it, so it must not block or fail the control loop. A swallowed `.catch`
-        // keeps a rejected write from surfacing as an unhandledRejection (repo convention,
-        // see runtime/process-executor.ts).
-        void persistence
-            .saveActionFinalize(
-                actionId,
-                result?.ok !== false ? 'done' : 'failed',
-                durationMs,
-                result?.ok ?? false,
-                action.kind,
-                result,
-                deps.options.redactor ?? defaultActionRedactor,
-            )
-            .catch(() => undefined);
+        // Await the evidence write before any guard or subsequent action can run.
+        await persistence.saveActionFinalize(
+            actionId,
+            result?.ok === true ? 'done' : 'failed',
+            durationMs,
+            result?.ok ?? false,
+            action.kind,
+            result,
+            deps.options.redactor ?? defaultActionRedactor,
+        );
     }
 
     if (result.terminal === true) return { outcome: 'terminal', result };

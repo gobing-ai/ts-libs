@@ -173,6 +173,20 @@ function validateTransitionFlow(workflow: Extract<WorkflowDef, { kind: 'transiti
         seenEdges.add(key);
     }
 
+    for (const terminal of workflow.terminalNodes ?? []) {
+        if (!nodes.has(terminal)) errors.push(`Terminal node "${terminal}" is not declared`);
+        if (workflow.edges.some((edge) => edge.from === terminal)) {
+            errors.push(`Terminal node "${terminal}" must not declare edges`);
+        }
+    }
+    for (const node of workflow.nodes) {
+        const outbound = workflow.edges.filter((edge) => edge.from === node.id);
+        const unconditional = outbound.findIndex((edge) => edge.condition === undefined);
+        if (unconditional !== -1 && unconditional < outbound.length - 1) {
+            errors.push(`Node "${node.id}" has an unconditional edge that is not last; later edges are unreachable`);
+        }
+    }
+
     // Template variable references must resolve.
     errors.push(...checkVariableReferences(collectActionOptions(workflow), workflow.vars, workflow.env));
 

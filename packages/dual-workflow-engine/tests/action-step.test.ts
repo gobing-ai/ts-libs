@@ -116,48 +116,23 @@ describe('runActionStep — persistence sequence', () => {
         expect(persistence.actionRuns[0]?.ok).toBe(0);
     });
 
-    test('a rejected finalize write is swallowed — the run keeps going, no unhandledRejection', async () => {
-        // WHY: the finalize write is audit-only (the row already exists via the awaited
-        // saveActionStart). A failing audit write must never break or block the control
-        // loop, so the fire-and-forget `.catch` swallows it. Without the catch this rejection
-        // would surface as an unhandledRejection and could crash the host process.
+    test('a rejected evidence write rejects execution', async () => {
         const persistence = new MemoryWorkflowPersistenceAdapter();
-        // Keep the real adapter (so saveActionStart still resolves and the row exists),
-        // but make only the audit finalize reject.
-        const finalizeRejects: WorkflowPersistenceAdapter = Object.assign(
-            Object.create(persistence) as MemoryWorkflowPersistenceAdapter,
-            {
-                saveActionFinalize: async (): Promise<void> => {
-                    throw new Error('db down during finalize');
-                },
+        const finalizeRejects: WorkflowPersistenceAdapter = Object.assign(Object.create(persistence), {
+            saveActionFinalize: async () => {
+                throw new Error('db down during finalize');
             },
-        );
-
-        let step!: ActionStepResult;
-        await RunLifecycle.run('wf', 'state-machine', { persistence }, { runId: 'r1' }, async (lifecycle) => {
-            step = await runActionStep(
+        });
+        await expect(
+            runStepInLifecycle(
                 { kind: 'probe' },
+                hostReturning({ ok: true }),
                 {},
                 {
-                    host: hostReturning({ ok: true, data: { n: 1 } }),
                     persistence: finalizeRejects,
-                    lifecycle,
-                    workflowName: 'wf',
-                    stateOrNodeId: 'node',
-                    runId: 'r1',
-                    mode: 'state-machine',
-                    transitionsTaken: 0,
-                    env: {},
-                    options: {},
-                    defaultOnError: undefined,
                 },
-            );
-            return lifecycle.done('node', 0);
-        });
-
-        // The step completed with the action's result despite the finalize write rejecting.
-        expect(step.outcome).toBe('completed');
-        expect(step.result).toEqual({ ok: true, data: { n: 1 } });
+            ),
+        ).rejects.toThrow('db down during finalize');
     });
 });
 

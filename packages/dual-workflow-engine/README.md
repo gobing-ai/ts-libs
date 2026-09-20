@@ -956,7 +956,9 @@ await lifecycle.enter(targetState, transitionsTaken, false);
 | `FSMError` | Runtime state-machine driver error (missing state/node, invalid target) |
 | `RunCollisionError` | Duplicate `runId` when creating a new run |
 
-Run failures caused by actions or guards are returned as `WorkflowRunResult` with `status: 'failed'`, preserving the run record — they do not throw.
+Action failures, including thrown action exceptions, follow `onError` and normally return a
+`WorkflowRunResult` with `status: 'failed'`. Unexpected guard or persistence exceptions finalize
+the run as failed and reject the call; see the recovery contract below.
 
 ### Error Policy (`onError`)
 
@@ -969,6 +971,26 @@ The resolved policy follows precedence `action.onError ?? workflow.defaultOnErro
   terminates as `done`.
 
 ## Boundary Notes
+
+### Recovery and persistence contract
+
+- Action exceptions become failed results and follow `onError`. Action audit finalization is
+  awaited before subsequent actions or guards; a persistence rejection is not swallowed.
+  Unexpected execution failures finalize the run as failed and rethrow. If that finalization
+  also fails, an `AggregateError` preserves both errors.
+- Paused snapshots restore effective variables, the run-wide transition counter, and the last
+  action's `ok` bit for `action-ok`. Additional guard evidence belongs in saved variables or an
+  application-owned record; raw action payloads are not copied around the redactor.
+- External transitions use workflow defaults, then saved variables, then caller overrides, and
+  preserve the resulting variables and counter in the next snapshot.
+- Calling `run` with an existing `externalKey` attaches and returns the recorded position/status;
+  it does not execute that run again. Use `resumeRun` for paused/interrupted continuation. An
+  attachment before the creator's first snapshot may return `running` with an empty `finalState`.
+  Original failure reasons are not recoverable from existing run records.
+- Persistence adapters must preserve `owner_attempt` on create/attach: it identifies the creator
+  or latest resume attempt and prevents duplicate execution when callers race on an external key.
+  DB and memory adapters implement this contract. Wrappers that swallow persistence failures
+  retain their own weaker durability guarantee.
 
 - The engine executes workflows; it does not provide a scheduler. Use `@gobing-ai/ts-infra` scheduler or an external cron trigger to start runs.
 - Persistence is adapter-based. Downstream apps own DB lifecycle and migration ordering.

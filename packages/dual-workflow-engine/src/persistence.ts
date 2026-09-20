@@ -82,8 +82,8 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         if (existing !== undefined) throw new RunCollisionError(record.id);
         await this.ensureSchema();
         await this.db.run(
-            `INSERT INTO runs (id, workflow_name, mode, status, external_key, started_at, completed_at, metadata_json, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO runs (id, workflow_name, mode, status, external_key, started_at, completed_at, metadata_json, owner_attempt, owner_pid, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             record.id,
             record.workflow_name,
             record.mode,
@@ -92,6 +92,8 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
             record.started_at,
             record.completed_at,
             record.metadata_json,
+            record.owner_attempt ?? null,
+            record.owner_pid ?? null,
             Date.now(),
             Date.now(),
         );
@@ -302,14 +304,14 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
     /** Create a run or attach to an existing one by external key. */
     async createOrAttachRun(record: WorkflowRunRecord): Promise<WorkflowRunRecord> {
         await this.ensureSchema();
-        if (record.external_key) {
+        if (record.external_key !== undefined && record.external_key !== null) {
             const existing = await this.findRunByKey(record.workflow_name, record.external_key);
             if (existing) return existing;
         }
         try {
             await this.createRun(record);
         } catch (error) {
-            if (record.external_key) {
+            if (record.external_key !== undefined && record.external_key !== null) {
                 const existing = await this.findRunByKey(record.workflow_name, record.external_key);
                 if (existing) return existing;
             }
@@ -534,11 +536,16 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
 
     /** Create a run or attach to an existing one by external key. */
     async createOrAttachRun(record: WorkflowRunRecord): Promise<WorkflowRunRecord> {
-        if (record.external_key) {
-            const existing = await this.findRunByKey(record.workflow_name, record.external_key);
-            if (existing) return existing;
+        // Keep lookup and insertion in one synchronous turn, matching the DB unique constraint.
+        if (record.external_key !== undefined && record.external_key !== null) {
+            for (const existing of this.runs.values()) {
+                if (existing.workflow_name === record.workflow_name && existing.external_key === record.external_key) {
+                    return existing;
+                }
+            }
         }
-        await this.createRun(record);
+        if (this.runs.has(record.id)) throw new RunCollisionError(record.id);
+        this.runs.set(record.id, record);
         return { ...record };
     }
 

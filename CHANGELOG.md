@@ -8,6 +8,21 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+### Fixed
+
+- **A2:** validate runtime questions and response correspondence, kinds, labels and numeric bounds;
+  translate question-builder errors; preserve special dictionary keys; correct misleading fixtures.
+- **Workflow engine:** action exceptions obey error policy, audit writes are awaited, unexpected
+  failures finalize run status, external transitions preserve variables, pause/resume restores
+  guard success and transition counts, terminal exit actions stop, and flow validation rejects
+  invalid terminals and shadowed edges. Existing-key attachment no longer replays actions.
+
+### Changed
+
+- **Custom workflow persistence adapters:** preserve `owner_attempt` on run creation/attachment,
+  as well as resume. It now identifies the creator to distinguish concurrent attachment from
+  execution. Action-finalization failures now propagate rather than being silently ignored.
+
 ## [0.4.69] - 2026-09-18
 
 ### Added

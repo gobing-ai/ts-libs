@@ -3,7 +3,7 @@ import { loadWorkflowDef } from './config';
 import { FSMError, WorkflowResumeError } from './errors';
 import type { WorkflowEngineEvents } from './events';
 import type { WorkflowEngineHost } from './host';
-import { RunLifecycle } from './run-lifecycle';
+import { RunLifecycle, snapshotActionResult, snapshotTransitions } from './run-lifecycle';
 import { StateMachineDriver } from './state-machine';
 import { TransitionFlowDriver } from './transition-flow';
 import type {
@@ -336,19 +336,23 @@ export class WorkflowService {
             });
         }
 
+        const snapshot = await this.persistence.loadLatestStateSnapshot(runId);
+        const vars = mergeVars(mergeVars(workflow.vars, extractEffectiveVars(snapshot?.data)), options?.vars);
+
         // Evaluate guard if present.
         if (transition.guard !== undefined) {
-            // Resolve ${vars.*} templates in guard options against the workflow's vars —
+            // Resolve ${vars.*} templates against the restored and overridden runtime vars —
             // external transitions (requestTransition) must interpolate the same way the
             // driver's firstPassingTransition does (e.g. `spur task check ${vars.wbs}`).
             const resolvedGuardOptions = resolveTemplates(transition.guard.options ?? {}, {
-                vars: workflow.vars ?? {},
+                vars,
                 env: {},
             });
             const guardResult = await this.host.evaluateGuardResult(transition.guard.kind, resolvedGuardOptions, {
                 runId,
                 current: currentState,
-                vars: workflow.vars ?? {},
+                lastActionResult: snapshotActionResult(snapshot?.data),
+                vars,
                 workdir: options?.workdir,
             });
             lifecycle.guardEvaluated(currentState, toState, transition.guard.kind, guardResult.passed);
@@ -366,7 +370,14 @@ export class WorkflowService {
         // batch (ADR-020), then emit the external-only requested event. No phase
         // record — external transitions don't drive phase tracking.
         const trigger = transition.trigger ?? null;
-        await lifecycle.commitHop(currentState, toState, trigger, 0);
+        await lifecycle.commitHop(
+            currentState,
+            toState,
+            trigger,
+            snapshotTransitions(snapshot?.data) + 1,
+            undefined,
+            vars,
+        );
         void events?.emit('workflow.transition.requested', {
             runId,
             from: currentState,
