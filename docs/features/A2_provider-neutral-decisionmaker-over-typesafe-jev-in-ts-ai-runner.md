@@ -2,11 +2,11 @@
 schema_version: 1
 id: "A2"
 name: "Provider-neutral DecisionMaker over TypeSafe Jev in ts-ai-runner"
-status: verifying
+status: done
 priority: P2
 tags: []
 created_at: "2026-09-20T04:48:50.742Z"
-updated_at: "2026-09-20T09:21:30.465Z"
+updated_at: "2026-09-20T09:26:22.948Z"
 ---
 
 # A2: Provider-neutral DecisionMaker over TypeSafe Jev in ts-ai-runner
@@ -175,4 +175,5 @@ Feature: Provider-neutral DecisionMaker over TypeSafe Jev in ts-ai-runner
 
 - 2026-09-20T09:21:30.323Z backlog → active (system)
 - 2026-09-20T09:21:30.465Z active → verifying (system)
+- 2026-09-20T09:26:22.948Z verifying → done (system)
 
