@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: "DecisionMaker facade: factory, batch ask, and single-question sugar"
-status: todo
+status: wip
 template: feature-impl
 created_at: 2026-09-20T05:08:59.652Z
-updated_at: "2026-09-20T05:16:52.961Z"
+updated_at: "2026-09-20T06:58:01.623Z"
 feature_id: A2
 priority: P2
 tags:
@@ -170,11 +170,36 @@ boundary, commented, is the honest trade for drivers that stay trivial.
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+- `packages/ai-runner/src/decision/decision-maker.ts` — `DecisionMaker` (readonly `driver` name +
+  `ask`/`choice`/`score`/`noul` per design-doc signatures), `DecisionMakerOptions`, and
+  `createDecisionMaker`. `ask` forwards the request object unchanged to the driver and narrows
+  `Record<string, Answer>` to `AnswersFor<Q>` with one documented cast (R3). The three sugar
+  methods each call `ask` with exactly one `q.*` question and unwrap `answers.question` — no second
+  driver call, no duplicated request assembly (R4/R5). Driver resolution is lazy: a
+  caller-supplied driver short-circuits before key resolution; otherwise the TypeSafe driver is
+  constructed once on first use after key resolution succeeds (R6). Key resolution is
+  `options.apiKey ?? (options.env ?? getProcessEnv()).TYPESAFE_API_KEY` (doctor-runner convention),
+  throwing `DecisionConfigError(message, 'TYPESAFE_API_KEY')` — the two-arg ctor, not the design
+  doc's stale one-arg snippet — before any construction or request (R7).
+- `packages/ai-runner/src/decision/typesafe-driver.ts` — 0072's factory slot only:
+  `createTypesafeDriver(config)` signature + `TypesafeDriverConfig` (the wiring 0071 owns); body
+  throws until 0072 fills in client wiring and neutral⇄SDK mapping. File is the boundary rule's
+  designated sole SDK zone.
+- `packages/ai-runner/src/index.ts` — barrel export of decision-maker members.
+- No `process.env`/`Bun.env` reads (R8); no SDK import outside the designated driver file (R9).
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+`packages/ai-runner/tests/decision/decision-maker.test.ts` — 10 tests, all SDK-free against a
+hand-written fake driver: no-arg factory returns the four members with driver `typesafe` (AC R1);
+lazy default never constructs at creation; missing key rejects `ask` with `DecisionConfigError`
+naming `TYPESAFE_API_KEY`, injected fetch never invoked (AC R6); injected-env key and explicit
+`apiKey` override both pass resolution; batch passthrough forwards state/questions/model unchanged
+(same `questions` reference) with type-level `AnswersFor<Q>` narrowing proofs (AC R3); each sugar
+method issues exactly one driver call carrying exactly one question of the right kind and resolves
+to the unwrapped answer (AC R3/R4/R5); a custom driver with no key anywhere serves all four members
+(AC R8). Verified: `bun run typecheck` clean, `bun test tests/decision/` 22 pass / 0 fail across the
+decision suite, `bun run spur-check` clean (repo gate).
 
 ### Review
 
@@ -185,3 +210,6 @@ boundary, commented, is the honest trade for drivers that stay trivial.
 <!-- Links to the parent feature, design docs, related tasks, or external references. -->
 
 ### History
+
+- 2026-09-20T06:58:01.623Z todo → wip (system)
+

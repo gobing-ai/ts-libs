@@ -3,6 +3,7 @@ export * from './agent-spec';
 export * from './agents/auth-shims';
 export * from './agents/shims';
 export * from './ai-runner';
+export * from './decision/decision-maker';
 export * from './decision/errors';
 export * from './decision/types';
 export * from './doctor-runner';
