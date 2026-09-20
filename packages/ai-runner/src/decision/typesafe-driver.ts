@@ -28,6 +28,7 @@ import {
     DecisionTimeoutError,
 } from './errors';
 import type { Answer, DecisionDriver, Question } from './types';
+import { validateAnswers, validateQuestions } from './validation';
 
 /** Configuration the facade resolves (key per R7) and forwards to the TypeSafe driver. */
 export interface TypesafeDriverConfig {
@@ -67,11 +68,12 @@ export function createTypesafeDriver(config: TypesafeDriverConfig): DecisionDriv
     return {
         name: 'typesafe',
         async ask({ state, questions, model }) {
-            const sdkQuestions: Record<string, SdkQuestion> = {};
-            for (const [name, question] of Object.entries(questions)) sdkQuestions[name] = toSdkQuestion(question);
-
+            validateQuestions(questions);
             let result: SystemOneResult<Record<string, SdkQuestion>>;
             try {
+                const sdkQuestions = Object.fromEntries(
+                    Object.entries(questions).map(([name, question]) => [name, toSdkQuestion(question)]),
+                );
                 result = await client.systemOne({ state, questions: sdkQuestions, model });
             } catch (err) {
                 translateError(err);
@@ -80,8 +82,13 @@ export function createTypesafeDriver(config: TypesafeDriverConfig): DecisionDriv
             // R6: the SDK echoes the request's question names, so the mapped
             // record keeps the caller's keys in correspondence. R8: `model`
             // and `usage` on the result are deliberately not surfaced.
-            const answers: Record<string, Answer> = {};
-            for (const [name, sdkAnswer] of Object.entries(result.answers)) answers[name] = fromSdkAnswer(sdkAnswer);
+            if (!result?.answers || typeof result.answers !== 'object' || Array.isArray(result.answers)) {
+                throw new DecisionBackendError('Invalid decision response: expected answers map', undefined);
+            }
+            const answers = Object.fromEntries(
+                Object.entries(result.answers).map(([name, answer]) => [name, fromSdkAnswer(answer)]),
+            );
+            validateAnswers(questions, answers);
             return answers;
         },
     };
@@ -106,6 +113,8 @@ function toSdkQuestion(question: Question): SdkQuestion {
 
 /** SDK wire response → neutral answer (R5). Noul gets no confidence — the wire has none and none is invented. */
 function fromSdkAnswer(answer: SdkResultFor<SdkQuestion>): Answer {
+    if (!answer || typeof answer !== 'object')
+        throw new DecisionBackendError('Invalid decision response: expected answer object', undefined);
     switch (answer.type) {
         case 'choice':
             return {
@@ -124,6 +133,8 @@ function fromSdkAnswer(answer: SdkResultFor<SdkQuestion>): Answer {
             };
         case 'noul':
             return { kind: 'noul', probability: answer.noul };
+        default:
+            throw new DecisionBackendError('Invalid decision response: unknown answer kind', undefined);
     }
 }
 

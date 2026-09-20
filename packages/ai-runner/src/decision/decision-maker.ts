@@ -18,6 +18,7 @@ import type {
 } from './types';
 import { q } from './types';
 import { createTypesafeDriver } from './typesafe-driver';
+import { validateAnswers, validateQuestions } from './validation';
 
 /** Public decision surface: batch `ask` plus the three single-question sugar methods. */
 export interface DecisionMaker {
@@ -104,12 +105,11 @@ export function createDecisionMaker(options: DecisionMakerOptions = {}): Decisio
     }): Promise<AnswersFor<Q>> => {
         // R3: the questions map reaches the driver untouched — same reference,
         // no reordering, renaming, or dropping.
-        const answers = await resolveDriver().ask(req);
-        // The one documented cast (R3): the driver decoded these answers for the
-        // exact question map it was handed, so each entry is the `AnswerFor` of
-        // the question under the same key. Proving that in types would duplicate
-        // the driver's runtime contract here; one cast at this boundary is the
-        // trade for trivial drivers.
+        const driver = resolveDriver();
+        validateQuestions(req.questions);
+        const answers = await driver.ask(req);
+        validateAnswers(req.questions, answers);
+        // Runtime validation above establishes each question/answer correspondence.
         return answers as AnswersFor<Q>;
     };
 

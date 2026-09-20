@@ -801,7 +801,8 @@ explicitly to pin the endpoint.
 
 ### Errors
 
-All failures surface as `DecisionError` subclasses — no vendor error class escapes the package:
+SDK failures and malformed questions/responses surface as `DecisionError` subclasses. Custom
+drivers' own exceptions propagate; no vendor SDK error class escapes the default driver:
 
 | Error | When | Carries |
 | ----- | ------- | ------- |
@@ -810,8 +811,18 @@ All failures surface as `DecisionError` subclasses — no vendor error class esc
 | `DecisionRateLimitError` | Rate limited upstream | status, `retryAfterMs` |
 | `DecisionTimeoutError` | Request timed out | `timeoutMs` |
 | `DecisionConnectionError` | Backend unreachable | underlying cause |
-| `DecisionRequestError` | Request rejected as malformed (other 4xx) | status, body summary |
-| `DecisionBackendError` | Upstream server failure (5xx) | HTTP status |
+| `DecisionRequestError` | Invalid question or request rejected as malformed (other 4xx) | status, body summary |
+| `DecisionBackendError` | Invalid answer or upstream server failure (5xx) | HTTP status when present |
+
+The facade validates both default and custom drivers: answer names/kinds must match the questions,
+choice labels must belong to the supplied label map, probability/confidence values must be finite
+and within `[0, 1]`, and score values must fit the zero-indexed rubric (fractional expected scores
+are supported). Missing probability/legend keys are rejected. These checks establish structural
+validity, not calibration or decision quality.
+
+Applications own decision policy and evidence selection. For example, Spur can adapt its existing
+`HitlResponder` to use DecisionMaker while retaining its own HITL actions and fallback behavior;
+the workflow engine itself has no dependency on ai-runner.
 
 ### Adding a backend driver
 

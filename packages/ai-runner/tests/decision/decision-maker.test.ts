@@ -53,7 +53,13 @@ const CATEGORY: ChoiceAnswer<'billing' | 'other'> = {
     confidence: 0.9,
     probabilities: { billing: 0.9, other: 0.1 },
 };
-const URGENCY: ScoreAnswer = { kind: 'score', score: 2, confidence: 0.8, legend: {}, probabilities: {} };
+const URGENCY: ScoreAnswer = {
+    kind: 'score',
+    score: 0.8,
+    confidence: 0.8,
+    legend: { 0: 'low', 1: 'high' },
+    probabilities: { 0: 0.2, 1: 0.8 },
+};
 const REFUND: NoulAnswer = { kind: 'noul', probability: 0.75 };
 
 /** The single driver call a test expects — throws (failing the test) when there is none. */
@@ -136,7 +142,7 @@ describe('ask — batch passthrough (R3)', () => {
         const score: number = answers.urgency.score;
         const probability: number = answers.refund.probability;
         expect(label).toBe('billing');
-        expect(score).toBe(2);
+        expect(score).toBe(0.8);
         expect(probability).toBe(0.75);
     });
 });
@@ -169,7 +175,7 @@ describe('sugar over ask (R4/R5)', () => {
         const question = Object.values(onlyCall(calls).questions)[0];
         expect(question?.kind).toBe('score');
         expect(answer).toEqual(URGENCY);
-        expect(answer.score).toBe(2);
+        expect(answer.score).toBe(0.8);
     });
 
     test('noul: one call, one noul question, unwrapped NoulAnswer', async () => {
@@ -189,19 +195,27 @@ describe('sugar over ask (R4/R5)', () => {
 
 describe('driver seam (AC R8)', () => {
     test('a custom driver with no key anywhere serves all four members unchanged', async () => {
-        const { driver, calls } = fakeDriver(
-            { category: CATEGORY, urgency: URGENCY, refund: REFUND, question: CATEGORY },
-            'alternate',
-        );
+        const calls: unknown[] = [];
+        const driver: DecisionDriver = {
+            name: 'alternate',
+            async ask(req) {
+                calls.push(req);
+                return Object.fromEntries(
+                    Object.entries(req.questions).map(([name, question]) => [
+                        name,
+                        question.kind === 'choice' ? CATEGORY : question.kind === 'score' ? URGENCY : REFUND,
+                    ]),
+                );
+            },
+        };
         const dm = createDecisionMaker({ driver }); // no env, no apiKey — must not matter
 
         expect(dm.driver).toBe('alternate');
-        await dm.ask({ state: null, questions: { category: q.choice('c', { billing: null }) } });
+        await dm.ask({ state: null, questions: { category: q.choice('c', { billing: null, other: null }) } });
         await dm.choice('s', 'p', { billing: null, other: null });
         await dm.score('s', 'p', ['a', 'b']);
         await dm.noul('s', 'p');
 
         expect(calls.length).toBe(4);
-        expect(calls.every((c) => Object.keys(c.questions).length >= 1)).toBe(true);
     });
 });

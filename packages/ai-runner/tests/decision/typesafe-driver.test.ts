@@ -73,7 +73,7 @@ const SYSTEM_ONE = {
         tier: { type: 'choice', choice: 'basic', confidence: 0.9, probabilities: { basic: 0.9, pro: 0.1 } },
         urgency: {
             type: 'score',
-            score: 1.5,
+            score: 0.8,
             confidence: 0.8,
             legend: { 0: 'low', 1: 'high' },
             probabilities: { 0: 0.2, 1: 0.8 },
@@ -81,6 +81,29 @@ const SYSTEM_ONE = {
         refund: { type: 'noul', noul: 0.75 },
     },
 };
+
+/** Transport-only tests still return responses corresponding to their actual requests. */
+function matchingSuccess(call: WireCall): Response {
+    return json({
+        ...SYSTEM_ONE,
+        answers: Object.fromEntries(
+            Object.entries(call.questions).map(([name, question]) => {
+                if (question.type === 'noul') return [name, SYSTEM_ONE.answers.refund];
+                if (question.type === 'score') return [name, SYSTEM_ONE.answers.urgency];
+                const labels = Object.keys(question.criteria as object);
+                return [
+                    name,
+                    {
+                        type: 'choice',
+                        choice: labels[0],
+                        confidence: 1,
+                        probabilities: Object.fromEntries(labels.map((label, i) => [label, i === 0 ? 1 : 0])),
+                    },
+                ];
+            }),
+        ),
+    });
+}
 
 /** The error a promise rejects with, or null when it resolves. */
 const rejection = (p: Promise<unknown>): Promise<unknown> =>
@@ -91,7 +114,7 @@ const rejection = (p: Promise<unknown>): Promise<unknown> =>
 
 describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
     test('R1/R2 — driver named "typesafe"; explicit key reaches the wire; baseURL forwarded', async () => {
-        const { wire, driver: d } = driver(() => json(SYSTEM_ONE), {
+        const { wire, driver: d } = driver((call) => matchingSuccess(call), {
             apiKey: 'explicit-key',
             baseURL: 'https://ts.example/v0',
         });
@@ -107,13 +130,13 @@ describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
     });
 
     test('R1 — config.model becomes defaultModel when ask omits model', async () => {
-        const { wire, driver: d } = driver(() => json(SYSTEM_ONE), { model: 'cfg-model' });
+        const { wire, driver: d } = driver((call) => matchingSuccess(call), { model: 'cfg-model' });
         await d.ask({ state: 's', questions: { a: q.noul('yes?') } });
         expect(firstCall(wire).body.model).toBe('cfg-model');
     });
 
     test('R3 — exactly one request regardless of question count', async () => {
-        const respond = () => json(SYSTEM_ONE);
+        const respond = (call: WireCall) => matchingSuccess(call);
         const one = driver(respond);
         await one.driver.ask({ state: 's', questions: { a: q.noul('yes?') } });
         const three = driver(respond);
@@ -130,7 +153,7 @@ describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
     });
 
     test('R2/R4 — wire body: state once, questions keyed by caller names in SDK shape', async () => {
-        const { wire, driver: d } = driver(() => json(SYSTEM_ONE));
+        const { wire, driver: d } = driver((call) => matchingSuccess(call));
         const state = { ticket: 'T-1', text: 'charged twice' };
         await d.ask({
             state,
@@ -153,7 +176,7 @@ describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
     });
 
     test('R4 — undescribed prompts become null; a bare noul sends no criteria', async () => {
-        const { wire, driver: d } = driver(() => json(SYSTEM_ONE));
+        const { wire, driver: d } = driver((call) => matchingSuccess(call));
         await d.ask({ state: null, questions: { bare: q.noul(), pick: q.choice(null, { a: 'x' }) } });
         expect(firstCall(wire).body.state).toBeNull();
         // Parsed from the serialized body, so an absent key really is absent on the wire.
@@ -185,7 +208,7 @@ describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
         });
         expect(urgency).toEqual({
             kind: 'score',
-            score: 1.5,
+            score: 0.8,
             confidence: 0.8,
             legend: { 0: 'low', 1: 'high' },
             probabilities: { 0: 0.2, 1: 0.8 },
@@ -268,7 +291,7 @@ describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
     });
 
     test('R7 — local SDK rejections land in the taxonomy before any fetch', async () => {
-        const { wire, driver: d } = driver(() => json(SYSTEM_ONE));
+        const { wire, driver: d } = driver((call) => matchingSuccess(call));
         const err = await rejection(d.ask({ state: 's', questions: {} }));
         expect(err).toBeInstanceOf(DecisionRequestError);
         expect(err).not.toBeInstanceOf(TypeSafeError);
@@ -306,7 +329,9 @@ describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
     test('R1 — explicit baseURL reaches the client even under ambient TYPESAFE_BASE_URL', async () => {
         setEnvVar('TYPESAFE_BASE_URL', 'https://ambient.example');
         try {
-            const { wire, driver: d } = driver(() => json(SYSTEM_ONE), { baseURL: 'https://explicit.example/v1' });
+            const { wire, driver: d } = driver((call) => matchingSuccess(call), {
+                baseURL: 'https://explicit.example/v1',
+            });
             await d.ask({ state: 's', questions: { a: q.noul('yes?') } });
             expect(firstCall(wire).url).toBe('https://explicit.example/v1/v1/systemone');
         } finally {
