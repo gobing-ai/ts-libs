@@ -6,22 +6,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
-## [Unreleased]
+## [0.4.70] - 2026-09-20
+
+### Added
+
+- **DecisionMaker input validation + provider error translation (A2).** Validation module rejects malformed questions and response correspondence before either the custom driver or SDK consumes them, and translates question-builder errors into `DecisionRequestError`. Covers kinds, labels, rubric, special dictionary keys, and numeric bounds; provider error mapping is exhaustive. Custom-driver path benefits from the same input checks as the SDK. `a42d37e4`.
+- **`@gobing-ai/ts-ai-runner`: export `DecisionMaker` from the barrel and document the capability.** `2bce32c4`.
+- **`@gobing-ai/ts-ai-runner`: typesafe driver — client wiring, question/answer mapping, error table.** `a694cdf1`.
+- **`@gobing-ai/ts-ai-runner`: DecisionMaker facade with factory, batch ask, and single-question sugar.** `62137d18`.
+- **`@gobing-ai/ts-ai-runner`: neutral decision types, question builders, driver contract, and error taxonomy.** `78b6b924`.
+- **`@gobing-ai/ts-ai-runner`: pin `@typesafe-ai/sdk` 0.6.0 and add the `decision-boundaries` rule.** `c7ced52b`.
 
 ### Fixed
 
-- **A2:** validate runtime questions and response correspondence, kinds, labels and numeric bounds;
-  translate question-builder errors; preserve special dictionary keys; correct misleading fixtures.
-- **Workflow engine:** action exceptions obey error policy, audit writes are awaited, unexpected
-  failures finalize run status, external transitions preserve variables, pause/resume restores
-  guard success and transition counts, terminal exit actions stop, and flow validation rejects
-  invalid terminals and shadowed edges. Existing-key attachment no longer replays actions.
+- **`@gobing-ai/ts-dual-workflow-engine`: enforce recovery contract and flow invariants.** Action exceptions obey error policy; audit writes are awaited; unexpected failures finalize run status. Paused snapshots retain only the last action's `ok` bit, effective variables, and a non-empty response digest. Resume restores guard success, transition counts, and terminal exit actions. Existing-key attachment no longer replays actions. Custom persistence adapters preserve `owner_attempt` on creation, attachment, and resume. Flow validation rejects invalid terminals and shadowed edges. Action-finalization failures now propagate. `1cbc05c`.
+- **`@gobing-ai/ts-ai-runner`: unique `decisions` bindings in the Decision Making samples (0073 R5).** `8cfc8b46`.
+- **`@gobing-ai/ts-ai-runner`: declare state and key in the Decision Making samples (0073 P3).** `7a40f849`.
+- **`@gobing-ai/ts-ai-runner`: pin foreign-error passthrough and seal-check explicit baseURL (0072 P3s).** `14d8dd45`.
+- **README: add `workflow.run.interrupted` to the event-map parity list.** `53a1c0a`.
 
-### Changed
+### Other
 
-- **Custom workflow persistence adapters:** preserve `owner_attempt` on run creation/attachment,
-  as well as resume. It now identifies the creator to distinguish concurrent attachment from
-  execution. Action-finalization failures now propagate rather than being silently ignored.
+- **ADR-026 — application-owned HITL decision policy + boundary rule.** Chore-level commit recording the boundary decision plus a forbidden-import rule preventing `ts-dual-workflow-engine` from importing `@gobing-ai/ts-ai-runner`. Architecture and design docs updated to match. `8824cd90`.
+- **Document `TYPESAFE_BASE_URL` ambient resolution (0072 residual).** `ea2e7fd9`.
+- **Feature A2 lifecycle flips (batch 0069-0073).** `0fb13904`.
+- **Feature A2 verified and done (ADR-119 pass, batch 0069-0073).** `5a1ea8a0`.
+- **Feature A2 re-verified PASS under `--force` (verifyall batch 0069-0073).** `1e4d5a7`.
+- **`@gobing-ai/ts-ai-runner`: add `decisionmaker` feature A2 and task batch 0069-0073.** `7dbeb17e`.
+- **Design: add `decision-maker` design doc and index it in `docs/04_DESIGN.md`.** `eb06fb20`.
 
 ## [0.4.69] - 2026-09-18
 
