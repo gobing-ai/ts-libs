@@ -1,0 +1,26 @@
+# Decision boundary rules — keep the outbound-LLM-API SDK behind the ai-runner seam.
+include:
+  - "packages/**/*.ts"
+exclude:
+  - "**/tests/**"
+  - "**/*.test.ts"
+  - "**/node_modules/**"
+  - "**/dist/**"
+
+rules:
+  - id: no-typesafe-sdk-import-outside-ai-runner
+    description: "@typesafe-ai/sdk is an internal implementation detail of @gobing-ai/ts-ai-runner. No other package may import it — consume the DecisionMaker facade instead. The SDK is pre-1.0 and pinned exact (0.6.0); the boundary follows the ADR-005/ADR-006 drizzle precedent (ADR-traceable, no separate ADR)."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@typesafe-ai/sdk"
+        scope:
+          include:
+            - "packages/**/src/**/*.ts"
+          exclude:
+            - "packages/ai-runner/src/decision/typesafe-driver.ts"
+            - "**/tests/**"
+            - "**/*.test.ts"
+            - "**/dist/**"
