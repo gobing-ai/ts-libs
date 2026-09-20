@@ -177,7 +177,7 @@ to add behind an options flag if a consumer needs cost accounting.
 ```ts
 const env = options.env ?? getProcessEnv()                    // ts-runtime; gateway-backed
 const apiKey = options.apiKey ?? env.TYPESAFE_API_KEY
-if (!apiKey) throw new DecisionConfigError('TYPESAFE_API_KEY')  // before any fetch (R6)
+if (!apiKey) throw new DecisionConfigError('Missing TYPESAFE_API_KEY', 'TYPESAFE_API_KEY')  // before any fetch (R6)
 ```
 
 `apiKey` is always passed **explicitly** to `TypeSafeClient`, so the SDK's own

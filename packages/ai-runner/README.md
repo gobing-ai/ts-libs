@@ -32,6 +32,7 @@ bun add @gobing-ai/ts-ai-runner
 | `AgentEvents` / `AiRunnerProcessEvents` | Typed event maps for agent and process-level observability |
 | `AGENT_SHIMS` / `TIER1_PRIORITY` / `TIER2_AGENTS` / `DISPLAY_ORDER` | Agent registry constants |
 | `isAgentName()` | Type guard for supported agent identifiers |
+| `createDecisionMaker()` / `q` | Batch `ask` and single-question `choice`/`score`/`noul` decisions with provider-neutral question/answer types and a `DecisionError` taxonomy |
 
 Supported agent identifiers: `claude`, `codex`, `gemini` (deprecated), `pi`, `omp`, `opencode`, `antigravity-cli`, `openclaw`, `hermes`, `grok`, `deepseek`. The `antigravity` id is a deprecated alias of `antigravity-cli`. See [Deprecation & Aliases](#deprecation--aliases).
 
@@ -729,6 +730,104 @@ If the agent supports an auth-status command, `getAuthCommand()` already returns
 | Tests | `tests/` | Shim, detector, and doctor coverage |
 
 After these changes, the new agent is automatically available to `AiRunner`, `AgentDetector`, `DoctorRunner`, `TeamOrchestrator`, and all downstream consumers — no further registration needed.
+
+## Decision Making
+
+`createDecisionMaker()` exposes a provider-neutral LLM decision surface: ask N questions against one
+shared state and get typed, discriminated answers back. Questions are built with the `q` builders;
+answers are decoded into neutral `ChoiceAnswer` / `ScoreAnswer` / `NoulAnswer` types — no SDK type
+crosses this boundary.
+
+### Batch `ask` — many questions, one request
+
+All questions in one `ask` call share the state and cost a single backend request:
+
+```ts
+import { createDecisionMaker, q } from '@gobing-ai/ts-ai-runner';
+
+const decisions = createDecisionMaker(); // reads TYPESAFE_API_KEY from the environment
+
+const answers = await decisions.ask({
+    state: { ticket: 'T-1042', body: 'Users cannot reset their passwords.' },
+    questions: {
+        route: q.choice('Which team should own this?', {
+            billing: 'Invoices and payment issues',
+            access: 'Login and account access',
+            other: 'Anything else',
+        }),
+        urgency: q.score('How urgent is this?', ['Routine', 'Elevated', 'Drop everything']),
+        duplicate: q.noul('Has this ticket been reported before?'),
+    },
+});
+
+answers.route.label; // 'billing' | 'access' | 'other'
+answers.urgency.score; // rubric level
+answers.duplicate.probability; // yes-probability
+```
+
+### Single-question sugar
+
+`choice`, `score`, and `noul` are one-question convenience forms over `ask`:
+
+```ts
+const route = await decisions.choice(state, 'Which team should own this?', {
+    billing: 'Invoices and payment issues',
+    access: 'Login and account access',
+});
+route.label; // 'billing' | 'access'
+
+const duplicate = await decisions.noul(state, 'Has this ticket been reported before?');
+duplicate.probability; // yes-probability — no `confidence` field: the API reports none for yes/no
+```
+
+A yes/no answer carries only `probability`. The API returns no calibration confidence for noul
+questions, so none is synthesized.
+
+### Configuration
+
+The API key resolves as `options.apiKey`, else `TYPESAFE_API_KEY` from the injected `env` record,
+else from the process environment. A missing key throws `DecisionConfigError` before any request:
+
+```ts
+const decisions = createDecisionMaker({ apiKey: key }); // explicit key wins
+const sandboxed = createDecisionMaker({ env: { TYPESAFE_API_KEY: key } }); // injected record — the host owns the environment
+```
+
+Other options: `model`, `baseURL`, `timeoutMs`, `maxRetries`, and an injected `fetch` for tests.
+
+### Errors
+
+All failures surface as `DecisionError` subclasses — no vendor error class escapes the package:
+
+| Error | When | Carries |
+| ----- | ------- | ------- |
+| `DecisionConfigError` | No API key resolved | variable name |
+| `DecisionAuthError` | Authentication or permission rejected upstream | HTTP status |
+| `DecisionRateLimitError` | Rate limited upstream | status, `retryAfterMs` |
+| `DecisionTimeoutError` | Request timed out | `timeoutMs` |
+| `DecisionConnectionError` | Backend unreachable | underlying cause |
+| `DecisionRequestError` | Request rejected as malformed (other 4xx) | status, body summary |
+| `DecisionBackendError` | Upstream server failure (5xx) | HTTP status |
+
+### Adding a backend driver
+
+Additional backend drivers are the intended extension point. A driver implements only `ask` —
+question building, the single-question sugar, and answer typing all come from the facade:
+
+```ts
+import type { Answer, DecisionDriver } from '@gobing-ai/ts-ai-runner';
+
+const myDriver: DecisionDriver = {
+    name: 'my-backend',
+    async ask() {
+        const answers: Record<string, Answer> = {};
+        // Call your backend; return one answer per key in the question map.
+        return answers;
+    },
+};
+
+const decisions = createDecisionMaker({ driver: myDriver }); // no TYPESAFE_API_KEY required
+```
 
 ## Boundary Notes
 
