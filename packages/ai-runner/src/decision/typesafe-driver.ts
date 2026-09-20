@@ -50,6 +50,10 @@ export function createTypesafeDriver(config: TypesafeDriverConfig): DecisionDriv
     try {
         client = new TypeSafeClient({
             apiKey: config.apiKey,
+            // baseURL is forwarded as-is. SDK 0.6.0 exports no default
+            // base-URL constant (`ENV` holds env-var names only), so an
+            // omitted baseURL still lets the SDK self-resolve
+            // `TYPESAFE_BASE_URL` — documented residual for 0073.
             baseURL: config.baseURL,
             defaultModel: config.model,
             timeout: config.timeoutMs,

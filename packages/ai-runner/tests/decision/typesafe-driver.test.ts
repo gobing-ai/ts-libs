@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { removeEnvVar, setEnvVar } from '@gobing-ai/ts-utils';
 import { TypeSafeError } from '@typesafe-ai/sdk';
 import {
     DecisionAuthError,
@@ -284,5 +285,32 @@ describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
         }
         expect(caught).toBeInstanceOf(DecisionError);
         expect(caught).not.toBeInstanceOf(TypeSafeError);
+    });
+
+    test('R7 — a non-SDK Error thrown inside ask passes through untouched', async () => {
+        class ForeignError extends Error {}
+        const foreign = new ForeignError('parser blew up');
+        // The transport wraps fetch rejections, but a body-read failure in the
+        // SDK's response parsing reaches the driver raw — the path that pins
+        // translateError's foreign-error fall-through.
+        const { driver: d } = driver(() => {
+            const res = json(SYSTEM_ONE);
+            Object.defineProperty(res, 'text', { value: () => Promise.reject(foreign) });
+            return res;
+        });
+        const err = await rejection(d.ask({ state: 's', questions: { a: q.noul('y?') } }));
+        expect(err).toBe(foreign);
+        expect(err).not.toBeInstanceOf(DecisionError);
+    });
+
+    test('R1 — explicit baseURL reaches the client even under ambient TYPESAFE_BASE_URL', async () => {
+        setEnvVar('TYPESAFE_BASE_URL', 'https://ambient.example');
+        try {
+            const { wire, driver: d } = driver(() => json(SYSTEM_ONE), { baseURL: 'https://explicit.example/v1' });
+            await d.ask({ state: 's', questions: { a: q.noul('yes?') } });
+            expect(firstCall(wire).url).toBe('https://explicit.example/v1/v1/systemone');
+        } finally {
+            removeEnvVar('TYPESAFE_BASE_URL');
+        }
     });
 });
