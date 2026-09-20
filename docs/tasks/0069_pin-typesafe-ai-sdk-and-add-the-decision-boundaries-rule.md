@@ -4,7 +4,7 @@ name: Pin @typesafe-ai/sdk and add the decision-boundaries rule
 status: done
 template: feature-impl
 created_at: 2026-09-20T05:08:59.647Z
-updated_at: "2026-09-20T06:29:20.091Z"
+updated_at: "2026-09-20T17:58:59.082Z"
 feature_id: A2
 priority: P2
 tags:
@@ -144,15 +144,15 @@ R4 (no tsconfig paths) holds by omission — zero `typesafe` matches across all 
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/ai-runner/package.json:52` — `"@typesafe-ai/sdk": "0.6.0"`, exact, no `^`/`~` prefix (git show c7ced52 diff confirms added in `dependencies`) |
-| R2 | MET | `bun.lock:20` (ai-runner deps) + `bun.lock:307` (pinned resolution `@typesafe-ai/sdk@0.6.0` w/ integrity hash); `bun -e require.resolve('@typesafe-ai/sdk')` from `packages/ai-runner` → `node_modules/.bun/@typesafe-ai+sdk@0.6.0/.../dist/index.cjs`, exit 0 |
-| R3 | MET | `spur rule validate .spur/rules/typescript/decision-boundaries.yaml` → exit 0, "rules: 1"; manifest parsed: id `no-typesafe-sdk-import-outside-ai-runner`, evaluator `forbidden-import`, severity `error`, forbidden specifier `@typesafe-ai/sdk`, scope.include `packages/**/src/**/*.ts`, scope.exclude only `packages/ai-runner/src/decision/typesafe-driver.ts` + `**/tests/**` + `**/*.test.ts` + `**/dist/**` (rule file lines 8-27) |
-| R4 | MET | `grep -rn typesafe tsconfig*.json packages/*/tsconfig*.json` → exit 1, zero matches; no paths entry added (commit c7ced52 touches only rule file, bun.lock, ai-runner package.json) |
-| R5 | MET | `spur rule validate` → exit 0; `bun run spur-check` → exit 0, `2274 pass / 0 fail` across 195 files; baseline `spur rule run` → exit 0, "All 50 rules passed — no violations found" |
+| R1 | MET | `packages/ai-runner/package.json:52` — `"@typesafe-ai/sdk": "0.6.0"`, exact, no `^`/`~` prefix (re-read this run) |
+| R2 | MET | `bun.lock:20` (ai-runner dep entry) + `bun.lock:307` (resolution `@typesafe-ai/sdk@0.6.0` with sha512 integrity hash), re-greped this run |
+| R3 | MET | `.spur/rules/typescript/decision-boundaries.yaml:11-26` — id `no-typesafe-sdk-import-outside-ai-runner` (:11), evaluator `forbidden-import` (:15), severity `error` (:13), forbidden specifier `@typesafe-ai/sdk` (:18), scope.include `packages/**/src/**/*.ts` (:21), scope.exclude only `packages/ai-runner/src/decision/typesafe-driver.ts` (:23) + `**/tests/**`, `**/*.test.ts`, `**/dist/**` (:24-26) |
+| R4 | MET | `grep -rln typesafe tsconfig*.json packages/*/tsconfig*.json` → zero matches (exit 1), re-run this session; no paths entry added |
+| R5 | MET | `spur rule validate .spur/rules/typescript/decision-boundaries.yaml --json` → `valid: true`, `ruleCount: 1`, exit 0; clean-tree `spur rule run` → "All 50 rules passed — no violations found", exit 0 (both this run) |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| Scenario: R10 — the SDK dependency is pinned exactly and confined to this package | MET | test | Manifest side: `packages/ai-runner/package.json:52` declares exact 0.6.0 (no range prefix); `spur rule run` clean baseline exit 0. Boundary side (negative test): planted `import { makeDecision } from "@typesafe-ai/sdk"` in `packages/ts-runtime/src/__verify_0069_boundary_probe__.ts` → `spur rule run` exit 1 with `ERROR no-typesafe-sdk-import-outside-ai-runner packages/ts-runtime/src/__verify_0069_boundary_probe__.ts:1 Forbidden import/usage of "@typesafe-ai/sdk"`; probe file deleted, tree restored (git status shows only the pre-existing task-doc modification) |
+| Scenario: R10 — the SDK dependency is pinned exactly and confined to this package | MET | command | Pin side: `packages/ai-runner/package.json:52` declares exact 0.6.0. Boundary side (negative probe, this run): planted `import { TypeSafeClient } from "@typesafe-ai/sdk"` in `packages/utils/src/__verify_0069_probe__.ts` → `spur rule run` emitted `ERROR no-typesafe-sdk-import-outside-ai-runner packages/utils/src/__verify_0069_probe__.ts:1 Forbidden import/usage of "@typesafe-ai/sdk"`; probe deleted, `git status --porcelain` clean, post-clean `spur rule run` exit 0 |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

@@ -4,7 +4,7 @@ name: Export DecisionMaker from the barrel and document the capability
 status: done
 template: feature-impl
 created_at: 2026-09-20T05:08:59.654Z
-updated_at: "2026-09-20T09:21:03.497Z"
+updated_at: "2026-09-20T18:10:21.079Z"
 feature_id: A2
 priority: P2
 tags:
@@ -146,17 +146,17 @@ README sample typecheck method: whole-section verbatim extractor → bunx tsc --
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | static-ref: packages/ai-runner/src/index.ts:6-8 `export *` from decision/decision-maker, decision/errors, decision/types (barrel untouched by 2bce32c/7a40f849 — pre-existing from 0070/0071). command: consumer fixture importing createDecisionMaker, DecisionMaker, DecisionMakerOptions, q, DecisionDriver, ChoiceQuestion/ScoreQuestion/NoulQuestion/Question, ChoiceAnswer/ScoreAnswer/NoulAnswer/Answer/AnswerFor/AnswersFor + all 8 DecisionError classes against packages/ai-runner/dist/index.d.ts → `bunx tsc -p fixture --strict` exit 0 |
-| R2 | MET | command: `bunx tsc --listFilesOnly` over the full entry-point type graph → 0 files matching typesafe-ai; typesafe-driver.d.ts absent from graph (only decision/{types,decision-maker,errors}.d.ts reachable). static-ref: grep typesafe-driver in src/index.ts → no match; SDK names in the 3 reachable .d.ts appear only inside /** */ prose (dist/decision/types.d.ts:3, decision-maker.d.ts:4,24,30,40) |
-| R3 | MET | static-ref: packages/ai-runner/README.md:734-812 — purpose (736-738), batch ask with 3 mixed questions (choice/score/noul) on one state (741-767), single-question sugar (769-783), TYPESAFE_API_KEY + injected env config (787-798), error taxonomy table (800-812), no-confidence note (781, 785-786). command: section verbatim-extract typecheck vs dist exit 0 |
-| R4 | MET | static-ref: packages/ai-runner/README.md:816-834 — "Additional backend drivers are the intended extension point. A driver implements only `ask`" + custom DecisionDriver example incl. name field and createDecisionMaker({ driver }) |
-| R5 | MET | command: verbatim extraction of all 4 ts blocks (README:744-767, 771-783, 793-796, 819-834) → `bunx tsc --noEmit --strict` vs built dist. Naive single-scope concat trips only cross-sample name collisions (TS2451 `decisions` x3, TS6133 `sandboxed`) — no type mismatch vs shipped types; section-scoped sequential-context extract (block text byte-verbatim, imports hoisted) exit 0. Negative assertions consumed: NoulAnswer exposes no `confidence` (@ts-expect-error satisfied), rubric below 2 levels rejected (TS2345 on q.score single-level) |
-| R6 | MET | static-ref: docs/04_DESIGN.md:7 version 1.2.0→1.3.0, :10 updated_at 2026-09-20, :25 row planned→current (diff 2bce32c). manual-review: §6.5 same-commit rule satisfied — satellite fix (decision-maker.md:180) + index row flip in the same commit |
-| R7 | MET | command: fresh `bun run spur-check` → exit 0 (2310 pass / 0 fail, 6323 expect() calls across 199 files; spur rules — All 2 rules passed, no violations); fresh `bun run build` → exit 0 (all 8 packages incl. @gobing-ai/ts-ai-runner); fresh `bun run spur feature check A2` → PASS exit 0, no orphan scenarios (WARN: R11 unverified pending this verdict — expected pre-verdict state) |
+| R1 | MET | `packages/ai-runner/src/index.ts:6-8` — barrel re-exports `./decision/decision-maker` (createDecisionMaker, DecisionMaker, DecisionMakerOptions), `./decision/errors` (full DecisionError taxonomy), `./decision/types` (q builders, DecisionDriver, every neutral question/answer type) |
+| R2 | MET | grep over built declarations `dist/index.d.ts` + `dist/decision/{decision-maker,types,errors}.d.ts` for TypeSafeClient/SystemOne/ChoiceResponse/ScoreResponse/NoulResponse/TypeSafeError/APIError/@typesafe-ai → zero vendor exports (one TSDoc comment mention in types.d.ts:3 only); typesafe-driver.ts deliberately not re-exported |
+| R3 | MET | `packages/ai-runner/README.md:734-811` `## Decision Making` — purpose (:736), batch `ask` with three mixed questions against one state (:744-763), single-question sugar (:765-778), `TYPESAFE_API_KEY` config + injected-`env` alternative (:789-795), error taxonomy table (:801-811), no-confidence note (:777, :780-781) |
+| R4 | MET | `README.md:814-816` 'Adding a backend driver' — "Additional backend drivers are the intended extension point. A driver implements only `ask`" + custom-driver sample (:818-831) |
+| R5 | MET | Whole-section verbatim extraction of all 4 ts blocks + `bunx tsc --ignoreConfig --noEmit --strict --module esnext --moduleResolution bundler --target es2022` against the built dist → exit 0 (this run). Fixed first under --fix all: two `const decisions` redeclarations (README.md:794→`explicit`, :831→`custom`) left over by 7a40f849; baseline failed TS2451 ×3, post-fix compiles clean |
+| R6 | MET | `docs/04_DESIGN.md:25` — DecisionMaker row reads `current` linking `design/decision-maker.md`; frontmatter `version: 1.3.0` (:6), `updated_at: 2026-09-20` (:9) per §6.5 |
+| R7 | MET | `bun run spur-check` exit 0 — Biome + per-package tsc + 2310 tests pass / 0 fail (199 files, coverage gate) + both spur rule presets `--fail-on warning` clean (this run); `bun run build` exit 0 all packages (this run); `spur feature check A2` orphan-scenario result recorded in the batch shippable gate |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| Scenario: R11 — the capability is exported from the barrel and documented | MET | test | test: bun test packages/ai-runner/tests/decision/decision-maker.test.ts → 10 pass / 0 fail. command: reachability fixture vs dist/index.d.ts exit 0 (all surface names resolve); `--listFilesOnly` → 0 @typesafe-ai files in entry-point graph (no SDK type/class/error exported). static-ref: src/index.ts:6-8; README.md:741-767 batch form, 769-783 single-question form, 787-798 key configuration, 781+785-786 no-confidence note, 816-834 driver extension point. manual-review: docs/04_DESIGN.md:25 row current at 1.3.0/2026-09-20 |
+| Scenario: R11 — the capability is exported from the barrel and documented | MET | command | Barrel reachability: `src/index.ts:6-8` exports factory/builders/neutral types/error taxonomy; declaration grep proves no @typesafe-ai/sdk type/class/error crosses (R2 evidence); README documents batch form, sugar form, key configuration, and the no-confidence yes/no answer (:734-811) and names additional backend drivers as the extension point (:816); README samples compile strict against built dist (R5 evidence) |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

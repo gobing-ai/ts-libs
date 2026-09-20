@@ -4,7 +4,7 @@ name: Neutral decision types, q builders, driver contract, and error taxonomy
 status: done
 template: feature-impl
 created_at: 2026-09-20T05:08:59.651Z
-updated_at: "2026-09-20T06:57:49.934Z"
+updated_at: "2026-09-20T18:01:44.338Z"
 feature_id: A2
 priority: P2
 tags:
@@ -165,18 +165,18 @@ R8 by omission: zero SDK imports in src/decision/ (rule scopes future typesafe-d
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | static-ref packages/ai-runner/src/decision/types.ts:10-69 — all 13 named exports (Json:10, DecisionState:13, Desc:16, ChoiceQuestion:19, ScoreQuestion:22, NoulQuestion:25, Question:28, ChoiceAnswer:31, ScoreAnswer:39, NoulAnswer:53, Answer:56, AnswerFor:59, AnswersFor:69) + command cd packages/ai-runner && bunx tsc --noEmit → exit 0 |
-| R2 | MET | static-ref types.ts:31-46 ChoiceAnswer{kind,label,confidence,probabilities} / ScoreAnswer{kind,score,confidence,legend,probabilities}; types.ts:53 NoulAnswer exactly {kind,probability} + test types.test.ts:63-64 `_noConfidenceOnNoul`/`_noulMembersExact` and 71-76 runtime Object.keys === [kind,probability] + command bun test tests/decision/ → 12 pass, 0 fail |
-| R3 | MET | static-ref types.ts:33,36 label: L, probabilities: Record<L, number>; `<const L extends string>` at types.ts:80 keeps inline unions + test types.test.ts:22-39 `_labelsStayUnion`/`_labelIsUnion`/`_probabilitiesKeyed` prove 'billing' |
-| R4 | MET | static-ref types.ts:22 rubric: readonly [Desc, Desc, ...Desc[]] + test types.test.ts:64 @ts-expect-error one-level rubric, 66-67 missing-rubric negative + command bunx tsc --noEmit → exit 0 (unused directive would fail tsc, so the negative case fires) |
-| R5 | MET | static-ref types.ts:75-101 q.choice/q.score/q.noul with correct kind discriminants; const type param on q.choice:80 + test types.test.ts:78-97 builders return right shapes and discriminants incl. q.noul spread semantics + command bun test → pass |
-| R6 | MET | static-ref types.ts:104-111 readonly name + single ask({state, questions, model?}): Promise<Record<string, Answer>> + test types.test.ts:107-118 one-method fake driver satisfies DecisionDriver, keyed answers round-trip + command bun test → pass |
-| R7 | MET | static-ref errors.ts:8-88 base + 7 subclasses; fields match design table docs/design/decision-maker.md:192-200 field-for-field (Config:variable:16, Auth:status:27, RateLimit:status+retryAfterMs:38, Timeout:timeoutMs:50, Connection:cause:61, Request:status+bodySummary:68, Backend:status:80); new.target.name at errors.ts:11-12 + test errors.test.ts:24-31 instanceof/name for all 7, per-field payload tests 33-66 + command bun test → 0 fail |
-| R8 | MET | command grep -rn '@typesafe-ai/sdk' src/decision/ → comment mention only, zero imports (types.ts header: imports nothing) + command bun run spur-check → All 2 rules passed (incl. decision-boundaries), 0 violations |
+| R1 | MET | `packages/ai-runner/src/decision/types.ts:10-69` — all 13 named exports re-read this run: Json:10, DecisionState:13, Desc:16, ChoiceQuestion:19, ScoreQuestion:22, NoulQuestion:25, Question:28, ChoiceAnswer:31, ScoreAnswer:39, NoulAnswer:53, Answer:56, AnswerFor:59, AnswersFor:69 |
+| R2 | MET | `types.ts:31-36` ChoiceAnswer{kind,label,confidence,probabilities}; `:39-45` ScoreAnswer{kind,score,confidence,legend,probabilities}; `:53` NoulAnswer exactly {kind,probability} + type tests `_noConfidenceOnNoul`/`_noulMembersExact` and runtime Object.keys assertion (`tests/decision/types.test.ts`) — `bun test tests/decision/types.test.ts tests/decision/errors.test.ts` → 12 pass / 0 fail, exit 0 (this run) |
+| R3 | MET | `types.ts:33` `label: L`, `:35` `probabilities: Record<L, number>`; `<const L extends string>` at `:80` preserves inline label unions (type probes in types.test.ts prove `'billing'` union) |
+| R4 | MET | `types.ts:22` `rubric: readonly [Desc, Desc, ...Desc[]]`; one-level rubric carries `@ts-expect-error` in types.test.ts — `bunx tsc --noEmit` exit 0 (this run) proves the directive fires (unused directive would fail tsc) |
+| R5 | MET | `types.ts:75-97` `q` namespace with `q.choice`/`q.score`/`q.noul` returning correct `kind` discriminants; const type param on q.choice:80; runtime builder tests in the 12-pass run above |
+| R6 | MET | `types.ts:104-111` `DecisionDriver`: `readonly name` + single `ask({state, questions, model?}): Promise<Record<string, Answer>>`; one-method fake driver satisfies it in types.test.ts |
+| R7 | MET | `packages/ai-runner/src/decision/errors.ts:8-88` re-read this run — `DecisionError` base (:8, `new.target.name` :11) + 7 subclasses with design-table fields: Config(variable:19):16, Auth(status:30):27, RateLimit(status:41+retryAfterMs:42):38, Timeout(timeoutMs:53):50, Connection(cause via options):61, Request(status:71+bodySummary:72):68, Backend(status:83):80; instanceof/name + payload tests in errors.test.ts (12-pass run) |
+| R8 | MET | `grep -rn '@typesafe-ai/sdk' src/decision/` (this run): doc-comment mentions only in types.ts:3; real imports confined to `typesafe-driver.ts:8,21` — exactly the file the boundary rule excludes (`.spur/rules/typescript/decision-boundaries.yaml:23`) |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| Scenario: R4 — each primitive's answer carries only the fields the API returns | MET | test | slice-scoped: Then-clauses fully proven — choice answer carries label+confidence+per-label probabilities (test `_confidencePresent` types.test.ts:31-33), score carries score+confidence+legend+probabilities (static-ref types.ts:39-46), noul carries only probability with no confidence present or synthesizable (test `_noConfidenceOnNoul` + Object.keys + command bunx tsc exit 0); the When-clause driver wire-mapping of decoded systemOne responses is task 0072's deliverable per spec Plan — nothing owed by 0070 |
+| Scenario: R4 — each primitive's answer carries only the fields the API returns | MET | test | Slice-scoped per task spec (wire-mapping When-clause is 0072's deliverable): choice carries label+confidence+per-label probabilities, score carries score+confidence+legend+probabilities (`types.ts:31-45`), noul carries only probability with no confidence present or synthesizable (`types.ts:53` + `_noConfidenceOnNoul`/`_noulMembersExact` type probes + runtime Object.keys test) — `bun test tests/decision/` 12 pass / 0 fail, `bunx tsc --noEmit` exit 0 (both this run) |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
