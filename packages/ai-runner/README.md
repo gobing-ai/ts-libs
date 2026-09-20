@@ -795,7 +795,9 @@ const explicit = createDecisionMaker({ apiKey: key }); // explicit key wins
 const sandboxed = createDecisionMaker({ env: { TYPESAFE_API_KEY: key } }); // injected record — the host owns the environment
 ```
 
-Other options: `model`, `baseURL`, `timeoutMs`, `maxRetries`, and an injected `fetch` for tests.
+Other options: `model`, `baseURL`, `timeoutMs`, `maxRetries`, and an injected `fetch` for tests. When
+`baseURL` is omitted the SDK resolves `TYPESAFE_BASE_URL` from the environment itself — pass `baseURL`
+explicitly to pin the endpoint.
 
 ### Errors
 
