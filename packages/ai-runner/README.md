@@ -791,7 +791,7 @@ else from the process environment. A missing key throws `DecisionConfigError` be
 
 ```ts
 const key = 'sk-…'; // from your secret store
-const decisions = createDecisionMaker({ apiKey: key }); // explicit key wins
+const explicit = createDecisionMaker({ apiKey: key }); // explicit key wins
 const sandboxed = createDecisionMaker({ env: { TYPESAFE_API_KEY: key } }); // injected record — the host owns the environment
 ```
 
@@ -828,7 +828,7 @@ const myDriver: DecisionDriver = {
     },
 };
 
-const decisions = createDecisionMaker({ driver: myDriver }); // no TYPESAFE_API_KEY required
+const custom = createDecisionMaker({ driver: myDriver }); // no TYPESAFE_API_KEY required
 ```
 
 ## Boundary Notes
