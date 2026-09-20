@@ -746,9 +746,10 @@ All questions in one `ask` call share the state and cost a single backend reques
 import { createDecisionMaker, q } from '@gobing-ai/ts-ai-runner';
 
 const decisions = createDecisionMaker(); // reads TYPESAFE_API_KEY from the environment
+const state = { ticket: 'T-1042', body: 'Users cannot reset their passwords.' };
 
 const answers = await decisions.ask({
-    state: { ticket: 'T-1042', body: 'Users cannot reset their passwords.' },
+    state,
     questions: {
         route: q.choice('Which team should own this?', {
             billing: 'Invoices and payment issues',
@@ -789,6 +790,7 @@ The API key resolves as `options.apiKey`, else `TYPESAFE_API_KEY` from the injec
 else from the process environment. A missing key throws `DecisionConfigError` before any request:
 
 ```ts
+const key = 'sk-…'; // from your secret store
 const decisions = createDecisionMaker({ apiKey: key }); // explicit key wins
 const sandboxed = createDecisionMaker({ env: { TYPESAFE_API_KEY: key } }); // injected record — the host owns the environment
 ```
