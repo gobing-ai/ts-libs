@@ -5,7 +5,7 @@ owns: WHY — which cross-cutting decision was made, and the one-line reason
 authority: authoritative
 version: 1.1.0
 owner: Robin Min
-updated_at: 2026-09-16
+updated_at: 2026-09-20
 read_before: any structural change
 edit_rules: 99 §6.1
 sync: [T1, T2]
@@ -437,3 +437,37 @@ added, `workflow.run.resumed` gained required payload fields (`resumeMode`, `own
 was added (`workflow.run.interrupted`). Known implementors (`ObservableWorkflowAdapter`,
 `WorkflowActionTraceWriter` in gobing.ai/spur-new) are updated in the same change window. Callers that never
 touch resume/interrupt semantics are source-compatible apart from the adapter interface.
+
+---
+
+## ADR-026: Application-Owned HITL Decision Policy
+
+**Status:** Accepted · **Date:** 2026-09-20 · **Targets:** `ts-ai-runner`, `ts-dual-workflow-engine`, downstream applications
+
+`ts-ai-runner` owns the provider-neutral DecisionMaker contract, input/response validation, and
+provider error translation. `ts-dual-workflow-engine` owns action execution, durable state, resume,
+and the neutral `HitlResponder` contract. The workflow package does not import ai-runner or expose
+AI-specific action extensions. A boundary rule enforces this separation.
+
+Consuming applications own HITL action implementations, evidence gathering, automatic-mode policy,
+and the switch between DecisionMaker and existing response behavior. In Spur, the existing
+`hitl.*` actions remain authoritative; an optional responder integration composes A2 with the
+existing responder fallback. Its activation flag and evidence policy belong to Spur configuration,
+not to the shared engine. A2 supplies structured choices, not arbitrary free-text input.
+
+**Alternatives:** An upstream action-override extension duplicates Spur's request construction,
+events, cancellation semantics and answer-variable handling. A built-in engine AI dependency
+couples unrelated workflow consumers to application policy. Both are rejected in favor of the
+existing responder seam. A reusable responder adapter can be extracted if another application
+needs the same behavior; it must not reimplement application actions.
+
+**Recovery contract:** Action audit finalization is awaited before routing; a failed write is not
+silently discarded. Paused snapshots retain only the last action's `ok` bit plus effective variables
+and transition counts. Existing-key run attachment returns the persisted position without replay;
+`owner_attempt` identifies the creator as well as subsequent resume owners. Custom persistence
+adapters must preserve it at creation/attachment. Wrappers that deliberately swallow errors retain
+their own weaker durability guarantee.
+
+**Limits:** A responder cannot assess a HITL state skipped by an automatic workflow route. Changing
+that route is an application-owned policy choice. Existing pauses remain intact; model probabilities
+alone do not establish decision quality, and the host owns uncertainty/unavailability fallback.

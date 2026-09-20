@@ -24,3 +24,15 @@ rules:
             - "**/tests/**"
             - "**/*.test.ts"
             - "**/dist/**"
+
+  - id: workflow-no-ai-policy-dependency
+    description: "ADR-026: DecisionMaker HITL policy belongs to consuming applications. The workflow engine must not import ai-runner."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-ai-runner"
+        scope:
+          include:
+            - "packages/dual-workflow-engine/src/**/*.ts"

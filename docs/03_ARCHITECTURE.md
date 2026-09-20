@@ -6,7 +6,7 @@ authority: derived
 version: 1.2.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-09-16
+updated_at: 2026-09-20
 read_before: cross-package, seam, or schema work
 edit_rules: 99 §6.4
 sync: [T1]
@@ -17,7 +17,8 @@ sync: [T1]
 ## ai-runner
 
 `@gobing-ai/ts-ai-runner` owns coding-agent shims, installation and health detection, prompt execution,
-message storage, and team orchestration over `ts-runtime` process abstractions.
+message storage, and team orchestration over `ts-runtime` process abstractions. Its batch-first
+`DecisionMaker` validates question/answer correspondence for both TypeSafe and injected drivers.
 
 ## db
 
@@ -28,6 +29,11 @@ with schema construction and migrations isolated behind explicit subpaths.
 
 `@gobing-ai/ts-dual-workflow-engine` combines state-machine transitions with action-flow execution,
 persistence seams, lifecycle events, and resumable run state.
+
+HITL actions, automatic-mode policy, evidence gathering, and DecisionMaker responder wiring belong
+in consuming applications such as Spur (ADR-026). The engine exposes the neutral `HitlResponder`
+contract and never imports ai-runner. Action audit completion precedes routing; pause snapshots
+retain variables, transition counts and the last action's `ok` bit without copying raw result data.
 
 ## infra
 

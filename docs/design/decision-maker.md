@@ -1,10 +1,15 @@
 # DecisionMaker
 
-Provider-neutral structured-decision surface in `@gobing-ai/ts-ai-runner`. Callers get typed,
-calibrated judgments — a selected label, a rubric score, or a yes-probability — instead of free
+Provider-neutral structured-decision surface in `@gobing-ai/ts-ai-runner`. Callers get typed
+judgments — a selected label, a rubric score, or a yes-probability — instead of free
 text they must parse. The only current backend driver wraps `@typesafe-ai/sdk` (TypeSafe AI's Jev /
 System One family); the driver seam exists so traditional-LLM and local-model backends can land
 without touching callers.
+
+Runtime validation establishes answer shape and correspondence, not empirical calibration. Consuming
+applications own evidence selection, acceptance policy, fallback, and quality evaluation. In particular,
+Spur owns its optional DecisionMaker HITL responder integration; the workflow engine remains independent
+of ai-runner (ADR-026).
 
 Feature: [A2](../features/A2_provider-neutral-decisionmaker-over-typesafe-jev-in-ts-ai-runner.md).
 
@@ -39,6 +44,7 @@ New directory `packages/ai-runner/src/decision/`, matching the existing `src/age
 | `decision-maker.ts` | `DecisionMaker`, `createDecisionMaker()`, the three sugar methods over `ask()` |
 | `typesafe-driver.ts` | `DecisionDriver` over `@typesafe-ai/sdk`; neutral ⇄ SDK mapping; the only file importing the SDK |
 | `errors.ts` | `DecisionError` taxonomy + SDK-error mapping |
+| `validation.ts` | Shared runtime question and answer validation for default and custom drivers |
 
 Barrel re-exports from `src/index.ts`. Tests in `packages/ai-runner/tests/decision/`.
 
@@ -115,8 +121,11 @@ interface DecisionMaker {                        // public surface — 4 members
 function createDecisionMaker(options?: DecisionMakerOptions): DecisionMaker
 ```
 
-The driver's looser return type is narrowed to `AnswersFor<Q>` by a single cast at the facade
-boundary — one documented cast keeps drivers simple while callers get full inference.
+The driver's looser return type is narrowed to `AnswersFor<Q>` after runtime validation at the facade
+boundary. Question names and kinds, allowed labels, probability/legend keys, finite numeric bounds,
+and zero-indexed score range are checked for both default and custom drivers. The TypeSafe driver also
+checks its decoded response before returning it. Malformed questions raise `DecisionRequestError`;
+malformed answers raise `DecisionBackendError`. Dictionary construction preserves arbitrary own keys.
 
 ```ts
 interface DecisionMakerOptions {
@@ -187,7 +196,8 @@ if (!apiKey) throw new DecisionConfigError('Missing TYPESAFE_API_KEY', 'TYPESAFE
 
 ## Error taxonomy (R9)
 
-`DecisionError` base; no raw SDK error class escapes the package.
+`DecisionError` base; no raw SDK error class escapes the default driver, including question-builder
+errors. Exceptions thrown by a custom driver itself still propagate.
 
 | SDK | Package | Carries |
 |---|---|---|
