@@ -1,7 +1,7 @@
 {
     "name": "@gobing-ai/ts-ai-runner",
-    "version": "0.5.0",
-    "description": "@gobing-ai/ts-ai-runner \u2014 Coding-agent shims, detection, doctor checks, and prompt execution.",
+    "version": "0.4.70",
+    "description": "@gobing-ai/ts-ai-runner — Coding-agent shims, detection, doctor checks, and prompt execution.",
     "keywords": [
         "typescript",
         "ai",
@@ -44,7 +44,7 @@
         "format": "biome check . --write",
         "check": "bun run lint && bun run test",
         "prepublishOnly": "bun run build",
-        "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing \u2014 push a tag: git tag @gobing-ai/ts-ai-runner-v<version> && git push --tags' && exit 1"
+        "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-ai-runner-v<version> && git push --tags' && exit 1"
     },
     "dependencies": {
         "@gobing-ai/ts-infra": "workspace:*",
