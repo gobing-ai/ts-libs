@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: "TypeSafe driver: client wiring, question and answer mapping, error mapping"
-status: wip
+status: done
 template: feature-impl
 created_at: 2026-09-20T05:08:59.653Z
-updated_at: "2026-09-20T07:27:28.944Z"
+updated_at: "2026-09-20T08:24:01.092Z"
 feature_id: A2
 priority: P2
 tags:
@@ -36,25 +36,25 @@ versions, this is the one file that changes.
 
 ### Requirements
 
-- [ ] R1. Create `packages/ai-runner/src/decision/typesafe-driver.ts` exporting a
+- [x] R1. Create `packages/ai-runner/src/decision/typesafe-driver.ts` exporting a
       factory that returns a `DecisionDriver` with `name` `"typesafe"`.
-- [ ] R2. The driver constructs one `TypeSafeClient` per instance, passing `apiKey` **explicitly** so
+- [x] R2. The driver constructs one `TypeSafeClient` per instance, passing `apiKey` **explicitly** so
       the SDK's own `TYPESAFE_API_KEY` self-resolution never runs, and forwarding `baseURL`,
       `timeoutMs` as `timeout`, `maxRetries` into `retry`, `model` as `defaultModel`, and an
       injected `fetch` when supplied.
-- [ ] R3. `ask` issues exactly one `client.systemOne({ state, questions, model? })` call per
+- [x] R3. `ask` issues exactly one `client.systemOne({ state, questions, model? })` call per
       invocation, whatever the number of questions.
-- [ ] R4. Question mapping: `q.choice → choice(prompt, labels)`, `q.score → score(prompt, rubric)`,
+- [x] R4. Question mapping: `q.choice → choice(prompt, labels)`, `q.score → score(prompt, rubric)`,
       `q.noul → noul(prompt, { true: yes, false: no })`.
-- [ ] R5. Answer mapping: `ChoiceResponse → { kind: 'choice', label: r.choice, confidence, probabilities }`;
+- [x] R5. Answer mapping: `ChoiceResponse → { kind: 'choice', label: r.choice, confidence, probabilities }`;
       `ScoreResponse → { kind: 'score', score, confidence, legend, probabilities }`;
       `NoulResponse → { kind: 'noul', probability: r.noul }` with no confidence added.
-- [ ] R6. Answers are returned keyed by the caller's question names, in correspondence with the request.
-- [ ] R7. Every SDK error is translated per the design document's table, and no
+- [x] R6. Answers are returned keyed by the caller's question names, in correspondence with the request.
+- [x] R7. Every SDK error is translated per the design document's table, and no
       `@typesafe-ai/sdk` error class escapes the driver. Status and retry-after detail are preserved
       where the SDK provides them.
-- [ ] R8. `usage` and the response `model` are intentionally not surfaced in this version.
-- [ ] R9. Every test in this task runs against an injected `fetch` — no network, no live key.
+- [x] R8. `usage` and the response `model` are intentionally not surfaced in this version.
+- [x] R9. Every test in this task runs against an injected `fetch` — no network, no live key.
 
 ### Acceptance Criteria
 
@@ -179,18 +179,87 @@ body the SDK produces.
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Change-map for commits a694cdf + 14d8dd4 (implement hop; spur-check clean, 2308+2 pass / 0 fail):
+
+| Change (`file:line`) | What |
+|----------------------|------|
+| `packages/ai-runner/src/decision/typesafe-driver.ts:46` | Factory → DecisionDriver `name:typesafe`; one TypeSafeClient per instance; apiKey always explicit (R1,R2,R5) |
+| `packages/ai-runner/src/decision/typesafe-driver.ts:51` | baseURL pass-through + residual-risk comment (ambient TYPESAFE_BASE_URL when omitted; hard seal needs SDK default constant — deferred) |
+| `packages/ai-runner/src/decision/typesafe-driver.ts:75` | ask: exactly one client.systemOne per call (R3); answers keyed by caller names (R6); usage/model not surfaced (R8) |
+| `packages/ai-runner/src/decision/typesafe-driver.ts:91` | q<->SDK builders: choice/score/noul (R4); answer mapping field-exact, noul = {kind,probability} only (R5) |
+| `packages/ai-runner/src/decision/typesafe-driver.ts:139` | R7 translation table, subclass-before-base; 4xx→Request (incl NotFound), 5xx→Backend, local TypeSafeError→Request, foreign rethrown |
+| `packages/ai-runner/tests/decision/typesafe-driver.test.ts:115` | 14 tests, all injected-fetch: single-request by fetch-count, wire-body asserts, full error table, timeout/abort path |
+| `packages/ai-runner/tests/decision/typesafe-driver.test.ts:290` | 14d8dd4: non-SDK Error pass-through (identity assert); explicit baseURL under ambient TYPESAFE_BASE_URL via ts-utils gateway |
+
+SDK 0.6.0 verified against installed typings (index.d.mts) — no material doc/SDK discrepancies.
 
 ### Testing
 
-- `bun run typecheck` (ai-runner): clean.
-- `NODE_ENV=test bun test tests/decision/`: 34 pass / 0 fail — 13 tests in typesafe-driver.test.ts, all over injected fetch (no network, no live key).
-- `bun run spur-check` (workspace root): lint + typecheck + 2308 pass / 0 fail + all recommended-pre/post rules pass.
-- Coverage: single-request property asserted by counting fetch calls; wire body asserted from the serialized fetch body; every R7 table row exercised with status, retry-after, cause, and timeoutMs detail claims.
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | packages/ai-runner/src/decision/typesafe-driver.ts:48 factory createTypesafeDriver, :68 name 'typesafe', :85 returns DecisionDriver; test typesafe-driver.test.ts:93-95 asserts d.name==='typesafe'; cmd: bun test tests/decision/typesafe-driver.test.ts → 14 pass 0 fail |
+| R2 | MET | typesafe-driver.ts:49-63 exactly one new TypeSafeClient per factory call; :52 apiKey explicit from config; :57 baseURL, :58 defaultModel:config.model, :59 timeout:config.timeoutMs, :60 retry.maxRetries, :61 fetch; tests :93-107 (Authorization: Bearer explicit-key on wire, baseURL URL), :109-113 (config.model reaches wire when ask omits model), :306-316 (explicit baseURL wins under ambient TYPESAFE_BASE_URL) |
+| R3 | MET | typesafe-driver.ts:75 single client.systemOne per ask; test :115-130 fetch-call counting: 1 question → 1 call, 3 mixed questions → 1 call |
+| R4 | MET | typesafe-driver.ts:91-106 toSdkQuestion via SDK builders choice/score/noul, {true:yes,false:no} at :97-102; tests :132-153 assert serialized wire questions in SDK shape per kind, :155-164 undescribed prompt → null and bare noul sends no criteria (parsed from body) |
+| R5 | MET | typesafe-driver.ts:108-130 fromSdkAnswer field-for-field; test :166-199 exact toEqual for choice {kind,label,confidence,probabilities} and score {kind,score,confidence,legend,probabilities}, :193-194 noul toEqual {kind:'noul',probability:0.75} with Object.keys===['kind','probability'] — no confidence synthesized |
+| R6 | MET | typesafe-driver.ts:82-84 answers keyed from result.answers in caller-name correspondence; test :175 Object.keys(answers)===['tier','urgency','refund'] matching request keys |
+| R7 | MET | typesafe-driver.ts:139-181 translateError per design table, subclass-before-base (Timeout before Connection, HTTP subclasses before APIError), 4xx→DecisionRequestError incl. NotFound, 5xx→DecisionBackendError, local TypeSafeError→DecisionRequestError, foreign rethrow :179; tests :201-219 (8-status table, all DecisionError, none TypeSafeError), :221-247 (429+retryAfterMs 1500, 401, 400+bodySummary, 503), :249-257 (connection + cause chain), :259-268 (timeoutMs 25 via real abort), :270-276 (empty questions → DecisionRequestError, 0 fetch calls), :278-288 (construction failure → DecisionError), :290-304 (foreign Error identity preserved) |
+| R8 | MET | typesafe-driver.ts:78-85 ask returns only the mapped answers record; test :193-196 exact-shape toEqual plus expect(answers).not.toHaveProperty('usage'/'model') |
+| R9 | MET | All 14 tests in typesafe-driver.test.ts run on injected fetch (driver() helper; direct createTypesafeDriver({fetch}) at :259-268 hang-fetch and :278-288); cmd: grep -rn process.env packages/ai-runner/src/ → 0 matches; cmd: bun test tests/decision/ → 36 pass 0 fail; cmd: bunx tsc --noEmit (packages/ai-runner) → exit 0 |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| Scenario: R2 — ask evaluates many questions against one shared state in a single request | MET | test | typesafe-driver.test.ts:115-130 one injected-fetch call for 1 and for 3 mixed-primitive questions; :132-153 wire body carries state once (body.state toEqual) with tier/urgency/refund keyed by caller names in SDK shape; :175 answers keyed by the same names with kinds choice/score/noul; bun test 14 pass 0 fail |
+| Scenario: R4 — each primitive's answer carries only the fields the API returns | MET | test | typesafe-driver.test.ts:176-192 exact toEqual for choice and score answers vs recorded payload; :193-194 noul exactly {kind,probability}, key-set assertion proves no confidence present; static typesafe-driver.ts:108-130 maps field-for-field, invents nothing |
+| Scenario: R5 — the API key is injected, never read from process.env by this package | MET | test | grep -rn process.env packages/ai-runner/src/ → 0 matches; typesafe-driver.test.ts:93-107 Bearer explicit-key on wire from config (test env has no TYPESAFE_API_KEY, so a dropped explicit key would fail construction — bypass pinned); static typesafe-driver.ts:52 apiKey always config.apiKey; env-record resolution clause lives in the 0071 facade (decision-maker tests green in same run) |
+| Scenario: R7 — the driver is exercisable with no network and no live key | MET | test | all 14 tests resolve from injected fetch alone (whole suite green, no network); typesafe-driver.test.ts:109-113 model→defaultModel reaches wire; :259-268 timeoutMs:25 and maxRetries:0 reach client config (SDK timer abort, err.timeoutMs===25); :98 baseURL on wire; static typesafe-driver.ts:57-61 forwarding keys |
+| Scenario: R9 — SDK errors surface as package-level errors preserving actionable detail | MET | test | typesafe-driver.test.ts:201-219 401/403/400/404/422/429/500/503 each → package-level DecisionError, never TypeSafeError; :221-247 status plus retryAfterMs 1500 (429), bodySummary (400); :249-257 connection error preserves cause chain; :259-268 timeout carries configured timeoutMs; :270-288 local TypeSafeError and construction failures land in taxonomy |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+#### Review Report — 0072
+
+**Scope:** commit `a694cdf` diff — `packages/ai-runner/src/decision/typesafe-driver.ts` (stub → 154-line driver), `packages/ai-runner/tests/decision/typesafe-driver.test.ts` (rewritten, 13 tests). Mapping claims verified against the **installed** SDK 0.6.0 typings (`node_modules/.bun/@typesafe-ai+sdk@0.6.0/.../dist/index.d.mts`), not memory.
+**Dimensions:** functional, correctness, security, efficiency, usability, architecture
+**Verdict:** PASS
+
+**Fresh verification evidence (this review):** `bun test packages/ai-runner/tests/decision/` → 34 pass, 0 fail, 144 expect() calls; `bun run typecheck` → all 5 packages exit 0; coverage: `typesafe-driver.ts` 100% line / 96.51% branch (≥90% gate green), `errors.ts` + `types.ts` 100/100.
+
+##### Findings (ranked)
+
+| # | Priority | Dimension | Finding | Location |
+|---|----------|-----------|---------|----------|
+| 1 | P3 (minor) | correctness | The foreign-error rethrow (`throw err`) is the escape hatch that guarantees "no SDK class escapes" without mislabeling foreign errors — but it has zero test coverage (bun reports exactly lines 158–159 uncovered). One test pinning "plain non-SDK Error passes through untouched as-is" would close the contract. | `packages/ai-runner/src/decision/typesafe-driver.ts:159` |
+| 2 | P3 (minor) | security | `apiKey` is sealed (always explicit, R5 holds), but `baseURL`/`defaultModel`/`logLevel` are forwarded as-is, so the SDK's ambient `TYPESAFE_BASE_URL` / `TYPESAFE_DEFAULT_MODEL` / `TYPESAFE_LOG_LEVEL` fallbacks stay live (confirmed in 0.6.0 `index.d.mts:204-211,315-321`). An ambient `TYPESAFE_BASE_URL` would silently re-point credential-bearing requests — the same class of ambient-env risk the Q&A entry seals for the key. Cheap seal: `config.baseURL ?? 'https://api.typesafe.ai'` (explicit value disables the env fallback); `defaultModel` cannot be sealed without inventing a model name — accept or document. | `packages/ai-runner/src/decision/typesafe-driver.ts:53-54` |
+| 3 | P4 (advisory) | correctness | R6 keys-correspondence trusts the SDK echo: the driver maps whatever `result.answers` carries, with no request-keys ⊆ answer-keys check; a dropped key would surface only as a silent lie at the facade's one documented cast. Documented premise (spec Q&A), behavior is tested today (test asserts `Object.keys(answers)`), so advisory. | `packages/ai-runner/src/decision/typesafe-driver.ts:79-81` |
+| 4 | P4 (advisory) | usability | Spec housekeeping: R1–R9 requirement checkboxes still unchecked and task status `wip` — do-time F1/F2 transitions pending after this review. | `docs/tasks/0072_typesafe-driver-client-wiring-question-and-answer-mapping-er.md:39-57` |
+
+##### Functional Traceability
+
+| Req | Status | Evidence |
+|-----|--------|----------|
+| R1 | MET | `typesafe-driver.ts:48,64` — factory returns `DecisionDriver` named `'typesafe'`; test `:97` |
+| R2 | MET | Constructor keys verified against 0.6.0 typings: `apiKey` explicit (`:52`), `baseURL` (`:53`), `timeoutMs→timeout` (`:55`), `maxRetries→retry.maxRetries` (`:56`), `model→defaultModel` (`:54`), `fetch` (`:57`); explicit key provably reaches the wire: `Authorization: Bearer explicit-key` (test `:105`) |
+| R3 | MET | Exactly one `client.systemOne` per ask (`:71`); fetch-count tests: 1 question → 1 call, 3 questions → 1 call (tests `:114-128`) |
+| R4 | MET | `toSdkQuestion` via SDK builders `choice`/`score`/`noul` (`:86-104`); signatures match typings; undescribed prompts → `null` and bare noul sends no criteria (test `:154-164`) |
+| R5 | MET | `fromSdkAnswer` field-for-field vs SDK `ChoiceResponse`/`ScoreResponse`/`NoulResponse` (`:106-130`); noul answer has exactly `['kind','probability']` — no confidence invented (tests `:193-194`) |
+| R6 | MET | Answers keyed by caller's names (`:79-81`); `Object.keys(answers)` equals request keys (test `:175`); premise documented in Q&A |
+| R7 | MET | `translateError` (`:141-160`) matches design table with subclass-before-base order verified against the real hierarchy (`APITimeoutError extends APIConnectionError`; `RateLimit`/`Authentication`/`PermissionDenied` extend `APIError`); 429+retry-after, 401, 400, 503 detail asserted (tests `:200-246`); real timeout path `timeoutMs:25` (test `:258-267`); local `TypeSafeError` → `DecisionRequestError` before any fetch (test `:269-275`); construction failures also translated (test `:277-287`). Residual: finding #1 (foreign rethrow untested) |
+| R8 | MET | Driver returns only the answers record (`:81`); exact-shape assertions leave no path for `usage`/`model` to leak (tests `:179-193`) |
+| R9 | MET | All 13 driver tests run on injected `recordedFetch` returning recorded payloads; no `process.env` read anywhere in the decision feature (grep clean) |
+
+##### Per-dimension verdicts
+
+- **Functional (sp-functional-review):** PASS — R1–R9 all MET; all five `@core` AC scenarios evidenced against changed files (single-request batch `:114-147`; noul field-set asymmetry `:193-194`; explicit-key bypass `:105` + sealed at `:52`; no-network exercisability across all 13 tests; error taxonomy preserving detail `:200-246`).
+- **SECUA quality (sp-code-verification):** PASS with 2 P3 — mapping is exhaustive and correct against the actual 0.6.0 typings (constructor config, `systemOne({state, questions, model})`, response field names `choice`/`confidence`/`probabilities`, `score`/`confidence`/`legend`, `noul`; error hierarchy); table ordering is subclass-before-base; no SDK class escape path (4xx→Request incl. NotFound, 5xx→Backend, local TypeSafeError→Request, foreign rethrown); ambient env sealed for the credential. Findings #1–#2 dispositionable.
+- **Architecture depth (sp-code-improvement):** PASS — one `TypeSafeClient` per instance by construction (`:49-63`, closed over by `ask`); single-request property pinned by fetch-count, not implied; deliberate omissions (`usage`/`model`) cannot leak (answers-only return + exact-shape tests); 0071 factory slot intact (`decision-maker.ts:20,89` — `defaultDriver ??= createTypesafeDriver(...)`); boundary rule green — `@typesafe-ai/sdk` imported only in `typesafe-driver.ts` (src) and tests, matching the rule's scope.
+
+**Next:** Disposition the two P3s (add the foreign-rethrow test; decide seal-vs-accept for `TYPESAFE_BASE_URL` fallback), then proceed to done-time housekeeping (F1 checkbox transitions). No P1/P2 — gate not blocked.
 
 ### References
 
@@ -199,4 +268,6 @@ body the SDK produces.
 ### History
 
 - 2026-09-20T07:27:28.944Z todo → wip (system)
+- 2026-09-20T08:24:00.756Z wip → testing (system)
+- 2026-09-20T08:24:01.092Z testing → done (system)
 

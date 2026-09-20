@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Export DecisionMaker from the barrel and document the capability
-status: wip
+status: done
 template: feature-impl
 created_at: 2026-09-20T05:08:59.654Z
-updated_at: "2026-09-20T08:25:21.007Z"
+updated_at: "2026-09-20T09:21:03.497Z"
 feature_id: A2
 priority: P2
 tags:
@@ -33,20 +33,20 @@ interface is shaped the way it is.
 
 ### Requirements
 
-- [ ] R1. `packages/ai-runner/src/index.ts` re-exports `createDecisionMaker`, the
+- [x] R1. `packages/ai-runner/src/index.ts` re-exports `createDecisionMaker`, the
       `DecisionMaker` and `DecisionMakerOptions` types, the `q` builders, `DecisionDriver`, every
       neutral question and answer type, and the `DecisionError` taxonomy.
-- [ ] R2. The SDK itself and every SDK type stay unexported — nothing vendor-shaped crosses the barrel.
-- [ ] R3. `packages/ai-runner/README.md` gains a capability section covering: what the surface is for,
+- [x] R2. The SDK itself and every SDK type stay unexported — nothing vendor-shaped crosses the barrel.
+- [x] R3. `packages/ai-runner/README.md` gains a capability section covering: what the surface is for,
       the batch `ask` example with three mixed questions against one state, the single-question sugar
       form, `TYPESAFE_API_KEY` configuration and the injected-`env` alternative, the error taxonomy,
       and a note that the yes/no answer carries no confidence because the API reports none.
-- [ ] R4. The README states that additional backend drivers are the intended extension point and that a
+- [x] R4. The README states that additional backend drivers are the intended extension point and that a
       driver implements only `ask`.
-- [ ] R5. Every code sample in the README typechecks against the shipped types.
-- [ ] R6. `docs/04_DESIGN.md` moves the `DecisionMaker` row from `planned` to `current` with the
+- [x] R5. Every code sample in the README typechecks against the shipped types.
+- [x] R6. `docs/04_DESIGN.md` moves the `DecisionMaker` row from `planned` to `current` with the
       frontmatter version and `updated_at` bumped per `docs/99_PROJECT_CONSTITUTION.md` §6.5.
-- [ ] R7. `bun run spur-check` and `bun run build` both pass, and `spur feature check A2` reports no
+- [x] R7. `bun run spur-check` and `bun run build` both pass, and `spur feature check A2` reports no
       orphan scenarios.
 
 ### Acceptance Criteria
@@ -126,45 +126,75 @@ first one.
 
 ### Solution
 
-- R1: `packages/ai-runner/src/index.ts:8-10` already carried the three decision re-exports
-  (`./decision/decision-maker`, `./decision/errors`, `./decision/types`) landed with 0070/0071
-  ("barrel exports decision modules per package convention"). Verified every required symbol —
-  `createDecisionMaker`, `DecisionMaker`, `DecisionMakerOptions`, `q`, `DecisionDriver`, every
-  neutral question/answer type, and the full `DecisionError` taxonomy — is reachable from the
-  barrel via a consumer typecheck against the built package; no further barrel edit needed.
-- R2: no vendor leakage. `dist/decision/decision-maker.d.ts` (the only reachable decision file that
-  imports the driver) imports types solely from the neutral `./types`; `typesafe-driver` is not
-  barrel-exported, so `createTypesafeDriver` / `TypesafeDriverConfig` and every SDK type/class stay
-  unreachable. Grep of the three reachable `.d.ts` files finds SDK names only inside prose comments.
-- R3/R4: `packages/ai-runner/README.md` — new "Decision Making" section (batch `ask` with three
-  mixed questions against one shared state leading, single-question sugar, `TYPESAFE_API_KEY`
-  resolution with the injected-`env` alternative, error taxonomy table, yes/no-carries-no-confidence
-  note) plus "Adding a backend driver" (drivers are the extension point; a driver implements only
-  `ask`) and a What-It-Provides table row.
-- R5: every README sample extracted verbatim into a scratch `.ts` and compiled with
-  `bunx tsc --noEmit` (strict; flags mirrored from `tooling/typescript/base.json`) against the built
-  package — resolves `@gobing-ai/ts-ai-runner` to `dist/index.d.ts`, proving both sample
-  correctness and barrel reachability. PASS, including negative assertions (`@ts-expect-error`: the
-  noul answer has no `confidence` field; a rubric below two levels is rejected). Scratch deleted.
-- R6: `docs/04_DESIGN.md` — `DecisionMaker` row planned→current; frontmatter version 1.2.0→1.3.0
-  and `updated_at`→2026-09-20 (minor bump per prior index-row history, §6.5).
-- P4 owed from 0071 review: `docs/design/decision-maker.md:180` — the one-arg
-  `DecisionConfigError('TYPESAFE_API_KEY')` snippet fixed to the real two-arg signature
-  `(message, variable)`.
+Change-map for commits 2bce32c + 7a40f849 (implement hop + review P3 fix; spur-check clean, 2310 pass / 0 fail):
+
+| Change (`file:line`) | What |
+|----------------------|------|
+| `packages/ai-runner/src/index.ts:6` | Barrel already re-exported decision surface (0070/0071); verified complete, no vendor leak (consumer probes → TS2305 for SDK names) |
+| `packages/ai-runner/README.md:734` | Decision Making capability section: batch ask + sugar + key config/env alternative + taxonomy table + no-confidence note; drivers-are-the-extension-point (`ask`-only contract) |
+| `packages/ai-runner/README.md:749,792` | 7a40f849: `state`/`key` declared in-sample → verbatim extraction compiles --strict vs built dist |
+| `docs/04_DESIGN.md:5` | DecisionMaker planned→current, v1.3.0, updated_at 2026-09-20 (§6.5) |
+| `docs/design/decision-maker.md:180` | 0071-owed doc fix: ConfigError snippet → real two-arg signature |
+
+README sample typecheck method: whole-section verbatim extractor → bunx tsc --noEmit --strict against packages/ai-runner/dist/index.d.ts — PASS.
 
 ### Testing
 
-- `bun run build` — PASS (all 8 packages exit 0); vendor-leak grep over built decision `.d.ts`.
-- `bunx tsc --noEmit` on extracted README samples against built dist declarations — PASS.
-- `bun run spur-check` — PASS (biome + typecheck, recommended-pre-check rules, 2310 tests / 199
-  files / 0 fail, recommended-post-check rules).
-- `spur feature check A2` — PASS; no orphan scenarios (R11 linked to this task; its PASS verdict
-  lands with this task's own lifecycle transition).
+**Pipeline verify results**
 
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | static-ref: packages/ai-runner/src/index.ts:6-8 `export *` from decision/decision-maker, decision/errors, decision/types (barrel untouched by 2bce32c/7a40f849 — pre-existing from 0070/0071). command: consumer fixture importing createDecisionMaker, DecisionMaker, DecisionMakerOptions, q, DecisionDriver, ChoiceQuestion/ScoreQuestion/NoulQuestion/Question, ChoiceAnswer/ScoreAnswer/NoulAnswer/Answer/AnswerFor/AnswersFor + all 8 DecisionError classes against packages/ai-runner/dist/index.d.ts → `bunx tsc -p fixture --strict` exit 0 |
+| R2 | MET | command: `bunx tsc --listFilesOnly` over the full entry-point type graph → 0 files matching typesafe-ai; typesafe-driver.d.ts absent from graph (only decision/{types,decision-maker,errors}.d.ts reachable). static-ref: grep typesafe-driver in src/index.ts → no match; SDK names in the 3 reachable .d.ts appear only inside /** */ prose (dist/decision/types.d.ts:3, decision-maker.d.ts:4,24,30,40) |
+| R3 | MET | static-ref: packages/ai-runner/README.md:734-812 — purpose (736-738), batch ask with 3 mixed questions (choice/score/noul) on one state (741-767), single-question sugar (769-783), TYPESAFE_API_KEY + injected env config (787-798), error taxonomy table (800-812), no-confidence note (781, 785-786). command: section verbatim-extract typecheck vs dist exit 0 |
+| R4 | MET | static-ref: packages/ai-runner/README.md:816-834 — "Additional backend drivers are the intended extension point. A driver implements only `ask`" + custom DecisionDriver example incl. name field and createDecisionMaker({ driver }) |
+| R5 | MET | command: verbatim extraction of all 4 ts blocks (README:744-767, 771-783, 793-796, 819-834) → `bunx tsc --noEmit --strict` vs built dist. Naive single-scope concat trips only cross-sample name collisions (TS2451 `decisions` x3, TS6133 `sandboxed`) — no type mismatch vs shipped types; section-scoped sequential-context extract (block text byte-verbatim, imports hoisted) exit 0. Negative assertions consumed: NoulAnswer exposes no `confidence` (@ts-expect-error satisfied), rubric below 2 levels rejected (TS2345 on q.score single-level) |
+| R6 | MET | static-ref: docs/04_DESIGN.md:7 version 1.2.0→1.3.0, :10 updated_at 2026-09-20, :25 row planned→current (diff 2bce32c). manual-review: §6.5 same-commit rule satisfied — satellite fix (decision-maker.md:180) + index row flip in the same commit |
+| R7 | MET | command: fresh `bun run spur-check` → exit 0 (2310 pass / 0 fail, 6323 expect() calls across 199 files; spur rules — All 2 rules passed, no violations); fresh `bun run build` → exit 0 (all 8 packages incl. @gobing-ai/ts-ai-runner); fresh `bun run spur feature check A2` → PASS exit 0, no orphan scenarios (WARN: R11 unverified pending this verdict — expected pre-verdict state) |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| Scenario: R11 — the capability is exported from the barrel and documented | MET | test | test: bun test packages/ai-runner/tests/decision/decision-maker.test.ts → 10 pass / 0 fail. command: reachability fixture vs dist/index.d.ts exit 0 (all surface names resolve); `--listFilesOnly` → 0 @typesafe-ai files in entry-point graph (no SDK type/class/error exported). static-ref: src/index.ts:6-8; README.md:741-767 batch form, 769-783 single-question form, 787-798 key configuration, 781+785-786 no-confidence note, 816-834 driver extension point. manual-review: docs/04_DESIGN.md:25 row current at 1.3.0/2026-09-20 |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+#### Review Report — 0073
+
+**Scope:** commit 2bce32c — `packages/ai-runner/README.md` Decision Making section; `docs/04_DESIGN.md` planned→current + frontmatter; `docs/design/decision-maker.md:180` two-arg fix; barrel verified-not-edited
+**Dimensions:** functional, security, correctness, usability, architecture
+**Verdict:** PASS — no P1/P2; one P3 recorded (non-blocking per gate semantics)
+
+##### Findings (ranked)
+
+| # | Priority | Dimension | Finding | Location |
+|---|----------|-----------|---------|----------|
+| 1 | P3 (minor) | correctness / usability | The sugar and config snippets use `state` and `key` but neither identifier is introduced anywhere in the section; a verbatim whole-section extraction fails `tsc` (2× TS2304 `state`, 2× TS2304 `key`; the 3× `const decisions` redeclare is house style — `runner` is likewise declared 3× across earlier sections — and is not counted). The task's "samples extracted verbatim … PASS" claim is therefore not reproducible as stated. The API shapes themselves are honest: with the two identifiers declared, every snippet typechecks clean against dist | `packages/ai-runner/README.md:773,779,792-793` |
+| 2 | P4 (advisory) | architecture | Prose says "a driver implements only `ask`"; the `DecisionDriver` contract is `{ name, ask }`. The sample correctly shows `name: 'my-backend'`, the prose omits the field | `packages/ai-runner/README.md:812-824`; `packages/ai-runner/src/decision/types.ts` (`DecisionDriver`) |
+| 3 | P4 (advisory) | correctness | Design-doc snippet message `'Missing TYPESAFE_API_KEY'` is a shortened paraphrase of the shipped string ("Missing TYPESAFE_API_KEY — set it in the environment or pass options.apiKey."); the two-arg `(message, variable)` signature — the actual 0071-review P4 — is now correct | `docs/design/decision-maker.md:180`; `packages/ai-runner/src/decision/decision-maker.ts:60-64` |
+
+##### Functional Traceability
+
+| Req | Status | Evidence |
+|-----|--------|----------|
+| R1 | MET | barrel `export *` from the three decision modules (`packages/ai-runner/src/index.ts:8-10`, mirrored in `dist/index.d.ts`); fresh consumer probe: `createDecisionMaker`, `q`, `DecisionMaker`/`DecisionMakerOptions`, `DecisionDriver`, every neutral question/answer type + `Answer(s)For`, `DecisionError` + all 7 subclasses resolve from `@gobing-ai/ts-ai-runner` with correct shapes (tsc clean vs fresh dist) |
+| R2 | MET | negative probe: importing `createTypesafeDriver` / `TypeSafeClient` / `TypesafeDriverConfig` from the barrel → TS2305 ×3; grep of the reachable dist chain (`index`/`decision-maker`/`errors`/`types` .d.ts) finds `@typesafe-ai` only inside a prose comment (`dist/decision/types.d.ts:3`); `typesafe-driver` is unreferenced from `dist/index.d.ts` |
+| R3 | MET | batch `ask` with three mixed questions on one shared state leads; single-question sugar; `TYPESAFE_API_KEY` + injected-`env` config; error taxonomy table; yes/no-carries-no-confidence note; What-It-Provides table row added |
+| R4 | MET | "Adding a backend driver" section present; driver sample typechecks against the real contract (P4 #2 wording nit) |
+| R5 | PARTIAL | sample symbols all real and correctly typed (shimmed extraction clean), but verbatim extraction fails on the never-introduced `state`/`key` (P3 #1) |
+| R6 | MET | `DecisionMaker` row planned→current; frontmatter 1.2.0→1.3.0, `updated_at` 2026-09-20; §6.5 same-change rule honored — satellite (`decision-maker.md`) and index row in one commit |
+| R7 | MET | fresh this review: `bun run build` 8 packages exit 0; `bun run spur-check` 2310 pass / 0 fail; `spur feature check A2` PASS — R11 linked, no orphan scenarios (WARN is the expected pre-verdict state) |
+| R11 | MET | all four AC Then-clauses verified by the probes and evidence above |
+
+##### Per-dimension verdicts
+
+- **Functional:** PASS except R5 PARTIAL (P3 #1, non-blocking).
+- **SECUA:** PASS. Vendor-leak proof re-verified at the consumer boundary (fresh neg probe + dist-chain grep). Taxonomy table matches `errors.ts` field-for-field (variable / status / status+retryAfterMs / timeoutMs / cause / status+bodySummary / status). Injected-env example matches `DecisionMakerOptions.env` (`Record<string, string | undefined>`) and the `resolveApiKey` order apiKey→env→process env. The `{ driver }` sample comment "no TYPESAFE_API_KEY required" is honest — a caller-supplied driver short-circuits before key resolution (`decision-maker.ts` `resolveDriver`).
+- **Architecture:** PASS. Docs authority order respected — 04 stays a derived pointer+status index; `decision-maker.md` is the signature SSOT and its :180 fix matches the implemented two-arg `DecisionConfigError(message, variable)` (`errors.ts`). Extension-point claim matches the `DecisionDriver` contract (one method + `name` tag). Scope is exactly the 4 committed files — zero 0070–0072 source files, barrel untouched and verified complete as landed in 0070/0071.
+
+**Next:** two-line README fix — bind `state` in the batch snippet (hoist the inline object) and show the `key` binding in the config snippet — then R5 is fully MET; soften the Testing claim from "extracted verbatim" to match reality. Pipeline gate not blocked.
 
 ### References
 
@@ -173,4 +203,6 @@ first one.
 ### History
 
 - 2026-09-20T08:25:21.007Z todo → wip (system)
+- 2026-09-20T09:21:03.145Z wip → testing (system)
+- 2026-09-20T09:21:03.497Z testing → done (system)
 
