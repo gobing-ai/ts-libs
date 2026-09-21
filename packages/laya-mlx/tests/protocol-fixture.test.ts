@@ -98,6 +98,8 @@ describe('Protocol fixture layer against committed lines (task 0081 R1, R2)', ()
         const workerScoreQ = toWorkerQuestion(scoreQ);
         expect(workerScoreQ.type).toBe('score');
         expect(workerScoreQ.rubric).toEqual(['poor', 'ok', 'good']);
+        // The runtime rejects a map: score criteria goes on the wire as a nonempty list.
+        expect(workerScoreQ.criteria).toEqual(['poor', 'ok', 'good']);
 
         const noulQ = q.noul('Deploy?');
         const workerNoulQ = toWorkerQuestion(noulQ);

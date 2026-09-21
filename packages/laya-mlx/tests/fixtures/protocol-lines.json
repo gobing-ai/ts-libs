@@ -16,7 +16,10 @@
                     "dept": {
                         "type": "choice",
                         "instructions": "Route to the correct department",
-                        "criteria": { "billing": "Invoices and payments", "tech": "Hardware and software support" }
+                        "criteria": {
+                            "billing": "Invoices and payments",
+                            "tech": "Hardware and software support"
+                        }
                     }
                 }
             },
@@ -30,11 +33,20 @@
                             "type": "choice",
                             "choice": "billing",
                             "confidence": 0.9421,
-                            "probabilities": { "billing": 0.9421, "tech": 0.0579 },
-                            "action": { "act_probability": 0.8523 }
+                            "probabilities": {
+                                "billing": 0.9421,
+                                "tech": 0.0579
+                            },
+                            "action": {
+                                "act_probability": 0.8523
+                            }
                         }
                     },
-                    "usage": { "input_tokens": 42, "output_tokens": 1, "chunks": 1 }
+                    "usage": {
+                        "input_tokens": 42,
+                        "output_tokens": 1,
+                        "chunks": 1
+                    }
                 }
             }
         },
@@ -48,7 +60,7 @@
                         "type": "score",
                         "instructions": "Rate code clarity",
                         "rubric": ["poor", "acceptable", "clear"],
-                        "criteria": { "0": "poor", "1": "acceptable", "2": "clear" }
+                        "criteria": ["poor", "acceptable", "clear"]
                     }
                 }
             },
@@ -62,12 +74,26 @@
                             "type": "score",
                             "score": 2,
                             "confidence": 0.8845,
-                            "probabilities": { "0": 0.0211, "1": 0.0944, "2": 0.8845 },
-                            "legend": { "0": "poor", "1": "acceptable", "2": "clear" },
-                            "action": { "act_probability": 0.7612 }
+                            "probabilities": {
+                                "0": 0.0211,
+                                "1": 0.0944,
+                                "2": 0.8845
+                            },
+                            "legend": {
+                                "0": "poor",
+                                "1": "acceptable",
+                                "2": "clear"
+                            },
+                            "action": {
+                                "act_probability": 0.7612
+                            }
                         }
                     },
-                    "usage": { "input_tokens": 36, "output_tokens": 1, "chunks": 1 }
+                    "usage": {
+                        "input_tokens": 36,
+                        "output_tokens": 1,
+                        "chunks": 1
+                    }
                 }
             }
         },
@@ -80,7 +106,10 @@
                     "deploy": {
                         "type": "noul",
                         "instructions": "Approve deploy?",
-                        "criteria": { "true": "Approve", "false": "Block" }
+                        "criteria": {
+                            "true": "Approve",
+                            "false": "Block"
+                        }
                     }
                 }
             },
@@ -94,10 +123,16 @@
                             "type": "noul",
                             "noul": 0.9842,
                             "confidence": 0.9842,
-                            "action": { "act_probability": 0.9214 }
+                            "action": {
+                                "act_probability": 0.9214
+                            }
                         }
                     },
-                    "usage": { "input_tokens": 28, "output_tokens": 1, "chunks": 1 }
+                    "usage": {
+                        "input_tokens": 28,
+                        "output_tokens": 1,
+                        "chunks": 1
+                    }
                 }
             }
         },
@@ -106,12 +141,20 @@
             "request": {
                 "id": "4",
                 "state": "s",
-                "questions": { "q": { "type": "choice", "instructions": "p" } }
+                "questions": {
+                    "q": {
+                        "type": "choice",
+                        "instructions": "p"
+                    }
+                }
             },
             "response": {
                 "id": "4",
                 "ok": false,
-                "error": { "kind": "config", "message": "Unknown dtype 'int8'" }
+                "error": {
+                    "kind": "config",
+                    "message": "Unknown dtype 'int8'"
+                }
             }
         },
         {
@@ -119,12 +162,20 @@
             "request": {
                 "id": "5",
                 "state": "s",
-                "questions": { "q": { "type": "choice", "instructions": "p" } }
+                "questions": {
+                    "q": {
+                        "type": "choice",
+                        "instructions": "p"
+                    }
+                }
             },
             "response": {
                 "id": "5",
                 "ok": false,
-                "error": { "kind": "request", "message": "Question missing instructions" }
+                "error": {
+                    "kind": "request",
+                    "message": "Question missing instructions"
+                }
             }
         },
         {
@@ -132,7 +183,12 @@
             "request": {
                 "id": "6",
                 "state": "s",
-                "questions": { "q": { "type": "choice", "instructions": "p" } }
+                "questions": {
+                    "q": {
+                        "type": "choice",
+                        "instructions": "p"
+                    }
+                }
             },
             "response": {
                 "id": "6",

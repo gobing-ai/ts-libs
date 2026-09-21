@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { type ChoiceAnswer, createDecisionMaker, type NoulAnswer, q, type ScoreAnswer } from '@gobing-ai/ts-ai-runner';
+import {
+    type ChoiceAnswer,
+    createDecisionMaker,
+    DecisionBackendError,
+    type NoulAnswer,
+    q,
+    type ScoreAnswer,
+} from '@gobing-ai/ts-ai-runner';
 import { createLayaDriver, mapWorkerAnswer } from '../src/driver';
 import { LayaWorkerClient } from '../src/worker-client';
 
@@ -84,6 +91,22 @@ describe('Laya decision driver answer mapping (task 0078)', () => {
             expect((answer as Record<string, unknown>).action).toBeUndefined();
             expect((answer as Record<string, unknown>).act_probability).toBeUndefined();
         });
+
+        it('derives the categorical score as argmax of probabilities when the runtime reports an expectation', () => {
+            // Live-run finding (0081): the runtime reports score as the probability-weighted
+            // expectation (e.g. 1.8451); the neutral contract is the 0-indexed rubric category.
+            const question = q.score('Urgency', ['not urgent', 'soon', 'critical']);
+            const raw = {
+                type: 'score',
+                score: 1.8451,
+                confidence: 0.85,
+                probabilities: { '0': 0.02, '1': 0.13, '2': 0.85 },
+            };
+            const answer = mapWorkerAnswer(question, raw) as ScoreAnswer;
+            expect(answer.kind).toBe('score');
+            expect(answer.score).toBe(2);
+            expect(answer.probabilities).toEqual({ 0: 0.02, 1: 0.13, 2: 0.85 });
+        });
     });
 
     describe('R4, R5 — Noul answer mapping and field stripping', () => {
@@ -103,6 +126,19 @@ describe('Laya decision driver answer mapping (task 0078)', () => {
             // R5: action probability is dropped
             expect((answer as Record<string, unknown>).action).toBeUndefined();
             expect((answer as Record<string, unknown>).act_probability).toBeUndefined();
+        });
+    });
+
+    describe('malformed worker answers', () => {
+        it('rejects instead of silently defaulting fields', () => {
+            expect(() =>
+                mapWorkerAnswer(q.choice('Pick', { a: 'A', b: 'B' }), { type: 'choice', confidence: 0.5 }),
+            ).toThrow(DecisionBackendError);
+            expect(() => mapWorkerAnswer(q.score('Rate', ['x', 'y']), { type: 'score' })).toThrow(DecisionBackendError);
+            expect(() => mapWorkerAnswer(q.noul('Go?'), { type: 'noul' })).toThrow(DecisionBackendError);
+            expect(() => mapWorkerAnswer(q.noul('Go?'), { type: 'noul', noul: Number.NaN })).toThrow(
+                DecisionBackendError,
+            );
         });
     });
 

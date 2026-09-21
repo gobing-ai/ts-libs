@@ -38,17 +38,15 @@ export function toWorkerQuestion(question: Question): WorkerQuestion {
                 labels: question.labels,
                 criteria: question.labels,
             };
-        case 'score': {
-            const legend: Record<string, Desc> = Object.fromEntries(
-                question.rubric.map((desc, idx) => [String(idx), desc]),
-            );
+        case 'score':
             return {
                 type: 'score',
                 instructions: formatDesc(question.prompt),
                 rubric: question.rubric,
-                criteria: legend,
+                // The runtime rejects a map here: score criteria is the rubric as a
+                // nonempty list of descriptions (laya_mlx agent.py `_to_internal`).
+                criteria: question.rubric.map(formatDesc),
             };
-        }
         case 'noul': {
             const outcomes =
                 question.yes === undefined && question.no === undefined
@@ -74,7 +72,10 @@ export function mapWorkerAnswer(question: Question, rawAnswer: unknown): Answer 
     const raw = rawAnswer as Record<string, unknown>;
     switch (question.kind) {
         case 'choice': {
-            const label = (raw.choice ?? raw.label) as string;
+            const label = raw.choice ?? raw.label;
+            if (typeof label !== 'string' || label.length === 0) {
+                throw new DecisionBackendError('laya worker returned invalid choice answer: missing label', undefined);
+            }
             const confidence = typeof raw.confidence === 'number' ? raw.confidence : 0;
             const probabilities = (raw.probabilities ?? {}) as Record<string, number>;
             return {
@@ -85,7 +86,6 @@ export function mapWorkerAnswer(question: Question, rawAnswer: unknown): Answer 
             };
         }
         case 'score': {
-            const score = typeof raw.score === 'number' ? raw.score : 0;
             const confidence = typeof raw.confidence === 'number' ? raw.confidence : 0;
             const legend: Record<number, Desc> = Object.fromEntries(question.rubric.map((desc, idx) => [idx, desc]));
             const rawLegend = raw.legend as Record<string | number, Desc> | undefined;
@@ -100,6 +100,21 @@ export function mapWorkerAnswer(question: Question, rawAnswer: unknown): Answer 
             for (const [k, v] of Object.entries(rawProbs)) {
                 normalizedProbs[Number(k)] = v;
             }
+            // The runtime reports score as the probability-weighted expectation
+            // (e.g. 1.8451); the neutral contract is the categorical rubric index —
+            // argmax over the per-level probabilities (validation.json semantics).
+            const probEntries = Object.entries(normalizedProbs);
+            let score: number;
+            if (probEntries.length > 0) {
+                score = Number(probEntries.reduce((best, cur) => (cur[1] > best[1] ? cur : best))[0]);
+            } else if (typeof raw.score === 'number' && Number.isFinite(raw.score)) {
+                score = Math.round(raw.score);
+            } else {
+                throw new DecisionBackendError(
+                    'laya worker returned invalid score answer: no score or probabilities',
+                    undefined,
+                );
+            }
             return {
                 kind: 'score',
                 score,
@@ -111,8 +126,13 @@ export function mapWorkerAnswer(question: Question, rawAnswer: unknown): Answer 
         case 'noul': {
             // R4: NoulAnswer carries a bare probability by contract; confidence is dropped.
             // R5: action.act_probability is dropped.
-            const probability =
-                typeof raw.noul === 'number' ? raw.noul : typeof raw.probability === 'number' ? raw.probability : 0;
+            const probability = typeof raw.noul === 'number' ? raw.noul : raw.probability;
+            if (typeof probability !== 'number' || !Number.isFinite(probability)) {
+                throw new DecisionBackendError(
+                    'laya worker returned invalid noul answer: missing probability',
+                    undefined,
+                );
+            }
             return {
                 kind: 'noul',
                 probability,

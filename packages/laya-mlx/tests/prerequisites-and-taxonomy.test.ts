@@ -16,7 +16,8 @@ import {
 } from '../src/worker-client';
 
 function q(instructions: string): WorkerQuestion {
-    return { type: 'choice', instructions };
+    // Choice criteria must satisfy the runtime contract the stub now mirrors.
+    return { type: 'choice', instructions, criteria: ['x'] };
 }
 
 describe('Host prerequisites and decision taxonomy (task 0077)', () => {
