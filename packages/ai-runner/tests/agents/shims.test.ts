@@ -263,7 +263,7 @@ describe('getAgentSessionCapability (0447 R2 + B8 R1/R3)', () => {
             supportsStructuredOutput: true,
             verifiedAgainst: '18.2.3',
         });
-        expect(getAgentSessionCapability('pi').verifiedAgainst).toBe('0.85.1');
+        expect(getAgentSessionCapability('pi').verifiedAgainst).toBe('0.87.0');
     });
 
     test('claude supports resume-by-id and structured output but no session-dir (B8 R4)', () => {
@@ -274,7 +274,7 @@ describe('getAgentSessionCapability (0447 R2 + B8 R1/R3)', () => {
         // Session id is discovered from output (discoverSessionId contract), not
         // from a caller-owned session dir — the note records the ignore.
         expect(cap.note).toContain('sessionDir is ignored');
-        expect(cap.verifiedAgainst).toBe('2.1.274');
+        expect(cap.verifiedAgainst).toBe('2.1.278');
     });
 
     test('codex resumes by id via the non-interactive `exec resume <id>` (B8 R3)', () => {
@@ -283,7 +283,7 @@ describe('getAgentSessionCapability (0447 R2 + B8 R1/R3)', () => {
         expect(cap.supportsSessionDir).toBe(false);
         // R3 branch 2 (true + wired): the non-interactive resume command itself is
         // proven by the argv matrix below (`exec resume <id> <prompt>`).
-        expect(cap.verifiedAgainst).toBe('0.154.0');
+        expect(cap.verifiedAgainst).toBe('0.155.1');
     });
 
     test('agy and grok support resume-by-id, no session-dir', () => {
@@ -294,7 +294,7 @@ describe('getAgentSessionCapability (0447 R2 + B8 R1/R3)', () => {
         const grok = getAgentSessionCapability('grok');
         expect(grok.supportsResumeById).toBe(true);
         expect(grok.supportsSessionDir).toBe(false);
-        expect(grok.verifiedAgainst).toBe('1.0.34');
+        expect(grok.verifiedAgainst).toBe('1.0.40');
     });
 
     test('gemini has no resume-by-id (`-r` is latest/index only) but has structured output', () => {

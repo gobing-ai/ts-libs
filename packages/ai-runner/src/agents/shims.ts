@@ -477,14 +477,14 @@ const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapabilit
         supportsSessionDir: true,
         supportsPersistentStdin: true,
         supportsStructuredOutput: true,
-        verifiedAgainst: '0.85.1',
+        verifiedAgainst: '0.87.0',
     },
     claude: {
         supportsResumeById: true,
         supportsSessionDir: false,
         supportsPersistentStdin: true,
         supportsStructuredOutput: true,
-        verifiedAgainst: '2.1.274',
+        verifiedAgainst: '2.1.278',
         // Persistent stdin is shim-wired: `-p --input-format stream-json --output-format
         // stream-json` keeps the process alive reading JSONL envelopes (verified --help;
         // --input-format only works with --print).
@@ -495,7 +495,7 @@ const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapabilit
         supportsSessionDir: false,
         supportsPersistentStdin: false,
         supportsStructuredOutput: true,
-        verifiedAgainst: '0.154.0',
+        verifiedAgainst: '0.155.1',
         // R3 branch 2: `exec resume <id> <prompt>` is the working non-interactive
         // resume (verified 0.154.0) — wired in getPromptCommand below.
         note: 'no session-dir flag — sessionDir is ignored; `exec` carries one prompt arg (stdin `-` is one-shot), so no multi-turn stdin',
@@ -515,7 +515,7 @@ const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapabilit
         supportsSessionDir: false,
         supportsPersistentStdin: false,
         supportsStructuredOutput: true,
-        verifiedAgainst: '1.0.34',
+        verifiedAgainst: '1.0.40',
         note: 'no session-dir flag — sessionDir is ignored (best-effort isolate); no multi-turn stdin input mode',
     },
     gemini: {
