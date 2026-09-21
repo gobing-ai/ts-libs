@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [0.5.2] - 2026-09-21
+
+### Added
+
+- **`@gobing-ai/ts-laya-mlx`: local laya decision backend (feature J, tasks 0074–0082).** New package: host prerequisite validation with failure translation, worker driving over `ProcessExecutor` with an id-correlated JSON-lines protocol, worker answers mapped onto the neutral decision types, model-artifact resolution and caching through driver options, and a named backend selector in `ts-ai-runner` that adds no `laya` dependency. Ships Apache-2.0 `LICENSE`/`NOTICE` upstream attribution, zero weight artifacts, and a two-layer parity check against shipped fixtures. `93a41396`.
+
+### Fixed
+
+- **`@gobing-ai/ts-laya-mlx`: repair parity harness defects found by the first live run.** Score criteria are sent as the rubric list, not a label map; the categorical score derives as argmax over per-level probabilities (the runtime reports the weighted expectation); malformed worker answers are rejected instead of silently defaulted; the parity runner records measured per-language refund expectations, compares noul probabilities, and forwards caller env. `9826fad7`.
+- **`@gobing-ai/ts-ai-runner`: bump verifiedAgainst baselines for pi, claude, codex, and grok.** `85a2d7ab`.
+
+### Other
+
+- **ADR-027/028 — `ts-laya-mlx` backend and one-way selection.** Decision records for the local laya backend and the one-way backend selection contract; architecture docs cover the laya-mlx execution model and invariants. `c45d2ef1`, `ae8aebde`.
+- **Feature J registered with its task batch; laya-mlx task verification evidence refreshed after the fix pass.** `b880e746`, `54db33ee`.
+
 ## [0.4.70] - 2026-09-20
 
 ### Added
