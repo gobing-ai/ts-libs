@@ -3,7 +3,7 @@ name: Architecture Decision Records
 doc: 00_ADR
 owns: WHY — which cross-cutting decision was made, and the one-line reason
 authority: authoritative
-version: 1.1.0
+version: 1.3.0
 owner: Robin Min
 updated_at: 2026-09-20
 read_before: any structural change
@@ -471,3 +471,50 @@ their own weaker durability guarantee.
 **Limits:** A responder cannot assess a HITL state skipped by an automatic workflow route. Changing
 that route is an application-owned policy choice. Existing pauses remain intact; model probabilities
 alone do not establish decision quality, and the host owns uncertainty/unavailability fallback.
+
+---
+
+## ADR-027: Local Laya Decision Backend Ships as `ts-laya-mlx` and Executes the Vendored MLX Runtime over a Process Bridge
+
+**Status:** Accepted (design) · **Date:** 2026-09-20 · **Targets:** `ts-laya-mlx` (new), `ts-ai-runner`
+
+**Decision.** A second `DecisionDriver` for the neutral decision surface ships as its own
+lockstep-versioned workspace package, `@gobing-ai/ts-laya-mlx` (source `packages/laya-mlx`). It
+executes genuine MLX by driving the checkpoint's own Python runtime as a long-lived JSON-lines
+worker over `ProcessExecutor.runStreaming()`, not by reimplementing the forward pass. The host
+requirement — macOS on Apple Silicon plus a Python interpreter carrying the `laya-mlx` package — is
+declared and validated at construction, never hidden. Weights are resolved and cached by the
+worker, never redistributed in the tarball.
+
+**Why.** The checkpoint ships a batch `predict` entry point whose question map is one-to-one with
+`DecisionDriver.ask`, so this package writes and maintains zero numeric code and inherits the
+upstream 63-question parity instead of re-earning it. A subprocess bridge is also the mechanism
+every other CLI-backed backend needs — Apple's `fm` among them — so one seam serves all of them
+rather than one per engine.
+
+**Consequences.** Python is a runtime prerequisite and the package is platform-locked; a portable
+engine (an ONNX export executed by `onnxruntime-node`) is recorded as a follow-on feature, not a
+competing design. This supersedes the ONNX-first reading of this ADR dated the same day, whose
+stated premise — that MLX exposes no JavaScript array/`nn` binding — was false: `@mlx-node/core`
+exposes one. A native port was reconsidered on that correction and still rejected: it is the
+costliest path, its `nn` surface is undocumented for external composition, and its published
+binary carries a macOS 26 deployment floor.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § laya-mlx; shapes in `docs/design/laya-local-decision-backend.md`.
+
+---
+
+## ADR-028: Backend Selection Is One-Way — `ts-ai-runner` Never Depends on a Driver Package
+
+**Status:** Accepted (design) · **Date:** 2026-09-20 · **Targets:** `ts-ai-runner`, `ts-laya-mlx`
+
+**Decision.** `ts-ai-runner` may name a backend (`"typesafe"` | `"laya-local"`) and resolve it when a
+decision is first asked, but it declares no dependency on `@gobing-ai/ts-laya-mlx` and imports no
+symbol from it at module scope. The dependency edge points only from driver package to
+`ts-ai-runner`, which owns the neutral types. `createDecisionMaker({ driver })` stays the primitive;
+the named selector is additive sugar over it.
+
+**Why.** A driver package must import the neutral contract, so any reverse edge would close a cycle
+across the workspace graph.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § laya-mlx; boundary rule under `.spur/rules/typescript/`.
