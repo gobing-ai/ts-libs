@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-laya-mlx",
-    "version": "0.5.1",
+    "version": "0.5.2",
     "description": "@gobing-ai/ts-laya-mlx — Local Laya decision backend driving the vendored MLX runtime over a process bridge.",
     "keywords": [
         "typescript",
