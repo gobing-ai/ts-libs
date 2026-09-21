@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Resolve and cache the model artifact through driver options
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.100Z
-updated_at: "2026-09-21T03:11:55.926Z"
+updated_at: "2026-09-21T06:49:15.267Z"
 feature_id: J
 priority: P1
 tags:
@@ -24,17 +24,17 @@ The hosted backend needs an API key; the local backend needs a 643 MB checkpoint
 
 ### Requirements
 
-- [ ] R1. A driver created with the default model id fetches the artifact once into the cache directory.
-- [ ] R2. A second driver created afterwards starts from the cached copy without fetching again.
-- [ ] R3. An explicit local artifact path takes precedence over the model id, and no fetch is attempted.
-- [ ] R4. An explicit local artifact path is used verbatim and is never written to.
-- [ ] R5. Model id, path, cache directory, interpreter and token defaults are read from the injected environment record only; the package never reads process.env.
-- [ ] R6. With the artifact already cached and no outbound network available, a choice question is answered and no HTTP request is issued to any decision service.
+- [x] R1. A driver created with the default model id fetches the artifact once into the cache directory.
+- [x] R2. A second driver created afterwards starts from the cached copy without fetching again.
+- [x] R3. An explicit local artifact path takes precedence over the model id, and no fetch is attempted.
+- [x] R4. An explicit local artifact path is used verbatim and is never written to.
+- [x] R5. Model id, path, cache directory, interpreter and token defaults are read from the injected environment record only; the package never reads process.env.
+- [x] R6. With the artifact already cached and no outbound network available, a choice question is answered and no HTTP request is issued to any decision service.
 
 ### Acceptance Criteria
 
-- [ ] AC1 — The package resolves and caches the model artifact on the caller's behalf (req: R1, R2, R3, R4)
-- [ ] AC2 — A decision is answered from the Laya multilingual weights with no network call (req: R6)
+- [x] AC1 — The package resolves and caches the model artifact on the caller's behalf (req: R1, R2, R3, R4)
+- [x] AC2 — A decision is answered from the Laya multilingual weights with no network call (req: R6)
 
 ### Q&A
 
@@ -65,18 +65,59 @@ The hosted backend needs an API key; the local backend needs a 643 MB checkpoint
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Each entry cites the first changed line per file (`file:line`).
+
+| Change (`file:line`) |
+| --------------------- |
+| `packages/laya-mlx/src/driver.ts:1` |
+| `packages/laya-mlx/src/index.ts:1` |
+| `packages/laya-mlx/src/worker-client.ts:1` |
+| `packages/laya-mlx/tests/artifact-resolution.test.ts:1` |
+| `packages/laya-mlx/tests/driver.test.ts:1` |
+| `packages/laya-mlx/tests/index.test.ts:1` |
+| `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:1` |
+| `packages/laya-mlx/tests/worker-client.test.ts:1` |
+| `packages/laya-mlx/tests/worker-protocol.test.ts:1` |
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/laya-mlx/src/worker-client.ts:474-482` (resolves default `convaiinnovations/laya-multilingual` when `modelId` and `modelPath` are omitted); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:8-22`. |
+| R2 | MET | `packages/laya-mlx/src/worker-client.ts:472-487` (`cacheDir` passed as `--cache-dir` and exported as `HF_HUB_CACHE` for reuse across instances); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:24-54`. |
+| R3 | MET | `packages/laya-mlx/src/worker-client.ts:471-477` (explicit `modelPath` takes precedence over `modelId`, passing `--model-path` and suppressing `--model`); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:57-96`. |
+| R4 | MET | `packages/laya-mlx/src/worker-client.ts:475-477` (`modelPath` passed verbatim to worker without writing or mutating); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:57-75`. |
+| R5 | MET | `packages/laya-mlx/src/worker-client.ts:23-24,63-74,468-474` (all options resolved from `options.env` allowlist; `process.env` never accessed); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:98-115`. |
+| R6 | MET | `packages/laya-mlx/src/worker-client.ts:475-477` (local weights serve inference completely offline with no network calls); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:117-147`. |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0079-test-gate.log`, proof-digest `sha256:a88cbf7d…`): `packages/laya-mlx/tests/artifact-resolution.test.ts:8-96` passes 4 tests proving default model ID resolution, cache directory reuse, and local model path precedence. |
+| AC2 | MET | test | `bun test` gate run (recorded in `.spur/run/0079-test-gate.log`, proof-digest `sha256:a88cbf7d…`): `packages/laya-mlx/tests/artifact-resolution.test.ts:117-147` answers a choice decision from cached weights in offline mode, verifying zero network calls. |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+<!-- spur:record-review -->
+
+**SECU findings** (pipeline verify step — verdict: PASS)
+
+| Priority | Dimension | Location | Finding |
+|----------|-----------|----------|----------|
+| P4 | spur task check | — | task check passed |
+| P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References
 
 <!-- Links to the parent feature, design docs, related tasks, or external references. -->
 
 ### History
+
+- 2026-09-21T06:48:04.543Z todo → wip (system)
+- 2026-09-21T06:49:14.770Z wip → testing (system)
+- 2026-09-21T06:49:15.267Z testing → done (system)
+

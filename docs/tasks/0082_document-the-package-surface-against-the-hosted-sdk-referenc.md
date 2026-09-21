@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Document the package surface against the hosted SDK reference
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.102Z
-updated_at: "2026-09-21T03:11:56.595Z"
+updated_at: "2026-09-21T07:03:36.390Z"
 feature_id: J
 priority: P2
 tags:
@@ -23,16 +23,16 @@ I4 makes the TypeSafe JavaScript SDK API reference the contract of record for th
 
 ### Requirements
 
-- [ ] R1. The README lists every exported factory, option, and answer field beside the hosted counterpart it mirrors.
-- [ ] R2. Each intentional divergence is named together with its reason.
-- [ ] R3. The host prerequisites, the supported runtime version range, and the install command are stated.
-- [ ] R4. The backend-selection ergonomic is shown from the caller's side, for both names.
-- [ ] R5. The worker protocol is documented well enough to debug by hand.
-- [ ] R6. Attribution to the upstream project and the derived revision is present and matches the NOTICE.
+- [x] R1. The README lists every exported factory, option, and answer field beside the hosted counterpart it mirrors.
+- [x] R2. Each intentional divergence is named together with its reason.
+- [x] R3. The host prerequisites, the supported runtime version range, and the install command are stated.
+- [x] R4. The backend-selection ergonomic is shown from the caller's side, for both names.
+- [x] R5. The worker protocol is documented well enough to debug by hand.
+- [x] R6. Attribution to the upstream project and the derived revision is present and matches the NOTICE.
 
 ### Acceptance Criteria
 
-- [ ] AC1 — The package documentation maps its surface onto the hosted SDK reference (req: R1, R2)
+- [x] AC1 — The package documentation maps its surface onto the hosted SDK reference (req: R1, R2)
 
 Prerequisites, selection examples, protocol notes, and attribution are additionally present (R3, R4, R5, R6).
 
@@ -66,18 +66,71 @@ Prerequisites, selection examples, protocol notes, and attribution are additiona
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Each entry cites the first changed line per file (`file:line`).
+
+| Change (`file:line`) |
+| --------------------- |
+| `packages/ai-runner/src/decision/decision-maker.ts:105` |
+| `packages/ai-runner/src/decision/decision-maker.ts:109` |
+| `packages/ai-runner/src/decision/decision-maker.ts:112` |
+| `packages/ai-runner/src/decision/decision-maker.ts:139` |
+| `packages/ai-runner/src/decision/decision-maker.ts:148` |
+| `packages/ai-runner/src/decision/decision-maker.ts:45` |
+| `packages/ai-runner/src/decision/decision-maker.ts:50` |
+| `packages/ai-runner/src/decision/decision-maker.ts:52` |
+| `packages/ai-runner/src/decision/decision-maker.ts:65` |
+| `packages/ai-runner/src/decision/decision-maker.ts:84` |
+| `packages/ai-runner/tests/decision/backend-selection.test.ts:1` |
+| `packages/laya-mlx/scripts/full-parity.ts:1` |
+| `packages/laya-mlx/src/driver.ts:1` |
+| `packages/laya-mlx/src/index.ts:1` |
+| `packages/laya-mlx/src/worker-client.ts:1` |
+| `packages/laya-mlx/tests/artifact-resolution.test.ts:1` |
+| `packages/laya-mlx/tests/driver.test.ts:1` |
+| `packages/laya-mlx/tests/index.test.ts:1` |
+| `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:1` |
+| `packages/laya-mlx/tests/protocol-fixture.test.ts:1` |
+| `packages/laya-mlx/tests/worker-client.test.ts:1` |
+| `packages/laya-mlx/tests/worker-protocol.test.ts:1` |
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/laya-mlx/README.md:52-69` (substitution reference table maps every exported factory, option, and answer field between hosted TypeSafe and local Laya). |
+| R2 | MET | `packages/laya-mlx/README.md:71-87` (documents all 4 intentional divergences: noul confidence dropped, action probability dropped, Apple Silicon hardware lock, env isolation). |
+| R3 | MET | `packages/laya-mlx/README.md:21-33` (host prerequisites: macOS Apple Silicon, Python 3.10+, supported runtime range `laya-mlx 0.1.x`, `pip install laya-mlx`). |
+| R4 | MET | `packages/laya-mlx/README.md:35-50` (shows caller ergonomics for both `'typesafe'` and `'laya-local'` using `createDecisionMaker`). |
+| R5 | MET | `packages/laya-mlx/README.md:89-114` (terminal debugging guide demonstrating stdin/stdout JSON Lines interaction and error categories). |
+| R6 | MET | `packages/laya-mlx/README.md:13-18,131-137` (attribution to `mizorewww/laya-mlx` at revision `fc1df62828a3fedf4d8229fdac1cbd85f1cdf337`, matching NOTICE). |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC1 | MET | command | `grep -E "Hosted SDK vs Local Driver |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+<!-- spur:record-review -->
+
+**SECU findings** (pipeline verify step — verdict: PASS)
+
+| Priority | Dimension | Location | Finding |
+|----------|-----------|----------|----------|
+| P4 | spur task check | — | task check passed |
+| P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References
 
 <!-- Links to the parent feature, design docs, related tasks, or external references. -->
 
 ### History
+
+- 2026-09-21T07:02:42.080Z todo → wip (system)
+- 2026-09-21T07:03:35.876Z wip → testing (system)
+- 2026-09-21T07:03:36.390Z testing → done (system)
+

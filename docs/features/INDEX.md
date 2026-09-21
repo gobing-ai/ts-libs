@@ -14,5 +14,5 @@
 [backlog] **G**: ts-runtime ([G_ts-runtime.md](./G_ts-runtime.md))
 [backlog] **H**: ts-utils ([H_ts-utils.md](./H_ts-utils.md))
 [active] **I**: Add DeepSeek dsh coding agent support ([I_add-deepseek-dsh-coding-agent-support.md](./I_add-deepseek-dsh-coding-agent-support.md))
-[backlog] **J**: Local Laya decision backend in ts-laya-mlx ([J_local-laya-decision-backend-in-ts-laya-mlx.md](./J_local-laya-decision-backend-in-ts-laya-mlx.md))
+[done] **J**: Local Laya decision backend in ts-laya-mlx ([J_local-laya-decision-backend-in-ts-laya-mlx.md](./J_local-laya-decision-backend-in-ts-laya-mlx.md))
 <!-- END AUTO-GENERATED -->

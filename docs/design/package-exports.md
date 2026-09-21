@@ -13,3 +13,4 @@ document usage.
 | `@gobing-ai/ts-rule-engine` | `.` | [README](../../packages/rule-engine/README.md) |
 | `@gobing-ai/ts-dual-workflow-engine` | `.` | [README](../../packages/dual-workflow-engine/README.md) |
 | `@gobing-ai/ts-llm-jsonl-importer` | `.` | [README](../../packages/llm-jsonl-importer/README.md) |
+| `@gobing-ai/ts-laya-mlx` | `.` | [README](../../packages/laya-mlx/README.md) |

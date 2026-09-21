@@ -36,3 +36,30 @@ rules:
         scope:
           include:
             - "packages/dual-workflow-engine/src/**/*.ts"
+
+  - id: no-laya-driver-import-in-ai-runner
+    description: "ADR-028 / task 0080: @gobing-ai/ts-ai-runner must not declare a dependency on or statically import @gobing-ai/ts-laya-mlx. The local driver is resolved dynamically at runtime."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-laya-mlx"
+        scope:
+          include:
+            - "packages/ai-runner/src/**/*.ts"
+
+  - id: laya-mlx-process-executor-only
+    description: "ADR-027 / task 0080: packages/laya-mlx must use ProcessExecutor from @gobing-ai/ts-runtime and never directly spawn processes via node:child_process or Bun.spawn."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "node:child_process"
+          - specifier: "child_process"
+          - pattern: "Bun\\.(spawn|spawnSync)\\s*\\("
+            matchMode: usage
+        scope:
+          include:
+            - "packages/laya-mlx/src/**/*.ts"

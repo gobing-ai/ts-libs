@@ -1,0 +1,147 @@
+{
+    "description": "Committed protocol fixture lines for task 0081 (R1). Replays recorded JSON Lines to test the bridge without spawning Python or downloading weights.",
+    "handshake": {
+        "ready": true,
+        "model": "convaiinnovations/laya-multilingual",
+        "revision": "c5d78730f3493e4fe16d61507ef4b78eef7318cf",
+        "maxLen": 512
+    },
+    "conversations": [
+        {
+            "name": "choice",
+            "request": {
+                "id": "1",
+                "state": "Customer support ticket: billing question",
+                "questions": {
+                    "dept": {
+                        "type": "choice",
+                        "instructions": "Route to the correct department",
+                        "criteria": { "billing": "Invoices and payments", "tech": "Hardware and software support" }
+                    }
+                }
+            },
+            "response": {
+                "id": "1",
+                "ok": true,
+                "result": {
+                    "model": "laya",
+                    "answers": {
+                        "dept": {
+                            "type": "choice",
+                            "choice": "billing",
+                            "confidence": 0.9421,
+                            "probabilities": { "billing": 0.9421, "tech": 0.0579 },
+                            "action": { "act_probability": 0.8523 }
+                        }
+                    },
+                    "usage": { "input_tokens": 42, "output_tokens": 1, "chunks": 1 }
+                }
+            }
+        },
+        {
+            "name": "score",
+            "request": {
+                "id": "2",
+                "state": "Code review submission",
+                "questions": {
+                    "readability": {
+                        "type": "score",
+                        "instructions": "Rate code clarity",
+                        "rubric": ["poor", "acceptable", "clear"],
+                        "criteria": { "0": "poor", "1": "acceptable", "2": "clear" }
+                    }
+                }
+            },
+            "response": {
+                "id": "2",
+                "ok": true,
+                "result": {
+                    "model": "laya",
+                    "answers": {
+                        "readability": {
+                            "type": "score",
+                            "score": 2,
+                            "confidence": 0.8845,
+                            "probabilities": { "0": 0.0211, "1": 0.0944, "2": 0.8845 },
+                            "legend": { "0": "poor", "1": "acceptable", "2": "clear" },
+                            "action": { "act_probability": 0.7612 }
+                        }
+                    },
+                    "usage": { "input_tokens": 36, "output_tokens": 1, "chunks": 1 }
+                }
+            }
+        },
+        {
+            "name": "noul",
+            "request": {
+                "id": "3",
+                "state": "Should the system proceed with automated deployment?",
+                "questions": {
+                    "deploy": {
+                        "type": "noul",
+                        "instructions": "Approve deploy?",
+                        "criteria": { "true": "Approve", "false": "Block" }
+                    }
+                }
+            },
+            "response": {
+                "id": "3",
+                "ok": true,
+                "result": {
+                    "model": "laya",
+                    "answers": {
+                        "deploy": {
+                            "type": "noul",
+                            "noul": 0.9842,
+                            "confidence": 0.9842,
+                            "action": { "act_probability": 0.9214 }
+                        }
+                    },
+                    "usage": { "input_tokens": 28, "output_tokens": 1, "chunks": 1 }
+                }
+            }
+        },
+        {
+            "name": "error_config",
+            "request": {
+                "id": "4",
+                "state": "s",
+                "questions": { "q": { "type": "choice", "instructions": "p" } }
+            },
+            "response": {
+                "id": "4",
+                "ok": false,
+                "error": { "kind": "config", "message": "Unknown dtype 'int8'" }
+            }
+        },
+        {
+            "name": "error_request",
+            "request": {
+                "id": "5",
+                "state": "s",
+                "questions": { "q": { "type": "choice", "instructions": "p" } }
+            },
+            "response": {
+                "id": "5",
+                "ok": false,
+                "error": { "kind": "request", "message": "Question missing instructions" }
+            }
+        },
+        {
+            "name": "error_backend",
+            "request": {
+                "id": "6",
+                "state": "s",
+                "questions": { "q": { "type": "choice", "instructions": "p" } }
+            },
+            "response": {
+                "id": "6",
+                "ok": false,
+                "error": {
+                    "kind": "backend",
+                    "message": "FloatingPointError: Non-finite model outputs; retry with dtype='float32'"
+                }
+            }
+        }
+    ]
+}

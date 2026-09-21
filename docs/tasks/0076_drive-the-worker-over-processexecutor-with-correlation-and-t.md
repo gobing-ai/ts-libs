@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Drive the worker over ProcessExecutor with correlation and timeouts
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.096Z
-updated_at: "2026-09-21T03:11:55.263Z"
+updated_at: "2026-09-21T06:40:13.101Z"
 feature_id: J
 priority: P1
 tags:
@@ -24,16 +24,16 @@ With the protocol fixed, the driver needs the TypeScript half: start the worker 
 
 ### Requirements
 
-- [ ] R1. The worker is started lazily on the first ask and reused for the driver's lifetime, so the weight load is paid once.
-- [ ] R2. Process spawning goes through ts-runtime's ProcessExecutor; the package imports no node:child_process and calls no Bun.spawn directly.
-- [ ] R3. The client waits for the handshake before issuing any request, bounded by startupTimeoutMs.
-- [ ] R4. Responses are matched to requests by id, and a request exceeding requestTimeoutMs rejects without corrupting the stream.
-- [ ] R5. Only the documented environment keys are forwarded to the child; the parent environment is not inherited wholesale.
-- [ ] R6. A worker that exits is not silently restarted mid-ask: the in-flight call rejects and the next ask starts a fresh worker.
+- [x] R1. The worker is started lazily on the first ask and reused for the driver's lifetime, so the weight load is paid once.
+- [x] R2. Process spawning goes through ts-runtime's ProcessExecutor; the package imports no node:child_process and calls no Bun.spawn directly.
+- [x] R3. The client waits for the handshake before issuing any request, bounded by startupTimeoutMs.
+- [x] R4. Responses are matched to requests by id, and a request exceeding requestTimeoutMs rejects without corrupting the stream.
+- [x] R5. Only the documented environment keys are forwarded to the child; the parent environment is not inherited wholesale.
+- [x] R6. A worker that exits is not silently restarted mid-ask: the in-flight call rejects and the next ask starts a fresh worker.
 
 ### Acceptance Criteria
 
-- [ ] AC1 — Repeated decisions reuse one warm runtime instead of reloading the model (req: R1, R6)
+- [x] AC1 — Repeated decisions reuse one warm runtime instead of reloading the model (req: R1, R6)
 
 The ProcessExecutor-only constraint (R2) is additionally enforced by the boundary rule added under the backend-selection task.
 
@@ -70,18 +70,54 @@ The ProcessExecutor-only constraint (R2) is additionally enforced by the boundar
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Each entry cites the first changed line per file (`file:line`).
+
+| Change (`file:line`) |
+| --------------------- |
+| `packages/laya-mlx/src/index.ts:1` |
+| `packages/laya-mlx/src/worker-client.ts:1` |
+| `packages/laya-mlx/tests/index.test.ts:1` |
+| `packages/laya-mlx/tests/worker-client.test.ts:1` |
+| `packages/laya-mlx/tests/worker-protocol.test.ts:1` |
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/laya-mlx/src/worker-client.ts:404-458` (`ask` delegates through `dispatch` which awaits `ensureWorker`; worker handle is cached in `this.worker` and reused across calls); proven by `packages/laya-mlx/tests/worker-client.test.ts:44-52` (`pays the spawn once: repeated asks reuse the same warm worker`). |
+| R2 | MET | `packages/laya-mlx/src/worker-client.ts:466-473` (spawning uses `this.executor.runStreaming` from `@gobing-ai/ts-runtime`; no imports of `node:child_process` or `Bun.spawn`; verified by `runtime-boundaries` rule pass in `.spur/run/0076-test-gate.log`). |
+| R3 | MET | `packages/laya-mlx/src/worker-client.ts:149-160,446` (`WorkerHandle` races first line against `startupTimeoutMs`; `ensureWorker` awaits `worker.handshake` before serving); proven by `packages/laya-mlx/tests/worker-client.test.ts:54-67`. |
+| R4 | MET | `packages/laya-mlx/src/worker-client.ts:206-224,296-316` (`armRequest` tracks pending map by correlation id with `requestTimeoutMs`; timeout deletes id and rejects without breaking stream); proven by `packages/laya-mlx/tests/worker-client.test.ts:77-100`. |
+| R5 | MET | `packages/laya-mlx/src/worker-client.ts:23,65-74,469` (`resolveForwardedEnv` restricts child env to `FORWARDED_ENV_KEYS` allowlist, passed with `envMode: 'replace'`); proven by `packages/laya-mlx/tests/worker-client.test.ts:120-141`. |
+| R6 | MET | `packages/laya-mlx/src/worker-client.ts:165-167,440-442` (worker exit rejects in-flight calls with `DecisionBackendError` and clears handle; next ask respawns fresh); proven by `packages/laya-mlx/tests/worker-client.test.ts:102-118`. |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0076-test-gate.log`, proof-digest `sha256:80b84cc1…`): **2343 pass / 0 fail** across 204 files, including `packages/laya-mlx/tests/worker-client.test.ts:44-52`, which executes multiple `ask` calls and verifies the same warm worker process (matching PID) is reused without reloading. |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+<!-- spur:record-review -->
+
+**SECU findings** (pipeline verify step — verdict: PASS)
+
+| Priority | Dimension | Location | Finding |
+|----------|-----------|----------|----------|
+| P4 | spur task check | — | task check passed |
+| P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References
 
 <!-- Links to the parent feature, design docs, related tasks, or external references. -->
 
 ### History
+
+- 2026-09-21T05:34:38.957Z todo → wip (system)
+- 2026-09-21T06:40:12.097Z wip → testing (system)
+- 2026-09-21T06:40:13.101Z testing → done (system)
+

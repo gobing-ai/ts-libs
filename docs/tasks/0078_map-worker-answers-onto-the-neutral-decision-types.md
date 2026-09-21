@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Map worker answers onto the neutral decision types
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.098Z
-updated_at: "2026-09-21T03:11:55.703Z"
+updated_at: "2026-09-21T06:47:12.820Z"
 feature_id: J
 priority: P1
 tags:
@@ -24,16 +24,16 @@ The worker returns the reference implementation's answer JSON. The driver's rema
 
 ### Requirements
 
-- [ ] R1. createLayaDriver returns a value satisfying DecisionDriver, with a readonly name and a single ask method, and exposes no choice/score/noul sugar.
-- [ ] R2. A choice answer carries the selected label, a confidence, and a probability per supplied label.
-- [ ] R3. A score answer carries the score, a confidence, the legend, and a probability per rubric index.
-- [ ] R4. A noul answer carries only the yes-probability, with no confidence field present or synthesized.
-- [ ] R5. The reference's action probability is not surfaced on any neutral answer.
-- [ ] R6. Every answer in a request is returned keyed by its question name, in the caller's question set.
+- [x] R1. createLayaDriver returns a value satisfying DecisionDriver, with a readonly name and a single ask method, and exposes no choice/score/noul sugar.
+- [x] R2. A choice answer carries the selected label, a confidence, and a probability per supplied label.
+- [x] R3. A score answer carries the score, a confidence, the legend, and a probability per rubric index.
+- [x] R4. A noul answer carries only the yes-probability, with no confidence field present or synthesized.
+- [x] R5. The reference's action probability is not surfaced on any neutral answer.
+- [x] R6. Every answer in a request is returned keyed by its question name, in the caller's question set.
 
 ### Acceptance Criteria
 
-- [ ] AC1 — The local driver satisfies the same DecisionDriver contract as the hosted backend (req: R1, R2, R3, R4, R5)
+- [x] AC1 — The local driver satisfies the same DecisionDriver contract as the hosted backend (req: R1, R2, R3, R4, R5)
 
 ### Q&A
 
@@ -65,18 +65,57 @@ The worker returns the reference implementation's answer JSON. The driver's rema
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Each entry cites the first changed line per file (`file:line`).
+
+| Change (`file:line`) |
+| --------------------- |
+| `packages/laya-mlx/src/driver.ts:1` |
+| `packages/laya-mlx/src/index.ts:1` |
+| `packages/laya-mlx/src/worker-client.ts:1` |
+| `packages/laya-mlx/tests/driver.test.ts:1` |
+| `packages/laya-mlx/tests/index.test.ts:1` |
+| `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:1` |
+| `packages/laya-mlx/tests/worker-client.test.ts:1` |
+| `packages/laya-mlx/tests/worker-protocol.test.ts:1` |
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/laya-mlx/src/driver.ts:133-163` (`createLayaDriver` returns object with `name: 'laya-local'`, single `ask` method, and no `choice`/`score`/`noul` sugar); proven by `packages/laya-mlx/tests/driver.test.ts:18-45`. |
+| R2 | MET | `packages/laya-mlx/src/driver.ts:76-88` (`mapWorkerAnswer` maps choice answers to `{ kind: 'choice', label, confidence, probabilities }`); proven by `packages/laya-mlx/tests/driver.test.ts:47-65`. |
+| R3 | MET | `packages/laya-mlx/src/driver.ts:89-118` (`mapWorkerAnswer` maps score answers to `{ kind: 'score', score, confidence, legend, probabilities }`); proven by `packages/laya-mlx/tests/driver.test.ts:67-87`. |
+| R4 | MET | `packages/laya-mlx/src/driver.ts:119-130` (`mapWorkerAnswer` maps noul answers to `{ kind: 'noul', probability }` with no confidence field present); proven by `packages/laya-mlx/tests/driver.test.ts:89-107`. |
+| R5 | MET | `packages/laya-mlx/src/driver.ts:76-130` (`action.act_probability` is explicitly stripped and never exposed on neutral answers); proven by `packages/laya-mlx/tests/driver.test.ts:62-64,84-86,104-106`. |
+| R6 | MET | `packages/laya-mlx/src/driver.ts:149-160` (`ask` iterates caller's `questions` map and returns each answer keyed by question name); proven by `packages/laya-mlx/tests/driver.test.ts:109-132`. |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0078-test-gate.log`, proof-digest `sha256:5c234b59…`): `packages/laya-mlx/tests/driver.test.ts:18-45` proves `createLayaDriver` satisfies the `DecisionDriver` contract, cleanly integrates with `createDecisionMaker` from `@gobing-ai/ts-ai-runner`, and answers choice, score, and noul questions without sugar. |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+<!-- spur:record-review -->
+
+**SECU findings** (pipeline verify step — verdict: PASS)
+
+| Priority | Dimension | Location | Finding |
+|----------|-----------|----------|----------|
+| P4 | spur task check | — | task check passed |
+| P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References
 
 <!-- Links to the parent feature, design docs, related tasks, or external references. -->
 
 ### History
+
+- 2026-09-21T06:45:23.650Z todo → wip (system)
+- 2026-09-21T06:47:12.253Z wip → testing (system)
+- 2026-09-21T06:47:12.820Z testing → done (system)
+

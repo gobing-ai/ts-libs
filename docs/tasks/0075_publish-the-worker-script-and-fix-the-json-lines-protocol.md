@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Publish the worker script and fix the JSON-lines protocol
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.094Z
-updated_at: "2026-09-21T03:11:55.039Z"
+updated_at: "2026-09-21T05:13:06.128Z"
 feature_id: J
 priority: P1
 tags:
@@ -24,16 +24,16 @@ ADR-027 executes the checkpoint by driving the vendored laya-mlx Python runtime 
 
 ### Requirements
 
-- [ ] R1. packages/laya-mlx/worker/laya_worker.py constructs one Agent from options supplied on the command line or in the first line, and holds it for the process lifetime.
-- [ ] R2. The worker emits a single handshake line on stdout before serving any request, reporting readiness, the resolved model, the revision, and the token budget.
-- [ ] R3. Each request line carries an id, a state string, and a questions map; each response line carries the same id and either a success result or a structured error.
-- [ ] R4. Errors are classified as config, request, or backend so the client can map them without parsing prose.
-- [ ] R5. One request may carry more questions than the configured batch size, and the worker returns every answer keyed by its question name.
-- [ ] R6. The worker contains no model logic: tokenization, batching, calibration, and answer construction all come from the installed runtime.
+- [x] R1. packages/laya-mlx/worker/laya_worker.py constructs one Agent from options supplied on the command line or in the first line, and holds it for the process lifetime.
+- [x] R2. The worker emits a single handshake line on stdout before serving any request, reporting readiness, the resolved model, the revision, and the token budget.
+- [x] R3. Each request line carries an id, a state string, and a questions map; each response line carries the same id and either a success result or a structured error.
+- [x] R4. Errors are classified as config, request, or backend so the client can map them without parsing prose.
+- [x] R5. One request may carry more questions than the configured batch size, and the worker returns every answer keyed by its question name.
+- [x] R6. The worker contains no model logic: tokenization, batching, calibration, and answer construction all come from the installed runtime.
 
 ### Acceptance Criteria
 
-- [ ] AC1 — A question set larger than the configured batch size is answered in chunks (req: R5)
+- [x] AC1 — A question set larger than the configured batch size is answered in chunks (req: R5)
 
 The worker is exercised directly here by piping request lines to it on a provisioned host; the TypeScript client's view of the same protocol is covered by its own task.
 
@@ -67,18 +67,52 @@ The worker is exercised directly here by piping request lines to it on a provisi
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Each entry cites the first changed line per file (`file:line`).
+
+| Change (`file:line`) |
+| --------------------- |
+| `packages/laya-mlx/src/index.ts:1` |
+| `packages/laya-mlx/tests/index.test.ts:1` |
+| `packages/laya-mlx/tests/worker-protocol.test.ts:1` |
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/laya-mlx/worker/laya_worker.py:93-116` (`build_agent` — one `Agent` from CLI flags via `parse_args` :33-52 or first-line `{"options":{...}}` via `merge_first_line_options` :55-81); `main` constructs once at :172-176 and reuses `agent` for the whole serve loop :193-199. Options plumbing exercised by tests: `--batch-size 2` (`tests/packages/laya-mlx/tests/worker-protocol.test.ts:174`) and `--dtype float8` (:189). |
+| R2 | MET | Single handshake emitted before the read loop: `packages/laya-mlx/worker/laya_worker.py:178-185` (`{"ready": true, "model": str(agent.model_id), "revision": agent.revision, "maxLen": int(agent.cfg.get("max_len", 512))}` — readiness, resolved model, revision, token budget). Test asserts handshake is the first line with exact payload: `packages/laya-mlx/tests/worker-protocol.test.ts:96-103`. |
+| R3 | MET | `handle_request` :132-156 validates `id`/`state`/`questions` and echoes the same `request_id` in success `{"id", ok:true, result}` (:156) and failure `{"id", ok:false, error}` (:155). Id-correlation test: `packages/laya-mlx/tests/worker-protocol.test.ts:105-129` (ids `a`, `b`). |
+| R4 | MET | Three-kind taxonomy without prose parsing: `classify()` `packages/laya-mlx/worker/laya_worker.py:123-129` (FloatingPointError→backend, ValueError→request, else backend) + construction failures→`config` via `startup_failure` :89-90/:172-176. Tests assert all three kinds: `packages/laya-mlx/tests/worker-protocol.test.ts:136-140` (request, malformed), :142-149 (request, bad question), :151-159 (backend, "Non-finite"), :188-195 (config startup, exit 1). |
+| R5 | MET | Worker forwards the full questions map to `agent.predict` (:153) — no worker-side truncation; chunking is inside the runtime `Agent.predict` (stub contract `tests/fixtures/packages/laya-mlx/tests/fixtures/stub_laya.py:39-60`). Oversized-batch test: `packages/laya-mlx/tests/worker-protocol.test.ts:173-186` — 5 questions vs `--batch-size 2`, all `q0..q4` keyed, `usage.chunks === 3`. |
+| R6 | MET | Worker source contains only argparse/json/os/sys lifecycle+framing plumbing (`laya_worker.py` imports :24-27); no tokenization, batching, calibration, or answer-construction code — those live in `Agent.predict` (fixture docstring `packages/laya-mlx/tests/fixtures/stub_laya.py:1-5` mirrors the runtime contract). Protocol documented as runtime-owned in `worker/README.md` ("The worker contains no model logic"). |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0075-test-gate.log`, proof-digest `sha256:a1963bea…`): **2335 pass / 0 fail** across 203 files, including `tests/packages/laya-mlx/tests/worker-protocol.test.ts:173-186`, which spawns the real worker via `python3` + `--module tests.fixtures.stub_laya` over `ProcessExecutor.runStreaming` (:74-82) and asserts 5 questions vs `--batch-size 2` → all answers keyed `q0..q4` with `usage.chunks === 3`, worker alive and exit 0. |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+<!-- spur:record-review -->
+
+**SECU findings** (pipeline verify step — verdict: PASS)
+
+| Priority | Dimension | Location | Finding |
+|----------|-----------|----------|----------|
+| P4 | spur task check | — | task check passed |
+| P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References
 
 <!-- Links to the parent feature, design docs, related tasks, or external references. -->
 
 ### History
+
+- 2026-09-21T04:50:56.758Z todo → wip (system)
+- 2026-09-21T05:13:05.617Z wip → testing (system)
+- 2026-09-21T05:13:06.128Z testing → done (system)
+

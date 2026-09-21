@@ -42,10 +42,15 @@ export interface DecisionMaker {
     noul(state: DecisionState, prompt?: Desc, outcomes?: { yes?: Desc; no?: Desc }): Promise<NoulAnswer>;
 }
 
+/** Available named decision backends (task 0080). */
+export type DecisionBackend = 'typesafe' | 'laya-local';
+
 /** Factory options: driver selection, credential injection, and transport tuning. */
 export interface DecisionMakerOptions {
-    /** Custom driver — when supplied, the default TypeSafe driver is never constructed and no key is required. */
+    /** Custom driver — when supplied, `backend` is ignored, no default driver is constructed and no key is required. */
     driver?: DecisionDriver;
+    /** Named backend selector. Default: `'typesafe'`. Resolution order: `driver` → `backend` → `'typesafe'`. */
+    backend?: DecisionBackend;
     /** Injected env record; defaults to `getProcessEnv()` (doctor-runner convention). */
     env?: Record<string, string | undefined>;
     /** Explicit key — wins over `env.TYPESAFE_API_KEY`. */
@@ -57,6 +62,7 @@ export interface DecisionMakerOptions {
     maxRetries?: number;
     /** Injected fetch for tests. */
     fetch?: typeof fetch;
+    [key: string]: unknown;
 }
 
 /**
@@ -75,27 +81,52 @@ function resolveApiKey(options: DecisionMakerOptions): string {
     return apiKey;
 }
 
+const LAYA_DRIVER_PACKAGE = '@gobing-ai/ts-laya-mlx';
+
+async function resolveLayaDriver(options: DecisionMakerOptions): Promise<DecisionDriver> {
+    try {
+        const mod = (await import(LAYA_DRIVER_PACKAGE)) as {
+            createLayaDriver?: (opts?: unknown) => DecisionDriver;
+        };
+        if (typeof mod.createLayaDriver !== 'function') {
+            throw new Error(`Module '${LAYA_DRIVER_PACKAGE}' does not export createLayaDriver`);
+        }
+        return mod.createLayaDriver(options);
+    } catch (cause) {
+        throw new DecisionConfigError(
+            `The 'laya-local' backend requires '${LAYA_DRIVER_PACKAGE}' to be installed; install it with 'bun add ${LAYA_DRIVER_PACKAGE}'`,
+            'LAYA_BACKEND',
+            { cause },
+        );
+    }
+}
+
 /**
- * Build a DecisionMaker. `options.driver` wins when supplied; otherwise the
- * TypeSafe driver is constructed lazily on first use, after key resolution —
- * so a custom driver never requires a key and a missing key fails before any
- * request (R6/R7).
+ * Build a DecisionMaker. `options.driver` wins when supplied; otherwise `options.backend`
+ * resolves the driver (default `'typesafe'`). The driver is constructed lazily on first use.
  */
 export function createDecisionMaker(options: DecisionMakerOptions = {}): DecisionMaker {
-    // Lazy driver slot: resolved on first use, at most once. A caller-supplied
-    // driver never reaches key resolution or default-driver construction (R6).
-    let defaultDriver: DecisionDriver | undefined;
-    const resolveDriver = (): DecisionDriver => {
+    let resolvedDriver: DecisionDriver | undefined;
+    const getDriver = async (): Promise<DecisionDriver> => {
         if (options.driver) return options.driver;
-        defaultDriver ??= createTypesafeDriver({
-            apiKey: resolveApiKey(options),
-            model: options.model,
-            baseURL: options.baseURL,
-            timeoutMs: options.timeoutMs,
-            maxRetries: options.maxRetries,
-            fetch: options.fetch,
-        });
-        return defaultDriver;
+        if (resolvedDriver) return resolvedDriver;
+        const backend = options.backend ?? 'typesafe';
+        if (backend === 'typesafe') {
+            resolvedDriver = createTypesafeDriver({
+                apiKey: resolveApiKey(options),
+                model: options.model,
+                baseURL: options.baseURL,
+                timeoutMs: options.timeoutMs,
+                maxRetries: options.maxRetries,
+                fetch: options.fetch,
+            });
+            return resolvedDriver;
+        }
+        if (backend === 'laya-local') {
+            resolvedDriver = await resolveLayaDriver(options);
+            return resolvedDriver;
+        }
+        throw new DecisionConfigError(`Unknown decision backend '${backend}'`, 'backend');
     };
 
     const ask = async <const Q extends Record<string, Question>>(req: {
@@ -105,7 +136,7 @@ export function createDecisionMaker(options: DecisionMakerOptions = {}): Decisio
     }): Promise<AnswersFor<Q>> => {
         // R3: the questions map reaches the driver untouched — same reference,
         // no reordering, renaming, or dropping.
-        const driver = resolveDriver();
+        const driver = await getDriver();
         validateQuestions(req.questions);
         const answers = await driver.ask(req);
         validateAnswers(req.questions, answers);
@@ -114,7 +145,7 @@ export function createDecisionMaker(options: DecisionMakerOptions = {}): Decisio
     };
 
     return {
-        driver: options.driver?.name ?? 'typesafe',
+        driver: options.driver?.name ?? options.backend ?? 'typesafe',
         ask,
         // R4/R5: each sugar method is one `ask` with exactly one `q.*` question,
         // unwrapping the single answer — no second driver call, no duplicated
