@@ -4,7 +4,7 @@ name: Map worker answers onto the neutral decision types
 status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.098Z
-updated_at: "2026-09-21T06:47:12.820Z"
+updated_at: "2026-09-21T18:34:35.659Z"
 feature_id: J
 priority: P1
 tags:
@@ -86,16 +86,16 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/laya-mlx/src/driver.ts:133-163` (`createLayaDriver` returns object with `name: 'laya-local'`, single `ask` method, and no `choice`/`score`/`noul` sugar); proven by `packages/laya-mlx/tests/driver.test.ts:18-45`. |
-| R2 | MET | `packages/laya-mlx/src/driver.ts:76-88` (`mapWorkerAnswer` maps choice answers to `{ kind: 'choice', label, confidence, probabilities }`); proven by `packages/laya-mlx/tests/driver.test.ts:47-65`. |
-| R3 | MET | `packages/laya-mlx/src/driver.ts:89-118` (`mapWorkerAnswer` maps score answers to `{ kind: 'score', score, confidence, legend, probabilities }`); proven by `packages/laya-mlx/tests/driver.test.ts:67-87`. |
-| R4 | MET | `packages/laya-mlx/src/driver.ts:119-130` (`mapWorkerAnswer` maps noul answers to `{ kind: 'noul', probability }` with no confidence field present); proven by `packages/laya-mlx/tests/driver.test.ts:89-107`. |
-| R5 | MET | `packages/laya-mlx/src/driver.ts:76-130` (`action.act_probability` is explicitly stripped and never exposed on neutral answers); proven by `packages/laya-mlx/tests/driver.test.ts:62-64,84-86,104-106`. |
-| R6 | MET | `packages/laya-mlx/src/driver.ts:149-160` (`ask` iterates caller's `questions` map and returns each answer keyed by question name); proven by `packages/laya-mlx/tests/driver.test.ts:109-132`. |
+| R1 | MET | `packages/laya-mlx/src/driver.ts:148-178` createLayaDriver returns `{ name: 'laya-local', ask }` satisfying DecisionDriver, no sugar methods; tests `driver.test.ts:15` (readonly name, single ask) and :29 (substitutable in createDecisionMaker); package typecheck exit 0 this run |
+| R2 | MET | Choice mapping `driver.ts:74-87` (label, confidence, probabilities per label; malformed labels rejected); test `driver.test.ts:53`; live parity run: all choice labels agree on content-bearing cases |
+| R3 | MET | Score mapping `driver.ts:88-125` — score is the categorical rubric index (argmax over per-level probabilities), with confidence, legend, and per-index probabilities; tests `driver.test.ts:74,95` (expectation 1.8451 → category 2); live parity: every score question agrees |
+| R4 | MET | Noul branch `driver.ts:126-140` returns only `{ kind, probability }` — confidence deliberately dropped, missing/non-finite probability rejected; test `driver.test.ts:113,133`; protocol-fixture.test.ts:158 verifies stripping over the wire |
+| R5 | MET | No branch in `mapWorkerAnswer` (:68-146) surfaces `action.act_probability`; driver.ts:66 documents the deliberate drop |
+| R6 | MET | `driver.ts:172-180` answers keyed by the caller's question names; missing per-question answer raises DecisionBackendError; test `driver.test.ts:146` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0078-test-gate.log`, proof-digest `sha256:5c234b59…`): `packages/laya-mlx/tests/driver.test.ts:18-45` proves `createLayaDriver` satisfies the `DecisionDriver` contract, cleanly integrates with `createDecisionMaker` from `@gobing-ai/ts-ai-runner`, and answers choice, score, and noul questions without sugar. |
+| R4 — The local driver satisfies the same DecisionDriver contract as the hosted backend | MET | test | Fresh `bun test` (49 pass / 0 fail) + `tsc --noEmit` exit 0: driver compiles as DecisionDriver with readonly name + single ask; answer shapes match the hosted contract (driver.test.ts:15,29,53,74,113); noul carries only yes-probability; live parity run (63/63 agreed, exit 0) confirms the shapes end to end through the real worker |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -107,6 +107,10 @@ Each entry cites the first changed line per file (`file:line`).
 | Priority | Dimension | Location | Finding |
 |----------|-----------|----------|----------|
 | P4 | spur task check | — | task check passed |
+| P4 | tests-pass | — | `bun test` packages/laya-mlx: 49 pass / 0 fail (this run, incl. argmax pinning + malformed-answer rejection tests) |
+| P4 | typecheck | — | `tsc --noEmit` exit 0 (this run) |
+| P4 | design-conformance | — | Mapping layer matches Design: neutral shapes, deliberate confidence/action drops; score semantics corrected to the documented categorical contract during this fix pass |
+| P4 | fix-pass | — | --fix all repaired: score criteria wire shape (driver.ts:41-49), score expectation→category mapping (driver.ts:88-125), silent defaulting on malformed worker answers (driver.ts:74-140); artifacts touched: .spur/run/0078-verify-answer.txt (this file), .spur/run/0078-verdict.json |
 | P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References

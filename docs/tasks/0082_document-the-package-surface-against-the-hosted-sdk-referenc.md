@@ -4,7 +4,7 @@ name: Document the package surface against the hosted SDK reference
 status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.102Z
-updated_at: "2026-09-21T07:03:36.390Z"
+updated_at: "2026-09-21T18:22:43.984Z"
 feature_id: J
 priority: P2
 tags:
@@ -101,16 +101,16 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/laya-mlx/README.md:52-69` (substitution reference table maps every exported factory, option, and answer field between hosted TypeSafe and local Laya). |
-| R2 | MET | `packages/laya-mlx/README.md:71-87` (documents all 4 intentional divergences: noul confidence dropped, action probability dropped, Apple Silicon hardware lock, env isolation). |
-| R3 | MET | `packages/laya-mlx/README.md:21-33` (host prerequisites: macOS Apple Silicon, Python 3.10+, supported runtime range `laya-mlx 0.1.x`, `pip install laya-mlx`). |
-| R4 | MET | `packages/laya-mlx/README.md:35-50` (shows caller ergonomics for both `'typesafe'` and `'laya-local'` using `createDecisionMaker`). |
-| R5 | MET | `packages/laya-mlx/README.md:89-114` (terminal debugging guide demonstrating stdin/stdout JSON Lines interaction and error categories). |
-| R6 | MET | `packages/laya-mlx/README.md:13-18,131-137` (attribution to `mizorewww/laya-mlx` at revision `fc1df62828a3fedf4d8229fdac1cbd85f1cdf337`, matching NOTICE). |
+| R1 | MET | `packages/laya-mlx/README.md:68-81` substitution reference table maps every factory, option, and answer field beside the hosted TypeSafe counterpart (factory, driver name, credentials, model selector, offline path, cache root, timeouts, choice/score/noul shapes) |
+| R2 | MET | `README.md:83-94` 'Intentional divergences' names each divergence with its reason: noul confidence dropped, action probability dropped, hardware lock, environment isolation |
+| R3 | MET | `README.md:19-31` host prerequisites: darwin arm64 fail-fast, Python 3.10+ with laya-mlx, supported runtime range `laya-mlx 0.1.x` validated against upstream 0.1.0 @ fc1df628, install command (pip/uv) |
+| R4 | MET | `README.md:35-64` caller-side backend selection for both names (`typesafe` default, `laya-local`), identical call sites, dynamic-import resolution note |
+| R5 | MET | `README.md:98-121` worker protocol documented for hand debugging: JSON-lines handshake/request/response examples + three-kind error categorization |
+| R6 | MET | `README.md:12-13,142-145` attribution names upstream laya-mlx and revision fc1df62828a3fedf4d8229fdac1cbd85f1cdf337, matching `NOTICE:4-8` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 | MET | command | `grep -E "Hosted SDK vs Local Driver |
+| [docs-only] R11 — The package documentation maps its surface onto the hosted SDK reference | MET | static-ref | README.md:68-94 read this run: every exported factory/option/answer field listed beside its hosted counterpart; four intentional divergences each named with a reason |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -122,6 +122,8 @@ Each entry cites the first changed line per file (`file:line`).
 | Priority | Dimension | Location | Finding |
 |----------|-----------|----------|----------|
 | P4 | spur task check | — | task check passed |
+| P4 | design-conformance | — | README delivers the SDK-mapping contract the task Design specifies |
+| P4 | coverage | — | Documentation-only change; no runtime code path added (Coverage: N/A) |
 | P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References

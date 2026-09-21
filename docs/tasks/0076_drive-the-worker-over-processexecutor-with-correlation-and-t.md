@@ -4,7 +4,7 @@ name: Drive the worker over ProcessExecutor with correlation and timeouts
 status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.096Z
-updated_at: "2026-09-21T06:40:13.101Z"
+updated_at: "2026-09-21T18:10:03.713Z"
 feature_id: J
 priority: P1
 tags:
@@ -88,16 +88,16 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/laya-mlx/src/worker-client.ts:404-458` (`ask` delegates through `dispatch` which awaits `ensureWorker`; worker handle is cached in `this.worker` and reused across calls); proven by `packages/laya-mlx/tests/worker-client.test.ts:44-52` (`pays the spawn once: repeated asks reuse the same warm worker`). |
-| R2 | MET | `packages/laya-mlx/src/worker-client.ts:466-473` (spawning uses `this.executor.runStreaming` from `@gobing-ai/ts-runtime`; no imports of `node:child_process` or `Bun.spawn`; verified by `runtime-boundaries` rule pass in `.spur/run/0076-test-gate.log`). |
-| R3 | MET | `packages/laya-mlx/src/worker-client.ts:149-160,446` (`WorkerHandle` races first line against `startupTimeoutMs`; `ensureWorker` awaits `worker.handshake` before serving); proven by `packages/laya-mlx/tests/worker-client.test.ts:54-67`. |
-| R4 | MET | `packages/laya-mlx/src/worker-client.ts:206-224,296-316` (`armRequest` tracks pending map by correlation id with `requestTimeoutMs`; timeout deletes id and rejects without breaking stream); proven by `packages/laya-mlx/tests/worker-client.test.ts:77-100`. |
-| R5 | MET | `packages/laya-mlx/src/worker-client.ts:23,65-74,469` (`resolveForwardedEnv` restricts child env to `FORWARDED_ENV_KEYS` allowlist, passed with `envMode: 'replace'`); proven by `packages/laya-mlx/tests/worker-client.test.ts:120-141`. |
-| R6 | MET | `packages/laya-mlx/src/worker-client.ts:165-167,440-442` (worker exit rejects in-flight calls with `DecisionBackendError` and clears handle; next ask respawns fresh); proven by `packages/laya-mlx/tests/worker-client.test.ts:102-118`. |
+| R1 | MET | `packages/laya-mlx/src/worker-client.ts:507-514` lazy spawn on first ask via promise chain; `ensureWorker` :544-545 reuses the live worker; test `tests/worker-client.test.ts:44` 'pays the spawn once: repeated asks reuse the same warm worker' (fresh pass) |
+| R2 | MET | Spawning routed through injected `ProcessExecutor` `worker-client.ts:467,474` (nodeBunFactory); no node:child_process/Bun.spawn in src — enforced by rule `laya-mlx-process-executor-only` `.spur/rules/typescript/decision-boundaries.yaml:52-63` |
+| R3 | MET | `ensureWorker` awaits `worker.handshake` before serving :548-549, bounded by startupTimeoutMs :480 (default 120s); test `worker-client.test.ts:54` (startup timeout rejects, fresh respawn after) |
+| R4 | MET | Id correlation via `worker.armRequest` :528-530; requestTimeoutMs :481 (default 30s); tests `worker-client.test.ts:77` (per-id routing, worker keeps serving) and :88 (timeout rejects without corrupting the stream) |
+| R5 | MET | `FORWARDED_ENV_KEYS` allowlist `worker-client.ts:26` (LAYA_MODEL_ID/LAYA_MODEL_PATH/LAYA_CACHE_DIR/LAYA_PYTHON/HF_TOKEN); test `worker-client.test.ts:120` proves parent env not inherited wholesale |
+| R6 | MET | Exit watcher `failAll` rejects in-flight asks :535-540, next ask respawns fresh (ensureWorker :544-547); test `worker-client.test.ts:102` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0076-test-gate.log`, proof-digest `sha256:80b84cc1…`): **2343 pass / 0 fail** across 204 files, including `packages/laya-mlx/tests/worker-client.test.ts:44-52`, which executes multiple `ask` calls and verifies the same warm worker process (matching PID) is reused without reloading. |
+| R15 — Repeated decisions reuse one warm runtime instead of reloading the model | MET | test | Fresh `bun test` (47 pass / 0 fail): `worker-client.test.ts:44` — repeated asks reuse one warm worker; weights load once per client lifetime (lazy spawn :507-514 + reuse :544-545) |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -109,6 +109,8 @@ Each entry cites the first changed line per file (`file:line`).
 | Priority | Dimension | Location | Finding |
 |----------|-----------|----------|----------|
 | P4 | spur task check | — | task check passed |
+| P4 | tests-pass | — | `bun test` packages/laya-mlx: 47 pass / 0 fail (this run) |
+| P4 | design-conformance | — | Client matches Design: lazy warm worker, serialized asks, id-correlated timeout-bounded responses |
 | P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References

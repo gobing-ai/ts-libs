@@ -4,7 +4,7 @@ name: Resolve and cache the model artifact through driver options
 status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.100Z
-updated_at: "2026-09-21T06:49:15.267Z"
+updated_at: "2026-09-21T18:10:04.675Z"
 feature_id: J
 priority: P1
 tags:
@@ -87,17 +87,17 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/laya-mlx/src/worker-client.ts:474-482` (resolves default `convaiinnovations/laya-multilingual` when `modelId` and `modelPath` are omitted); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:8-22`. |
-| R2 | MET | `packages/laya-mlx/src/worker-client.ts:472-487` (`cacheDir` passed as `--cache-dir` and exported as `HF_HUB_CACHE` for reuse across instances); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:24-54`. |
-| R3 | MET | `packages/laya-mlx/src/worker-client.ts:471-477` (explicit `modelPath` takes precedence over `modelId`, passing `--model-path` and suppressing `--model`); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:57-96`. |
-| R4 | MET | `packages/laya-mlx/src/worker-client.ts:475-477` (`modelPath` passed verbatim to worker without writing or mutating); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:57-75`. |
-| R5 | MET | `packages/laya-mlx/src/worker-client.ts:23-24,63-74,468-474` (all options resolved from `options.env` allowlist; `process.env` never accessed); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:98-115`. |
-| R6 | MET | `packages/laya-mlx/src/worker-client.ts:475-477` (local weights serve inference completely offline with no network calls); proven by `packages/laya-mlx/tests/artifact-resolution.test.ts:117-147`. |
+| R1 | MET | Default model id `convaiinnovations/laya-multilingual` resolved at `worker-client.ts:488`; worker fetches into cache on first start; test `artifact-resolution.test.ts:8` |
+| R2 | MET | `cacheDir` forwarded as `--cache-dir` :487,498 and exported as `HF_HUB_CACHE` before runtime import `laya_worker.py:105-106`; second driver starts from the cached copy — test `artifact-resolution.test.ts:23` |
+| R3 | MET | `modelPath` takes precedence: `--model-path` pushed, `--model` suppressed `worker-client.ts:486,490-494`; test :56 (no fetch attempted) |
+| R4 | MET | `modelPath` passed verbatim :490-491, never written/mutated by the client; test :56,:74 |
+| R5 | MET | All defaults read from `options.env` allowlist only (`worker-client.ts:26,478-498`); no `process.env` access in package src; test :96 |
+| R6 | MET | Cached-weights offline answer with zero HTTP: test `artifact-resolution.test.ts:116` 'answers a choice question from cached weights with no HTTP requests' (fresh pass); the decision path is a child process, no decision-service HTTP exists to call |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0079-test-gate.log`, proof-digest `sha256:a88cbf7d…`): `packages/laya-mlx/tests/artifact-resolution.test.ts:8-96` passes 4 tests proving default model ID resolution, cache directory reuse, and local model path precedence. |
-| AC2 | MET | test | `bun test` gate run (recorded in `.spur/run/0079-test-gate.log`, proof-digest `sha256:a88cbf7d…`): `packages/laya-mlx/tests/artifact-resolution.test.ts:117-147` answers a choice decision from cached weights in offline mode, verifying zero network calls. |
+| R8 — The package resolves and caches the model artifact on the caller's behalf | MET | test | Fresh `bun test` (47 pass / 0 fail): artifact-resolution.test.ts:8 (default id), :23 (cache reuse across drivers), :56/:74 (explicit path precedence, verbatim) |
+| R2 — A decision is answered from the Laya multilingual weights with no network call | MET | test | artifact-resolution.test.ts:116 — choice answered from cached weights with no HTTP issued; live counterpart: provisioned-host parity run (`bun run parity`) drives the same worker offline after one-time cache fill |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -109,6 +109,8 @@ Each entry cites the first changed line per file (`file:line`).
 | Priority | Dimension | Location | Finding |
 |----------|-----------|----------|----------|
 | P4 | spur task check | — | task check passed |
+| P4 | tests-pass | — | `bun test` packages/laya-mlx: 47 pass / 0 fail (this run) |
+| P4 | design-conformance | — | Resolution/caching driven through the worker with HF_HUB_CACHE set pre-import, as designed |
 | P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References

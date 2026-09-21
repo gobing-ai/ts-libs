@@ -4,7 +4,7 @@ name: Build the two-layer parity check against the shipped validation fixture
 status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.101Z
-updated_at: "2026-09-21T07:01:30.856Z"
+updated_at: "2026-09-21T18:27:07.117Z"
 feature_id: J
 priority: P1
 tags:
@@ -103,16 +103,16 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/laya-mlx/tests/fixtures/protocol-lines.json:1-125` (committed protocol fixture lines for choice, score, noul, config error, request error, backend error; evaluated in default test run with no skipped tests in `packages/laya-mlx/tests/protocol-fixture.test.ts:98-189`). |
-| R2 | MET | `packages/laya-mlx/tests/protocol-fixture.test.ts:98-189` (covers request construction, line framing, id correlation, answer mapping, action/confidence stripping, and error branches for config, request, and backend errors). |
-| R3 | MET | `packages/laya-mlx/scripts/full-parity.ts:51-223` (parity runner script builds 16 cases covering 63 questions and reports agreement count). |
-| R4 | MET | `packages/laya-mlx/scripts/full-parity.ts:16-17,192-218` (validates choice labels, scores, and probabilities within tolerance `PROBABILITY_TOLERANCE = 0.0001`). |
-| R5 | MET | `packages/laya-mlx/package.json:44` (full parity layer selected via script `"parity": "bun scripts/full-parity.ts"`; default `bun run test` runs protocol layer without skipping tests). |
-| R6 | MET | `packages/laya-mlx/README.md:52-60` and `packages/laya-mlx/scripts/full-parity.ts:10-14` (records tolerance 0.0001 and explanation of 4-decimal worker rounding and hardware representation). |
+| R1 | MET | `packages/laya-mlx/tests/fixtures/protocol-lines.json` committed protocol lines (choice/score/noul + config/request/backend error branches); `packages/laya-mlx/tests/protocol-fixture.test.ts:90-189` runs in the default suite — fresh run: 48 pass / 0 fail / 0 skipped |
+| R2 | MET | `protocol-fixture.test.ts:90-189` covers request construction (incl. the score-criteria list wire contract pinned at :99-104), line framing, id correlation, answer mapping, action/confidence stripping, and every error branch; the stub now mirrors the runtime's per-kind criteria validation (`tests/fixtures/stub_laya.py` — added this fix pass after the live run exposed the drift) |
+| R3 | MET | `packages/laya-mlx/scripts/full-parity.ts` builds the 16 cases / 63 questions and reports the agreement count; executed live this run on a provisioned host (uv venv + vendored runtime, `LAYA_PYTHON=/tmp/laya-mlx-venv/bin/python bun run parity`): **63 / 63 questions agreed (100.0%), exit 0** |
+| R4 | MET | Choice labels, score categories, and yes-probabilities compared against the recorded expectations with `PROBABILITY_TOLERANCE = 0.0001` (`scripts/full-parity.ts:19`); the noul probability comparison was added this fix pass — it was previously never evaluated |
+| R5 | MET | Full layer selected by its own script `package.json:49` (`"parity": "bun scripts/full-parity.ts"`); the default `bun run test` contains no skipped test (48 pass / 0 fail / 0 skip this run) |
+| R6 | MET | Tolerance documented with the not-exact-equality reason: `README.md:135-138` + `scripts/full-parity.ts:9-13` (4-decimal worker rounding, float16/float32 representation); expectation provenance recorded at `scripts/full-parity.ts:45-51` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0081-test-gate.log`, proof-digest `sha256:246515b8…`): `packages/laya-mlx/tests/protocol-fixture.test.ts:98-189` and `packages/laya-mlx/scripts/full-parity.ts` verify the two-layer parity architecture and exact answer agreement with reference implementation within tolerance 0.0001 without skipped tests. |
+| R3 — Local answers agree with the reference implementation on the shipped validation fixture | MET | command | Live run this session: `LAYA_PYTHON=/tmp/laya-mlx-venv/bin/python bun run parity` → `[parity] Result: 63 / 63 questions agreed (100.0%)`, exit 0. Categorical expectations are the reference contract certified by the shipped fixture (validation.json: argmax 63/63, public_result_equal, probability max-abs-error 5.2e-6); probability magnitudes are a measured regression snapshot of the reference-certified runtime (provenance comment scripts/full-parity.ts:45-51) |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -124,6 +124,9 @@ Each entry cites the first changed line per file (`file:line`).
 | Priority | Dimension | Location | Finding |
 |----------|-----------|----------|----------|
 | P4 | spur task check | — | task check passed |
+| P4 | tests-pass | — | `bun test` packages/laya-mlx: 48 pass / 0 fail (this run) |
+| P4 | design-conformance | — | Two-layer parity per Design; fix pass repaired three harness defects found by the first live run (driver score-criteria wire shape, driver score expectation→category mapping, missing noul probability comparison; stub criteria-validation mirror added) |
+| P4 | fix-pass | — | Artifacts touched: .spur/run/0081-verify-answer.txt (this file), .spur/run/0081-verdict.json; tracked source edits: packages/laya-mlx/src/driver.ts, scripts/full-parity.ts, tests/fixtures/stub_laya.py, tests/fixtures/protocol-lines.json, tests/protocol-fixture.test.ts, tests/driver.test.ts, tests/prerequisites-and-taxonomy.test.ts |
 | P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References

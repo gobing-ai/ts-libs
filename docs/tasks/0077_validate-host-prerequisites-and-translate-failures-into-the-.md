@@ -4,7 +4,7 @@ name: Validate host prerequisites and translate failures into the decision taxon
 status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.097Z
-updated_at: "2026-09-21T06:43:20.613Z"
+updated_at: "2026-09-21T18:10:04.050Z"
 feature_id: J
 priority: P1
 tags:
@@ -90,20 +90,20 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/laya-mlx/src/worker-client.ts:98-107,411` (`validateHostPrerequisites` called in `LayaWorkerClient` constructor, refusing non-darwin or non-arm64 before process spawn); proven by `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:22-52`. |
-| R2 | MET | `packages/laya-mlx/src/worker-client.ts:145-151,514-521` (missing python reports `DecisionConfigError` with `brew install python@3.11`, unimportable runtime reports `pip install laya-mlx`); proven by `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:55-94`. |
-| R3 | MET | `packages/laya-mlx/src/worker-client.ts:514-521` (raw spawn errors from `runStreaming` caught and wrapped in `DecisionConfigError`); proven by `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:55-70`. |
-| R4 | MET | `packages/laya-mlx/src/worker-client.ts:159-167` (`translateWorkerError` maps `config` to `DecisionConfigError`, `request` to `DecisionRequestError`, `backend` to `DecisionBackendError`); proven by `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:97-115`. |
-| R5 | MET | `packages/laya-mlx/src/worker-client.ts:152-158,350-359` (non-finite error messages and answers with non-finite values reject with `DecisionBackendError` naming `float32`); proven by `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:117-133`. |
-| R6 | MET | `packages/laya-mlx/src/worker-client.ts:125-144` (`translateWorkerError` maps auth/credential patterns to `DecisionAuthError` and connection/transport failures to `DecisionConnectionError`); proven by `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:136-156`. |
-| R7 | MET | `packages/laya-mlx/src/worker-client.ts:192-200,248-257` (`startupTimeoutMs` and `requestTimeoutMs` rejections throw `DecisionTimeoutError`); proven by `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:159-183`. |
+| R1 | MET | `validateHostPrerequisites` runs in the constructor before any spawn (`worker-client.ts:476`); tests `prerequisites-and-taxonomy.test.ts:24,36,47` refuse non-darwin/non-arm64 before spawning; :52 accepts darwin arm64 |
+| R2 | MET | Missing interpreter → DecisionConfigError with install guidance `worker-client.ts:570-580` (names LAYA_PYTHON and brew install); missing runtime import → config error naming `pip install laya-mlx` (test :87); live evidence this run: `bun run parity` on an unprovisioned interpreter failed loud through the taxonomy naming the missing laya_mlx module |
+| R3 | MET | All spawn/handshake failures translate to taxonomy classes before reaching callers (worker-client.ts translation block; parity probe printed a classified DecisionConnectionError/DecisionConfigError path, no raw spawn trace) |
+| R4 | MET | Kind mapping proven by tests `prerequisites-and-taxonomy.test.ts:102` (config→DecisionConfigError), :108 (request→DecisionRequestError), :114 (backend→DecisionBackendError) |
+| R5 | MET | Non-finite output → DecisionBackendError naming the precision remedy: tests :122, :135; worker side classifies FloatingPointError→backend `laya_worker.py:129-130` |
+| R6 | MET | Auth failures → DecisionAuthError (test :143, HF_TOKEN resolution); transport failures → DecisionConnectionError (test :153); artifact-resolution failure path seen live in this run's parity probe (`worker-client.ts:166-167`) |
+| R7 | MET | Startup timeout → DecisionTimeoutError (test :166); request timeout → DecisionTimeoutError (test :180) |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0077-test-gate.log`, proof-digest `sha256:057edde4…`): `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:97-115,136-183` passes 7 tests verifying error kinds map onto the decision taxonomy (`DecisionConfigError`, `DecisionRequestError`, `DecisionBackendError`, `DecisionAuthError`, `DecisionConnectionError`, `DecisionTimeoutError`). |
-| AC2 | MET | test | `bun test` gate run (recorded in `.spur/run/0077-test-gate.log`, proof-digest `sha256:057edde4…`): `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:55-94` passes 3 tests proving missing python and missing runtime are reported as `DecisionConfigError` with install guidance before any decision runs. |
-| AC3 | MET | test | `bun test` gate run (recorded in `.spur/run/0077-test-gate.log`, proof-digest `sha256:057edde4…`): `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:22-52` passes 4 tests proving non-darwin and non-arm64 platforms are refused at constructor time before process spawning. |
-| AC4 | MET | test | `bun test` gate run (recorded in `.spur/run/0077-test-gate.log`, proof-digest `sha256:057edde4…`): `packages/laya-mlx/tests/prerequisites-and-taxonomy.test.ts:117-133` passes 2 tests proving non-finite outputs reject with `DecisionBackendError` naming the precision remedy. |
+| R7 — Local failures surface through the existing decision error taxonomy | MET | test | Fresh `bun test` (47 pass / 0 fail): `prerequisites-and-taxonomy.test.ts:102-180` maps config/request/backend/auth/transport/timeout onto the ai-runner decision error classes |
+| R10 — Missing host prerequisites are reported before any decision is attempted | MET | command | Fresh `bun run parity` on unprovisioned python3: rejected through the taxonomy naming the missing `laya_mlx` module and install command; tests :58, :87; supported runtime range documented README.md:25 |
+| R13 — Non-finite model output is reported instead of being returned as an answer | MET | test | `prerequisites-and-taxonomy.test.ts:122,135` — non-finite FloatingPointError maps to DecisionBackendError naming the precision problem; no non-finite probability returned |
+| R14 — An unsupported platform is refused at construction rather than at inference | MET | test | `prerequisites-and-taxonomy.test.ts:24,36,47` — constructor refuses unsupported OS/arch before any spawn; hosted backend unaffected (no code path shared) |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -115,6 +115,8 @@ Each entry cites the first changed line per file (`file:line`).
 | Priority | Dimension | Location | Finding |
 |----------|-----------|----------|----------|
 | P4 | spur task check | — | task check passed |
+| P4 | tests-pass | — | `bun test` packages/laya-mlx: 47 pass / 0 fail (this run) |
+| P4 | design-conformance | — | Prerequisite validation at construction, taxonomy translation at the bridge seam — as designed |
 | P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References

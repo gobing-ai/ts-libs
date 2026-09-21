@@ -4,7 +4,7 @@ name: Scaffold the ts-laya-mlx package with attribution and no weights
 status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.089Z
-updated_at: "2026-09-21T04:38:21.744Z"
+updated_at: "2026-09-21T18:04:31.930Z"
 feature_id: J
 priority: P1
 tags:
@@ -106,16 +106,16 @@ globs.
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | packages/laya-mlx/package.json:43 build script; src/index.ts:7, tests/index.test.ts:9, worker/README.md:1; discovery via package.json:26 + scripts/lib/workspace.ts:17; .spur/run/0074-test-gate.log:11 typecheck exit 0; dist/index.js emitted |
-| R2 | MET | packages/laya-mlx/package.json:2-3 @gobing-ai/ts-laya-mlx @ 0.5.1 lockstep; single "." export package.json:29 |
-| R3 | MET | package.json:54-55 workspace:* (ts-ai-runner, ts-runtime); tsconfig.json:5-15 paths closure (ADR-004/012); bun.lock:104 member registration |
-| R4 | MET | LICENSE:1-177 Apache-2.0 terms; NOTICE:5-6 upstream laya-mlx @ fc1df628…; NOTICE:14-22 carried-forward upstream block (§4(d)) |
-| R5 | MET | package.json:34-41 files exactly dist, src, worker, README.md, LICENSE, NOTICE; no weight artifacts in tree |
+| R1 | MET | `packages/laya-mlx/package.json:43` build script; fresh `bun run build` exited 0 this run (tsc + fix-dist-esm-extensions), dist/ emitted driver.js, index.js, worker-client.js + declarations; workspace discovery via bun.lock:104-105,250 registration |
+| R2 | MET | `packages/laya-mlx/package.json:2-3` name @gobing-ai/ts-laya-mlx at 0.5.1 (lockstep with siblings after 54898bf9 bump); single `.` export `package.json:28-33` |
+| R3 | MET | `packages/laya-mlx/package.json:55-56` both deps `workspace:*` (ADR-002); `packages/laya-mlx/tsconfig.json:5-14` paths closure resolving ts-ai-runner + transitive sources (ADR-004/012) |
+| R4 | MET | `packages/laya-mlx/LICENSE` Apache-2.0 verbatim; `packages/laya-mlx/NOTICE:4-8` names upstream laya-mlx @ fc1df62828a3fedf4d8229fdac1cbd85f1cdf337; `NOTICE:14-31` carries upstream NOTICE forward per §4(d) |
+| R5 | MET | `packages/laya-mlx/package.json:34-41` files exactly dist, src, worker, README.md, LICENSE, NOTICE; fresh `npm pack --dry-run` this run: 18 files, only allowlisted paths, zero weight artifacts |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 | MET | command | Executable check rc=0: `version=lockstep@0.5.1 deps=@gobing-ai/ts-ai-runner,@gobing-ai/ts-runtime=workspace:* bun.lock=registered` (lockstep manifest, workspace:* deps, bun.lock registration); gate log typecheck exit 0 |
-| AC2 | MET | command | Executable check rc=0: `allowlist=exact LICENSE=Apache-2.0 NOTICE=upstream@fc1df628+carried weights=none` (allowlist exact, LICENSE Apache-2.0, NOTICE upstream@fc1df628+carried, no weights) |
+| R1 — The workspace publishes ts-laya-mlx as a lockstep-versioned package | MET | command | Fresh this run: `bun run build` exit 0; `npm pack --dry-run` → name @gobing-ai/ts-laya-mlx, version 0.5.1 (lockstep), 18 files; `package.json:55-56` deps workspace:* |
+| R9 — The published package carries upstream attribution and no weights | MET | command | Fresh `npm pack --dry-run` tarball list: LICENSE (10.2kB) + NOTICE (1.3kB) present, no .safetensors/.gguf/weight files; NOTICE:5-6 names upstream project + revision |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -127,6 +127,9 @@ globs.
 | Priority | Dimension | Location | Finding |
 |----------|-----------|----------|----------|
 | P4 | spur task check | — | task check passed |
+| P4 | tests-pass | — | `bun test` packages/laya-mlx: 47 pass / 0 fail (7 files, this run) |
+| P4 | typecheck | — | `tsc --noEmit` exit 0 (this run) |
+| P4 | design-conformance | — | Scaffold matches task Design: source-only package, deps exactly the two workspace siblings, attribution files carried |
 | P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References

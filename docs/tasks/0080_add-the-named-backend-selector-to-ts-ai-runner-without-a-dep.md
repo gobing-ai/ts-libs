@@ -4,7 +4,7 @@ name: Add the named backend selector to ts-ai-runner without a dependency edge
 status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.100Z
-updated_at: "2026-09-21T06:54:57.968Z"
+updated_at: "2026-09-21T18:10:04.990Z"
 feature_id: J
 priority: P1
 tags:
@@ -102,18 +102,18 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/ai-runner/src/decision/decision-maker.ts:46-64,116-133` (`DecisionMakerOptions` accepts `backend?: DecisionBackend` with resolution order `driver` → `backend` → `'typesafe'`); proven by `packages/ai-runner/tests/decision/backend-selection.test.ts:18-65`. |
-| R2 | MET | `packages/ai-runner/src/decision/decision-maker.ts:118-129` (selecting `backend: 'typesafe'` uses `createTypesafeDriver` identical to the default); proven by `packages/ai-runner/tests/decision/backend-selection.test.ts:28-65`. |
-| R3 | MET | `packages/ai-runner/src/decision/decision-maker.ts:85-103,130-133` (`'laya-local'` resolved by dynamic import `await import(LAYA_DRIVER_PACKAGE)` on first ask); proven by `packages/ai-runner/tests/decision/backend-selection.test.ts:68-84`. |
-| R4 | MET | `packages/ai-runner/package.json:52-57` (no dependency on `@gobing-ai/ts-laya-mlx`; enforced mechanically by `no-laya-driver-import-in-ai-runner` rule in `.spur/rules/typescript/decision-boundaries.yaml:27-37`). |
-| R5 | MET | `packages/ai-runner/src/decision/decision-maker.ts:94-102` (missing package rejection raises `DecisionConfigError` naming `@gobing-ai/ts-laya-mlx`); proven by `packages/ai-runner/tests/decision/backend-selection.test.ts:86-93`. |
-| R6 | MET | `packages/ai-runner/tests/decision/backend-selection.test.ts:68-84` (`createDecisionMaker({ backend: 'laya-local' })` executes `.choice(...)` seamlessly with identical call-site ergonomics). |
-| R7 | MET | `.spur/rules/typescript/decision-boundaries.yaml:27-52` (spur rules `no-laya-driver-import-in-ai-runner` and `laya-mlx-process-executor-only` validated and passing in gate `.spur/run/0080-test-gate.log`). |
+| R1 | MET | `packages/ai-runner/src/decision/decision-maker.ts:52-53` optional `backend` alongside `driver`; resolution order driver → backend → 'typesafe' at :105-125; tests `backend-selection.test.ts:13,23,47` |
+| R2 | MET | `backend === 'typesafe'` resolves the existing driver unchanged :114; test :23 (respects apiKey requirement, same behavior) |
+| R3 | MET | Local backend resolved by `await import(LAYA_DRIVER_PACKAGE)` at `decision-maker.ts:84,88` on first ask, not at module scope; test :72 |
+| R4 | MET | Fresh audit this run: `jq .dependencies packages/ai-runner/package.json` → only ts-infra/ts-runtime/@typesafe-ai/sdk, no ts-laya-mlx; `rg ts-laya-mlx packages/ai-runner/src/` → sole hit is the dynamic-import string constant :84; rule `no-laya-driver-import-in-ai-runner` `.spur/rules/typescript/decision-boundaries.yaml:40-51` |
+| R5 | MET | Missing package → DecisionConfigError naming `@gobing-ai/ts-laya-mlx` and the install command :97; test :85 |
+| R6 | MET | Caller-side swap compiles/runs unchanged: `driver.test.ts:22` (laya driver substitutable in createDecisionMaker), `backend-selection.test.ts:72` (laya-local answers cleanly); ai-runner decision suite fresh: 47 pass / 0 fail |
+| R7 | MET | `.spur/rules/typescript/decision-boundaries.yaml:40-63` — `no-laya-driver-import-in-ai-runner` (no dep/static import) + `laya-mlx-process-executor-only` (ProcessExecutor confinement in packages/laya-mlx/src) |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0080-test-gate.log`, proof-digest `sha256:ffb7ed28…`): `packages/ai-runner/tests/decision/backend-selection.test.ts:68-93` and spur rule `no-laya-driver-import-in-ai-runner` prove `ts-ai-runner` names `'laya-local'` via dynamic import without any static import or dependency edge. |
-| AC2 | MET | test | `bun test` gate run (recorded in `.spur/run/0080-test-gate.log`, proof-digest `sha256:ffb7ed28…`): `packages/ai-runner/tests/decision/backend-selection.test.ts:18-84` verifies that an application configures `backend: 'laya-local'` or `'typesafe'` and calls `.choice(...)` with no call-site changes. |
+| R6 — ts-ai-runner names the local backend without depending on its package | MET | test | Fresh `bun test tests/decision/` (47 pass / 0 fail): backend-selection.test.ts:72 (dynamic import on first ask), :85 (DecisionConfigError when absent); manifest audit: no ts-laya-mlx dependency; typesafe resolution unchanged :23 |
+| R5 — An application swaps to the local backend without editing a call site | MET | test | backend-selection.test.ts:13,47,72 — driver/backend/default resolution order, existing ask/choice/score/noul calls unchanged, neutral answer shapes preserved |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -125,6 +125,8 @@ Each entry cites the first changed line per file (`file:line`).
 | Priority | Dimension | Location | Finding |
 |----------|-----------|----------|----------|
 | P4 | spur task check | — | task check passed |
+| P4 | tests-pass | — | `bun test tests/decision/` packages/ai-runner: 47 pass / 0 fail (6 files, this run) |
+| P4 | design-conformance | — | Named selector over the existing driver seam, one-way dependency, as designed (ADR-028) |
 | P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References

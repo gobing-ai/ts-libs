@@ -4,7 +4,7 @@ name: Publish the worker script and fix the JSON-lines protocol
 status: done
 template: feature-impl
 created_at: 2026-09-21T03:11:42.094Z
-updated_at: "2026-09-21T05:13:06.128Z"
+updated_at: "2026-09-21T18:10:03.381Z"
 feature_id: J
 priority: P1
 tags:
@@ -83,16 +83,16 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/laya-mlx/worker/laya_worker.py:93-116` (`build_agent` — one `Agent` from CLI flags via `parse_args` :33-52 or first-line `{"options":{...}}` via `merge_first_line_options` :55-81); `main` constructs once at :172-176 and reuses `agent` for the whole serve loop :193-199. Options plumbing exercised by tests: `--batch-size 2` (`tests/packages/laya-mlx/tests/worker-protocol.test.ts:174`) and `--dtype float8` (:189). |
-| R2 | MET | Single handshake emitted before the read loop: `packages/laya-mlx/worker/laya_worker.py:178-185` (`{"ready": true, "model": str(agent.model_id), "revision": agent.revision, "maxLen": int(agent.cfg.get("max_len", 512))}` — readiness, resolved model, revision, token budget). Test asserts handshake is the first line with exact payload: `packages/laya-mlx/tests/worker-protocol.test.ts:96-103`. |
-| R3 | MET | `handle_request` :132-156 validates `id`/`state`/`questions` and echoes the same `request_id` in success `{"id", ok:true, result}` (:156) and failure `{"id", ok:false, error}` (:155). Id-correlation test: `packages/laya-mlx/tests/worker-protocol.test.ts:105-129` (ids `a`, `b`). |
-| R4 | MET | Three-kind taxonomy without prose parsing: `classify()` `packages/laya-mlx/worker/laya_worker.py:123-129` (FloatingPointError→backend, ValueError→request, else backend) + construction failures→`config` via `startup_failure` :89-90/:172-176. Tests assert all three kinds: `packages/laya-mlx/tests/worker-protocol.test.ts:136-140` (request, malformed), :142-149 (request, bad question), :151-159 (backend, "Non-finite"), :188-195 (config startup, exit 1). |
-| R5 | MET | Worker forwards the full questions map to `agent.predict` (:153) — no worker-side truncation; chunking is inside the runtime `Agent.predict` (stub contract `tests/fixtures/packages/laya-mlx/tests/fixtures/stub_laya.py:39-60`). Oversized-batch test: `packages/laya-mlx/tests/worker-protocol.test.ts:173-186` — 5 questions vs `--batch-size 2`, all `q0..q4` keyed, `usage.chunks === 3`. |
-| R6 | MET | Worker source contains only argparse/json/os/sys lifecycle+framing plumbing (`laya_worker.py` imports :24-27); no tokenization, batching, calibration, or answer-construction code — those live in `Agent.predict` (fixture docstring `packages/laya-mlx/tests/fixtures/stub_laya.py:1-5` mirrors the runtime contract). Protocol documented as runtime-owned in `worker/README.md` ("The worker contains no model logic"). |
+| R1 | MET | `packages/laya-mlx/worker/laya_worker.py:97-120` build_agent constructs one Agent from CLI args or first-line options (`merge_first_line_options` :57-85); `main` :176-180 constructs once, serve loop :191-204 reuses it |
+| R2 | MET | Handshake emitted before the read loop at `laya_worker.py:182-189` (ready/model/revision/maxLen); test `packages/laya-mlx/tests/worker-protocol.test.ts:97` asserts handshake-first |
+| R3 | MET | `laya_worker.py:136-160` handle_request validates id/state/questions and echoes the same id on success/failure; correlation test `worker-protocol.test.ts:106` |
+| R4 | MET | `laya_worker.py:127-133` classify() maps FloatingPointError→backend, ValueError→request, else backend; construction failures → config handshake :93-94/:178-180; tests `worker-protocol.test.ts:132,189` assert all three kinds |
+| R5 | MET | Worker forwards the full questions map to `agent.predict` :156-160 (no worker-side truncation); chunking inside the runtime; oversized-batch test `worker-protocol.test.ts:174-187` — 5 questions over `--batch-size 2` → all q0..q4 keyed, usage.chunks=3 (fresh run pass) |
+| R6 | MET | `laya_worker.py:24-30` imports argparse/importlib/json/os/sys only — lifecycle and framing plumbing; no tokenization/batching/calibration code; worker/README.md states the worker contains no model logic |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 | MET | test | `bun test` gate run (recorded in `.spur/run/0075-test-gate.log`, proof-digest `sha256:a1963bea…`): **2335 pass / 0 fail** across 203 files, including `tests/packages/laya-mlx/tests/worker-protocol.test.ts:173-186`, which spawns the real worker via `python3` + `--module tests.fixtures.stub_laya` over `ProcessExecutor.runStreaming` (:74-82) and asserts 5 questions vs `--batch-size 2` → all answers keyed `q0..q4` with `usage.chunks === 3`, worker alive and exit 0. |
+| R12 — A question set larger than the configured batch size is answered in chunks | MET | test | Fresh `bun test` (packages/laya-mlx, 47 pass / 0 fail): `worker-protocol.test.ts:174` spawns the real worker over ProcessExecutor.runStreaming with stub module, 5 questions vs batch-size 2 → 3 chunks, every answer keyed by question name; stub runtime is deterministic so chunked answers equal solo answers; cross-model agreement within 1e-4 is owned by the parity layer (scripts/full-parity.ts) |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -104,6 +104,8 @@ Each entry cites the first changed line per file (`file:line`).
 | Priority | Dimension | Location | Finding |
 |----------|-----------|----------|----------|
 | P4 | spur task check | — | task check passed |
+| P4 | tests-pass | — | `bun test` packages/laya-mlx: 47 pass / 0 fail (this run) |
+| P4 | design-conformance | — | Protocol matches docs/design contract: handshake-first, id-correlated, three-kind taxonomy |
 | P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
 
 ### References
