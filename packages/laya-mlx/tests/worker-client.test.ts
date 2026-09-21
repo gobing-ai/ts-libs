@@ -27,7 +27,9 @@ const STUB_MODULE = 'tests.fixtures.stub_laya';
 type ClientOptions = ConstructorParameters<typeof LayaWorkerClient>[0];
 
 function makeClient(overrides: Partial<ClientOptions> = {}): LayaWorkerClient {
-    return new LayaWorkerClient({ module: STUB_MODULE, ...overrides });
+    // The stub lane is cross-platform (no real MLX); pin a passing platform so the
+    // darwin-only host gate (task 0077, tested separately) doesn't fire on linux CI.
+    return new LayaWorkerClient({ module: STUB_MODULE, platform: 'darwin', arch: 'arm64', ...overrides });
 }
 
 function q(instructions: string, extra: Record<string, unknown> = {}): WorkerQuestion {
