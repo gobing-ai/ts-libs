@@ -3,7 +3,7 @@ name: Architecture
 doc: 03_ARCHITECTURE
 owns: HOW — module boundaries, data flow, runtime model, invariants, rationale-in-depth
 authority: derived
-version: 1.2.0
+version: 1.4.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
 updated_at: 2026-09-20
@@ -113,6 +113,54 @@ the bootstrap never closes them. `stop()` is idempotent.
 | Teardown reason typed as `string` on core         | Plugin core stays runtime-neutral; `ApplicationStopReason` assignable     |
 | Caller-injected DB not closed by bootstrap        | One rule: close what you create, never close what you were handed         |
 | `loadAll` fail-fast, start/stop/unload fail-soft  | Load is precondition validation (must abort); start/stop is best-effort   |
+## laya-mlx (accepted design — ADR-027/ADR-028; not yet built)
+
+`@gobing-ai/ts-laya-mlx` is the local backend for the neutral decision surface: it answers
+`choice` / `score` / `noul` questions on-device from the open-weight Laya multilingual checkpoint,
+behind the same `DecisionDriver` seam that `ts-ai-runner` already exposes. It exists so a decision
+costs no network round-trip and no API key, and so the seam introduced with the TypeSafe driver
+carries a second, independently written backend.
+
+**Dependency direction.** One edge only: `ts-laya-mlx` → `ts-ai-runner` (for the neutral types and
+the error taxonomy). `ts-ai-runner` declares no dependency on `ts-laya-mlx` and imports nothing from
+it at module scope; its named-backend selector resolves the local driver when a decision is first
+asked (ADR-028). A boundary rule makes the invariant mechanically checkable.
+
+**Execution model.** A long-lived worker process runs the vendored `laya-mlx` Python runtime,
+which loads the checkpoint once and then answers batches over JSON lines on stdin/stdout. The
+TypeScript side owns the protocol, the process lifecycle, and the translation to neutral answers;
+it owns no numeric code. `ts-runtime`'s `ProcessExecutor.runStreaming()` is the only process seam
+used, so the platform-API ownership rule (ADR-011/ADR-014) holds unchanged. Genuine MLX executes
+the model, which is what keeps the package name honest. The same bridge shape is what any future
+CLI-backed backend would reuse.
+
+**Pipeline.** A `DecisionDriver.ask` call becomes one worker request carrying the state and the
+question map in the shape the runtime already accepts. The worker tokenizes, builds the marked
+sequence (state, then rendered options, one marker per option), collates the padded batch, runs the
+model, divides per-question logits by the calibration temperature for that question type and option
+count, softmaxes, and returns its own answer JSON. The TypeScript side maps that onto the neutral
+answer shape — including dropping the `noul` confidence the reference computes but the neutral
+contract deliberately does not carry — and translates failures into the decision error taxonomy.
+
+**Model artifacts.** Resolution and caching are delegated to the worker's snapshot download, driven
+by driver options: a default model id, an explicit local-path override that suppresses any fetch,
+and a cache directory. Weights are never bundled into the tarball, which carries only the
+Apache-2.0 licence and the upstream NOTICE.
+
+**Invariants** (checkable):
+
+- No file under `packages/ai-runner/src/**` imports `@gobing-ai/ts-laya-mlx`, and the `ts-ai-runner`
+  manifest lists it in no dependency field.
+- Process spawning inside `packages/laya-mlx/src/**` goes through `ts-runtime`'s `ProcessExecutor`;
+  the package imports no `node:child_process` and calls no `Bun.spawn` directly.
+- `packages/laya-mlx` produces neutral answer values only; a `noul` answer carries a bare
+  yes-probability and no `confidence` field, matching the hosted driver.
+- The published tarball contains no `.safetensors` or other weight artifact.
+- Answers agree with the checkpoint's shipped 63-question validation fixture; the fixture, not a
+  hand-written expectation, is the correctness reference.
+- A missing interpreter, a missing runtime package, or an unsupported platform surfaces as a
+  configuration error at construction — never as a raw spawn failure at ask time.
+
 ## llm-jsonl-importer
 
 `@gobing-ai/ts-llm-jsonl-importer` provides source-neutral JSONL ingestion, mapping, redaction, hashing,
