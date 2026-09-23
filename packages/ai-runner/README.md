@@ -34,7 +34,7 @@ bun add @gobing-ai/ts-ai-runner
 | `isAgentName()` | Type guard for supported agent identifiers |
 | `createDecisionMaker()` / `q` | Batch `ask` and single-question `choice`/`score`/`noul` decisions with provider-neutral question/answer types and a `DecisionError` taxonomy |
 
-Supported agent identifiers: `claude`, `codex`, `gemini` (deprecated), `pi`, `omp`, `opencode`, `antigravity-cli`, `openclaw`, `hermes`, `grok`, `deepseek`. The `antigravity` id is a deprecated alias of `antigravity-cli`. See [Deprecation & Aliases](#deprecation--aliases).
+Supported agent identifiers: `claude`, `codex`, `gemini` (deprecated), `pi`, `omp`, `opencode`, `antigravity-cli`, `openclaw`, `hermes`, `grok`, `deepseek`, `fm` (text-only). The `antigravity` id is a deprecated alias of `antigravity-cli`. See [Deprecation & Aliases](#deprecation--aliases).
 
 ## Architecture
 
@@ -347,6 +347,7 @@ const { args } = getAgentShim('omp').getPromptCommand({
 | openclaw | ✗ (CLI `--session-id` unwired) | ✗ | degrade → fresh `agent` | ✗ | ✓ (CLI `--json`; unwired) |
 | hermes | ✗ (unverified) | ✗ | degrade → fresh `chat` | ✗ | ✗ (unverified) |
 | deepseek | ✗ | ✗ | degrade → fresh headless one-shot | ✗ | ✗ |
+| fm | ✓ | ✓ | `--resume <file>` + `--save-transcript <file>` (file = `<sessionDir>/<sessionId>.json`) | ✗ (`fm chat` is interactive only) | ✗ (`--schema` needs a file; ts-decision-fm surface) |
 
 **Claude session discovery:** claude has no session-dir flag and does not accept a caller-chosen
 session id at open; the headless run's session id is discovered from the process output after the
@@ -505,6 +506,7 @@ Agent-specific behavior:
 | `hermes` | `hermes` | 1 | `hermes doctor` | `chat -q`, `--continue`, `-m` |
 | `grok` | `grok` | 1 | env/file (`XAI_API_KEY` or `~/.grok/auth.json`) | `-p`, `-c` (resume), `-m`, `--output-format plain\|json` (maps ai-runner `text` → `plain`) |
 | `deepseek` | `dsh` | 1 | env-only / `~/.dsh` (no status verb) | `--profile headless <task>`; session/model options degrade to a fresh one-shot (no flags at 0.1.5-rc.1) |
+| `fm` | `fm` | 1 | `fm available --model system` | `respond --no-stream`, `-m`, transcript session flags; **text-only** (no file/shell tools — excluded from `TIER1_PRIORITY` auto-selection) |
 
 This is the right layer for UI previews, audit logging, and custom launchers.
 
@@ -737,6 +739,12 @@ After these changes, the new agent is automatically available to `AiRunner`, `Ag
 shared state and get typed, discriminated answers back. Questions are built with the `q` builders;
 answers are decoded into neutral `ChoiceAnswer` / `ScoreAnswer` / `NoulAnswer` types — no SDK type
 crosses this boundary.
+
+Named backends are selected with `backend:`: `typesafe` (the default, reads `TYPESAFE_API_KEY`),
+`laya-local` (`@gobing-ai/ts-laya-mlx`), and `fm-local` (`@gobing-ai/ts-decision-fm`). Both local
+backends resolve their driver by dynamic import on first use — this package declares no dependency
+on either driver package (ADR-028); install the one you select. For typed, non-default driver
+options, construct the driver yourself and pass it as `driver:`.
 
 ### Batch `ask` — many questions, one request
 

@@ -63,3 +63,30 @@ rules:
         scope:
           include:
             - "packages/laya-mlx/src/**/*.ts"
+
+  - id: no-fm-driver-import-in-ai-runner
+    description: "ADR-028 / task 0085: @gobing-ai/ts-ai-runner must not declare a dependency on or statically import @gobing-ai/ts-decision-fm. The local driver is resolved dynamically at runtime."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-decision-fm"
+        scope:
+          include:
+            - "packages/ai-runner/src/**/*.ts"
+
+  - id: decision-fm-process-executor-only
+    description: "ADR-029 / task 0085: packages/decision-fm must use ProcessExecutor from @gobing-ai/ts-runtime and never directly spawn processes via node:child_process or Bun.spawn."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "node:child_process"
+          - specifier: "child_process"
+          - pattern: "Bun\\.(spawn|spawnSync)\\s*\\("
+            matchMode: usage
+        scope:
+          include:
+            - "packages/decision-fm/src/**/*.ts"

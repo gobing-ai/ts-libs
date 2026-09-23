@@ -24,7 +24,7 @@ API; generated declarations are the compile-time contract.
 | Package export maps | current | [`package-exports.md`](design/package-exports.md) |
 | `DecisionMaker` (`ts-ai-runner`) | current | [`decision-maker.md`](design/decision-maker.md) |
 | Laya local decision backend (`ts-laya-mlx`) | accepted design — ADR-027/ADR-028 | [`laya-local-decision-backend.md`](design/laya-local-decision-backend.md) |
-| Apple `fm` decision backend (`ts-decision-fm`) and `fm` agent | accepted design — ADR-029/ADR-030/ADR-031 | [`decision-fm-backend.md`](design/decision-fm-backend.md) |
+| Apple `fm` decision backend (`ts-decision-fm`) and `fm` agent | built 2026-09-23 — ADR-029/ADR-030/ADR-031 | [`decision-fm-backend.md`](design/decision-fm-backend.md) |
 
 Cross-package and platform constraints are architectural decisions in `docs/00_ADR.md`, not
 duplicated here.

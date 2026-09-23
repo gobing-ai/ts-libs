@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import { createDecisionMaker, DecisionConfigError, type DecisionDriver, q } from '../../src';
 
 describe('Named backend selector in DecisionMaker (task 0080)', () => {
@@ -88,6 +89,74 @@ describe('Named backend selector in DecisionMaker (task 0080)', () => {
                 backend: 'nonexistent-backend' as unknown as 'laya-local',
             });
             await expect(dm.ask({ state: 's', questions: { q: q.noul('p') } })).rejects.toThrow(DecisionConfigError);
+        });
+    });
+
+    describe('fm-local backend (task 0085)', () => {
+        /** Scripted ProcessExecutor: `available`/`count-tokens` succeed, `respond` draws from a queue. */
+        class StubFmExecutor implements ProcessExecutor {
+            constructor(private readonly responds: string[]) {}
+
+            run(options: ProcessOptions): Promise<ProcessResult> {
+                const sub = options.args?.[0];
+                const stdout =
+                    sub === 'available'
+                        ? 'System model available'
+                        : sub === 'count-tokens'
+                          ? '42'
+                          : (this.responds.shift() ?? '');
+                return Promise.resolve({
+                    command: options.command,
+                    args: options.args ?? [],
+                    exitCode: 0,
+                    stdout,
+                    stderr: '',
+                    durationMs: 1,
+                    outcome: 'exit',
+                });
+            }
+
+            runStreaming(): never {
+                throw new Error('fm driver uses only buffered run()');
+            }
+        }
+
+        it('R1, R4, AC1 — resolves fm-local by dynamic import on first ask and answers choice/score/noul through the facade', async () => {
+            const dm = createDecisionMaker({
+                backend: 'fm-local',
+                platform: 'darwin',
+                arch: 'arm64',
+                samples: 2,
+                executor: new StubFmExecutor([
+                    JSON.stringify({ question: 'tech' }),
+                    JSON.stringify({ question: 'tech' }),
+                    JSON.stringify({ question: '1' }),
+                    JSON.stringify({ question: '1' }),
+                    JSON.stringify({ question: 'yes' }),
+                    JSON.stringify({ question: 'no' }),
+                ]),
+            });
+            expect(dm.driver).toBe('fm-local');
+            const choice = await dm.choice('state', 'Pick a team', { billing: 'Invoices', tech: 'Bugs' });
+            expect(choice.label).toBe('tech');
+            const score = await dm.score('state', 'How urgent?', ['Low', 'High']);
+            expect(score.score).toBe(1);
+            const noul = await dm.noul('state', 'Refund?');
+            expect(noul).toEqual({ kind: 'noul', probability: 0.5 });
+        });
+
+        it('R1, AC2 — a failing fm driver construction surfaces as DecisionConfigError naming FM_BACKEND and the package', async () => {
+            // The resolver wraps every createFmDriver failure — missing package or
+            // rejected options (here: unsupported host) — in the same config error.
+            // Bun's mock.module is process-global, so a truly-missing package cannot
+            // be simulated in-process without poisoning the real-import test above.
+            const dm = createDecisionMaker({ backend: 'fm-local', platform: 'linux', arch: 'arm64' });
+            const err = await dm.choice('s', 'Pick', { a: 'A', b: 'B' }).catch((e: unknown) => e);
+            expect(err).toBeInstanceOf(DecisionConfigError);
+            const configErr = err as DecisionConfigError;
+            expect(configErr.variable).toBe('FM_BACKEND');
+            expect(configErr.message).toContain('@gobing-ai/ts-decision-fm');
+            expect(configErr.message).toContain('bun add @gobing-ai/ts-decision-fm');
         });
     });
 });

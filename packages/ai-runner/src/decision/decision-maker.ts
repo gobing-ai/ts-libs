@@ -42,8 +42,8 @@ export interface DecisionMaker {
     noul(state: DecisionState, prompt?: Desc, outcomes?: { yes?: Desc; no?: Desc }): Promise<NoulAnswer>;
 }
 
-/** Available named decision backends (task 0080). */
-export type DecisionBackend = 'typesafe' | 'laya-local';
+/** Available named decision backends (task 0080, task 0085). */
+export type DecisionBackend = 'typesafe' | 'laya-local' | 'fm-local';
 
 /** Factory options: driver selection, credential injection, and transport tuning. */
 export interface DecisionMakerOptions {
@@ -101,6 +101,26 @@ async function resolveLayaDriver(options: DecisionMakerOptions): Promise<Decisio
     }
 }
 
+const FM_DRIVER_PACKAGE = '@gobing-ai/ts-decision-fm';
+
+async function resolveFmDriver(options: DecisionMakerOptions): Promise<DecisionDriver> {
+    try {
+        const mod = (await import(FM_DRIVER_PACKAGE)) as {
+            createFmDriver?: (opts?: unknown) => DecisionDriver;
+        };
+        if (typeof mod.createFmDriver !== 'function') {
+            throw new Error(`Module '${FM_DRIVER_PACKAGE}' does not export createFmDriver`);
+        }
+        return mod.createFmDriver(options);
+    } catch (cause) {
+        throw new DecisionConfigError(
+            `The 'fm-local' backend requires '${FM_DRIVER_PACKAGE}' to be installed; install it with 'bun add ${FM_DRIVER_PACKAGE}'`,
+            'FM_BACKEND',
+            { cause },
+        );
+    }
+}
+
 /**
  * Build a DecisionMaker. `options.driver` wins when supplied; otherwise `options.backend`
  * resolves the driver (default `'typesafe'`). The driver is constructed lazily on first use.
@@ -124,6 +144,10 @@ export function createDecisionMaker(options: DecisionMakerOptions = {}): Decisio
         }
         if (backend === 'laya-local') {
             resolvedDriver = await resolveLayaDriver(options);
+            return resolvedDriver;
+        }
+        if (backend === 'fm-local') {
+            resolvedDriver = await resolveFmDriver(options);
             return resolvedDriver;
         }
         throw new DecisionConfigError(`Unknown decision backend '${backend}'`, 'backend');

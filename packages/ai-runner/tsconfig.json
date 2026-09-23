@@ -5,6 +5,7 @@
             "@gobing-ai/ts-db": ["../db/src/index"],
             "@gobing-ai/ts-db/bun-sqlite": ["../db/src/adapters/bun-sqlite"],
             "@gobing-ai/ts-db/inbox": ["../db/src/inbox"],
+            "@gobing-ai/ts-decision-fm": ["../decision-fm/src/index"],
             "@gobing-ai/ts-infra": ["../infra/src/index"],
             "@gobing-ai/ts-laya-mlx": ["../laya-mlx/src/index"],
             "@gobing-ai/ts-runtime": ["../runtime/src/index"],

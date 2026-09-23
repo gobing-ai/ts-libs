@@ -161,7 +161,7 @@ Apache-2.0 licence and the upstream NOTICE.
 - A missing interpreter, a missing runtime package, or an unsupported platform surfaces as a
   configuration error at construction — never as a raw spawn failure at ask time.
 
-## decision-fm (accepted design — ADR-029/ADR-030/ADR-031; not yet built)
+## decision-fm (built 2026-09-23 — ADR-029/ADR-030/ADR-031)
 
 `@gobing-ai/ts-decision-fm` is the third backend for the neutral decision surface. It answers
 `choice` / `score` / `noul` questions with Apple's on-device Foundation Model through the `fm`
