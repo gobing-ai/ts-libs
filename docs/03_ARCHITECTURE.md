@@ -161,6 +161,50 @@ Apache-2.0 licence and the upstream NOTICE.
 - A missing interpreter, a missing runtime package, or an unsupported platform surfaces as a
   configuration error at construction — never as a raw spawn failure at ask time.
 
+## decision-fm (accepted design — ADR-029/ADR-030/ADR-031; not yet built)
+
+`@gobing-ai/ts-decision-fm` is the third backend for the neutral decision surface. It answers
+`choice` / `score` / `noul` questions with Apple's on-device Foundation Model through the `fm`
+command-line tool that ships with macOS 27, behind the same `DecisionDriver` seam as the TypeSafe
+and Laya drivers. It exists so a decision costs no install, no key and no network on any macOS 27
+Apple Silicon host.
+
+**Dependency direction.** As for laya-mlx: `ts-decision-fm` → `ts-ai-runner` and `ts-runtime` only.
+`ts-ai-runner` names the backend `fm-local` and resolves it by dynamic import when a decision is
+first asked (ADR-028).
+
+**Execution model.** No worker and no server. Each sample is one short-lived `fm respond --schema`
+process run through `ts-runtime`'s `ProcessExecutor`. The driver renders the state and question map
+into one prompt, and generates one object schema whose properties are the question keys, each
+constrained to that question's labels, levels or yes/no. So one process answers the whole map for
+one sample. Guided generation makes stdout schema-conformant JSON; the driver still validates it.
+
+**Probability model.** `fm` exposes no log-probabilities, so the driver draws k samples, sequentially
+by default, and counts outcomes (ADR-030). Probabilities are label frequencies, and `confidence` is
+normalized entropy over that empirical distribution. Latency is linear in k.
+
+**Guards.** Before sampling, `fm count-tokens` checks the rendered prompt against a token budget
+below the model's ~8K context. The host platform and `fm available --model system` are checked once
+per driver. Guardrail refusals, context overflow, model unavailability and schema mismatches become
+decision errors, never answers.
+
+**`fm` as an agent.** Separately, `ts-ai-runner` gains an `fm` shim marked text-only and left out
+of automatic selection (ADR-031). The shim and the driver share no code: the shim builds argv for
+the generic runner, and the driver owns its own decision prompt and schema.
+
+**Invariants** (checkable):
+
+- No file under `packages/ai-runner/src/**` imports `@gobing-ai/ts-decision-fm`, and the
+  `ts-ai-runner` manifest lists it in no dependency field.
+- Process spawning inside `packages/decision-fm/src/**` goes through `ProcessExecutor`; no
+  `node:child_process`, `Bun.spawn` or `process.env` access.
+- No prompt or schema the driver emits requests a confidence, probability or certainty field from
+  the model.
+- Every generated object schema carries `x-order` listing all of its properties.
+- A `noul` answer carries a bare probability and no `confidence`.
+- Tests run green on Linux with no `fm`; live-model tests run only when the host passes the
+  capability check.
+
 ## llm-jsonl-importer
 
 `@gobing-ai/ts-llm-jsonl-importer` provides source-neutral JSONL ingestion, mapping, redaction, hashing,

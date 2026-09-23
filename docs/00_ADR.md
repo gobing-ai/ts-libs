@@ -518,3 +518,53 @@ the named selector is additive sugar over it.
 across the workspace graph.
 
 **Detail:** `docs/03_ARCHITECTURE.md` § laya-mlx; boundary rule under `.spur/rules/typescript/`.
+
+---
+
+## ADR-029: Apple `fm` Decision Backend Ships as `ts-decision-fm` over a One-Shot Process Bridge
+
+**Status:** Accepted (design) · **Date:** 2026-09-23 · **Targets:** `ts-decision-fm` (new), `ts-ai-runner`
+
+**Decision.** A third `DecisionDriver` ships as its own lockstep-versioned workspace package,
+`@gobing-ai/ts-decision-fm` (source `packages/decision-fm`), selected in `ts-ai-runner` as backend
+`"fm-local"` under ADR-028's one-way rule. It answers a whole question map per sample with one
+`fm respond --schema` call over `ProcessExecutor`; it does not run `fm serve`. New driver packages
+are named `ts-decision-<engine>`; `ts-laya-mlx` keeps its published name.
+
+**Why.** `fm` is a macOS 27 system binary with guided generation built in, so a one-shot subprocess
+needs no Python, weights, or server lifecycle — and `fm serve` was verified to add no capability
+(no logprobs, no `n>1`).
+
+**Detail:** `docs/03_ARCHITECTURE.md` § decision-fm; shapes in `docs/design/decision-fm-backend.md`.
+
+---
+
+## ADR-030: `fm` Answer Probabilities Are Empirical Sample Frequencies
+
+**Status:** Accepted (design) · **Date:** 2026-09-23 · **Targets:** `ts-decision-fm`
+
+**Decision.** The `fm-local` driver derives every probability from k independent non-greedy samples
+(label frequency), and `confidence` from that empirical distribution with the same normalized-entropy
+formula the Laya reference uses. A deterministic mode draws one greedy sample. The estimator and k
+are declared on the driver. The model is never asked to state its own confidence.
+
+**Why.** `fm` exposes no token log-probabilities on either the CLI or `fm serve` (verified
+2026-09-23), and self-reported confidence would fabricate calibration the neutral contract forbids.
+
+**Detail:** `docs/design/decision-fm-backend.md` § Probability estimation.
+
+---
+
+## ADR-031: `fm` Joins `ts-ai-runner` as a Text-Only Agent, Excluded from Auto-Selection
+
+**Status:** Accepted (design) · **Date:** 2026-09-23 · **Targets:** `ts-ai-runner`
+
+**Decision.** `fm` becomes an `AgentName` with a shim covering detection, availability, prompt
+execution, structured output, and transcript sessions, and it is marked text-only: it has no file or
+shell tools. It is absent from `TIER1_PRIORITY`, so automatic selection never resolves to it; an
+explicit `fm` request still does.
+
+**Why.** Downstream callers get Apple's on-device model through the same runner, and auto-selection
+cannot route tool-using work to a model that would only narrate the edits.
+
+**Detail:** `docs/design/decision-fm-backend.md` § `fm` agent in `ts-ai-runner`.
