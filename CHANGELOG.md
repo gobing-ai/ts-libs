@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [0.5.3] - 2026-09-23
+
+### Added
+
+- **`@gobing-ai/ts-decision-fm`: Apple fm on-device decision backend (feature K, tasks 0083–0085).** New package: `FmDecisionDriver` with k-sample frequency estimation (choice frequencies with declaration-order tie-break, rubric scores with lower-level tie-break, bare noul probabilities, 1−H/ln n confidence), fm schema generation carrying the `x-order` property-order key fm requires, `count-tokens` budget guard that rejects oversized questions before any model invocation, deterministic single-sample mode, fm failure mapping onto the existing decision error taxonomy, and darwin/arm64 platform gating with prerequisite reporting before any decision is attempted. Live tests stay gated on capable hosts; CI stays stub-only. `59305175`.
+- **`@gobing-ai/ts-ai-runner`: fm text-only agent shims.** Auth and command shims for the Apple `fm` CLI agent, with stubbed and live-gated test coverage. `00307f37`.
+- **`@gobing-ai/ts-ai-runner`: fm-local named backend selector.** Lazy dynamic import via `FM_DRIVER_PACKAGE` (no manifest dependency on `ts-decision-fm`, ADR-028 preserved), failures wrapped as `DecisionConfigError` naming the package, plus spawn-boundary spur rules and ADR-029/030/031 built flips. `c8df4c03`.
+
+### Changed
+
+- **Project-owned feature-verification wiring (ADR-119).** Project-layer `feature-verification` workflow and driver that records the bound PASS/FAIL evidence receipt by loading the receipt seams from the installed `@gobing-ai/spur` bundle; `spur-check-feature` script added. `d7271814`.
+
+### Other
+
+- **`docs`: accept the Apple fm backend design (ADR-029..031).** `7818fead`.
+- **`docs(spur)`: feature K corpus — feature file and tasks 0083–0085.** `36508061`.
+- **`chore(claude)`: allow spur task commands in local settings.** `d49b1ae5`.
+
 ## [0.5.2] - 2026-09-21
 
 ### Added
