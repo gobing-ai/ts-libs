@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-decision-fm",
-    "version": "0.5.2",
+    "version": "0.5.3",
     "description": "@gobing-ai/ts-decision-fm — Apple on-device Foundation Model decision backend driving the macOS `fm` CLI over a one-shot process bridge.",
     "keywords": [
         "typescript",
