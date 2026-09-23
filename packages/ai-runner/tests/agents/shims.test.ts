@@ -53,7 +53,8 @@ describe('Agent shims', () => {
             expect(shim.command).toBeString();
             expect([1, 2]).toContain(shim.tier);
             expect(shim.getHelpCommand().command).toBe(shim.command);
-            expect(shim.getVersionCommand().command).toBe(shim.command);
+            // fm has no --version flag; its probe is the absolute-path `what` (task 0083).
+            if (shim.name !== 'fm') expect(shim.getVersionCommand().command).toBe(shim.command);
             expect(shim.getPromptCommand({ input: 'test' }).args).toBeArray();
         }
     });
@@ -565,8 +566,9 @@ describe('deepseek shim (task 0066)', () => {
                 if (cap.verifiedAgainst.startsWith('unverified')) {
                     expect(cap.note).toBeDefined();
                 } else {
-                    // Real rows carry the probed CLI version (e.g. `2.1.274`).
-                    expect(cap.verifiedAgainst).toMatch(/^\d/);
+                    // Real rows carry the probed CLI version (e.g. `2.1.274`)
+                    // or fm's pinned FoundationModels build identifier (task 0083).
+                    expect(cap.verifiedAgainst).toMatch(/^\d|^[A-Za-z-]+\d/);
                 }
             }
         });
@@ -646,5 +648,121 @@ describe('persistent-stdin dispatch (feature B8 upstream)', () => {
             expect(getAgentSessionCapability(name)?.supportsPersistentStdin).toBe(true);
             expect(getAgentShim(name).persistentStdinProtocol).toBeDefined();
         }
+    });
+});
+
+describe('fm shim (task 0083)', () => {
+    test('fm is a known canonical id resolving to itself', () => {
+        expect(isAgentName('fm')).toBe(true);
+        expect(resolveAgentName('fm')).toBe('fm');
+        const shim = getAgentShim('fm');
+        expect(shim.name).toBe('fm');
+        expect(shim.command).toBe('fm');
+        expect(shim.tier).toBe(1);
+        expect(shim.getHelpCommand()).toEqual({ command: 'fm', args: ['--help'] });
+    });
+
+    test('version probe is `what -q /usr/bin/fm` (no --version flag exists)', () => {
+        expect(getAgentShim('fm').getVersionCommand()).toEqual({
+            command: 'what',
+            args: ['-q', '/usr/bin/fm'],
+        });
+    });
+
+    test('auth probe is the system-model availability check', () => {
+        expect(getAgentShim('fm').getAuthCommand()).toEqual({
+            command: 'fm',
+            args: ['available', '--model', 'system'],
+        });
+    });
+
+    test('getPromptCommand builds the headless one-shot respond argv', () => {
+        expect(getAgentShim('fm').getPromptCommand({ input: 'hello' })).toEqual({
+            command: 'fm',
+            args: ['respond', '--no-stream', 'hello'],
+        });
+    });
+
+    test('model pins via -m before session flags; mode is ignored (no schema to pass)', () => {
+        const shim = getAgentShim('fm');
+        expect(shim.getPromptCommand({ input: 'hi', model: 'fast' }).args).toEqual([
+            'respond',
+            '--no-stream',
+            '-m',
+            'fast',
+            'hi',
+        ]);
+        expect(shim.getPromptCommand({ input: 'hi', mode: 'json' }).args).toEqual(['respond', '--no-stream', 'hi']);
+    });
+
+    test('session argv: sessionId+sessionDir resumes and saves back to <dir>/<id>.json', () => {
+        expect(
+            getAgentShim('fm').getPromptCommand({ input: 'again', sessionId: 's1', sessionDir: '/run/sess' }).args,
+        ).toEqual([
+            'respond',
+            '--no-stream',
+            '--resume',
+            '/run/sess/s1.json',
+            '--save-transcript',
+            '/run/sess/s1.json',
+            'again',
+        ]);
+    });
+
+    test('session argv: sessionId without sessionDir uses <id>.json in the working directory', () => {
+        expect(getAgentShim('fm').getPromptCommand({ input: 'q', sessionId: 's2' }).args).toEqual([
+            'respond',
+            '--no-stream',
+            '--resume',
+            's2.json',
+            '--save-transcript',
+            's2.json',
+            'q',
+        ]);
+    });
+
+    test('session argv: sessionDir only opens a fresh session at <dir>/fm-session.json', () => {
+        expect(getAgentShim('fm').getPromptCommand({ input: 'q', sessionDir: '/run/sess' }).args).toEqual([
+            'respond',
+            '--no-stream',
+            '--save-transcript',
+            '/run/sess/fm-session.json',
+            'q',
+        ]);
+    });
+
+    test('session argv: neither set emits no transcript flags; continue alone degrades to fresh', () => {
+        const shim = getAgentShim('fm');
+        const fresh = shim.getPromptCommand({ input: 'q' });
+        expect(fresh.args).not.toContain('--resume');
+        expect(fresh.args).not.toContain('--save-transcript');
+        expect(shim.getPromptCommand({ input: 'q', continue: true })).toEqual(fresh);
+    });
+
+    test('textOnly is declared on fm and on no other shim', () => {
+        for (const name of Object.keys(AGENT_SHIMS) as AgentName[]) {
+            expect(getAgentShim(name).textOnly ?? false).toBe(name === 'fm');
+        }
+    });
+
+    test('fm is excluded from auto-selection lists and appended last in DISPLAY_ORDER (R5)', () => {
+        expect(TIER1_PRIORITY).not.toContain('fm');
+        expect(TIER2_AGENTS.has('fm')).toBe(false);
+        expect(DISPLAY_ORDER.at(-1)).toBe('fm');
+        for (const name of TIER1_PRIORITY) expect(name).not.toBe('fm');
+    });
+
+    test('capability row: resume-by-id + session-dir, no stdin, no structured output (R7)', () => {
+        expect(getAgentSessionCapability('fm')).toEqual({
+            supportsResumeById: true,
+            supportsSessionDir: true,
+            supportsPersistentStdin: false,
+            supportsStructuredOutput: false,
+            verifiedAgainst: 'FoundationModels-2.0.68.1.402',
+            note: expect.stringContaining('--schema'),
+        });
+        const note = getAgentSessionCapability('fm').note ?? '';
+        expect(note).toContain('stdin');
+        expect(note).toContain('--schema');
     });
 });

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Add the fm text-only agent shim to ts-ai-runner
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-09-23T16:30:08.841Z
-updated_at: "2026-09-23T16:36:15.820Z"
+updated_at: "2026-09-23T18:25:11.668Z"
 feature_id: K
 priority: P1
 tags:
@@ -30,27 +30,27 @@ Implements: R1 — ts-ai-runner detects the fm agent and reports its version wit
 
 ### Requirements
 
-- [ ] R1. `AgentName` gains `'fm'`; `AGENT_SHIMS.fm` has `command: 'fm'`, `tier: 1`, help `fm --help`, version `what -q /usr/bin/fm`, auth `fm available --model system`.
-- [ ] R2. `getPromptCommand` returns `fm respond --no-stream [-m <model>] [session flags] <input>`; `mode` is ignored (no schema to pass through generic `PromptOptions`).
-- [ ] R3. Session argv: `sessionId` set → `--resume <f> --save-transcript <f>` where `<f>` = `joinPath(sessionDir, `${sessionId}.json`)`, or `${sessionId}.json` when `sessionDir` is unset; only `sessionDir` → `--save-transcript <sessionDir>/fm-session.json`; neither → no transcript flags; `continue` alone degrades to a fresh call. The shim does no filesystem I/O.
-- [ ] R4. `AgentShim` gains optional `readonly textOnly?: boolean`; `fm` sets `true`; no other shim sets it.
-- [ ] R5. `fm` is absent from `TIER1_PRIORITY` and `TIER2_AGENTS`, appended last in `DISPLAY_ORDER`; `resolveAgentName('fm') === 'fm'` and `isAgentName('fm')` is true.
-- [ ] R6. `AUTH_PATTERNS.fm = { positive: /System model available/i, negative: /unavailable/i }`.
-- [ ] R7. `AGENT_SESSION_CAPABILITY.fm = { supportsResumeById: true, supportsSessionDir: true, supportsPersistentStdin: false, supportsStructuredOutput: false, verifiedAgainst: 'FoundationModels-2.0.68.1.402', note }` with a note naming both gaps.
-- [ ] R8. Unit tests cover version/auth/prompt argv, every session branch, detector parse of the real `what` output, doctor row, and list membership; they pass on Linux without `fm`.
-- [ ] R9. One live test runs only when `process.platform === 'darwin'` and `fm available --model system` exits 0; it runs two prompts through `AiRunner` with a session and checks the second recalls the first.
-- [ ] R10. `packages/ai-runner/README.md` lists `fm` in the identifier list, the session table and the agent table, marked text-only.
+- [x] R1. `AgentName` gains `'fm'`; `AGENT_SHIMS.fm` has `command: 'fm'`, `tier: 1`, help `fm --help`, version `what -q /usr/bin/fm`, auth `fm available --model system`.
+- [x] R2. `getPromptCommand` returns `fm respond --no-stream [-m <model>] [session flags] <input>`; `mode` is ignored (no schema to pass through generic `PromptOptions`).
+- [x] R3. Session argv: `sessionId` set → `--resume <f> --save-transcript <f>` where `<f>` = `joinPath(sessionDir, `${sessionId}.json`)`, or `${sessionId}.json` when `sessionDir` is unset; only `sessionDir` → `--save-transcript <sessionDir>/fm-session.json`; neither → no transcript flags; `continue` alone degrades to a fresh call. The shim does no filesystem I/O.
+- [x] R4. `AgentShim` gains optional `readonly textOnly?: boolean`; `fm` sets `true`; no other shim sets it.
+- [x] R5. `fm` is absent from `TIER1_PRIORITY` and `TIER2_AGENTS`, appended last in `DISPLAY_ORDER`; `resolveAgentName('fm') === 'fm'` and `isAgentName('fm')` is true.
+- [x] R6. `AUTH_PATTERNS.fm = { positive: /System model available/i, negative: /unavailable/i }`.
+- [x] R7. `AGENT_SESSION_CAPABILITY.fm = { supportsResumeById: true, supportsSessionDir: true, supportsPersistentStdin: false, supportsStructuredOutput: false, verifiedAgainst: 'FoundationModels-2.0.68.1.402', note }` with a note naming both gaps.
+- [x] R8. Unit tests cover version/auth/prompt argv, every session branch, detector parse of the real `what` output, doctor row, and list membership; they pass on Linux without `fm`.
+- [x] R9. One live test runs only when `process.platform === 'darwin'` and `fm available --model system` exits 0; it runs two prompts through `AiRunner` with a session and checks the second recalls the first.
+- [x] R10. `packages/ai-runner/README.md` lists `fm` in the identifier list, the session table and the agent table, marked text-only.
 
 Out of scope: a structured-output mode for the agent (belongs to ts-decision-fm), `fm chat`/`fm serve`, PCC models, any change to `AgentDetector` or `DoctorResult`.
 
 ### Acceptance Criteria
 
-- [ ] AC1 — ts-ai-runner detects the fm agent and reports its version without a version flag
-- [ ] AC2 — Doctor reports fm model availability from the system-model probe
-- [ ] AC3 — A prompt sent through the fm agent returns the model text response
-- [ ] AC4 — A second fm prompt in the same session continues the saved transcript
-- [ ] AC5 — The fm agent declares itself text-only and is never auto-selected for tool-using work
-- [ ] AC6 — The test suites pass on Linux CI and exercise the live model only on capable hosts
+- [x] AC1 — ts-ai-runner detects the fm agent and reports its version without a version flag
+- [x] AC2 — Doctor reports fm model availability from the system-model probe
+- [x] AC3 — A prompt sent through the fm agent returns the model text response
+- [x] AC4 — A second fm prompt in the same session continues the saved transcript
+- [x] AC5 — The fm agent declares itself text-only and is never auto-selected for tool-using work
+- [x] AC6 — The test suites pass on Linux CI and exercise the live model only on capable hosts
 
 Task-local check: `bun test packages/ai-runner` passes on a host without fm.
 
@@ -93,15 +93,70 @@ Task-local check: `bun test packages/ai-runner` passes on a host without fm.
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+**Files changed** (all under `packages/ai-runner/`):
+
+- `src/agents/shims.ts` — `'fm'` joins `AgentName`; new optional `AgentShim.textOnly?: boolean` (src/agents/shims.ts:116, set on fm only); `fmShim` (src/agents/shims.ts:445; help `fm --help`, version `what -q /usr/bin/fm`, auth `fm available --model system`, prompt `fm respond --no-stream [-m <model>] [session flags] <input>` with transcript-file sessions); `AGENT_SHIMS.fm` (src/agents/shims.ts:489); `AGENT_SESSION_CAPABILITY.fm` (src/agents/shims.ts:617; resume-by-id + session-dir true, persistent stdin and structured output false, `verifiedAgainst: 'FoundationModels-2.0.68.1.402'`, note naming both gaps); `'fm'` appended last in `DISPLAY_ORDER`; absent from `TIER1_PRIORITY`/`TIER2_AGENTS`.
+- `src/agents/auth-shims.ts` — `AUTH_PATTERNS.fm = { positive: /System model available/i, negative: /unavailable/i }` (src/agents/auth-shims.ts:73); doctor "authenticated" means "system model available".
+- `tests/agents/shims.test.ts` — new `fm shim (task 0083)` block: version/auth/help/prompt argv, model pin, mode ignored, all four session branches, `textOnly` exclusivity, list membership, capability row; two generic invariants fm deliberately breaks relaxed with comments (version-probe binary is `what`; `verifiedAgainst` may be the FoundationModels build identifier).
+- `tests/agents/auth-shims.test.ts` — fm tri-state: `System model available` ⇒ authenticated; `System model unavailable: modelNotReady` (exit 1) ⇒ unauthenticated.
+- `tests/agent-detector.test.ts` — detector reports the first `what` line verbatim from the real three-line output; `what` exit 1 ⇒ not installed (Linux/older-macOS path).
+- `tests/doctor-runner.test.ts` — fm doctor row: system-model probe drives auth; `DoctorResult` carries no probe text.
+- `tests/fm-live.test.ts` (new; guard at tests/fm-live.test.ts:22) — live test guarded by `process.platform === 'darwin'` + `fm available --model system` exit 0; two prompts through `AiRunner`, second recalls the first; skips with a stated reason otherwise.
+- `tests/ai-runner.test.ts` — same version-probe carve-out in "builds every shim command variant".
+- `README.md` — `fm` in the identifier list, session/capability matrix, and agent table, marked text-only / never auto-selected.
+
+**Key design decisions**
+
+- Session bootstrap follows feature K R4: fresh open is sessionDir-only (`--save-transcript <dir>/fm-session.json`); resume uses `sessionId: 'fm-session'`, which resolves to that same file (`--resume <f> --save-transcript <f>`). Verified live: `fm respond --resume <missing>` exits 1 ("Unable to read transcript at …"), so a missing transcript fails the run rather than silently starting fresh — fm's own behavior, exactly as designed.
+- No changes to `AgentDetector`, `DoctorRunner`, or `AiRunner`: the generic non-zero-exit ⇒ not-installed branch and first-line version reporting already handle `what -q /usr/bin/fm` (prints the `PROGRAM:fm  PROJECT:…` line three times, once per binary slice).
+- `mode` is ignored (no `--schema` passthrough through the generic `PromptOptions` — structured output is ts-decision-fm's surface); the shim stays pure (no filesystem I/O; `joinPath` from `@gobing-ai/ts-runtime` only).
+
+**Verification**
+
+- `bun test packages/ai-runner` — 298 pass / 0 fail across 24 files, including the live session-recall test on this darwin host (fm `FoundationModels-2.0.68.1.402`) and all stubbed suites that pass without fm (AC6).
+- `bun run lint` — exit 0 (Biome `--error-on-warnings` + per-package `tsc --noEmit`); 2 test files auto-formatted via `bun run format`.
+- No new dependencies, no `workspace:*` changes, no changes to `docs/00`–`05` or `docs/design`.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | packages/ai-runner/src/agents/shims.ts:17 (`'fm'` in AgentName), :446-451+:473 (fmShim: command 'fm', tier 1, help `fm --help`, version `what -q /usr/bin/fm`, auth `fm available --model system`), :489 (AGENT_SHIMS.fm); tests/agents/shims.test.ts:655-678 assert all fields. |
+| R2 | MET | packages/ai-runner/src/agents/shims.ts:452-472 (`fm respond --no-stream`, optional `-m <model>`, input positional; mode ignored, no `--schema` passthrough); tests/agents/shims.test.ts:679-695. |
+| R3 | MET | packages/ai-runner/src/agents/shims.ts:460-469 (sessionId → `--resume <f> --save-transcript <f>` with `joinPath(sessionDir, '<id>.json')` or bare `<id>.json`; sessionDir-only → `<dir>/fm-session.json`; otherwise no transcript flags; `continue` never read; pure argv strings, no fs I/O); tests/agents/shims.test.ts:698-740 cover all four branches. |
+| R4 | MET | packages/ai-runner/src/agents/shims.ts:116 (`readonly textOnly?: boolean` on AgentShim), :449 (fm sets true); grep of src confirms no other shim sets it; tests/agents/shims.test.ts:742-746 assert exclusivity. |
+| R5 | MET | packages/ai-runner/src/agents/shims.ts:633-643 (TIER1_PRIORITY without fm), :662 (TIER2_AGENTS = {'openclaw'} only), :646-660 ('fm' last in DISPLAY_ORDER); tests/agents/shims.test.ts:748-753 plus isAgentName/resolveAgentName asserts at :655-657. |
+| R6 | MET | packages/ai-runner/src/agents/auth-shims.ts:73-76 (positive /System model available/i, negative /unavailable/i); negative-before-positive at auth-shims.ts:184-185 prevents `System model unavailable…` false-matching; tests/agents/auth-shims.test.ts:228-240. |
+| R7 | MET | packages/ai-runner/src/agents/shims.ts:617-625 (resumeById+sessionDir true, stdin+structuredOutput false, verifiedAgainst 'FoundationModels-2.0.68.1.402', note naming both gaps); tests/agents/shims.test.ts:755-765. |
+| R8 | MET | version/auth/prompt argv tests/agents/shims.test.ts:665-695, all session branches :698-740, detector parse of the real three-line `what` output and exit-1 not-installed tests/agent-detector.test.ts:127-152, doctor row tests/doctor-runner.test.ts:302-335, list membership tests/agents/shims.test.ts:748; all suites stubbed via FakeExecutor so they run without fm; execution evidence: .spur/run/0083-test-gate.log (PASS — 2401 tests / 0 fail, 210 files, digest-bound, see Evidence). |
+| R9 | MET | packages/ai-runner/tests/fm-live.test.ts:20 (guard: darwin AND `fm available --model system` exit 0 via runAuthCommand, ai-runner.ts:218), :23 test.skipIf, two prompts through AiRunner with sessionDir/sessionId and second-recalls-first assertion (:24-56). |
+| R10 | MET | packages/ai-runner/README.md:37 (identifier list, `fm` (text-only)), :350 (session table row), :509 (agent table row marked text-only / excluded from TIER1_PRIORITY auto-selection). |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC-1 | MET | test | packages/ai-runner/src/agents/shims.ts:451 (`what -q /usr/bin/fm`; no --version flag exists); tests/agent-detector.test.ts:127-141 report the first `what` line verbatim as the version. |
+| AC-2 | MET | test | packages/ai-runner/src/agents/auth-shims.ts:73-76 (system-model probe patterns); tests/doctor-runner.test.ts:302-335 (probe drives authenticated/unauthenticated tri-state; DoctorResult carries no probe text). |
+| AC-3 | MET | test | packages/ai-runner/src/agents/shims.ts:452-472 (headless `fm respond --no-stream … <input>`); generic stdout passthrough unchanged (packages/ai-runner/src/ai-runner.ts:185); live response attested by tests/fm-live.test.ts:23-56 (gate log records the live suite passing on this darwin host). |
+| AC-4 | MET | test | packages/ai-runner/src/agents/shims.ts:460-466 (`--resume <f> --save-transcript <f>`); tests/agents/shims.test.ts:698-710; live transcript-continuation test tests/fm-live.test.ts:23-56 (second prompt asserts BANANA42 recall). |
+| AC-5 | MET | test | packages/ai-runner/src/agents/shims.ts:116,449 (textOnly on fm only) + :633-643,:662 (absent from TIER1_PRIORITY/TIER2_AGENTS); tests/agents/shims.test.ts:742-753. |
+| AC-6 | MET | test | no fm dependency on Linux: detector negative path tests/agent-detector.test.ts:143-152, live test skipped unless darwin+probe tests/fm-live.test.ts:20-23; recorded full gate .spur/run/0083-test-gate.log = PASS (lint clean, spur rules pre/post clean, bun test --coverage 2401 pass / 0 fail / 210 files). |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+<!-- spur:record-review -->
+
+**SECU findings** (pipeline verify step — verdict: PASS)
+
+| Priority | Dimension | Location | Finding |
+|----------|-----------|----------|----------|
+| P4 | spur task check | — | task check passed |
+| P4 | evidence-rule-pass | — | All behavior-bearing AC rows have executable evidence or are explicitly non-behavioral. |
+| P4 | proof-input-digest | — | sha256:96879ea38bd6e82e43e1515cc834fcdd5050da07bf155eb6e9887000f5291d3b |
 
 ### References
 
@@ -111,3 +166,8 @@ Task-local check: `bun test packages/ai-runner` passes on a host without fm.
 - Concurrency: no other worktrees; no `wip` tasks (checked 2026-09-23).
 
 ### History
+
+- 2026-09-23T18:04:53.564Z todo → wip (system)
+- 2026-09-23T18:22:28.777Z wip → testing (system)
+- 2026-09-23T18:25:11.668Z testing → done (system)
+

@@ -224,4 +224,21 @@ describe('isAuthenticated (tri-state)', () => {
         const state = await isAuthenticated('grok', ctx(runner, { env: { HOME: '/home' } }));
         expect(state).toBe<AuthState>('unknown');
     });
+
+    test('fm with `System model available` output is authenticated (0083 R6)', async () => {
+        const runner = makeRunner(() => ({ stdout: 'System model available' }));
+        const state = await isAuthenticated('fm', ctx(runner));
+        expect(state).toBe<AuthState>('authenticated');
+    });
+
+    test('fm with `System model unavailable: modelNotReady` (exit 1) is unauthenticated', async () => {
+        // Negative pattern must win over the shared "System model" prefix —
+        // and the non-zero exit alone already means unauthenticated.
+        const runner = makeRunner(() => ({
+            exitCode: 1,
+            stdout: 'System model unavailable: modelNotReady',
+        }));
+        const state = await isAuthenticated('fm', ctx(runner));
+        expect(state).toBe<AuthState>('unauthenticated');
+    });
 });

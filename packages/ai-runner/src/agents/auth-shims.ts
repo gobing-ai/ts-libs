@@ -66,6 +66,14 @@ const AUTH_PATTERNS: Partial<Record<AgentName, { positive: RegExp; negative: Reg
         positive: /(^|[^a-z])ok([^a-z]|$)|healthy|configured|ready/i,
         negative: /not[\s_-]*(configured|healthy|ok)|unhealthy|missing[\s_-]+dependenc|error|failed/i,
     },
+    // fm reports model availability, not login state: doctor "authenticated"
+    // means "system model available". The negative test runs first in
+    // probeAuthOutput, so `System model unavailable: <reason>` (exit 1) never
+    // false-matches the positive phrase.
+    fm: {
+        positive: /System model available/i,
+        negative: /unavailable/i,
+    },
 };
 
 /** True when a value is a defined, non-blank string. */

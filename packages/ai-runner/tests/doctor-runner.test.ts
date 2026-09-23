@@ -298,6 +298,40 @@ describe('DoctorRunner', () => {
             error: 'Unknown agent: codex',
         });
     });
+
+    test('fm doctor row: the system-model probe drives auth (task 0083)', async () => {
+        const makeExecutor =
+            (available: boolean) =>
+            (options: ProcessOptions): Partial<ProcessResult> => {
+                if (options.command === 'what') {
+                    return { stdout: 'PROGRAM:fm  PROJECT:FoundationModels-2.0.68.1.402' };
+                }
+                return available
+                    ? { stdout: 'System model available' }
+                    : { exitCode: 1, stdout: 'System model unavailable: modelNotReady' };
+            };
+
+        const availableRow = await new DoctorRunner({
+            runner: new AiRunner({ processExecutor: new FakeExecutor(makeExecutor(true)) }),
+            env: {},
+        }).runOne('fm');
+        expect(availableRow).toMatchObject({
+            agent: 'fm',
+            installed: true,
+            usable: true,
+            tier: 1,
+            authenticated: 'authenticated',
+        });
+
+        // Model unavailable → exit 1 → tri-state unauthenticated; DoctorResult
+        // carries no probe text (the reason belongs to ts-decision-fm, task 0084).
+        const unavailableRow = await new DoctorRunner({
+            runner: new AiRunner({ processExecutor: new FakeExecutor(makeExecutor(false)) }),
+            env: {},
+        }).runOne('fm');
+        expect(unavailableRow.authenticated).toBe('unauthenticated');
+        expect(unavailableRow.usable).toBe(true);
+    });
 });
 
 describe('DoctorRunner with executors', () => {

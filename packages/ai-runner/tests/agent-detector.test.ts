@@ -124,6 +124,34 @@ describe('AgentDetector', () => {
         expect(result.version).toContain('0.1.5-rc.1');
     });
 
+    test('detectOne reports the first `what` line verbatim for fm (task 0083)', async () => {
+        // Real `what -q /usr/bin/fm` shape on macOS 27: one PROGRAM/PROJECT line
+        // per binary slice (three identical lines observed). No fm --version flag exists.
+        const line = 'PROGRAM:fm  PROJECT:FoundationModels-2.0.68.1.402';
+        const executor = new FakeExecutor(() => ({ stdout: `${line}\n${line}\n${line}\n` }));
+        const detector = new AgentDetector({
+            runner: new AiRunner({ processExecutor: executor }),
+        });
+        const result = await detector.detectOne('fm');
+
+        expect(result).toMatchObject({ name: 'fm', installed: true, error: null });
+        expect(result.version).toBe(line);
+    });
+
+    test('detectOne reports fm not installed when `what` exits 1 (no /usr/bin/fm)', async () => {
+        // Linux / older macOS: `what` exits 1 on the missing file, so detection
+        // degrades through the existing non-zero-exit branch.
+        const executor = new FakeExecutor(() => ({ exitCode: 1 }));
+        const detector = new AgentDetector({
+            runner: new AiRunner({ processExecutor: executor }),
+        });
+        const result = await detector.detectOne('fm');
+
+        expect(result.installed).toBe(false);
+        expect(result.version).toBeNull();
+        expect(result.error).toContain('Non-zero exit code: 1');
+    });
+
     test('detectOne reports distinct signal and null-exit errors', async () => {
         const signalDetector = new AgentDetector({
             runner: new AiRunner({ processExecutor: new FakeExecutor(() => ({ exitCode: null, signal: 'SIGTERM' })) }),

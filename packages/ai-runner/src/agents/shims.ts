@@ -1,4 +1,5 @@
 import { getLogger } from '@gobing-ai/ts-infra';
+import { joinPath } from '@gobing-ai/ts-runtime';
 
 /** Identifier for one supported coding agent (canonical id). */
 export type AgentName =
@@ -12,7 +13,8 @@ export type AgentName =
     | 'hermes'
     | 'omp'
     | 'grok'
-    | 'deepseek';
+    | 'deepseek'
+    | 'fm';
 
 /** Output mode for prompt invocations. */
 export type OutputMode = 'text' | 'json';
@@ -110,6 +112,8 @@ export interface AgentShim {
     readonly aliases?: readonly string[];
     /** Deprecation marker; resolving a deprecated id warns and reports canonical status. */
     readonly deprecated?: AgentDeprecation;
+    /** Prompt-only LLM: no file-writing or shell tools. Callers dispatching tool-using work must refuse it. */
+    readonly textOnly?: boolean;
     /** Build a help-display command. */
     getHelpCommand(): ShimCommand;
     /** Build a version-detection command. */
@@ -419,6 +423,56 @@ const dshShim: AgentShim = {
     getAuthCommand: () => null,
 };
 
+/**
+ * Apple Foundation Model CLI (`/usr/bin/fm`, macOS 27) — tier-1, text-only.
+ * A plain on-device LLM with no file or shell tools, so it must never be
+ * auto-selected for tool-using work (it is deliberately absent from
+ * `TIER1_PRIORITY`; the consumer is spur `agent-service.ts`).
+ *
+ * No `--version` flag (`fm --version` prints "Unknown option" and exits 0),
+ * so the version comes from the binary's embedded SCCS build string via
+ * `what -q /usr/bin/fm` — absolute path deliberate, `fm` ships only there;
+ * `what` exits 1 when the file is absent, so Linux/older macOS report
+ * not-installed through the existing non-zero-exit branch.
+ *
+ * Auth is the system-model availability probe; bare `fm available` always
+ * exits 0 and is never used. The transcript file is the session (ADR-047 R5):
+ * `--resume <file> --save-transcript <file>` resumes it, a missing transcript
+ * makes `fm` exit 1 ("Unable to read transcript at …") which surfaces as a
+ * failed run, never a silent fresh start. The shim stays pure — no
+ * filesystem I/O. Structured output (`--schema`) belongs to ts-decision-fm.
+ */
+const fmShim: AgentShim = {
+    name: 'fm',
+    command: 'fm',
+    tier: 1,
+    textOnly: true,
+    getHelpCommand: () => ({ command: 'fm', args: ['--help'] }),
+    getVersionCommand: () => ({ command: 'what', args: ['-q', '/usr/bin/fm'] }),
+    getPromptCommand: (options) => {
+        // Headless one-shot text response. mode is ignored: `json` has no
+        // schema to pass through the generic PromptOptions (that surface is
+        // ts-decision-fm's `--schema` bridge).
+        const args = ['respond', '--no-stream'];
+        if (options.model !== undefined) args.push('-m', options.model);
+        // ADR-047 R5: sessionId/sessionDir select the scoped transcript file
+        // and suppress any unscoped continue. `continue` alone degrades to a
+        // fresh call — fm has no implicit last-session flag.
+        if (options.sessionId !== undefined) {
+            const file =
+                options.sessionDir !== undefined
+                    ? joinPath(options.sessionDir, `${options.sessionId}.json`)
+                    : `${options.sessionId}.json`;
+            args.push('--resume', file, '--save-transcript', file);
+        } else if (options.sessionDir !== undefined) {
+            args.push('--save-transcript', joinPath(options.sessionDir, 'fm-session.json'));
+        }
+        args.push(options.input ?? '');
+        return { command: 'fm', args };
+    },
+    getAuthCommand: () => ({ command: 'fm', args: ['available', '--model', 'system'] }),
+};
+
 /** All bundled agent shims keyed by canonical agent name. */
 export const AGENT_SHIMS: Readonly<Record<AgentName, AgentShim>> = {
     claude: claudeShim,
@@ -432,6 +486,7 @@ export const AGENT_SHIMS: Readonly<Record<AgentName, AgentShim>> = {
     omp: ompShim,
     grok: grokShim,
     deepseek: dshShim,
+    fm: fmShim,
 };
 
 /** Session-affinity capability for one coding agent (ADR-047). */
@@ -559,6 +614,14 @@ const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapabilit
         verifiedAgainst: '0.1.5-rc.1',
         note: 'headless app takes only the task positional and -h at 0.1.5-rc.1 — no resume/session/mode flags; fresh-dispatch degrade',
     },
+    fm: {
+        supportsResumeById: true,
+        supportsSessionDir: true,
+        supportsPersistentStdin: false,
+        supportsStructuredOutput: false,
+        verifiedAgainst: 'FoundationModels-2.0.68.1.402',
+        note: '`fm chat` is interactive only — no multi-turn stdin input mode; structured output needs `--schema <file>`, which the generic PromptOptions cannot carry (ts-decision-fm surface)',
+    },
 };
 
 /** Query a bundled agent's session-affinity capability by canonical name. */
@@ -592,6 +655,7 @@ export const DISPLAY_ORDER: readonly AgentName[] = [
     'hermes',
     'grok',
     'deepseek',
+    'fm',
 ];
 
 /** Set of gateway/TUI-constrained agents. */

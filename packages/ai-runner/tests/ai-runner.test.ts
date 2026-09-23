@@ -309,7 +309,8 @@ describe('AiRunner correlation environment (task 0056 R1/R4/R6/R7)', () => {
         for (const agent of DISPLAY_ORDER) {
             const shim = getAgentShim(agent);
             expect(shim.getHelpCommand().command).toBe(shim.command);
-            expect(shim.getVersionCommand().command).toBe(shim.command);
+            // fm has no --version flag; its probe is the absolute-path `what` (task 0083).
+            if (shim.name !== 'fm') expect(shim.getVersionCommand().command).toBe(shim.command);
             expect(
                 shim.getPromptCommand({ input: 'x', continue: agent !== 'codex', model: 'm', mode: 'json' }).args
                     .length,
