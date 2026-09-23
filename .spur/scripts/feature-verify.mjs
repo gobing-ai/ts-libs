@@ -16,7 +16,7 @@
 // A changed tree during the pass records FAIL (fail-closed).
 //
 // Run: bun .spur/scripts/feature-verify.mjs verify --feature-id <id> --run-id <id>
-import { spawnSync } from 'child_process';
+import { spawnSync } from 'node:child_process';
 import {
     closeSync,
     existsSync,
@@ -27,8 +27,8 @@ import {
     realpathSync,
     renameSync,
     writeFileSync,
-} from 'fs';
-import { dirname, join, resolve } from 'path';
+} from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
