@@ -48,6 +48,17 @@
         "zod",
       ],
     },
+    "packages/decision-fm": {
+      "name": "@gobing-ai/ts-decision-fm",
+      "version": "0.5.2",
+      "dependencies": {
+        "@gobing-ai/ts-ai-runner": "workspace:*",
+        "@gobing-ai/ts-runtime": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.14",
+      },
+    },
     "packages/dual-workflow-engine": {
       "name": "@gobing-ai/ts-dual-workflow-engine",
       "version": "0.5.2",
@@ -242,6 +253,8 @@
     "@gobing-ai/ts-ai-runner": ["@gobing-ai/ts-ai-runner@workspace:packages/ai-runner"],
 
     "@gobing-ai/ts-db": ["@gobing-ai/ts-db@workspace:packages/db"],
+
+    "@gobing-ai/ts-decision-fm": ["@gobing-ai/ts-decision-fm@workspace:packages/decision-fm"],
 
     "@gobing-ai/ts-dual-workflow-engine": ["@gobing-ai/ts-dual-workflow-engine@workspace:packages/dual-workflow-engine"],
 

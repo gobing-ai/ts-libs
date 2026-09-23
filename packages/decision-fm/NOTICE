@@ -1,0 +1,5 @@
+@gobing-ai/ts-decision-fm
+Copyright 2026 Robin Min and ts-libs contributors
+
+This package bundles no third-party code and no model weights. The engine
+is the `fm` system binary on the host (macOS 27+).
