@@ -40,6 +40,7 @@
         "test-pre-check": "spur rule run --preset recommended-pre-check --fail-on warning",
         "test-post-check": "spur rule run --preset recommended-post-check --fail-on warning",
         "spur-check": "bun run lint && bun run test-pre-check && bun run test && bun run test-post-check",
+        "spur-check-feature": "bun run spur-check",
         "check": "bun run lint && bun run test",
         "test:full": "NODE_ENV=test bun test --update-snapshots --coverage --coverage-dir=.coverage",
         "test-pre-check:full": "spur rule run --preset recommended-pre-check --fail-on warning --verbose",

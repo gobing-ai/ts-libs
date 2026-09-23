@@ -1,0 +1,65 @@
+# Feature-scoped verification pass for ts-libs (ADR-119 contract).
+#
+# Project-owned port of the bundled feature-verification workflow: ts-libs
+# consumes the sp plugin via installed skills and has no plugins/sp/ source
+# tree, so the onEnter step runs this repo's driver (which loads the receipt
+# seams from the installed @gobing-ai/spur package) instead of the plugin
+# source path. Lives in the project layer (.spur/workflows/ wins by-name
+# resolution over the bundled definition).
+#
+# Shape: verify -> done | failed. The onEnter step records the RUNNING receipt,
+# runs the configured verification command, and completes the receipt PASS/FAIL
+# with the after-pass proof-input digest. A changed tree during the pass records
+# FAIL. The always-exit-0 onEnter routes missing/corrupt/FAIL evidence to
+# `failed` via the guard (fail-closed).
+"$schema": "@gobing-ai/spur/schemas/state-machine-workflow.schema.json"
+kind: state-machine
+name: feature-verification
+version: "1"
+description: "Feature-scoped verification pass (ADR-119): runs the repo-wide check set once per feature and records a bound PASS/FAIL evidence receipt."
+iterationBound: 2
+initialState: verify
+terminalStates:
+  - done
+  - failed
+failureStates:
+  - failed
+vars:
+  featureId: "X"
+  verificationCmd: "bun run spur-check-feature"
+  __runId: ""
+
+states:
+  - id: verify
+    description: >
+      Run the repo-wide check set via the standard verification script, which
+      records the bound evidence receipt (verifier identity, checked-input
+      digest, run identity) and the coarse status file, always exit 0 so the
+      transition guard routes missing/corrupt/FAIL to `failed`.
+    onEnter:
+      - kind: shell
+        options:
+          command: >-
+            bun .spur/scripts/feature-verify.mjs verify
+            --feature-id "$featureId"
+            --run-id "$__runId"
+
+  - id: done
+    description: Terminal — repo-wide checks passed and the receipt is bound.
+
+  - id: failed
+    description: Terminal — repo-wide checks failed or the evidence is missing/corrupt.
+
+transitions:
+  - from: verify
+    to: done
+    description: Repo-wide checks passed — the driver completed the receipt with PASS.
+    guard:
+      kind: shell
+      options:
+        command: 'test "$(cat .spur/run/$__runId-feature-verification.status 2>/dev/null)" = PASS'
+  - from: verify
+    to: failed
+    description: Repo-wide checks failed (or the evidence is missing/corrupt) — stop at failed.
+    guard:
+      kind: always
