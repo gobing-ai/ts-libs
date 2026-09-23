@@ -37,7 +37,8 @@
             "Bash(ftree:*)",
             "Bash(biome check *)",
             "Read(//tmp/**)",
-            "Bash(spur rule *)"
+            "Bash(spur rule *)",
+            "Bash(spur task *)"
         ]
     }
 }
