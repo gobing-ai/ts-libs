@@ -8,6 +8,8 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-23
+
 ### Fixed
 
 - **`@gobing-ai/ts-dual-workflow-engine`: shell actions/guards hardened against template injection (task 0086 R2/R3/C1).** Shared spawn helper for actions and guards; shell-form commands run via `sh -c` with template-derived values bound as `${__WF_<n>}` environment entries instead of being spliced into the command line, and persisted options keep the binding form (never the raw value); argv form runs the program directly with no shell. Shell guards resolve templates the same way. `timeout` is a validated optional shell option (positive milliseconds); expiry maps to an action error and, on guards, `passed: false` with `report.timedOut`. Persisted shell options are stripped of the internal env-binding key before `saveActionStart`.
