@@ -3,7 +3,7 @@ import { loadWorkflowDef } from './config';
 import { FSMError, WorkflowResumeError } from './errors';
 import type { WorkflowEngineEvents } from './events';
 import type { WorkflowEngineHost } from './host';
-import { RunLifecycle, snapshotActionResult, snapshotTransitions } from './run-lifecycle';
+import { allowedEnv, RunLifecycle, snapshotActionResult, snapshotTransitions } from './run-lifecycle';
 import { StateMachineDriver } from './state-machine';
 import { TransitionFlowDriver } from './transition-flow';
 import type {
@@ -338,6 +338,8 @@ export class WorkflowService {
 
         const snapshot = await this.persistence.loadLatestStateSnapshot(runId);
         const vars = mergeVars(mergeVars(workflow.vars, extractEffectiveVars(snapshot?.data)), options?.vars);
+        // Guards resolve ${env.X} against the same allowed-env map actions use (task 0087 R5).
+        const env = allowedEnv(workflow.env?.allow ?? [], options?.env);
 
         // Evaluate guard if present.
         if (transition.guard !== undefined) {
@@ -347,13 +349,14 @@ export class WorkflowService {
             // Shell-form guards bind command refs to env instead of raw substitution (task 0086 M1).
             const resolvedGuardOptions =
                 transition.guard.kind === 'shell'
-                    ? resolveShellCommandTemplates(transition.guard.options ?? {}, { vars, env: {} })
-                    : resolveTemplates(transition.guard.options ?? {}, { vars, env: {} });
+                    ? resolveShellCommandTemplates(transition.guard.options ?? {}, { vars, env })
+                    : resolveTemplates(transition.guard.options ?? {}, { vars, env });
             const guardResult = await this.host.evaluateGuardResult(transition.guard.kind, resolvedGuardOptions, {
                 runId,
                 current: currentState,
                 lastActionResult: snapshotActionResult(snapshot?.data),
                 vars,
+                env,
                 workdir: options?.workdir,
             });
             lifecycle.guardEvaluated(currentState, toState, transition.guard.kind, guardResult.passed);

@@ -641,11 +641,12 @@ The `ProcessExecutor` const (value alias for `NodeProcessExecutor`), `BunSyncPro
 and `BunPipeProcessSpawner` are kept as deprecated backward-compatible wrappers. Prefer
 `NodeProcessExecutor` or `nodeBunFactory.createProcessExecutor()` in new code.
 
-**Deprecated — removal plan (task 0086 R18):** `identity.ts` still defaults to
-`new BunSyncProcessExecutor()` for synchronous spawn callers. Deferred: migrate that
-default to a sync executor built on the runtime's non-deprecated sync API (or make the
-callers async), then delete `BunSyncProcessExecutor` and `BunPipeProcessSpawner` in the
-next major version.
+**Deprecation status (task 0087 R7):** sync callers now default to the non-deprecated
+`NodeSyncProcessExecutor` (node `spawnSync`) — `identity.ts` was migrated off the
+`BunSyncProcessExecutor` default. `BunSyncProcessExecutor` and `BunPipeProcessSpawner`
+remain exported-deprecated and are deleted in the next major version. The process-group
+containment machinery lives in `src/process-group.ts` (extracted from
+`process-executor.ts`, task 0087 R8 — pure move, no behavior change).
 
 ### SpanContext (for telemetry)
 

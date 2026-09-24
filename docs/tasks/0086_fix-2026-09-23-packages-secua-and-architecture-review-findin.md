@@ -4,12 +4,13 @@ name: Fix 2026-09-23 packages SECUA and architecture review findings
 status: done
 template: standard
 created_at: 2026-09-23T23:26:36.014Z
-updated_at: "2026-09-24T03:10:09.748Z"
+updated_at: "2026-09-24T03:34:54.816Z"
 
 priority: P1
 ac_numbering: task-local
 ac_altitude: task-local
 estimate_hours: 16
+feature_id: L
 ---
 
 ## 0086. Fix 2026-09-23 packages SECUA and architecture review findings

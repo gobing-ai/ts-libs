@@ -16,4 +16,5 @@
 [active] **I**: Add DeepSeek dsh coding agent support ([I_add-deepseek-dsh-coding-agent-support.md](./I_add-deepseek-dsh-coding-agent-support.md))
 [done] **J**: Local Laya decision backend in ts-laya-mlx ([J_local-laya-decision-backend-in-ts-laya-mlx.md](./J_local-laya-decision-backend-in-ts-laya-mlx.md))
 [done] **K**: Apple fm on-device agent and ts-decision-fm decision backend ([K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md](./K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md))
+[done] **L**: hardening-review-remediation ([L_hardening-review-remediation.md](./L_hardening-review-remediation.md))
 <!-- END AUTO-GENERATED -->

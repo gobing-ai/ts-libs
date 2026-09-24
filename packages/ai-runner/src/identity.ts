@@ -1,5 +1,5 @@
 import {
-    BunSyncProcessExecutor,
+    NodeSyncProcessExecutor,
     nodeBunFactory,
     type ProcessExecutor,
     type SyncProcessExecutor,
@@ -95,11 +95,12 @@ export async function getGitContext(
  * Query git for the current branch name and dirty file count synchronously.
  *
  * @deprecated Use the async {@link getGitContext} instead. Kept for one release for sync callers.
- * Defaults to the deprecated {@link BunSyncProcessExecutor}; new code must not rely on it.
+ * Defaults to {@link NodeSyncProcessExecutor} (task 0087 R7 migrated the default off the
+ * deprecated BunSyncProcessExecutor).
  */
 export function getGitContextSync(
     workspacePath: string,
-    executor: SyncProcessExecutor = new BunSyncProcessExecutor(),
+    executor: SyncProcessExecutor = new NodeSyncProcessExecutor(),
 ): string | null {
     const branch = runGitSync(executor, ['-C', workspacePath, 'branch', '--show-current']);
     if (branch === null || branch === '') return null;

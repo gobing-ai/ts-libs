@@ -8,6 +8,7 @@ import {
     BunPipeProcessSpawner,
     BunSyncProcessExecutor,
     NodeProcessExecutor,
+    NodeSyncProcessExecutor,
     type ProcessEventDetail,
     type ProcessEventSink,
     type TracerPort,
@@ -671,5 +672,26 @@ describe('deadline and process-group containment (0810 R1)', () => {
         await expect(
             new NodeProcessExecutor({ defaultTimeout: 0 }).run({ command: 'echo', args: ['hi'] }),
         ).rejects.toThrow(/Process timeout must be/);
+    });
+});
+
+describe('NodeSyncProcessExecutor (task 0087 R7)', () => {
+    test('runSync returns stdout and exit code', () => {
+        const executor = new NodeSyncProcessExecutor();
+        const result = executor.runSync({ command: 'printf', args: ['hello'] });
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toBe('hello');
+    });
+
+    test('runSync honors rejectOnError', () => {
+        const executor = new NodeSyncProcessExecutor();
+        expect(() => executor.runSync({ command: 'false', rejectOnError: true })).toThrow(/exit code 1/);
+        expect(executor.runSync({ command: 'false', rejectOnError: false }).exitCode).toBe(1);
+    });
+
+    test('missing binary maps to a non-zero exit instead of throwing', () => {
+        const executor = new NodeSyncProcessExecutor();
+        const result = executor.runSync({ command: 'definitely-not-a-real-binary-0087', rejectOnError: false });
+        expect(result.exitCode).not.toBe(0);
     });
 });

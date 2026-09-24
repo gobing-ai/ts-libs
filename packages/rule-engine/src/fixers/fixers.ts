@@ -158,6 +158,9 @@ function selectNonOverlappingFixes(fixes: readonly Fix[]): { applied: Fix[]; def
 
 /** Return true when absPath is at or below workdir after symlink resolution. */
 async function isInsideWorkdir(workdir: string, absPath: string, fs: FileSystem): Promise<boolean> {
+    // Task 0087 R3: fail closed when symlink resolution is unavailable — without
+    // realPath the containment proof is unsound, so refuse instead of degrading.
+    if (fs.realPath === undefined) return false;
     const real = (p: string) => fs.realPath?.(p) ?? p;
     const root = real(resolvePath(workdir));
     // Task 0086 R16: resolve through the nearest existing ancestor (ADR-022

@@ -196,6 +196,8 @@ export interface GuardContext {
     readonly current: string;
     readonly vars: Vars;
     readonly workdir?: string;
+    /** Run env (allowed-env filtered) — guards resolve `${env.X}` identically to actions (task 0087 R5). */
+    readonly env?: Record<string, string>;
     readonly lastActionResult?: ActionResult;
 }
 

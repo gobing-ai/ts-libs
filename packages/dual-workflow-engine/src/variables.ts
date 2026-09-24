@@ -81,6 +81,9 @@ export const SHELL_ENV_OPTION = '__wfShellEnv';
 
 const SHELL_BINDING = /^\$\{__WF_\d+\}$/;
 
+/** Any reserved placeholder literal in authored command text (task 0087 R2). Braced and unbraced forms both expand at exec time. */
+const SHELL_BINDING_ANY = /\$\{__WF_\d+\}|\$__WF_\d+\b/;
+
 /**
  * Resolve options for `shell` actions (task 0086 M1).
  *
@@ -103,6 +106,12 @@ export function resolveShellCommandTemplates(
 ): Record<string, unknown> {
     const { command, args, ...rest } = options;
     if (typeof command !== 'string') return resolveTemplates(rest, context);
+    // Task 0087 R1: a defined non-array `args` is an author typo — fail closed with a
+    // validation error instead of silently downgrading to shell form. `undefined`
+    // and `[]` keep shell form; non-empty arrays keep argv form.
+    if (args !== undefined && !Array.isArray(args)) {
+        throw new Error(`shell action "args" must be a string array when defined; got ${typeof args}`);
+    }
     if (Array.isArray(args) && args.length > 0) {
         return {
             ...resolveTemplates(rest, context),
@@ -112,6 +121,22 @@ export function resolveShellCommandTemplates(
     }
     const env: Record<string, string> = {};
     let index = 0;
+    // Task 0087 R2: the `${__WF_n}` namespace is reserved for this binding pass. An
+    // authored command containing a placeholder literal that no binding pass produced
+    // would alias (or be aliased by) a bound value — fail closed. Re-resolution of
+    // already-bound options (SHELL_ENV_OPTION present) is the idempotent path: seed
+    // env/index from the existing map so bindings survive the second pass (ADV-1).
+    if (!(SHELL_ENV_OPTION in options) && SHELL_BINDING_ANY.test(command)) {
+        throw new Error(
+            'shell command must not contain the reserved $__WF_ placeholder namespace; ' +
+                'it is minted by the template-binding pass',
+        );
+    }
+    const existingBindings = options[SHELL_ENV_OPTION];
+    if (existingBindings !== undefined && typeof existingBindings === 'object' && existingBindings !== null) {
+        Object.assign(env, existingBindings);
+        while (`__WF_${index}` in env) index++;
+    }
     const bound = command.replace(TEMPLATE_REF, (match, name: string) => {
         if (SHELL_BINDING.test(match)) return match; // already-bound placeholder → idempotent
         const key = `__WF_${index++}`;

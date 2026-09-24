@@ -19,10 +19,14 @@ versioned in **lockstep** — a single version number covers every package in th
 - **`@gobing-ai/ts-runtime`: streaming output decodes split UTF-8; empty span dropped (task 0086 R13/R14).** `onOutput` chunks decode with one stream-mode `TextDecoder` per stream and a final flush, so multi-byte characters split across writes no longer become U+FFFD; the fire-and-forget `process.runStreaming` lifetime span is removed.
 - **`@gobing-ai/ts-infra`: bounded API errors (task 0086 R17).** Timeout errors report the sanitized URL (no query strings); non-2xx bodies stored on `APIError` are truncated at 4096 chars.
 - **`@gobing-ai/ts-rule-engine`: fixer containment resolves symlinks (task 0086 R16).** `isInsideWorkdir` resolves through the nearest existing ancestor's real path, so a missing file behind a symlinked parent can no longer be written outside the workdir, while legitimate dot-prefixed sibling names (`..foo/a.ts`) are no longer falsely deferred.
+- **`@gobing-ai/ts-dual-workflow-engine`: shell form-selection hardening (task 0087 R1/R2/R5).** A defined non-array `args` on a shell action fails closed with a validation error instead of silently downgrading to shell form; authored command text containing the reserved `${__WF_n}` placeholder namespace without a prior binding pass is rejected; guards and transition conditions resolve `${env.X}` against the same allowed-env map as actions.
+- **`@gobing-ai/ts-rule-engine`: fixer containment fails closed without `realPath` (task 0087 R3).** An injected `FileSystem` lacking symlink resolution now refuses fixes rather than degrading the containment proof.
+- **`@gobing-ai/ts-llm-jsonl-importer`: wider secret-key anchors (task 0087 R4).** `api_secret`, `auth_token`, `secret_key`, `private_key`, and `session_token` redact their string values; usage-analytics keys (`token_count`, `max_tokens`, `tokens_used`) stay untouched.
+- **`@gobing-ai/ts-runtime` + `@gobing-ai/ts-ai-runner`: sync executor de-deprecated and containment extracted (task 0087 R7/R8).** New non-deprecated `NodeSyncProcessExecutor` (node `spawnSync`) is the `getGitContextSync` default; the `SyncProcessExecutor` type is now an interface both sync executors satisfy; the process-group containment machinery moved from `process-executor.ts` to `process-group.ts` as a pure move.
 
 ### Other
 
-- **Task 0086 documentation sync.** `docs/03_ARCHITECTURE.md` laya-mlx heading reflects shipped status; `AGENTS.md` package table lists `ts-decision-fm` and `ts-laya-mlx`; runtime README records the `BunSyncProcessExecutor` removal plan (R18, deferred); process-group extraction (R19) deferred as behavior-neutral churn not worth the diff surface.
+- **Task 0086/0087 documentation sync.** `docs/03_ARCHITECTURE.md` laya-mlx heading reflects shipped status; `AGENTS.md` package table lists `ts-decision-fm` and `ts-laya-mlx`; runtime README records the `BunSyncProcessExecutor` migration (done in 0087) and the `process-group.ts` extraction.
 
 ## [0.5.3] - 2026-09-23
 

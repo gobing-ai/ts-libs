@@ -92,3 +92,25 @@ describe('DEFAULT_REDACTION_RULES', () => {
         expect(record.tokenizer_name).toBe('gpt-4o');
     });
 });
+
+describe('SECRET_KEY extended anchors (task 0087 R4)', () => {
+    test('extended secret keys redact their string values', () => {
+        const input = {
+            api_secret: 'shh',
+            'auth-token': 'shh',
+            secretKey: 'shh',
+            private_key: 'shh',
+            session_token: 'shh',
+        };
+        const out = redactValue(input) as Record<string, string>;
+        for (const key of Object.keys(input)) {
+            expect(out[key]).toBe('[REDACTED:secret]');
+        }
+    });
+
+    test('usage-analytics keys stay unredacted', () => {
+        const input = { token_count: '42', max_tokens: '100', tokens_used: '7', token_usage: 'high' };
+        const out = redactValue(input) as Record<string, string>;
+        expect(out).toEqual(input);
+    });
+});

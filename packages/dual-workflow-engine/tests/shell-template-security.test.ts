@@ -392,3 +392,109 @@ describe('resolveShellCommandTemplates (task 0086 R3)', () => {
         expect(resolved.command).toBe(`echo '${REF('__WF_0')}'`);
     });
 });
+
+describe('shell form selection hardening (task 0087 R1/R2/R5/R6)', () => {
+    const context = { vars: { x: 'plain-value' }, env: {} as Record<string, string> };
+
+    test('R1: defined non-array args fails closed with a validation error', () => {
+        for (const bad of ['x', null, 5]) {
+            expect(() => resolveShellCommandTemplates({ command: 'echo hi', args: bad }, context)).toThrow(
+                /args.*string array/,
+            );
+        }
+        // args omitted / args: [] stay shell form; non-empty arrays stay argv form
+        const shellForm = resolveShellCommandTemplates({ command: `echo ${REF('vars.x')}` }, context);
+        expect(SHELL_ENV_OPTION in shellForm).toBe(true);
+        const emptyArgs = resolveShellCommandTemplates({ command: `echo ${REF('vars.x')}`, args: [] }, context);
+        expect(SHELL_ENV_OPTION in emptyArgs).toBe(true);
+        const argvForm = resolveShellCommandTemplates({ command: 'echo', args: [REF('vars.x')] }, context);
+        expect(SHELL_ENV_OPTION in argvForm).toBe(false);
+        expect(argvForm.args).toEqual(['plain-value']);
+    });
+
+    test('R2: authored reserved-namespace literal fails closed; re-resolution stays idempotent', () => {
+        expect(() => resolveShellCommandTemplates({ command: `echo ${REF('__WF_0')}` }, context)).toThrow(
+            /reserved \$__WF_ placeholder namespace/,
+        );
+        // Idempotent path: options already carrying a binding pass resolve without throwing,
+        // and the binding map survives the second pass (ADV-1).
+        const once = resolveShellCommandTemplates({ command: `echo ${REF('vars.x')}` }, context);
+        const twice = resolveShellCommandTemplates(once, context);
+        expect(twice.command).toBe(once.command);
+        expect(twice[SHELL_ENV_OPTION]).toEqual(once[SHELL_ENV_OPTION]);
+    });
+
+    test('R2: unbraced $__WF_0 literal is also rejected (braced and unbraced both expand)', () => {
+        expect(() => resolveShellCommandTemplates({ command: 'echo $__WF_0' }, context)).toThrow(
+            /reserved \$__WF_ placeholder namespace/,
+        );
+    });
+
+    test('R6: shell guard with args: [] runs shell form with env binding, no injection', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'wf-shellsec-guard-args-'));
+        try {
+            const persistence = new CapturingPersistence();
+            const driver = new StateMachineDriver({ host: createDefaultWorkflowEngineHost(), persistence });
+            const result = await driver.run(
+                {
+                    name: 'shellsec-guard-args',
+                    initialState: 's1',
+                    terminalStates: ['done', 'blocked'],
+                    states: [{ id: 's1' }, { id: 'done' }, { id: 'blocked' }],
+                    transitions: [
+                        {
+                            from: 's1',
+                            to: 'done',
+                            guard: {
+                                kind: 'shell',
+                                options: {
+                                    command: `test ! -f pwned-guard-args && printf '%s' "${REF('vars.x')}" > guard-args-out.txt`,
+                                    args: [],
+                                },
+                            },
+                        },
+                        { from: 's1', to: 'blocked' },
+                    ],
+                },
+                { workdir: dir, vars: { x: 'b; touch pwned-guard-args' } },
+            );
+            expect(result.status).toBe('done');
+            expect(await exists(join(dir, 'pwned-guard-args'))).toBe(false);
+            expect(await readFile(join(dir, 'guard-args-out.txt'), 'utf8')).toBe('b; touch pwned-guard-args');
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('R5: shell guard resolves env.MARKER from the run env, same as actions', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'wf-shellsec-guard-env-'));
+        try {
+            const persistence = new CapturingPersistence();
+            const driver = new StateMachineDriver({ host: createDefaultWorkflowEngineHost(), persistence });
+            const result = await driver.run(
+                {
+                    name: 'shellsec-guard-env',
+                    initialState: 's1',
+                    terminalStates: ['done', 'blocked'],
+                    env: { allow: ['MARKER'] },
+                    states: [{ id: 's1' }, { id: 'done' }, { id: 'blocked' }],
+                    transitions: [
+                        {
+                            from: 's1',
+                            to: 'done',
+                            guard: {
+                                kind: 'shell',
+                                options: { command: `test "${REF('env.MARKER')}" = "known-value"` },
+                            },
+                        },
+                        { from: 's1', to: 'blocked' },
+                    ],
+                },
+                { workdir: dir, env: { MARKER: 'known-value' } },
+            );
+            expect(result.status).toBe('done');
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
+    });
+});

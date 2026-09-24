@@ -157,6 +157,7 @@ export class StateMachineDriver {
                     runId,
                     current: current.id,
                     vars,
+                    env,
                     lastActionResult,
                     // Shell guards use relative paths (e.g. .spur/run/${vars.__runId}-*) —
                     // must share the run's workdir with actions or they read the process cwd.
@@ -237,8 +238,11 @@ async function firstPassingTransition(
         // env bindings pass through to the runner (guard options are never persisted).
         const resolvedOptions =
             transition.guard.kind === 'shell'
-                ? resolveShellCommandTemplates(transition.guard.options ?? {}, { vars: context.vars, env: {} })
-                : resolveTemplates(transition.guard.options ?? {}, { vars: context.vars, env: {} });
+                ? resolveShellCommandTemplates(transition.guard.options ?? {}, {
+                      vars: context.vars,
+                      env: context.env ?? {},
+                  })
+                : resolveTemplates(transition.guard.options ?? {}, { vars: context.vars, env: context.env ?? {} });
         const passed = await host.evaluateGuard(transition.guard.kind, resolvedOptions, context);
         lifecycle.guardEvaluated(context.current, transition.to, transition.guard.kind, passed);
         if (passed) return transition;

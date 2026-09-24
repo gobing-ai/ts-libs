@@ -55,13 +55,9 @@ export * from './types';
 
 // ── Deprecated re-exports (backward compatibility) ──────────────────────
 
-export { BunPipeProcessSpawner, BunSyncProcessExecutor } from './process-executor';
-
-/**
- * @deprecated Use {@link ProcessExecutor} directly for async execution.
- * Use `Bun.spawnSync` or `child_process.spawnSync` for sync.
- */
-export type SyncProcessExecutor = InstanceType<typeof import('./process-executor').BunSyncProcessExecutor>;
+/** Sync executor shape (task 0087 R7) — satisfied by NodeSyncProcessExecutor (preferred) and the deprecated BunSyncProcessExecutor. */
+export type { SyncProcessExecutor } from './process-executor';
+export { BunPipeProcessSpawner, BunSyncProcessExecutor, NodeSyncProcessExecutor } from './process-executor';
 
 /**
  * @deprecated Use {@link ProcessExecutor.runStreaming} instead.

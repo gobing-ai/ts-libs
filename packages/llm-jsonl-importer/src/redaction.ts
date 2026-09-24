@@ -49,7 +49,7 @@ export const DEFAULT_REDACTION_RULES: readonly RedactionRule[] = [
  * NOT redacted — those appear in LLM usage records.
  */
 const SECRET_KEY =
-    /^(?:api[_-]?key|apikey|token|access[_-]?token|refresh[_-]?token|secret|client[_-]?secret|password|passwd|authorization)$/i;
+    /^(?:api[_-]?key|apikey|api[_-]?secret|token|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|secret[_-]?key|client[_-]?secret|private[_-]?key|session[_-]?token|password|passwd|authorization)$/i;
 
 /** Redact supported scalar and composite JSON values recursively. */
 export function redactValue(value: unknown, rules: readonly RedactionRule[] = DEFAULT_REDACTION_RULES): unknown {

@@ -132,3 +132,12 @@ describe('getGitContextSync', () => {
         expect(context).toContain('dirty: 1 files');
     });
 });
+
+describe('getGitContextSync default executor (task 0087 R7)', () => {
+    test('defaults to NodeSyncProcessExecutor and resolves the real repo context', () => {
+        const context = getGitContextSync(process.cwd());
+        expect(context).not.toBeNull();
+        expect(context).toContain('Git context:');
+        expect(context).toMatch(/branch: \S+/);
+    });
+});

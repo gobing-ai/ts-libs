@@ -151,6 +151,7 @@ export class TransitionFlowDriver {
                     runId,
                     current: current.id,
                     vars,
+                    env,
                     lastActionResult,
                     // Shell conditions must share the run workdir with actions (relative paths).
                     workdir: options.workdir,
@@ -204,8 +205,11 @@ async function firstPassingEdge(
         // Shell-form conditions bind command refs to env instead of raw substitution (task 0086 M1).
         const resolvedOptions =
             edge.condition.kind === 'shell'
-                ? resolveShellCommandTemplates(edge.condition.options ?? {}, { vars: context.vars, env: {} })
-                : resolveTemplates(edge.condition.options ?? {}, { vars: context.vars, env: {} });
+                ? resolveShellCommandTemplates(edge.condition.options ?? {}, {
+                      vars: context.vars,
+                      env: context.env ?? {},
+                  })
+                : resolveTemplates(edge.condition.options ?? {}, { vars: context.vars, env: context.env ?? {} });
         const passed = await host.evaluateGuard(edge.condition.kind, resolvedOptions, context);
         lifecycle.guardEvaluated(context.current, edge.to, edge.condition.kind, passed);
         if (passed) return edge;

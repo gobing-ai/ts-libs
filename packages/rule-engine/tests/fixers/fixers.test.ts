@@ -514,3 +514,20 @@ describe('host.fixers registry (builtin fixer registration)', () => {
         expect(result.fixes).toHaveLength(0);
     });
 });
+
+describe('containment fail-closed (task 0087 R3)', () => {
+    test('a FileSystem without realPath refuses fixes instead of degrading containment', async () => {
+        const { createNodeFileSystem } = await import('@gobing-ai/ts-runtime');
+        const dir = await makeTempDir();
+        await writeFile(join(dir, 'a.ts'), 'const a = 1;\n');
+        const fs = new Proxy(createNodeFileSystem(), {
+            get: (target, prop) => (prop === 'realPath' ? undefined : Reflect.get(target, prop)),
+        });
+        const fix = makeFix({ filePath: 'a.ts', replacement: 'bar' });
+        const result = await applyFixes(dir, [fix], false, fs);
+
+        expect(result.applied).toHaveLength(0);
+        expect(result.deferred).toHaveLength(1);
+        expect(readFileSync(join(dir, 'a.ts'), 'utf8')).toBe('const a = 1;\n');
+    });
+});
