@@ -4,7 +4,7 @@ name: Fix 2026-09-23 packages SECUA and architecture review findings
 status: done
 template: standard
 created_at: 2026-09-23T23:26:36.014Z
-updated_at: "2026-09-24T02:58:49.986Z"
+updated_at: "2026-09-24T03:10:09.748Z"
 
 priority: P1
 ac_numbering: task-local
@@ -712,52 +712,52 @@ Worktree `sp/run-0086-eccb35e4` (base `161f8672`). All fixes land as failing-fir
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | .spur/run/0086-test-gate.log (host gate PASS, 2508 tests / 0 fail = 2506+2 new regression tests; spur-proof "All 2 rules passed"); CHANGELOG.md:9-27 [Unreleased] Fixed+Other entries covering M1/M3/M6, shell timeout, R18/R19 deferrals; dated ADR-025 addendum docs/00_ADR.md:441 (2026-09-23, task 0086 R8); `git diff 161f8672` grep: only suppression-pattern match is task-doc prose, no `.skip(`/`biome-ignore`/`--no-verify` added to code or tests |
-| R2 | MET | host.ts:162 single `spawnShellCommand` shared by ShellActionRunner (host.ts:192/:199) and ShellGuardRunner (host.ts:224/:230); consumer predicate host.ts:169; host.test.ts diff additions-only, pre-existing shell behavior tests unmodified |
-| R3 | MET | Predicate symmetry verified by static trace: producer variables.ts:106 `Array.isArray(args) && args.length > 0` (argv form) vs consumer host.ts:169 `usesShell = explicitArgs.length === 0` fed by arrayOption host.ts:259-264 (non-array/non-string args throw WorkflowValidationError pre-spawn — fails closed). Case trace: args undefined / `[]` / non-empty all agree producer↔consumer. Shell form binds `${__WF_n}` placeholders + SHELL_ENV_OPTION env map (variables.ts:113-121); runner receives bound command (action-step.ts:102) so `/bin/sh -c` never sees raw-substituted values; carrier stripped before saveActionStart (action-step.ts:94-95); error text built from bound command (host.ts:238) carries placeholders only. Regression tests shell-template-security.test.ts:278/:324 pass; review lap-2 probes (args:[''], guard args:[], env-riding metachars) all injection-safe |
-| R4 | MET | fm-process.ts:28 (`count-tokens -q --instructions=<v> -- <prompt>`), :46-49 (respond argv with `--`), :55-56 (probe); shims.ts:471 (`--` pins input positional); tests fm-process.test.ts:55/65/100/109 |
-| R5 | MET | redaction.ts:51 SECRET_KEY anchored rules + vendor token shapes; tests redaction.test.ts:49 (ghp_/github_pat_/sk_live_), :75 (anchored secret keys; token_count/max_tokens survive) |
-| R6 | MET | db-job-queue.ts:95 (stop() flag), :221 (claim only what can start in-cycle); queue-job-dao.ts:258 (lost-lease reclaim counts as attempt); tests lease-consumer.test.ts:241/:276 |
-| R7 | MET | queue-job-dao.ts:223 (expired lease at exhaustion → failed), :399 (age sweep, legacy token-less rows); tests queue-job-lease.test.ts:219/238/254, lease-consumer.test.ts:312 |
-| R8 | MET | persistence.ts:102/:419 (fenced finalizeRun, memory + DB adapters); run-lifecycle.ts:224 (ownerAttempt fence, stale-owner event); events.ts:133 stale_owner event; types.ts:332 `boolean |
-| R9 | MET | decision-maker.ts:93 (importModule seam; only import/export failures map to install-hint); tests driver-resolution-errors.test.ts:13/63 (construction errors propagate), :33-57 (import/missing-export → config error) |
-| R10 | MET | db-job-queue.ts:449 (`if (!applied) return` — no metric/event on lost fence), :466 (retry event gated); test lease-consumer.test.ts:338 (stolen attempt emits no completed/failed events) |
-| R11 | MET | host.ts:270 optionalTimeoutOption (positive finite ms), wired :209/:171; action timeout error :211-216, guard timedOut report :234-239; tests host.test.ts:380/389/406/426 |
-| R12 | MET | fm-process.ts:74 (probe timeoutMs → DecisionTimeoutError), :98 (count-tokens), :151 (respond timeout message drops argv/user content); tests fm-process.test.ts:164/:173 |
-| R13 | MET | process-executor.ts:957 (stream-mode TextDecoder + final flush); test process-executor.test.ts:75 (split multi-byte UTF-8 decodes intact) |
-| R14 | MET | fire-and-forget lifetime span removed from runStreaming path; test process-executor.test.ts:377 (`expect(spans).toEqual([])`) |
-| R15 | MET | shims.ts:463 (sessionId validated before any path built); test shims.test.ts:786 (hostile sessionIds rejected) |
-| R16 | MET | fixers.ts:163 (containment resolves nearest existing ancestor's real path); tests fixers.test.ts:162 (symlinked-parent escape deferred), :174 (`..foo` sibling accepted) |
-| R17 | MET | api-client.ts:79 (MAX_ERROR_BODY = 4096), :262 (observable URL, query strings dropped), :318 (bounded stored body); tests api-client.test.ts:383/:399/:452 |
-| R18 | MET | Requirement text (spec:102) is "Implement it, or record a one-line deferral in Solution" — deferral branch satisfied: Solution:671 one-line deferral + runtime/README.md:640-648 removal plan naming the ProcessExecutor value alias (:640), BunSyncProcessExecutor and BunPipeProcessSpawner with dated removal intent; identity.ts:102 default unchanged, consistent with deferral. Validated in laps 1-2; judged MET under the requirement's own deferral branch (consistent with AC-22) |
-| R19 | MET | Requirement text (spec:104) same deferral branch — Solution:672 one-line deferral recorded ("pure move with no behavior gain; deferred to keep the diff surface reviewable"); no process-group.ts added; CHANGELOG.md:25 Other entry records rationale. Judged MET under the requirement's own deferral branch (consistent with AC-23) |
-| R20 | MET | AGENTS.md:20-21 (ts-decision-fm + ts-laya-mlx rows with one-line roles); docs/03_ARCHITECTURE.md:116 heading "## laya-mlx (ADR-027/ADR-028)"; no "not yet built" remains in either file |
+| R1 | MET | `bun run spur-check` exit 0 (biome + per-package tsc + "All 2 rules passed" + full test suite with coverage) and `bun run build` exit 0, both run this turn in main checkout; CHANGELOG.md `## [Unreleased]` → `### Fixed` present (verified); docs/00_ADR.md dated ADR-025 addendum present (verified) |
+| R2 | MET | host.ts:162 single `spawnShellCommand` shared by ShellActionRunner (:192/:199) and ShellGuardRunner (:224/:230) — anchor re-read this run; host.test.ts passes within gate suite |
+| R3 | MET | Predicate symmetry: variables.ts:106 `Array.isArray(args) && args.length > 0` ↔ host.ts:169 `usesShell = explicitArgs.length === 0`; `${__WF_n}` env binding at variables.ts:77-117 (SHELL_BINDING :82); shell-template-security.test.ts 12/12 pass (focused run this turn) |
+| R4 | MET | fm-process.ts:28 count-tokens argv with `--` separator; :46-49 respond argv with `--`; shims.ts:471 `--` pins input position — anchors re-read this run |
+| R5 | MET | redaction.ts:16 GitHub token shapes (gh[pousr]_/github_pat_); :51 SECRET_KEY anchored rules; redaction.test.ts passes (focused run this turn) |
+| R6 | MET | db-job-queue.ts:95 stop() flag; :221 claim only what can start; queue-job-lease.test.ts + lease-consumer.test.ts pass within gate suite |
+| R7 | MET | queue-job-dao.ts:223 expired lease at exhaustion → failed; :258 reclaim counts as attempt; :399 age sweep — anchors re-read; tests pass within gate suite |
+| R8 | MET | persistence.ts:100/:419 fenced finalizeRun; run-lifecycle.ts:224 ownerAttempt fence; events.ts:133 stale-owner event — anchors re-read; dwe suite passes within gate |
+| R9 | MET | decision-maker.ts:93 `importModule` seam; driver-resolution-errors.test.ts passes (focused run this turn) |
+| R10 | MET | db-job-queue.ts:449 `!applied` gate — no metric/event on lost fence; :466 retry event gated; lease-consumer tests pass within gate suite |
+| R11 | MET | host.ts:270 optionalTimeoutOption wired :209/:171; timeout error :211-216; guard timedOut :234-239; host.test.ts passes within gate suite |
+| R12 | MET | fm-process.ts:74 probe timeoutMs → DecisionTimeoutError; :98 count-tokens bound; :151 timeout message drops argv/user content; fm-process.test.ts passes within gate suite |
+| R13 | MET | process-executor.ts:957 stream-mode TextDecoder with final flush; process-executor.test.ts passes within gate suite |
+| R14 | MET | process-executor.ts:431 comment documents removal of the empty fire-and-forget span; `expect(spans).toEqual([])` test passes within gate suite |
+| R15 | MET | shims.ts:463 sessionId validated before any path built; shims.test.ts passes within gate suite |
+| R16 | MET | fixers.ts:163 containment resolves nearest existing ancestor's real path; fixers.test.ts passes within gate suite |
+| R17 | MET | api-client.ts:79 MAX_ERROR_BODY 4096; :262 observable URL drops query strings; :318 bounded stored body; api-client.test.ts passes within gate suite |
+| R18 | MET | Deferral branch (spec allows "record a one-line deferral in Solution"): task Solution:671 records R18 DEFERRED; packages/runtime/README.md:644 "Deprecated — removal plan (task 0086 R18)" — both re-read this run |
+| R19 | MET | Deferral branch: task Solution:672 records R19 DEFERRED with rationale ("pure move with no behavior gain") — re-read this run |
+| R20 | MET | AGENTS.md:20-21 ts-decision-fm + ts-laya-mlx rows; docs/03_ARCHITECTURE.md:116 `## laya-mlx (ADR-027/ADR-028)` (no "not yet built") — re-read this run |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC-1 | MET | command | .spur/run/0086-test-gate.log gate PASS 2508/0 + spur-proof "All 2 rules passed"; CHANGELOG.md:9-27; docs/00_ADR.md:441 dated addendum; diff grep shows no test suppression added (only task-doc prose match) |
-| AC-2 | MET | test | host.ts:162 shared spawnShellCommand called by ShellActionRunner (:192/:199) and ShellGuardRunner (:224/:230); consumer predicate :169; host.test.ts additions-only |
-| AC-3 | MET | test | New regression test shell-template-security.test.ts:278 ("args: [] falls through to shell form: value rides as env, never executed") passes — metachar value `$(touch …)` never executes, delivered byte-for-byte to out.txt, persisted start options carry `${__WF_` without plaintext; static predicate symmetry variables.ts:106 vs host.ts:169 closes the lap-1 bypass; file runs 12/12 (37 assertions) |
-| AC-4 | MET | test | New regression test shell-template-security.test.ts:324 ("args: [] failing command does not leak the resolved value in its error") passes — no captured failure contains the secret; error text host.ts:238 builds from the bound command (placeholders only); arrayOption validation errors (host.ts:259) expose no command or value |
-| AC-5 | MET | test | shell-template-security.test.ts:242 "argv form keeps raw substitution (AC5)" passes — non-empty args still execFile, no reparse |
-| AC-6 | MET | test | fm-process.test.ts:55/65/100/109 (dash-leading prompts, flag-like/newline instructions after `--instructions=` / `--`); impl fm-process.ts:28/:46-49 |
-| AC-7 | MET | test | redaction.test.ts:49/:75 (vendor token positives, anchored secret keys, near-miss negatives) |
-| AC-8 | MET | test | lease-consumer.test.ts:241; impl db-job-queue.ts:221, queue-job-dao.ts:258 |
-| AC-9 | MET | test | lease-consumer.test.ts:276 (stop() halts claims within a cycle; manual drains work); impl db-job-queue.ts:95 |
-| AC-10 | MET | test | lease-consumer.test.ts:312 (ends failed after exactly maxRetries); queue-job-lease.test.ts:238/:254; impl queue-job-dao.ts:223 |
-| AC-11 | MET | test | interruption.test.ts:208/235 (fence false, row untouched, memory + db adapters); impl persistence.ts:102/:419, run-lifecycle.ts:224, events.ts:133 |
-| AC-12 | MET | test | driver-resolution-errors.test.ts:13/:63 (construction errors propagate), :33/:48 (import failure → install hint); impl decision-maker.ts:93 |
-| AC-13 | MET | test | lease-consumer.test.ts:338 (stolen attempt emits no success/failure events); impl db-job-queue.ts:449/:466 |
-| AC-14 | MET | test | host.test.ts:380 (action timeout error), :389 (guard timedOut report), :406 (validation rejects), :426 (valid timeout completes); impl host.ts:270/:209 |
-| AC-15 | MET | test | fm-process.test.ts:164/:173 (deadline carried, timeout → DecisionTimeoutError, message sanitized); impl fm-process.ts:74/:98/:151 |
-| AC-16 | MET | test | process-executor.test.ts:75 (split multi-byte UTF-8 intact); impl process-executor.ts:957 |
-| AC-17 | MET | test | process-executor.test.ts:377 (`spans` toEqual([]) on runStreaming) |
-| AC-18 | MET | test | shims.test.ts:786 (hostile sessionIds rejected); impl shims.ts:463 |
-| AC-19 | MET | test | fixers.test.ts:162 (symlink escape deferred), :174 (`..foo` accepted); impl fixers.ts:163 |
-| AC-20 | MET | test | api-client.test.ts:383 (sanitized timeout URL), :399 (4096 bound), :452 (no truncated key under cap); impl api-client.ts:79/:262/:318 |
-| AC-21 | MET | command | `rg -n "laya-mlx" docs/03_ARCHITECTURE.md` matches ARCHITECTURE.md:116 `## laya-mlx (ADR-027/ADR-028)`; `rg -n "ts-decision" AGENTS.md` and `rg -n "ts-laya" AGENTS.md` match AGENTS.md:20-21 rows with one-line roles; `rg -n "not yet built" docs/03_ARCHITECTURE.md AGENTS.md` exits 1 with no matches — both scenario Then-conditions hold on the current tree (upgraded from lap-1 PARTIAL) |
-| AC-22 | MET | command | `rg -n "R18" docs/tasks/0086_fix-2026-09-23-packages-secua-and-architecture-review-findin.md` matches Solution:671 `- **R18 (MAY): DEFERRED**` and spec:264/273 (Or-branch equivalence: "Either outcome, implemented or deferred with a reason, satisfies them"); `rg -n "R18" packages/runtime/README.md` matches :644 `**Deprecated — removal plan (task 0086 R18):**` listing BunSyncProcessExecutor, BunPipeProcessSpawner and the ProcessExecutor value alias at :640 (validated deferral; consistent with R18 MET) |
-| AC-23 | MET | command | `rg -n "R19" docs/tasks/0086_fix-2026-09-23-packages-secua-and-architecture-review-findin.md` matches Solution:672 `- **R19 (MAY): DEFERRED** — process-group extraction is a pure move with no behavior gain; deferred to keep the diff surface reviewable` and spec:270/273 (Or-branch: "Solution records a one-line deferral for R19") (validated deferral; consistent with R19 MET) |
+| AC-1 | MET | command | `bun run spur-check` exit 0 + `bun run build` exit 0 run this turn in main checkout; `git diff` of merge commit contains no `.skip(`, no `biome-ignore` additions, no `--no-verify`; CHANGELOG `### Fixed` + ADR-025 addendum verified |
+| AC-2 | MET | test | packages/dual-workflow-engine/tests/host.test.ts passes within gate suite (exit 0 this turn); host.ts:162 shared helper anchor re-read |
+| AC-3 | MET | test | shell-template-security.test.ts — 12/12 pass this turn (incl. `args: []` shell-form env binding, no sentinel execution, byte-exact delivery, persisted `${__WF_n}` placeholders) |
+| AC-4 | MET | test | shell-template-security.test.ts AC4 error-path test passes this turn (no resolved value in error) |
+| AC-5 | MET | test | shell-template-security.test.ts argv-form test passes this turn (raw substitution preserved via execFile) |
+| AC-6 | MET | test | packages/decision-fm/tests/fm-process.test.ts passes within gate suite; `--` separator anchors re-read |
+| AC-7 | MET | test | packages/llm-jsonl-importer/tests/redaction.test.ts passes this turn (ghp_/github_pat_/sk_live_ + anchored secret keys) |
+| AC-8 | MET | test | packages/infra/tests/job-queue/lease-consumer.test.ts passes within gate suite |
+| AC-9 | MET | test | lease-consumer.test.ts stop()-within-cycle case passes within gate suite; db-job-queue.ts:95 anchor re-read |
+| AC-10 | MET | test | packages/db/tests/queue-job-lease.test.ts passes within gate suite; queue-job-dao.ts:223 anchor re-read |
+| AC-11 | MET | test | dual-workflow-engine run-lifecycle/persistence tests pass within gate suite; events.ts:133 stale-owner event anchor re-read |
+| AC-12 | MET | test | packages/ai-runner/tests/decision/driver-resolution-errors.test.ts passes this turn (construction errors not mislabeled) |
+| AC-13 | MET | test | lease-consumer.test.ts stolen-attempt case passes within gate suite; db-job-queue.ts:449 `!applied` anchor re-read |
+| AC-14 | MET | test | host.test.ts timeout cases pass within gate suite; host.ts:270/:209/:171 anchors re-read |
+| AC-15 | MET | test | fm-process.test.ts timeout cases pass within gate suite; fm-process.ts:74/:98/:151 anchors re-read |
+| AC-16 | MET | test | process-executor.test.ts split multi-byte UTF-8 case passes within gate suite; :957 TextDecoder anchor re-read |
+| AC-17 | MET | test | process-executor.test.ts `expect(spans).toEqual([])` passes within gate suite; :431 removal comment re-read |
+| AC-18 | MET | test | shims.test.ts hostile sessionId rejection cases pass within gate suite; shims.ts:463 anchor re-read |
+| AC-19 | MET | test | fixers.test.ts symlink/dot-dot cases pass within gate suite; fixers.ts:163 anchor re-read |
+| AC-20 | MET | test | api-client.test.ts bounded-body/URL cases pass within gate suite; api-client.ts:79/:262/:318 anchors re-read |
+| AC-21 | MET | command | `rg -n "ts-decision-fm\|ts-laya-mlx" AGENTS.md` matches :20-21; `rg -n "laya-mlx (ADR-027" docs/03_ARCHITECTURE.md` matches :116 — both executed this turn |
+| AC-22 | MET | command | `rg -n "R18 (MAY): DEFERRED" docs/tasks/0086_*.md` matches Solution:671; `rg -n "removal plan" packages/runtime/README.md` matches :644 — executed this turn |
+| AC-23 | MET | command | `rg -n "R19 (MAY): DEFERRED" docs/tasks/0086_*.md` matches Solution:672 — executed this turn |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
