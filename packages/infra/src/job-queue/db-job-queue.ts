@@ -92,6 +92,8 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
     private running = false;
     private inFlight = 0;
     private pollPromise: Promise<void> | null = null;
+    /** Task 0086 R6: set by stop() so an in-flight processOnce claims no further batches. */
+    private stopRequested = false;
 
     constructor(
         private readonly dao: QueueJobDao,
@@ -127,6 +129,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
     async start(): Promise<void> {
         if (this.running) return;
         this.running = true;
+        this.stopRequested = false;
         this.schedule(0);
         const sink = this.eventSink;
         if (sink !== undefined) {
@@ -144,6 +147,7 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
 
     async stop(): Promise<void> {
         const wasRunning = this.running;
+        this.stopRequested = true;
         this.running = false;
         if (this.timer !== null) {
             clearTimeout(this.timer);
@@ -214,27 +218,44 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
             await this.dao.resetStuckJobs(this.visibilityTimeout);
             await this.dao.failExpiredJobs();
 
-            const jobs = await this.dao.claimReady(this.batchSize, { leaseMs: this.visibilityTimeout });
+            // Task 0086 R6: claim only as much as can still start. A stop()
+            // landing mid-cycle stops further claims; already-claimed attempts
+            // still settle. With defaults (maxConcurrency === batchSize) this is
+            // exactly one claim per cycle, the same as before.
+            let claimed = 0;
             let processed = 0;
-
-            for (let index = 0; index < jobs.length; index += this.maxConcurrency) {
-                const batch = jobs.slice(index, index + this.maxConcurrency);
-                await Promise.all(
-                    batch.map(async (job) => {
-                        this.inFlight += 1;
-                        try {
-                            await this.processJob(job);
-                            processed += 1;
-                        } finally {
-                            this.inFlight -= 1;
-                        }
-                    }),
-                );
+            while (claimed < this.batchSize && !this.stopRequested) {
+                const requested = Math.min(this.maxConcurrency, this.batchSize - claimed);
+                const jobs = await this.dao.claimReady(requested, { leaseMs: this.visibilityTimeout });
+                // A short claim means the queue is drained: stop instead of
+                // re-arming jobs that were just retried within this cycle.
+                if (jobs.length < requested) {
+                    claimed += jobs.length;
+                    await this.runClaimed(jobs, () => (processed += 1));
+                    break;
+                }
+                claimed += jobs.length;
+                await this.runClaimed(jobs, () => (processed += 1));
             }
 
-            addSpanAttributes({ 'queue.claimed': jobs.length, 'queue.processed': processed });
+            addSpanAttributes({ 'queue.claimed': claimed, 'queue.processed': processed });
             return processed;
         });
+    }
+
+    /** Run one claimed batch to settlement, tracking in-flight for drain. */
+    private async runClaimed(jobs: QueueJobRecord[], onProcessed: () => void): Promise<void> {
+        await Promise.all(
+            jobs.map(async (job) => {
+                this.inFlight += 1;
+                try {
+                    await this.processJob(job);
+                    onProcessed();
+                } finally {
+                    this.inFlight -= 1;
+                }
+            }),
+        );
     }
 
     private schedule(delay: number): void {
@@ -359,7 +380,10 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
                         });
                     }
                 } else {
-                    await this.dao.markCompleted(record.id, token);
+                    // Task 0086 R10: gate metric + event on the fenced write — a
+                    // lost lease means another consumer owns the job now.
+                    const applied = await this.dao.markCompleted(record.id, token);
+                    if (!applied) return;
                     getQueueJobCompletedTotal().add(1, { type: job.type });
                     const completed: QueueJobCompletedDetail = {
                         jobId: job.id,
@@ -421,7 +445,8 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
         const attempts = job.attempts + 1;
         const message = error instanceof Error ? error.message : String(error);
         if (attempts >= job.maxRetries) {
-            await this.dao.markFailed(job.id, attempts, message, attemptToken);
+            const applied = await this.dao.markFailed(job.id, attempts, message, attemptToken);
+            if (!applied) return; // Task 0086 R10: fenced write lost — no metric, no event.
             getQueueJobFailedTotal().add(1, { type: job.type });
             const failed: QueueJobFailedDetail = {
                 jobId: job.id,
@@ -438,7 +463,9 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
 
         const delay = Math.min(this.maxDelay, this.baseDelay * 2 ** Math.max(0, attempts - 1));
         const nextRetryAt = Date.now() + delay;
-        await this.dao.markForRetry(job.id, attempts, message, nextRetryAt, attemptToken);
+        // Task 0086 R10: gate the retry event on the fenced write.
+        const retryApplied = await this.dao.markForRetry(job.id, attempts, message, nextRetryAt, attemptToken);
+        if (!retryApplied) return;
         const retrying: QueueJobRetryingDetail = {
             jobId: job.id,
             type: job.type,

@@ -145,18 +145,16 @@ describe('Named backend selector in DecisionMaker (task 0080)', () => {
             expect(noul).toEqual({ kind: 'noul', probability: 0.5 });
         });
 
-        it('R1, AC2 — a failing fm driver construction surfaces as DecisionConfigError naming FM_BACKEND and the package', async () => {
-            // The resolver wraps every createFmDriver failure — missing package or
-            // rejected options (here: unsupported host) — in the same config error.
-            // Bun's mock.module is process-global, so a truly-missing package cannot
-            // be simulated in-process without poisoning the real-import test above.
+        it('R1, AC2 — a failing fm driver construction propagates unchanged (task 0086 R9)', async () => {
+            // Only the IMPORT is translated to the install-hint error; errors from
+            // createFmDriver itself (here: unsupported host) surface as-is.
             const dm = createDecisionMaker({ backend: 'fm-local', platform: 'linux', arch: 'arm64' });
             const err = await dm.choice('s', 'Pick', { a: 'A', b: 'B' }).catch((e: unknown) => e);
             expect(err).toBeInstanceOf(DecisionConfigError);
             const configErr = err as DecisionConfigError;
-            expect(configErr.variable).toBe('FM_BACKEND');
-            expect(configErr.message).toContain('@gobing-ai/ts-decision-fm');
-            expect(configErr.message).toContain('bun add @gobing-ai/ts-decision-fm');
+            expect(configErr.variable).toBe('PLATFORM');
+            expect(configErr.message).toContain('darwin arm64');
+            expect(configErr.message).not.toContain('bun add');
         });
     });
 });

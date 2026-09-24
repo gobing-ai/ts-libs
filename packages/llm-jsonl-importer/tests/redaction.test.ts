@@ -45,4 +45,50 @@ describe('DEFAULT_REDACTION_RULES', () => {
             expect(rule.pattern.flags).toContain('g');
         }
     });
+
+    test('R5: vendor token shapes redact (task 0086)', () => {
+        for (const sample of [
+            'ghp_abcdefghijklmnopqrstuvwxyz0123456789',
+            'github_pat_11ABCDEFG0123456789_abcdefghijklmnop',
+            'sk_live_abcdefghijklmnop1234',
+            'sk-ant-api03-abcdefghijklmnop',
+            'pk_test_abcdefghij12',
+            'xoxb-123456789012-abc',
+            'ghu_ABCDEFGHIJKLMNOPQRSTUVWX',
+        ]) {
+            expect(redactValue(sample)).toBe('[REDACTED:token]');
+        }
+    });
+
+    test('R5: DB identifiers and near-miss prefixes stay untouched (task 0086)', () => {
+        for (const sample of [
+            'skill_invocation_count',
+            'pk_customer_orders_id',
+            'sk_user_session_table',
+            'ghp_short',
+            'tokens_used',
+        ]) {
+            expect(redactValue(sample)).toBe(sample);
+        }
+    });
+
+    test('R5: secret-valued keys redact anchored; analytics keys do not (task 0086)', () => {
+        const record = redactValue({
+            apiKey: 'plain-ole-value',
+            'client-secret': 'hunter2',
+            Authorization: 'Basic dXNlcjpwYXNz',
+            tokens_used: 4211,
+            token_count: 12,
+            max_tokens: 4096,
+            tokenizer_name: 'gpt-4o',
+        }) as Record<string, unknown>;
+        expect(record.apiKey).toBe('[REDACTED:secret]');
+        expect(record['client-secret']).toBe('[REDACTED:secret]');
+        expect(record.Authorization).toBe('[REDACTED:secret]');
+        expect(record.tokens_used).toBe(4211);
+        expect(record.token_count).toBe(12);
+        expect(record.max_tokens).toBe(4096);
+        // substring-but-unanchored keys keep their (non-secret) values
+        expect(record.tokenizer_name).toBe('gpt-4o');
+    });
 });

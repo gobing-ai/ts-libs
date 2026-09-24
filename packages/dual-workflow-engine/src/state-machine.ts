@@ -9,7 +9,7 @@ import type {
     WorkflowRunOptions,
     WorkflowRunResult,
 } from './types';
-import { mergeSetVars, mergeVars, resolveTemplates } from './variables';
+import { mergeSetVars, mergeVars, resolveShellCommandTemplates, resolveTemplates } from './variables';
 
 /** Dependencies required by the state-machine driver. */
 export interface StateMachineDriverOptions {
@@ -47,6 +47,7 @@ export class StateMachineDriver {
             runId,
             externalKey,
             (lifecycle) => this.loop(workflow, options, lifecycle, resumeFromState),
+            options.resumeOwner?.attemptId,
         );
     }
 
@@ -231,11 +232,13 @@ async function firstPassingTransition(
     for (const transition of transitions) {
         if (transition.guard === undefined) return transition;
         // Resolve ${vars.*} templates in guard options before evaluation — guards use the
-        // same var interpolation as actions (e.g. `spur task check ${vars.wbs}`).
-        const resolvedOptions = resolveTemplates(transition.guard.options ?? {}, {
-            vars: context.vars,
-            env: {},
-        });
+        // same var interpolation as actions (e.g. `spur task check ${vars.wbs}`). Shell-form
+        // guards bind command refs to env instead of raw substitution (task 0086 M1); the
+        // env bindings pass through to the runner (guard options are never persisted).
+        const resolvedOptions =
+            transition.guard.kind === 'shell'
+                ? resolveShellCommandTemplates(transition.guard.options ?? {}, { vars: context.vars, env: {} })
+                : resolveTemplates(transition.guard.options ?? {}, { vars: context.vars, env: {} });
         const passed = await host.evaluateGuard(transition.guard.kind, resolvedOptions, context);
         lifecycle.guardEvaluated(context.current, transition.to, transition.guard.kind, passed);
         if (passed) return transition;

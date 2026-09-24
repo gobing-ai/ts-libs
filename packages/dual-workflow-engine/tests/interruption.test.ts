@@ -5,8 +5,9 @@ import { FSMError, WorkflowResumeError } from '../src/errors';
 import type { WorkflowEngineEvents } from '../src/events';
 import { createDefaultWorkflowEngineHost } from '../src/host';
 import { DbWorkflowPersistenceAdapter, MemoryWorkflowPersistenceAdapter } from '../src/persistence';
+import { RunLifecycle } from '../src/run-lifecycle';
 import { WorkflowService } from '../src/service';
-import type { StateMachineWorkflowDef } from '../src/types';
+import type { StateMachineWorkflowDef, WorkflowPersistenceAdapter, WorkflowStatus } from '../src/types';
 
 // Workflow runs emit structured run-lifecycle logs by design; mute them in tests.
 setLoggerMuted(true);
@@ -200,5 +201,115 @@ describe('interruption contract (task 0902)', () => {
         } finally {
             db.close();
         }
+    });
+});
+
+describe('owner-fenced finalizeRun (task 0086 AC11)', () => {
+    test('memory adapter: stale owner fence returns false and leaves the row untouched', async () => {
+        const adapter = new MemoryWorkflowPersistenceAdapter();
+        await adapter.createRun({
+            id: 'fence-run',
+            workflow_name: 'wf',
+            mode: 'state-machine',
+            status: 'running',
+            started_at: new Date().toISOString(),
+            completed_at: null,
+            metadata_json: '{}',
+            owner_attempt: 'B',
+        });
+        // Attempt A (stale) must miss the fence.
+        expect(await adapter.finalizeRun('fence-run', 'done', '2026-01-01T00:00:00Z', { ownerAttempt: 'A' })).toBe(
+            false,
+        );
+        const run = await adapter.loadRun('fence-run');
+        expect(run?.status).toBe('running');
+        expect(run?.owner_attempt).toBe('B');
+        expect(run?.completed_at).toBeNull();
+        // The current owner finalizes successfully.
+        expect(await adapter.finalizeRun('fence-run', 'done', '2026-01-02T00:00:00Z', { ownerAttempt: 'B' })).toBe(
+            true,
+        );
+        expect((await adapter.loadRun('fence-run'))?.status).toBe('done');
+    });
+
+    test('db adapter: stale owner fence returns false and leaves the row untouched', async () => {
+        const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        try {
+            const adapter = new DbWorkflowPersistenceAdapter(db);
+            await adapter.createRun({
+                id: 'fence-run',
+                workflow_name: 'wf',
+                mode: 'state-machine',
+                status: 'paused',
+                started_at: new Date().toISOString(),
+                completed_at: null,
+                metadata_json: '{}',
+            });
+            await adapter.claimRunOwnership('fence-run', { attemptId: 'B' }, ['paused']);
+            expect(await adapter.finalizeRun('fence-run', 'done', '2026-01-01T00:00:00Z', { ownerAttempt: 'A' })).toBe(
+                false,
+            );
+            const run = await adapter.loadRun('fence-run');
+            expect(run?.status).toBe('running');
+            expect(run?.owner_attempt).toBe('B');
+            expect(run?.completed_at).toBeNull();
+            expect(await adapter.finalizeRun('fence-run', 'done', '2026-01-02T00:00:00Z', { ownerAttempt: 'B' })).toBe(
+                true,
+            );
+            expect((await adapter.loadRun('fence-run'))?.status).toBe('done');
+        } finally {
+            db.close();
+        }
+    });
+
+    test('legacy 3-arg Promise<void> finalizeRun still satisfies the adapter interface (AC11)', () => {
+        type LegacyFinalize = (runId: string, status: WorkflowStatus, completedAt: string) => Promise<void>;
+        const legacyFinalize: LegacyFinalize = async () => undefined;
+        // Compile-time assignability is the assertion: an old-signature adapter member must
+        // still fit the fenced interface (optional trailing param, widened return type).
+        const slot: Pick<WorkflowPersistenceAdapter, 'finalizeRun'> = { finalizeRun: legacyFinalize };
+        expect(slot.finalizeRun).toBe(legacyFinalize);
+    });
+
+    test('RunLifecycle surfaces the stale-owner signal and the new owner can finalize (AC11)', async () => {
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const events = new EventBus<WorkflowEngineEvents>();
+        const staleOwnerEvents: Array<{ runId: string; ownerAttemptId: string; status: string; severity: string }> = [];
+        events.on('workflow.run.stale_owner', (data) => staleOwnerEvents.push(data));
+
+        let runIdA = '';
+        let lifecycleA: RunLifecycle | undefined;
+        await RunLifecycle.run('wf', 'state-machine', { persistence, events }, {}, async (lifecycle) => {
+            lifecycleA = lifecycle;
+            runIdA = lifecycle.runId;
+            return lifecycle.pause('n1', 0);
+        });
+        const ownerA = (await persistence.loadRun(runIdA))?.owner_attempt ?? '';
+        expect(ownerA).not.toBe('');
+
+        // Attempt B claims the paused run.
+        expect(await persistence.claimRunOwnership(runIdA, { attemptId: 'B' }, ['paused'])).toBeDefined();
+
+        // Stale attempt A tries to finalize "done": typed error + stale_owner event; row untouched.
+        await expect(lifecycleA?.done('n1', 0)).rejects.toThrow(/stale owner/);
+        expect(staleOwnerEvents).toEqual([
+            { runId: runIdA, ownerAttemptId: ownerA, status: 'done', severity: 'warning' },
+        ]);
+        const stolen = await persistence.loadRun(runIdA);
+        expect(stolen?.status).toBe('running');
+        expect(stolen?.owner_attempt).toBe('B');
+        expect(stolen?.completed_at).toBeNull();
+
+        // Attempt B (current owner) finalizes successfully through its own lifecycle.
+        await RunLifecycle.resume(
+            'wf',
+            'state-machine',
+            { persistence, events },
+            runIdA,
+            undefined,
+            async (lifecycle) => lifecycle.done('n1', 0),
+            'B',
+        );
+        expect((await persistence.loadRun(runIdA))?.status).toBe('done');
     });
 });

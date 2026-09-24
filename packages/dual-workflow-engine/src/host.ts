@@ -10,6 +10,7 @@ import type {
     GuardEvaluationResult,
     GuardRunner,
 } from './types';
+import { SHELL_ENV_OPTION } from './variables';
 
 /** Registry owner for workflow actions and guards. */
 export class WorkflowEngineHost {
@@ -142,6 +143,51 @@ export class EventEmitActionRunner implements ActionRunner {
     }
 }
 
+/** Process output shared by the shell action and guard runners. */
+interface ShellSpawnOutcome {
+    readonly stdout: string;
+    readonly stderr: string;
+    readonly exitCode: number | null;
+    readonly timedOut: boolean;
+}
+
+/**
+ * Shared spawn path for ShellActionRunner and ShellGuardRunner (task 0086 R2).
+ *
+ * Two forms (R4/R3): `command` + explicit `args` → execFile argv (no shell, template
+ * values substituted raw are inert); `command` alone → `/bin/sh -c`, with
+ * `SHELL_ENV_OPTION` bindings forwarded as env so substituted text is never reparsed
+ * as shell syntax.
+ */
+async function spawnShellCommand(
+    processExecutor: ProcessExecutor,
+    options: Record<string, unknown>,
+    workdir: string | undefined,
+): Promise<ShellSpawnOutcome> {
+    const command = stringOption(options, 'command');
+    const explicitArgs = arrayOption(options, 'args');
+    const usesShell = explicitArgs.length === 0;
+    const spawn = usesShell ? { command: '/bin/sh', args: ['-c', command] } : { command, args: explicitArgs };
+    const timeout = optionalTimeoutOption(options);
+    const envOption = options[SHELL_ENV_OPTION];
+    const env = envOption !== null && typeof envOption === 'object' ? (envOption as Record<string, string>) : undefined;
+    const result = await processExecutor.run({
+        command: spawn.command,
+        args: spawn.args,
+        cwd: optionalStringOption(options, 'cwd', workdir),
+        ...(env !== undefined ? { env, envMode: 'merge' as const } : {}),
+        ...(timeout !== undefined ? { timeout } : {}),
+        rejectOnError: false,
+        forceBuffered: true,
+    });
+    return {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+        timedOut: result.outcome === 'timeout',
+    };
+}
+
 /** Built-in shell action backed by ts-runtime ProcessExecutor. */
 export class ShellActionRunner implements ActionRunner {
     readonly kind = 'shell';
@@ -158,21 +204,20 @@ export class ShellActionRunner implements ActionRunner {
      * the old behavior — fails with a null exit code for any line containing spaces.
      */
     async execute(options: Record<string, unknown>, context: ActionRunContext): Promise<ActionResult> {
+        const spawn = await spawnShellCommand(this.processExecutor, options, context.workdir);
+        if (spawn.timedOut) {
+            const timeout = optionalTimeoutOption(options);
+            return {
+                ok: false,
+                data: { stdout: spawn.stdout, stderr: spawn.stderr, exitCode: spawn.exitCode, timedOut: true },
+                error: `Shell action timed out after ${timeout}ms`,
+            };
+        }
         const command = stringOption(options, 'command');
-        const explicitArgs = arrayOption(options, 'args');
-        const usesShell = explicitArgs.length === 0;
-        const spawn = usesShell ? { command: '/bin/sh', args: ['-c', command] } : { command, args: explicitArgs };
-        const result = await this.processExecutor.run({
-            command: spawn.command,
-            args: spawn.args,
-            cwd: optionalStringOption(options, 'cwd', context.workdir),
-            rejectOnError: false,
-            forceBuffered: true,
-        });
         return {
-            ok: result.exitCode === 0,
-            data: { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode },
-            ...(result.exitCode === 0 ? {} : { error: `Command "${command}" exited with ${result.exitCode}` }),
+            ok: spawn.exitCode === 0,
+            data: { stdout: spawn.stdout, stderr: spawn.stderr, exitCode: spawn.exitCode },
+            ...(spawn.exitCode === 0 ? {} : { error: `Command "${command}" exited with ${spawn.exitCode}` }),
         };
     }
 }
@@ -184,20 +229,15 @@ export class ShellGuardRunner implements GuardRunner {
     constructor(private readonly processExecutor: ProcessExecutor) {}
 
     async evaluate(options: Record<string, unknown>, context: GuardContext): Promise<GuardEvaluationResult> {
-        const command = stringOption(options, 'command');
-        const explicitArgs = arrayOption(options, 'args');
-        const usesShell = explicitArgs.length === 0;
-        const spawn = usesShell ? { command: '/bin/sh', args: ['-c', command] } : { command, args: explicitArgs };
-        const result = await this.processExecutor.run({
-            command: spawn.command,
-            args: spawn.args,
-            cwd: optionalStringOption(options, 'cwd', context.workdir),
-            rejectOnError: false,
-            forceBuffered: true,
-        });
+        const spawn = await spawnShellCommand(this.processExecutor, options, context.workdir);
         return {
-            passed: result.exitCode === 0,
-            report: { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode },
+            passed: !spawn.timedOut && spawn.exitCode === 0,
+            report: {
+                stdout: spawn.stdout,
+                stderr: spawn.stderr,
+                exitCode: spawn.exitCode,
+                ...(spawn.timedOut ? { timedOut: true } : {}),
+            },
         };
     }
 }
@@ -221,4 +261,15 @@ function arrayOption(options: Record<string, unknown>, key: string): string[] {
     if (value === undefined) return [];
     if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) return value;
     throw new WorkflowValidationError(`Action option "${key}" must be a string array`);
+}
+
+/**
+ * Resolve the optional `timeout` option in milliseconds (task 0086 AC14). Undefined
+ * passes through; anything that is not a finite positive number is rejected.
+ */
+function optionalTimeoutOption(options: Record<string, unknown>): number | undefined {
+    const value = options.timeout;
+    if (value === undefined) return undefined;
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+    throw new WorkflowValidationError('shell option "timeout" must be a positive number of milliseconds');
 }

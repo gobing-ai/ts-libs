@@ -18,12 +18,17 @@ import type { ProcessExecutor, ProcessResult } from '@gobing-ai/ts-runtime';
 /** `--guardrails` levels accepted by `fm respond` (design: fm CLI facts). */
 export type FmGuardrails = 'default' | 'permissive-content-transformations';
 
-/** Subcommand + flag order verified against the design's live observations. */
+/**
+ * Subcommand + flag order verified against the design's live observations
+ * (task 0086 R4): instructions ride in `--instructions=<value>` and the prompt
+ * travels after a `--` separator, so instruction/prompt text can never be
+ * reparsed as fm flags regardless of its content.
+ */
 export function countTokensArgv(instructions: string, prompt: string): string[] {
-    return ['count-tokens', '-q', '-i', instructions, prompt];
+    return ['count-tokens', '-q', `--instructions=${instructions}`, '--', prompt];
 }
 
-/** Builds the `fm respond` argv: schema flag, `-i` instructions, positional prompt, optional `-g`/`--guardrails`. */
+/** Builds the `fm respond` argv: schema flag, `--instructions=<instructions>`, `--` separator, positional prompt, optional `-g`/`--guardrails`. */
 export function respondArgv(options: {
     schemaPath: string;
     instructions: string;
@@ -38,10 +43,10 @@ export function respondArgv(options: {
         '--no-stream',
         '--schema',
         options.schemaPath,
-        '-i',
-        options.instructions,
+        `--instructions=${options.instructions}`,
         ...(options.guardrails !== undefined ? ['--guardrails', options.guardrails] : []),
         ...(options.greedy ? ['-g'] : []),
+        '--',
         options.prompt,
     ];
 }
@@ -66,9 +71,18 @@ function fmText(result: ProcessResult): string {
  * R8 prerequisite probe: `fm available --model system`. A spawn failure maps to
  * `DecisionConfigError` "fm not found"; a non-zero exit carries fm's printed
  * reason (e.g. `modelNotReady`). An exit 0 caches availability in the driver.
+ * The probe carries `timeoutMs` (task 0086 R12) so a hung fm cannot wedge the
+ * driver before the per-sample deadline exists.
  */
-export async function probeFmAvailability(executor: ProcessExecutor, fmPath: string): Promise<void> {
-    const result = await executor.run({ command: fmPath, args: availableArgv() });
+export async function probeFmAvailability(
+    executor: ProcessExecutor,
+    fmPath: string,
+    timeoutMs = 10_000,
+): Promise<void> {
+    const result = await executor.run({ command: fmPath, args: availableArgv(), timeout: timeoutMs });
+    if (result.outcome === 'timeout') {
+        throw new DecisionTimeoutError(`fm available exceeded requestTimeoutMs (${timeoutMs})`, timeoutMs);
+    }
     if (isSpawnFailure(result)) {
         throw new DecisionConfigError(`fm not found: '${fmPath}' could not be spawned`, 'fmPath');
     }
@@ -78,17 +92,26 @@ export async function probeFmAvailability(executor: ProcessExecutor, fmPath: str
 }
 
 /**
- * R4 pre-flight: `fm count-tokens -q -i <instructions> <prompt>` prints a bare
- * integer. Non-zero exit or unparseable output is a `DecisionBackendError` —
- * the budget comparison itself happens in the driver.
+ * R4 pre-flight: `fm count-tokens -q --instructions=<instructions> -- <prompt>`
+ * prints a bare integer. Non-zero exit or unparseable output is a
+ * `DecisionBackendError` — the budget comparison itself happens in the driver.
+ * Carries `timeoutMs` (task 0086 R12); a timeout maps to `DecisionTimeoutError`.
  */
 export async function countPromptTokens(
     executor: ProcessExecutor,
     fmPath: string,
     instructions: string,
     prompt: string,
+    timeoutMs = 10_000,
 ): Promise<number> {
-    const result = await executor.run({ command: fmPath, args: countTokensArgv(instructions, prompt) });
+    const result = await executor.run({
+        command: fmPath,
+        args: countTokensArgv(instructions, prompt),
+        timeout: timeoutMs,
+    });
+    if (result.outcome === 'timeout') {
+        throw new DecisionTimeoutError(`fm count-tokens exceeded requestTimeoutMs (${timeoutMs})`, timeoutMs);
+    }
     if (isSpawnFailure(result)) {
         throw new DecisionConfigError(`fm not found: '${fmPath}' could not be spawned`, 'fmPath');
     }
@@ -125,8 +148,9 @@ export async function runFmRespond(
 ): Promise<string> {
     const result = await executor.run({ command: fmPath, args, timeout: requestTimeoutMs });
     if (result.outcome === 'timeout') {
+        // Message deliberately drops the argv — the prompt is user content (task 0086 R12).
         throw new DecisionTimeoutError(
-            `fm respond exceeded requestTimeoutMs (${requestTimeoutMs}): ${fmPath} ${args.join(' ')}`,
+            `fm ${args[0]} exceeded requestTimeoutMs (${requestTimeoutMs})`,
             requestTimeoutMs,
         );
     }

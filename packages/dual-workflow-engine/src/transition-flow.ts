@@ -9,7 +9,7 @@ import type {
     WorkflowRunOptions,
     WorkflowRunResult,
 } from './types';
-import { mergeSetVars, mergeVars, resolveTemplates } from './variables';
+import { mergeSetVars, mergeVars, resolveShellCommandTemplates, resolveTemplates } from './variables';
 
 /** Dependencies required by the transition-flow driver. */
 export interface TransitionFlowDriverOptions {
@@ -47,6 +47,7 @@ export class TransitionFlowDriver {
             runId,
             externalKey,
             (lifecycle) => this.loop(workflow, options, lifecycle, resumeFromNode),
+            options.resumeOwner?.attemptId,
         );
     }
 
@@ -200,10 +201,11 @@ async function firstPassingEdge(
         if (edge.condition === undefined) return edge;
         // Resolve ${vars.*} templates in condition options before evaluation — conditions use
         // the same var interpolation as actions (symmetry with state-machine guard resolution).
-        const resolvedOptions = resolveTemplates(edge.condition.options ?? {}, {
-            vars: context.vars,
-            env: {},
-        });
+        // Shell-form conditions bind command refs to env instead of raw substitution (task 0086 M1).
+        const resolvedOptions =
+            edge.condition.kind === 'shell'
+                ? resolveShellCommandTemplates(edge.condition.options ?? {}, { vars: context.vars, env: {} })
+                : resolveTemplates(edge.condition.options ?? {}, { vars: context.vars, env: {} });
         const passed = await host.evaluateGuard(edge.condition.kind, resolvedOptions, context);
         lifecycle.guardEvaluated(context.current, edge.to, edge.condition.kind, passed);
         if (passed) return edge;

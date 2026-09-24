@@ -19,7 +19,7 @@ import type {
     WorkflowRunRecord,
     WorkflowRunResult,
 } from './types';
-import { mergeVars, resolveTemplates } from './variables';
+import { mergeVars, resolveShellCommandTemplates, resolveTemplates } from './variables';
 
 /** High-level workflow service for loading, running, and listing persisted workflow runs. */
 export class WorkflowService {
@@ -182,7 +182,7 @@ export class WorkflowService {
         const persistedVars = extractEffectiveVars(snapshot?.data);
         const restoredVars = mergeVars(persistedVars, options?.vars);
         const owner: ResumeOwnership = options?.resumeOwner ?? { attemptId: crypto.randomUUID() };
-        const mergedOptions: WorkflowRunOptions = { ...options, vars: restoredVars, resumeMode };
+        const mergedOptions: WorkflowRunOptions = { ...options, vars: restoredVars, resumeMode, resumeOwner: owner };
 
         // Atomically claim ownership (task 0902 R3): the status flip and owner recording
         // happen in one CAS update, so exactly one concurrent resume wins; losers and
@@ -344,10 +344,11 @@ export class WorkflowService {
             // Resolve ${vars.*} templates against the restored and overridden runtime vars —
             // external transitions (requestTransition) must interpolate the same way the
             // driver's firstPassingTransition does (e.g. `spur task check ${vars.wbs}`).
-            const resolvedGuardOptions = resolveTemplates(transition.guard.options ?? {}, {
-                vars,
-                env: {},
-            });
+            // Shell-form guards bind command refs to env instead of raw substitution (task 0086 M1).
+            const resolvedGuardOptions =
+                transition.guard.kind === 'shell'
+                    ? resolveShellCommandTemplates(transition.guard.options ?? {}, { vars, env: {} })
+                    : resolveTemplates(transition.guard.options ?? {}, { vars, env: {} });
             const guardResult = await this.host.evaluateGuardResult(transition.guard.kind, resolvedGuardOptions, {
                 runId,
                 current: currentState,

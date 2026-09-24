@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 
+## [Unreleased]
+
+### Fixed
+
+- **`@gobing-ai/ts-dual-workflow-engine`: shell actions/guards hardened against template injection (task 0086 R2/R3/C1).** Shared spawn helper for actions and guards; shell-form commands run via `sh -c` with template-derived values bound as `${__WF_<n>}` environment entries instead of being spliced into the command line, and persisted options keep the binding form (never the raw value); argv form runs the program directly with no shell. Shell guards resolve templates the same way. `timeout` is a validated optional shell option (positive milliseconds); expiry maps to an action error and, on guards, `passed: false` with `report.timedOut`. Persisted shell options are stripped of the internal env-binding key before `saveActionStart`.
+- **`@gobing-ai/ts-dual-workflow-engine`: owner-fenced `finalizeRun` closes the stale-owner race (task 0086 R8, ADR-025 addendum).** `finalizeRun` accepts an optional `{ ownerAttempt }` fence; DB and memory adapters return `false` when ownership was lost, `RunLifecycle` emits `workflow.run.stale_owner` and throws `WorkflowResumeError` instead of finalizing over the new owner.
+- **`@gobing-ai/ts-decision-fm`: fm argv hardened and deadline-carrying (task 0086 R4/R12).** Instructions ride in `--instructions=<value>` and the prompt travels after a `--` separator, so flag-like or newline-bearing content is never reparsed; the availability probe and count-tokens calls carry `requestTimeoutMs` and map expiry to `DecisionTimeoutError`; the respond timeout message drops the argv (user content) and names only the deadline.
+- **`@gobing-ai/ts-ai-runner`: honest driver resolution errors, `--` separator, sessionId validation (task 0086 R4/R9/R15).** Only failed imports/missing exports of driver packages map to install-hint config errors — construction errors from `createFmDriver`/`createLayaDriver` now propagate unchanged; the fm shim pins prompt input after `--`; fm session ids are validated before any path is built.
+- **`@gobing-ai/ts-db` + `@gobing-ai/ts-infra`: lease-exhaustion accounting and gated queue events (task 0086 R6/R7/R10).** `claimReady` counts a lost-lease reclaim as an attempt (CASE on the pre-update row), fails jobs whose next attempt would exceed `maxRetries` with `lease expired: attempts exhausted`, and `resetStuckJobs` applies the same rule to legacy token-less rows; the consumer claims only what can start (honouring `stop()` mid-cycle) and gates completion/failure/retry metrics and events on the fenced write actually applying.
+- **`@gobing-ai/ts-llm-jsonl-importer`: redaction covers vendor token shapes and secret keys without corrupting analytics (task 0086 R5).** New `api-key`/`github-token` patterns (`ghp_/ghu_/…`, `github_pat_…`, Stripe-style `sk_live_…`) verified against positives and near-miss negatives (`pk_customer_orders_id`, `tokens_used` stay untouched); secret-valued keys (`api_key`, `client_secret`, `authorization`, …) redact anchored, so `token_count`/`max_tokens` survive.
+- **`@gobing-ai/ts-runtime`: streaming output decodes split UTF-8; empty span dropped (task 0086 R13/R14).** `onOutput` chunks decode with one stream-mode `TextDecoder` per stream and a final flush, so multi-byte characters split across writes no longer become U+FFFD; the fire-and-forget `process.runStreaming` lifetime span is removed.
+- **`@gobing-ai/ts-infra`: bounded API errors (task 0086 R17).** Timeout errors report the sanitized URL (no query strings); non-2xx bodies stored on `APIError` are truncated at 4096 chars.
+- **`@gobing-ai/ts-rule-engine`: fixer containment resolves symlinks (task 0086 R16).** `isInsideWorkdir` resolves through the nearest existing ancestor's real path, so a missing file behind a symlinked parent can no longer be written outside the workdir, while legitimate dot-prefixed sibling names (`..foo/a.ts`) are no longer falsely deferred.
+
+### Other
+
+- **Task 0086 documentation sync.** `docs/03_ARCHITECTURE.md` laya-mlx heading reflects shipped status; `AGENTS.md` package table lists `ts-decision-fm` and `ts-laya-mlx`; runtime README records the `BunSyncProcessExecutor` removal plan (R18, deferred); process-group extraction (R19) deferred as behavior-neutral churn not worth the diff surface.
+
 ## [0.5.3] - 2026-09-23
 
 ### Added

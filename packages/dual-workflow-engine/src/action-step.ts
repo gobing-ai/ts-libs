@@ -10,7 +10,13 @@ import type {
     WorkflowPersistenceAdapter,
     WorkflowRunOptions,
 } from './types';
-import { mergeSetVars, resolveOnErrorPolicy, resolveTemplates } from './variables';
+import {
+    mergeSetVars,
+    resolveOnErrorPolicy,
+    resolveShellCommandTemplates,
+    resolveTemplates,
+    SHELL_ENV_OPTION,
+} from './variables';
 
 /**
  * Outcome discriminator for a single action step. `terminal` means the action
@@ -72,17 +78,26 @@ export async function runActionStep(
     deps: ActionStepDeps,
 ): Promise<ActionStepResult> {
     const { host, persistence, lifecycle, stateOrNodeId, runId } = deps;
-    const resolved = resolveTemplates(action.options ?? {}, {
+    const templateContext = {
         vars,
         env: deps.env,
         builtins: runtimeBuiltins(deps.workflowName, stateOrNodeId, runId, deps.transitionsTaken, deps.mode),
-    });
+    };
+    // Shell form binds command refs to env instead of raw substitution (task 0086 M1);
+    // argv form and non-shell actions keep plain template resolution.
+    const resolvedWithEnv =
+        action.kind === 'shell'
+            ? resolveShellCommandTemplates(action.options ?? {}, templateContext)
+            : resolveTemplates(action.options ?? {}, templateContext);
+    // The env bindings ride along for execution but never persist — custom persistence
+    // adapters would otherwise store resolved secret values in the action mirror row.
+    const { [SHELL_ENV_OPTION]: _shellEnv, ...resolved } = resolvedWithEnv;
     const actionId = await persistence.saveActionStart(runId, stateOrNodeId, action.kind, resolved);
     const actionStartMs = Date.now();
     lifecycle.actionStart(stateOrNodeId, action.kind);
     let result: ActionResult | undefined;
     try {
-        result = await host.runAction(action.kind, resolved, {
+        result = await host.runAction(action.kind, resolvedWithEnv, {
             runId,
             actionId,
             workdir: deps.options.workdir,

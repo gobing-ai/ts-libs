@@ -17,6 +17,8 @@ TypeScript libraries under `packages/*`:
 | `ts-rule-engine` | constraint rule schemas, loading, evaluation, formatting |
 | `ts-dual-workflow-engine` | state-machine + transition-flow workflow runtime |
 | `ts-llm-jsonl-importer` | generic JSONL importer for LLM history files |
+| `ts-decision-fm` | Apple `fm` decision backend over a one-shot process bridge (ADR-029/030) |
+| `ts-laya-mlx` | local MLX decision backend over a process bridge (ADR-027/028) |
 
 - **Runtime / package manager / test runner:** Bun `1.3.14`. Use platform APIs only in their owning package/adapter seam; otherwise use `ts-runtime` abstractions.
 - **Lint + format:** Biome. **Type gate:** per-package `tsc --noEmit`. No ESLint, no Prettier.

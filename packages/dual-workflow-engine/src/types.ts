@@ -326,13 +326,35 @@ export interface ActionRunRecord {
     readonly completed_at: string | null;
 }
 
+/**
+ * Resolves to `void`. Derived from an existing return position because the repo
+ * lints `noConfusingVoidType` with `--error-on-warnings` and rejects a literal
+ * `void` in a union, while the task-0086 R8 contract needs `boolean | void` on
+ * `finalizeRun` so legacy 3-arg `Promise<void>` adapters stay assignable.
+ * No runtime effect.
+ */
+export type LegacyAdapterVoid = Awaited<ReturnType<WorkflowPersistenceAdapter['savePhase']>>;
+
 /** Optional redaction hook: given action options, return sanitized options for persistence. */
 export type ActionRedactor = (kind: string, options: Record<string, unknown>) => Record<string, unknown>;
 
 /** Persistence adapter implemented by DB-backed and test stores. */
 export interface WorkflowPersistenceAdapter {
     createRun(record: WorkflowRunRecord): Promise<void>;
-    finalizeRun(runId: string, status: WorkflowStatus, completedAt: string): Promise<void>;
+    /**
+     * Finalize a run. Adapters that track `owner_attempt` MUST treat a supplied
+     * `fence` as an ownership precondition: when the run's current owner differs
+     * (or the run is not active), the row stays untouched and `false` is returned
+     * (task 0086 AC11). Adapters without owner tracking may ignore `fence` and
+     * return void — legacy custom adapters with the old 3-arg signature remain
+     * assignable to this interface.
+     */
+    finalizeRun(
+        runId: string,
+        status: WorkflowStatus,
+        completedAt: string,
+        fence?: { readonly ownerAttempt: string },
+    ): Promise<boolean | LegacyAdapterVoid>;
     savePhase(runId: string, phase: string, status: WorkflowStatus): Promise<void>;
     saveTransition(runId: string, from: string, to: string, trigger: string | null): Promise<void>;
     saveWorkflowState(runId: string, state: string, data: Record<string, unknown>): Promise<void>;

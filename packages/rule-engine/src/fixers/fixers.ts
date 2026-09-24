@@ -7,6 +7,7 @@
 
 import {
     createNodeFileSystem,
+    dirnamePath,
     type FileSystem,
     isAbsolutePath,
     joinPath,
@@ -83,7 +84,7 @@ export async function applyFixes(
 
     for (const [filePath, fileFixes] of byFile) {
         const absPath = resolveWorkdirPath(workdir, filePath);
-        if (!isInsideWorkdir(workdir, absPath)) {
+        if (!(await isInsideWorkdir(workdir, absPath, fs))) {
             deferred.push(...fileFixes);
             continue;
         }
@@ -155,10 +156,26 @@ function selectNonOverlappingFixes(fixes: readonly Fix[]): { applied: Fix[]; def
     return { applied, deferred };
 }
 
-/** Return true when absPath is at or below workdir. */
-function isInsideWorkdir(workdir: string, absPath: string): boolean {
-    const rel = relativePath(resolvePath(workdir), resolvePath(absPath));
-    return rel === '' || (!rel.startsWith('..') && !isAbsolutePath(rel));
+/** Return true when absPath is at or below workdir after symlink resolution. */
+async function isInsideWorkdir(workdir: string, absPath: string, fs: FileSystem): Promise<boolean> {
+    const real = (p: string) => fs.realPath?.(p) ?? p;
+    const root = real(resolvePath(workdir));
+    // Task 0086 R16: resolve through the nearest existing ancestor (ADR-022
+    // walk approach) — a not-yet-existing file can still escape the workdir
+    // through a symlinked parent directory, which plain path math misses.
+    const target = resolvePath(absPath);
+    let prefix = target;
+    const tail: string[] = [];
+    while (!(await fs.exists(prefix))) {
+        const parent = dirnamePath(prefix);
+        if (parent === prefix) break; // filesystem root
+        tail.unshift(prefix.slice(parent.length + 1));
+        prefix = parent;
+    }
+    const resolved = tail.length > 0 ? joinPath(real(prefix), ...tail) : real(prefix);
+    const rel = relativePath(root, resolved);
+    const first = rel.split(/[\\/]/)[0];
+    return rel === '' || (first !== '..' && !isAbsolutePath(rel));
 }
 
 /** Return true when [start, end] is a valid byte range for a string of contentLength bytes. */
@@ -191,7 +208,7 @@ export class RegexFixerProvider implements RuleFixerProvider {
         for (const finding of findings) {
             if (!finding.filePath) continue;
             const absPath = resolveWorkdirPath(context.workdir, finding.filePath);
-            if (!isInsideWorkdir(context.workdir, absPath) || finding.line == null) continue;
+            if (!(await isInsideWorkdir(context.workdir, absPath, fs)) || finding.line == null) continue;
             if (!(await fs.exists(absPath))) continue;
             const source = await fs.readFile(absPath);
             const line = getLineRange(source, finding.line);

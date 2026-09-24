@@ -39,6 +39,16 @@ describe.skipIf(!fmReady)('fm live driver (task 0084 R10 — darwin + system mod
     };
     const STATE = 'Customer was billed twice for invoice INV-42 and opened a complaint.';
 
+    test('count-tokens accepts the task-0086 argv shape: --instructions=<value> and -- separator', async () => {
+        const result = await new NodeProcessExecutor().run({
+            command: 'fm',
+            args: ['count-tokens', '-q', '--instructions=- bullet instr', '--', 'hello'],
+            timeout: 30_000,
+        });
+        expect(result.exitCode).toBe(0);
+        expect(Number.parseInt(result.stdout.trim(), 10)).toBeGreaterThan(0);
+    });
+
     test('answers choice, score and noul over a real system model', async () => {
         const driver = createFmDriver({ samples: 3, requestTimeoutMs: 60_000 });
         expect(driver.name).toBe('fm-local');

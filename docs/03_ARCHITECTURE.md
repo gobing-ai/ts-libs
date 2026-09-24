@@ -113,7 +113,7 @@ the bootstrap never closes them. `stop()` is idempotent.
 | Teardown reason typed as `string` on core         | Plugin core stays runtime-neutral; `ApplicationStopReason` assignable     |
 | Caller-injected DB not closed by bootstrap        | One rule: close what you create, never close what you were handed         |
 | `loadAll` fail-fast, start/stop/unload fail-soft  | Load is precondition validation (must abort); start/stop is best-effort   |
-## laya-mlx (accepted design — ADR-027/ADR-028; not yet built)
+## laya-mlx (ADR-027/ADR-028)
 
 `@gobing-ai/ts-laya-mlx` is the local backend for the neutral decision surface: it answers
 `choice` / `score` / `noul` questions on-device from the open-weight Laya multilingual checkpoint,

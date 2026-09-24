@@ -72,6 +72,24 @@ describe('NodeProcessExecutor', () => {
         expect(result.stderr).toContain('err');
     });
 
+    test('AC16: split multi-byte UTF-8 output decodes intact across chunks (task 0086 R13)', async () => {
+        const output: string[] = [];
+        const result = await new NodeProcessExecutor().run({
+            command: 'bun',
+            args: [
+                '-e',
+                'process.stdout.write(Buffer.from([0xc3])); setTimeout(() => process.stdout.write(Buffer.from([0xa9])), 80)',
+            ],
+            onOutput: ({ chunk }) => output.push(chunk),
+        });
+
+        await Bun.sleep(10); // first lone 0xc3 byte must already be observable pre-exit
+        const joined = output.join('');
+        expect(joined).not.toContain('\uFFFD'); // no replacement char at the split
+        expect(result.stdout).toBe('\u00e9');
+        expect(joined).toContain('\u00e9'); // decoder flush reassembles the code point
+    });
+
     test('observes incremental stdout and stderr while retaining the buffered result', async () => {
         const output: Array<{ stream: string; chunk: string }> = [];
         const pending = new NodeProcessExecutor().run({
@@ -356,7 +374,7 @@ describe('NodeProcessExecutor', () => {
         proc.endStdin();
 
         await expect(proc.exited).resolves.toBe(0);
-        expect(spans).toEqual(['process.runStreaming']);
+        expect(spans).toEqual([]); // task 0086 R14: no empty lifetime span
         expect(events.map((entry) => entry.event)).toEqual(['process.started', 'process.exited']);
         expect(events.at(-1)?.detail).toMatchObject({ command: 'cat', exitCode: 0, reason: 'exit' });
     });

@@ -679,7 +679,7 @@ describe('fm shim (task 0083)', () => {
     test('getPromptCommand builds the headless one-shot respond argv', () => {
         expect(getAgentShim('fm').getPromptCommand({ input: 'hello' })).toEqual({
             command: 'fm',
-            args: ['respond', '--no-stream', 'hello'],
+            args: ['respond', '--no-stream', '--', 'hello'],
         });
     });
 
@@ -690,9 +690,15 @@ describe('fm shim (task 0083)', () => {
             '--no-stream',
             '-m',
             'fast',
+            '--',
             'hi',
         ]);
-        expect(shim.getPromptCommand({ input: 'hi', mode: 'json' }).args).toEqual(['respond', '--no-stream', 'hi']);
+        expect(shim.getPromptCommand({ input: 'hi', mode: 'json' }).args).toEqual([
+            'respond',
+            '--no-stream',
+            '--',
+            'hi',
+        ]);
     });
 
     test('session argv: sessionId+sessionDir resumes and saves back to <dir>/<id>.json', () => {
@@ -705,6 +711,7 @@ describe('fm shim (task 0083)', () => {
             '/run/sess/s1.json',
             '--save-transcript',
             '/run/sess/s1.json',
+            '--',
             'again',
         ]);
     });
@@ -717,6 +724,7 @@ describe('fm shim (task 0083)', () => {
             's2.json',
             '--save-transcript',
             's2.json',
+            '--',
             'q',
         ]);
     });
@@ -727,6 +735,7 @@ describe('fm shim (task 0083)', () => {
             '--no-stream',
             '--save-transcript',
             '/run/sess/fm-session.json',
+            '--',
             'q',
         ]);
     });
@@ -764,5 +773,22 @@ describe('fm shim (task 0083)', () => {
         const note = getAgentSessionCapability('fm').note ?? '';
         expect(note).toContain('stdin');
         expect(note).toContain('--schema');
+    });
+
+    test('input travels after a -- separator so dash-leading prompts stay positional (task 0086 R4)', () => {
+        for (const hostile of ['--help', '-n', '-']) {
+            const { args } = getAgentShim('fm').getPromptCommand({ input: hostile });
+            expect(args.at(-1)).toBe(hostile);
+            expect(args.at(-2)).toBe('--');
+        }
+    });
+
+    test('hostile sessionIds are rejected before they reach a path (task 0086 R15)', () => {
+        const shim = getAgentShim('fm');
+        for (const hostile of ['../evil', 'a/../../etc', '..dots', 'with space', "quote'.json", '.hidden']) {
+            expect(() => shim.getPromptCommand({ input: 'q', sessionId: hostile })).toThrow();
+        }
+        // Legal ids still build the transcript path.
+        expect(shim.getPromptCommand({ input: 'q', sessionId: 'abc.123-4_x' }).args).toContain('abc.123-4_x.json');
     });
 });

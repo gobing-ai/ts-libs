@@ -1,4 +1,5 @@
 import type { EventSeverity } from '@gobing-ai/ts-infra';
+import type { WorkflowStatus } from './types';
 
 /** Typed event map for workflow-engine run observability. All events prefixed `workflow.`. */
 export type WorkflowEngineEvents = {
@@ -127,6 +128,13 @@ export type WorkflowEngineEvents = {
         resumeMode: 'skip-enter' | 'rerun-enter';
         ownerAttemptId: string;
         externalKey?: string;
+        severity: EventSeverity;
+    }) => void;
+    /** Emitted when a stale owner attempt's terminal write is rejected by the finalize fence (task 0086 AC11). */
+    'workflow.run.stale_owner': (data: {
+        runId: string;
+        ownerAttemptId: string;
+        status: WorkflowStatus;
         severity: EventSeverity;
     }) => void;
     /** Emitted when a running run is marked interrupted (crash/lost-owner reconciliation). */

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createDbAdapter, type DbAdapter, QueueJobDao } from '@gobing-ai/ts-db';
+import { EventBus } from '../../src/event-bus/event-bus';
+import type { QueueEvents } from '../../src/events';
 import { DBJobQueue, DBQueueConsumer } from '../../src/job-queue-db';
 import { setLoggerMuted } from '../../src/logger';
 
@@ -234,5 +236,138 @@ describe('DBQueueConsumer execution deadlines', () => {
         await processing;
         // Worker still alive: the settled attempt is acknowledged, never dropped.
         expect((await dao.getById(id))?.status).toBe('completed');
+    });
+
+    test('AC8: waiting rows are never claimed out from under the active cycle (task 0086 R6)', async () => {
+        const queue = new DBJobQueue(dao);
+        const first = await queue.enqueue('slow-a', {});
+        const second = await queue.enqueue('slow-b', {});
+        const ran: string[] = [];
+
+        // Consumer A: concurrency 1, so a cycle holds one job at a time; the
+        // 400ms handler outlives B's 50ms polls, so B must keep off job one.
+        const a = new DBQueueConsumer(dao, { batchSize: 2, maxConcurrency: 1, visibilityTimeout: 150 });
+        const b = new DBQueueConsumer(dao, { batchSize: 2, maxConcurrency: 1, visibilityTimeout: 150 });
+        const track = (name: string) => async (job: { id: string }) => {
+            ran.push(`${name}:${job.id}`);
+            if (job.id === first) await sleep(400);
+        };
+        a.register('slow-a', track('A'));
+        a.register('slow-b', track('A'));
+        b.register('slow-a', track('B'));
+        b.register('slow-b', track('B'));
+
+        const cycleA = a.processOnce();
+        for (let i = 0; i < 6; i++) {
+            await sleep(50);
+            await b.processOnce();
+        }
+        await cycleA;
+        await a.stop();
+
+        // Each handler ran exactly once in total.
+        expect(ran.filter((entry) => entry.startsWith(`A:${first}`)).length).toBe(1);
+        expect(ran.filter((entry) => entry.endsWith(first)).length).toBe(1);
+        expect(ran.filter((entry) => entry.endsWith(second)).length).toBe(1);
+        expect((await dao.getById(first))?.status).toBe('completed');
+        expect((await dao.getById(second))?.status).toBe('completed');
+    });
+
+    test('AC9: stop() halts further claims within a cycle; manual drains still work (task 0086 R6)', async () => {
+        const queue = new DBJobQueue(dao);
+        const ids = await Promise.all([
+            queue.enqueue('stop-a', {}),
+            queue.enqueue('stop-b', {}),
+            queue.enqueue('stop-c', {}),
+            queue.enqueue('stop-d', {}),
+        ]);
+
+        const consumer = new DBQueueConsumer(dao, { batchSize: 4, maxConcurrency: 1, drainTimeoutMs: 30 });
+        consumer.register('stop-a', async () => {
+            await sleep(120); // hold the cycle while stop() lands
+        });
+        for (const type of ['stop-b', 'stop-c', 'stop-d']) consumer.register(type, async () => {});
+
+        const cycle = consumer.processOnce();
+        await sleep(40); // first handler is in-flight now
+        await consumer.stop(); // bounded: returns while the handler still runs
+        await cycle;
+
+        // No further jobs moved to processing after the first settled.
+        const rows = await Promise.all(ids.map((id) => dao.getById(id)));
+        expect(rows[0]?.status).toBe('completed');
+        for (const row of rows.slice(1)) {
+            expect(row?.status).toBe('pending');
+            expect(row?.attemptToken).toBeNull();
+        }
+
+        // A never-started consumer still drains everything.
+        const fresh = new DBQueueConsumer(dao, { batchSize: 4, maxConcurrency: 4 });
+        for (const type of ['stop-a', 'stop-b', 'stop-c', 'stop-d']) fresh.register(type, async () => {});
+        expect(await fresh.processOnce()).toBe(3);
+        const after = await Promise.all(ids.map((id) => dao.getById(id)));
+        expect(after.map((row) => row?.status)).toEqual(['completed', 'completed', 'completed', 'completed']);
+    });
+
+    test('AC10: a handler-failed job ends failed after exactly maxRetries total attempts (task 0086 R7)', async () => {
+        const queue = new DBJobQueue(dao);
+        const id = await queue.enqueue('crash', {}, { maxRetries: 3 });
+        let attempts = 0;
+        const consumer = new DBQueueConsumer(dao, {
+            visibilityTimeout: 60_000,
+            baseDelay: 1,
+            maxDelay: 2,
+        });
+        consumer.register('crash', async () => {
+            attempts += 1;
+            throw new Error(`boom ${attempts}`);
+        });
+
+        for (let i = 0; i < 3; i++) {
+            await consumer.processOnce();
+            await sleep(5); // nextRetryAt = now + 1..2ms
+        }
+
+        expect(attempts).toBe(3);
+        const row = await dao.getById(id);
+        expect(row?.status).toBe('failed');
+        expect(row?.attempts).toBe(3);
+        expect(row?.lastError).toBe('boom 3');
+    });
+
+    test('R10: a stolen attempt emits no completed or failed events (task 0086)', async () => {
+        const queue = new DBJobQueue(dao);
+        const bus = new EventBus<QueueEvents>();
+        const events: string[] = [];
+        for (const name of ['queue.job.completed', 'queue.job.failed', 'queue.job.retrying'] as const) {
+            bus.on(name, () => events.push(name));
+        }
+
+        // Completed path: the handler steals its own token mid-run.
+        const completedId = await queue.enqueue('steal-ok', {}, { timeoutMs: null });
+        const stealConsumer = new DBQueueConsumer(dao, { visibilityTimeout: 60_000, events: bus, queueName: 'steal' });
+        stealConsumer.register('steal-ok', async (job) => {
+            await adapter.run(`UPDATE queue_jobs SET lease_expires_at = ? WHERE id = ?`, Date.now() - 1, job.id);
+            await dao.claimReady(1, { leaseMs: 60_000 }); // rival mints a fresh token
+        });
+        await stealConsumer.processOnce();
+
+        const completedRow = await dao.getById(completedId);
+        expect(completedRow?.status).toBe('processing'); // rival still owns it
+        expect(events).toEqual([]); // the fenced acknowledgement emitted nothing
+
+        // Failed path: same steal, but the handler throws.
+        events.length = 0;
+        const failedId = await queue.enqueue('steal-fail', {}, { timeoutMs: null, maxRetries: 5 });
+        const failConsumer = new DBQueueConsumer(dao, { visibilityTimeout: 60_000, events: bus, queueName: 'steal' });
+        failConsumer.register('steal-fail', async (job) => {
+            await adapter.run(`UPDATE queue_jobs SET lease_expires_at = ? WHERE id = ?`, Date.now() - 1, job.id);
+            await dao.claimReady(1, { leaseMs: 60_000 });
+            throw new Error('stale failure');
+        });
+        await failConsumer.processOnce();
+
+        expect(events).toEqual([]); // markFailed/markForRetry were fenced — no events
+        expect((await dao.getById(failedId))?.status).toBe('processing');
     });
 });

@@ -428,7 +428,8 @@ export class NodeProcessExecutor implements ProcessExecutor {
      */
     runStreaming(options: PipeProcessOptions): PipeProcess {
         const args = options.args ?? [];
-        void this.config.tracer?.traceAsync('process.runStreaming', async () => undefined).catch(() => undefined);
+        // Task 0086 R14: no lifetime span here — the empty fire-and-forget span
+        // carried no data and confused span consumers. Registry + events cover it.
         const startedAt = Date.now();
         const startedIso = new Date(startedAt).toISOString();
         // Begin registry before spawn so failed spawns still appear (then complete as error).
@@ -950,16 +951,23 @@ function observeOutput(
     observer: ProcessOptions['onOutput'],
 ): void {
     if (!stream || !observer) return;
-    stream.on('data', (chunk: string | Uint8Array) => {
+    // Task 0086 R13: one decoder per stream with `stream: true` keeps multi-byte
+    // UTF-8 sequences intact across chunk boundaries; a fresh decoder per chunk
+    // would split them into U+FFFD replacement characters.
+    const decoder = new TextDecoder();
+    const emit = (chunk: string) => {
         try {
-            observer({
-                stream: name,
-                chunk: asString(chunk),
-                timestamp: new Date().toISOString(),
-            });
+            observer({ stream: name, chunk, timestamp: new Date().toISOString() });
         } catch {
             // Observability is best-effort and must never interrupt child I/O.
         }
+    };
+    stream.on('data', (chunk: string | Uint8Array) => {
+        emit(typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }));
+    });
+    stream.on('end', () => {
+        const tail = decoder.decode();
+        if (tail.length > 0) emit(tail);
     });
 }
 

@@ -51,19 +51,25 @@ class StubFmExecutor implements ProcessExecutor {
 const INSTRUCTIONS = 'answer everything';
 const PROMPT = 'state text';
 
-describe('fm argv builders (task 0084 R4, R5)', () => {
-    it('count-tokens: -q, -i instructions, prompt positional last', () => {
-        expect(countTokensArgv(INSTRUCTIONS, PROMPT)).toEqual(['count-tokens', '-q', '-i', INSTRUCTIONS, PROMPT]);
+describe('fm argv builders (task 0084 R4, R5; 0086 R4)', () => {
+    it('count-tokens: -q, --instructions=<instructions>, -- separator, prompt positional last', () => {
+        expect(countTokensArgv(INSTRUCTIONS, PROMPT)).toEqual([
+            'count-tokens',
+            '-q',
+            `--instructions=${INSTRUCTIONS}`,
+            '--',
+            PROMPT,
+        ]);
     });
 
-    it('respond: --no-stream --schema, -i instructions, prompt positional last', () => {
+    it('respond: --no-stream --schema, --instructions=<instructions>, -- separator, prompt positional last', () => {
         expect(respondArgv({ schemaPath: '/tmp/s.json', instructions: INSTRUCTIONS, prompt: PROMPT })).toEqual([
             'respond',
             '--no-stream',
             '--schema',
             '/tmp/s.json',
-            '-i',
-            INSTRUCTIONS,
+            `--instructions=${INSTRUCTIONS}`,
+            '--',
             PROMPT,
         ]);
     });
@@ -89,6 +95,20 @@ describe('fm argv builders (task 0084 R4, R5)', () => {
 
     it('availability probe is `fm available --model system`, never bare `fm available`', () => {
         expect(availableArgv()).toEqual(['available', '--model', 'system']);
+    });
+
+    it('dash-leading prompts stay positional after the -- separator (task 0086 R4)', () => {
+        for (const hostile of ['--help', '-n', '-']) {
+            expect(countTokensArgv(INSTRUCTIONS, hostile).at(-1)).toBe(hostile);
+            expect(countTokensArgv(INSTRUCTIONS, hostile).at(-2)).toBe('--');
+            expect(respondArgv({ schemaPath: '/s', instructions: INSTRUCTIONS, prompt: hostile }).at(-1)).toBe(hostile);
+            expect(respondArgv({ schemaPath: '/s', instructions: INSTRUCTIONS, prompt: hostile }).at(-2)).toBe('--');
+        }
+    });
+
+    it('instructions containing newlines or flag-like text ride in the --instructions value (task 0086 R4)', () => {
+        const hostile = '--schema /etc/passwd\n- bullet';
+        expect(countTokensArgv(hostile, PROMPT)[2]).toBe(`--instructions=${hostile}`);
     });
 });
 
@@ -146,6 +166,22 @@ describe('fm process runs and error mapping (task 0084 R7, R8)', () => {
         const error = await runFmRespond(timedOut, 'fm', ['respond'], 250).catch((e: unknown) => e);
         expect(error).toBeInstanceOf(DecisionTimeoutError);
         expect((error as DecisionTimeoutError).timeoutMs).toBe(250);
+        // Message must not echo the argv — the prompt is user content (task 0086 R12).
+        expect((error as Error).message).toBe('fm respond exceeded requestTimeoutMs (250)');
+    });
+
+    it('probe and count-tokens carry a deadline and map timeout to DecisionTimeoutError (task 0086 R12)', async () => {
+        const timedOut = new StubFmExecutor({ outcome: 'timeout', exitCode: null });
+        await expect(probeFmAvailability(timedOut, 'fm', 1234)).rejects.toThrow(DecisionTimeoutError);
+        expect(timedOut.calls[0]?.timeout).toBe(1234);
+        await expect(countPromptTokens(timedOut, 'fm', INSTRUCTIONS, PROMPT, 4321)).rejects.toThrow(
+            DecisionTimeoutError,
+        );
+        expect(timedOut.calls[1]?.timeout).toBe(4321);
+        // Defaults exist so existing callers keep working.
+        const slow = new StubFmExecutor({ outcome: 'timeout', exitCode: null });
+        await expect(probeFmAvailability(slow, 'fm')).rejects.toThrow(DecisionTimeoutError);
+        expect(slow.calls[0]?.timeout).toBe(10_000);
     });
 
     it('context-size text maps to DecisionRequestError; guardrails text to DecisionBackendError', async () => {

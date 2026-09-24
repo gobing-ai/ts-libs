@@ -1,5 +1,6 @@
 import { getLogger } from '@gobing-ai/ts-infra';
 import { joinPath } from '@gobing-ai/ts-runtime';
+import { assertSafeSessionId } from '../agent-spec';
 
 /** Identifier for one supported coding agent (canonical id). */
 export type AgentName =
@@ -459,15 +460,17 @@ const fmShim: AgentShim = {
         // and suppress any unscoped continue. `continue` alone degrades to a
         // fresh call — fm has no implicit last-session flag.
         if (options.sessionId !== undefined) {
-            const file =
-                options.sessionDir !== undefined
-                    ? joinPath(options.sessionDir, `${options.sessionId}.json`)
-                    : `${options.sessionId}.json`;
+            // Task 0086 R15: sessionId lands in a filesystem path — validate it
+            // before it can escape sessionDir via separators or traversal.
+            const id = assertSafeSessionId(options.sessionId);
+            const file = options.sessionDir !== undefined ? joinPath(options.sessionDir, `${id}.json`) : `${id}.json`;
             args.push('--resume', file, '--save-transcript', file);
         } else if (options.sessionDir !== undefined) {
             args.push('--save-transcript', joinPath(options.sessionDir, 'fm-session.json'));
         }
-        args.push(options.input ?? '');
+        // Task 0086 R4: `--` pins the input as a positional, so dash-leading
+        // prompts (--help, -n) are never reparsed as fm flags.
+        args.push('--', options.input ?? '');
         return { command: 'fm', args };
     },
     getAuthCommand: () => ({ command: 'fm', args: ['available', '--model', 'system'] }),

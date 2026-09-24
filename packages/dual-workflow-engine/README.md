@@ -28,7 +28,7 @@ The package exposes:
 | Export | Purpose |
 |--------|---------|
 | `NoteActionRunner` | Records a note in result data and emits `workflow.hitl.note` |
-| `ShellActionRunner` | Shell command backed by `@gobing-ai/ts-runtime` `ProcessExecutor` |
+| `ShellActionRunner` | Shell command backed by `@gobing-ai/ts-runtime` `ProcessExecutor`. Options: `command` alone (run via `sh -c`) or `command` + `args` (direct argv, no shell), optional `cwd`, optional `timeout` (positive milliseconds; expiry ⇒ action error `Shell action timed out after <n>ms` and, on shell guards, `passed: false` with `report.timedOut: true`), optional `env` (merged; template refs bind as `${__WF_<n>}` so values never transit the command line) |
 | `EventEmitActionRunner` | Emits `workflow.custom` events for user-defined observability |
 | `always` guard | Always passes |
 | `never` guard | Always rejects |

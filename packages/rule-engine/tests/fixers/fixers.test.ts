@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProcessExecutor } from '@gobing-ai/ts-runtime';
@@ -157,6 +157,31 @@ describe('applyFixes', () => {
 
         expect(result.deferred).toHaveLength(1);
         expect(result.applied).toHaveLength(0);
+    });
+
+    test('AC19: a symlinked parent that escapes the workdir is deferred (task 0086 R16)', async () => {
+        const dir = await makeTempDir();
+        await symlink(tmpdir(), join(dir, 'link'));
+        const fix = makeFix({ filePath: 'link/evil.ts', replacement: 'pwned' });
+        const result = await applyFixes(dir, [fix]);
+
+        // Pre-fix this applied: the missing file sat lexically inside the workdir.
+        expect(result.deferred).toHaveLength(1);
+        expect(result.applied).toHaveLength(0);
+        expect(existsSync(join(tmpdir(), 'evil.ts'))).toBe(false);
+    });
+
+    test('AC19: a sibling literally named ..foo is accepted (task 0086 R16)', async () => {
+        const dir = await makeTempDir();
+        await mkdir(join(dir, '..foo'), { recursive: true });
+        await writeFile(join(dir, '..foo', 'a.ts'), 'const foo = 1;\n');
+        const fix = makeFix({ filePath: '..foo/a.ts', replacement: 'bar' });
+        const result = await applyFixes(dir, [fix]);
+
+        // Pre-fix the naive startsWith('..') check wrongly deferred this.
+        expect(result.applied).toHaveLength(1);
+        expect(result.deferred).toHaveLength(0);
+        expect(readFileSync(join(dir, '..foo', 'a.ts'), 'utf8')).toContain('bar');
     });
 });
 

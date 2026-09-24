@@ -99,15 +99,37 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         );
     }
 
-    /** Finalize a run with terminal status and timestamp. */
-    async finalizeRun(runId: string, status: WorkflowStatus, completedAt: string): Promise<void> {
+    /** Finalize a run with terminal status and timestamp. With a fence (task 0086 AC11), the
+     *  update only applies when the run is still running AND owned by `fence.ownerAttempt`;
+     *  otherwise the row stays untouched and false is returned. Without a fence the legacy
+     *  unconditional write applies (external service finalization paths). */
+    async finalizeRun(
+        runId: string,
+        status: WorkflowStatus,
+        completedAt: string,
+        fence?: { readonly ownerAttempt: string },
+    ): Promise<boolean> {
+        if (fence === undefined) {
+            await this.db.run(
+                'UPDATE runs SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?',
+                status,
+                completedAt,
+                Date.now(),
+                runId,
+            );
+            return true;
+        }
         await this.db.run(
-            'UPDATE runs SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?',
+            "UPDATE runs SET status = ?, completed_at = ?, updated_at = ? WHERE id = ? AND owner_attempt = ? AND status = 'running'",
             status,
             completedAt,
             Date.now(),
             runId,
+            fence.ownerAttempt,
         );
+        // Read back: the driver must learn whether its terminal write actually landed.
+        const run = await this.loadRun(runId);
+        return run !== undefined && run.status === status && run.owner_attempt === fence.ownerAttempt;
     }
 
     /** CAS-claim a resumable run to running, recording the owner at the mutation. */
@@ -394,10 +416,25 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
         this.runs.set(record.id, record);
     }
 
-    /** Finalize a run with terminal status and timestamp. */
-    async finalizeRun(runId: string, status: WorkflowStatus, completedAt: string): Promise<void> {
+    /** Finalize a run with terminal status and timestamp. With a fence (task 0086 AC11),
+     *  the write only applies when the run is still running AND owned by `fence.ownerAttempt`;
+     *  otherwise the row stays untouched and false is returned. */
+    async finalizeRun(
+        runId: string,
+        status: WorkflowStatus,
+        completedAt: string,
+        fence?: { readonly ownerAttempt: string },
+    ): Promise<boolean> {
         const run = this.runs.get(runId);
-        if (run !== undefined) this.runs.set(runId, { ...run, status, completed_at: completedAt });
+        if (fence === undefined) {
+            if (run !== undefined) this.runs.set(runId, { ...run, status, completed_at: completedAt });
+            return true;
+        }
+        if (run === undefined || run.owner_attempt !== fence.ownerAttempt || run.status !== 'running') {
+            return false;
+        }
+        this.runs.set(runId, { ...run, status, completed_at: completedAt });
+        return true;
     }
 
     /** CAS-claim a resumable run to running, recording the owner at the mutation. */

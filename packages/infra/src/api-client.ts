@@ -75,6 +75,15 @@ export class APIError extends Error {
     }
 }
 
+/** Task 0086 R17: upper bound for error bodies kept on APIError. */
+const MAX_ERROR_BODY = 4096;
+
+function truncateBody(text: string): string {
+    return text.length <= MAX_ERROR_BODY
+        ? text
+        : `${text.slice(0, MAX_ERROR_BODY)}…[truncated ${text.length - MAX_ERROR_BODY} chars]`;
+}
+
 function sanitizeUrlForObservability(url: string): string {
     try {
         const parsed = new URL(url);
@@ -250,7 +259,8 @@ export class APIClient {
                             });
                             const timeoutError = new APIError(
                                 0,
-                                `Request timed out after ${timeoutMs}ms: ${method} ${url}`,
+                                // Task 0086 R17: observable URL only — the raw URL can carry query-string secrets.
+                                `Request timed out after ${timeoutMs}ms: ${method} ${observableUrl}`,
                             );
                             this.emitRequestError(method, observableUrl, errorForObservability(timeoutError));
                             callerError = timeoutError;
@@ -305,7 +315,9 @@ export class APIClient {
                         'http.request.method': method,
                         'error.type': `HTTP_${response.status}`,
                     });
-                    throw new APIError(response.status, text);
+                    // Task 0086 R17: bound the stored body — a huge HTML error
+                    // page must not blow up logs or telemetry payloads.
+                    throw new APIError(response.status, truncateBody(text));
                 }
 
                 const contentType = response.headers.get('content-type') ?? '';

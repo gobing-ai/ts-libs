@@ -83,15 +83,23 @@ function resolveApiKey(options: DecisionMakerOptions): string {
 
 const LAYA_DRIVER_PACKAGE = '@gobing-ai/ts-laya-mlx';
 
-async function resolveLayaDriver(options: DecisionMakerOptions): Promise<DecisionDriver> {
+/**
+ * @internal Exported for task 0086 R9 branch tests: `importModule` lets tests
+ * simulate package-import failures that cannot occur in-workspace (workspace
+ * links always resolve).
+ */
+export async function resolveLayaDriver(
+    options: DecisionMakerOptions,
+    importModule: (specifier: string) => Promise<unknown> = (specifier) => import(specifier),
+): Promise<DecisionDriver> {
+    // Task 0086 R9: only the IMPORT is translated to the install-hint error;
+    // construction errors from the factory itself propagate unchanged so the
+    // caller sees the real cause instead of a misleading install message.
+    let mod: { createLayaDriver?: (opts?: unknown) => DecisionDriver };
     try {
-        const mod = (await import(LAYA_DRIVER_PACKAGE)) as {
+        mod = (await importModule(LAYA_DRIVER_PACKAGE)) as {
             createLayaDriver?: (opts?: unknown) => DecisionDriver;
         };
-        if (typeof mod.createLayaDriver !== 'function') {
-            throw new Error(`Module '${LAYA_DRIVER_PACKAGE}' does not export createLayaDriver`);
-        }
-        return mod.createLayaDriver(options);
     } catch (cause) {
         throw new DecisionConfigError(
             `The 'laya-local' backend requires '${LAYA_DRIVER_PACKAGE}' to be installed; install it with 'bun add ${LAYA_DRIVER_PACKAGE}'`,
@@ -99,19 +107,28 @@ async function resolveLayaDriver(options: DecisionMakerOptions): Promise<Decisio
             { cause },
         );
     }
+    if (typeof mod.createLayaDriver !== 'function') {
+        throw new DecisionConfigError(
+            `Module '${LAYA_DRIVER_PACKAGE}' does not export createLayaDriver`,
+            'LAYA_BACKEND',
+        );
+    }
+    return mod.createLayaDriver(options);
 }
 
 const FM_DRIVER_PACKAGE = '@gobing-ai/ts-decision-fm';
 
-async function resolveFmDriver(options: DecisionMakerOptions): Promise<DecisionDriver> {
+/** @internal Exported for task 0086 R9 branch tests; see {@link resolveLayaDriver}. */
+export async function resolveFmDriver(
+    options: DecisionMakerOptions,
+    importModule: (specifier: string) => Promise<unknown> = (specifier) => import(specifier),
+): Promise<DecisionDriver> {
+    // Task 0086 R9: same import/construction split as laya above.
+    let mod: { createFmDriver?: (opts?: unknown) => DecisionDriver };
     try {
-        const mod = (await import(FM_DRIVER_PACKAGE)) as {
+        mod = (await importModule(FM_DRIVER_PACKAGE)) as {
             createFmDriver?: (opts?: unknown) => DecisionDriver;
         };
-        if (typeof mod.createFmDriver !== 'function') {
-            throw new Error(`Module '${FM_DRIVER_PACKAGE}' does not export createFmDriver`);
-        }
-        return mod.createFmDriver(options);
     } catch (cause) {
         throw new DecisionConfigError(
             `The 'fm-local' backend requires '${FM_DRIVER_PACKAGE}' to be installed; install it with 'bun add ${FM_DRIVER_PACKAGE}'`,
@@ -119,6 +136,10 @@ async function resolveFmDriver(options: DecisionMakerOptions): Promise<DecisionD
             { cause },
         );
     }
+    if (typeof mod.createFmDriver !== 'function') {
+        throw new DecisionConfigError(`Module '${FM_DRIVER_PACKAGE}' does not export createFmDriver`, 'FM_BACKEND');
+    }
+    return mod.createFmDriver(options);
 }
 
 /**

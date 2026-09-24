@@ -438,6 +438,19 @@ was added (`workflow.run.interrupted`). Known implementors (`ObservableWorkflowA
 `WorkflowActionTraceWriter` in gobing.ai/spur-new) are updated in the same change window. Callers that never
 touch resume/interrupt semantics are source-compatible apart from the adapter interface.
 
+**Addendum (2026-09-23, task 0086 R8): owner-fenced finalization.** The claim race above still had an
+unfenced tail: `finalizeRun` wrote status unconditionally, so a stale owner could still flip a run that a
+fresh owner had claimed. `finalizeRun` therefore takes an optional fence
+`{ readonly ownerAttempt: string }`: when present, the DB adapter finalizes with a conditional
+`UPDATE … WHERE status = 'running' AND owner_attempt = ?` plus a read-back, and the memory adapter
+predicates its write on the same fields — both return `false` when ownership was lost. `RunLifecycle`
+passes the claim's `owner_attempt` through; a fenced finalize that loses emits `workflow.run.stale_owner`
+(severity `warning`) and throws `WorkflowResumeError`. Callers that omit the fence keep the legacy
+unconditional write. Deliberately out of scope (per task Q&A): step/state/transition writes remain
+unfenced — a stale owner can still clobber a single action-phase row before its next finalize is refused;
+the finalize fence bounds the damage to that window without widening the adapter contract to every write.
+Callers wanting end-to-end coverage should re-claim before long action phases.
+
 ---
 
 ## ADR-026: Application-Owned HITL Decision Policy

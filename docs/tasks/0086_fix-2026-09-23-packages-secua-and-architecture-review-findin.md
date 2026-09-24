@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Fix 2026-09-23 packages SECUA and architecture review findings
-status: todo
+status: done
 template: standard
 created_at: 2026-09-23T23:26:36.014Z
-updated_at: "2026-09-23T23:34:08.552Z"
+updated_at: "2026-09-24T02:58:49.986Z"
 
 priority: P1
 ac_numbering: task-local
@@ -65,45 +65,45 @@ One implementer, or a sequenced `/sp:dev-run`, needs a frozen, evidence-backed c
 
 Implement in Plan order. Never skip a MUST item to polish a MAY item. Finding IDs (M/m/C/D) come from the Background and are cross-referenced in Design.
 
-- [ ] R1. Process gate. Contract changes must first get an entry under `CHANGELOG.md` `## [Unreleased]` → `### Fixed` (create the heading if absent; `bump-ver` folds it into the release section per `docs/PACKAGE_RELEASE.md:38`): M3 attempts accounting, M6 `finalizeRun` fencing, M1 shell substitution semantics and R11's new `timeout` action option. A pure bugfix gets no new ADR number. M6 gets a dated addendum to ADR-025 (Run Interruption Contract, `docs/00_ADR.md:403`), because it extends the `owner_attempt` fencing that ADR introduced. `bun run spur-check` and `bun run build` must both exit 0. No `.skip`, no `biome-ignore` added to silence the gate, no `--no-verify`. Every MUST item gets at least one new or extended regression test that fails against the unfixed source. Package READMEs that document a changed contract are updated in the same commit. Internal deps stay `workspace:*` (ADR-002). drizzle-orm stays inside `ts-db` (ADR-005). Platform APIs stay behind ts-runtime seams (ADR-011/014).
+- [x] R1. Process gate. Contract changes must first get an entry under `CHANGELOG.md` `## [Unreleased]` → `### Fixed` (create the heading if absent; `bump-ver` folds it into the release section per `docs/PACKAGE_RELEASE.md:38`): M3 attempts accounting, M6 `finalizeRun` fencing, M1 shell substitution semantics and R11's new `timeout` action option. A pure bugfix gets no new ADR number. M6 gets a dated addendum to ADR-025 (Run Interruption Contract, `docs/00_ADR.md:403`), because it extends the `owner_attempt` fencing that ADR introduced. `bun run spur-check` and `bun run build` must both exit 0. No `.skip`, no `biome-ignore` added to silence the gate, no `--no-verify`. Every MUST item gets at least one new or extended regression test that fails against the unfixed source. Package READMEs that document a changed contract are updated in the same commit. Internal deps stay `workspace:*` (ADR-002). drizzle-orm stays inside `ts-db` (ADR-005). Platform APIs stay behind ts-runtime seams (ADR-011/014).
 
-- [ ] R2. (C1) `ShellActionRunner.execute` and `ShellGuardRunner.evaluate` in `packages/dual-workflow-engine/src/host.ts` share one private module-level helper. It owns option parsing (`command`, `args`, `cwd`, and `timeout` from R11), choosing between shell and argv form, and the `processExecutor.run` call. Both runners keep their public result shapes: `ActionResult` with `data.{stdout,stderr,exitCode}`, and `GuardEvaluationResult` with `report.{stdout,stderr,exitCode}`. All existing `host.test.ts` tests pass unchanged.
+- [x] R2. (C1) `ShellActionRunner.execute` and `ShellGuardRunner.evaluate` in `packages/dual-workflow-engine/src/host.ts` share one private module-level helper. It owns option parsing (`command`, `args`, `cwd`, and `timeout` from R11), choosing between shell and argv form, and the `processExecutor.run` call. Both runners keep their public result shapes: `ActionResult` with `data.{stdout,stderr,exitCode}`, and `GuardEvaluationResult` with `report.{stdout,stderr,exitCode}`. All existing `host.test.ts` tests pass unchanged.
 
-- [ ] R3. (M1) Values substituted into a **shell-form** command (`command` with no `args`) must not be interpreted as shell syntax. This covers workflow vars, `setVars` from earlier actions, env refs and builtins. Each `${…}` ref in a shell-form `command` is bound to a generated environment variable (`__WF_0`, `__WF_1`, …), and the command text references it as `${__WF_n}`. The shell expands values as parameter expansions and never re-parses them as commands. A var whose value is `x; touch <sentinel>` or `$(touch <sentinel>)` must never create the sentinel file, whether the ref is unquoted or inside double quotes. Inside double quotes, the value reaches the command as exactly one argument. Workflow authors can still use shell operators (`&&`, `|`, globs, quoting) in the literal template text. The persisted action-start options (`saveActionStart`) hold the rewritten command, not the resolved values. The explicit `args` (argv) form keeps raw substitution because argv is already injection-safe. A failed shell command's `error` string must not embed the resolved command text, which may contain `${env.X}` secrets. It reports the exit code, plus the unresolved template or the action kind.
+- [x] R3. (M1) Values substituted into a **shell-form** command (`command` with no `args`) must not be interpreted as shell syntax. This covers workflow vars, `setVars` from earlier actions, env refs and builtins. Each `${…}` ref in a shell-form `command` is bound to a generated environment variable (`__WF_0`, `__WF_1`, …), and the command text references it as `${__WF_n}`. The shell expands values as parameter expansions and never re-parses them as commands. A var whose value is `x; touch <sentinel>` or `$(touch <sentinel>)` must never create the sentinel file, whether the ref is unquoted or inside double quotes. Inside double quotes, the value reaches the command as exactly one argument. Workflow authors can still use shell operators (`&&`, `|`, globs, quoting) in the literal template text. The persisted action-start options (`saveActionStart`) hold the rewritten command, not the resolved values. The explicit `args` (argv) form keeps raw substitution because argv is already injection-safe. A failed shell command's `error` string must not embed the resolved command text, which may contain `${env.X}` secrets. It reports the exit code, plus the unresolved template or the action kind.
 
-- [ ] R4. (M5) Every `fm` argv builder must tolerate a prompt and instructions that start with `-`. Instructions go as one `--instructions=<value>` token. The positional prompt comes right after a literal `--`. This covers `countTokensArgv` and `respondArgv` in `packages/decision-fm/src/fm-process.ts`, and the `fm` shim `getPromptCommand` in `packages/ai-runner/src/agents/shims.ts`. The existing argv-shape tests are updated to the new shape. New tests cover a `- item` prompt and `- bullet` instructions.
+- [x] R4. (M5) Every `fm` argv builder must tolerate a prompt and instructions that start with `-`. Instructions go as one `--instructions=<value>` token. The positional prompt comes right after a literal `--`. This covers `countTokensArgv` and `respondArgv` in `packages/decision-fm/src/fm-process.ts`, and the `fm` shim `getPromptCommand` in `packages/ai-runner/src/agents/shims.ts`. The existing argv-shape tests are updated to the new shape. New tests cover a `- item` prompt and `- bullet` instructions.
 
-- [ ] R5. (M4) `DEFAULT_REDACTION_RULES` in `packages/llm-jsonl-importer/src/redaction.ts` redacts GitHub classic tokens (`ghp_…`, plus `gho_`/`ghu_`/`ghs_`/`ghr_`), fine-grained `github_pat_…`, underscore-separated `sk_live_…`/`sk_test_…`/`pk_live_…`, and the existing dash forms. `redactValue` also redacts by **object key**: any string value whose key matches (case-insensitive) `api_key`/`apikey`/`api-key`, `token`, `access_token`, `refresh_token`, `secret`, `client_secret`, `password`, `passwd` or `authorization` becomes `[REDACTED:secret]`. All five reproduced samples from the Background must be redacted. Existing redaction tests stay green.
+- [x] R5. (M4) `DEFAULT_REDACTION_RULES` in `packages/llm-jsonl-importer/src/redaction.ts` redacts GitHub classic tokens (`ghp_…`, plus `gho_`/`ghu_`/`ghs_`/`ghr_`), fine-grained `github_pat_…`, underscore-separated `sk_live_…`/`sk_test_…`/`pk_live_…`, and the existing dash forms. `redactValue` also redacts by **object key**: any string value whose key matches (case-insensitive) `api_key`/`apikey`/`api-key`, `token`, `access_token`, `refresh_token`, `secret`, `client_secret`, `password`, `passwd` or `authorization` becomes `[REDACTED:secret]`. All five reproduced samples from the Background must be redacted. Existing redaction tests stay green.
 
-- [ ] R6. (M2) `DbJobQueue.processOnce` in `packages/infra/src/job-queue/db-job-queue.ts` never holds a claimed row that no handler has started. Once claimed, a row starts `processJob` (and so lease renewal) at once. Setting `maxConcurrency < batchSize` must no longer let a waiting row's lease expire and let a rival consumer run it twice. After `stop()` is called, `processOnce` claims no further rows in the current cycle. Manual `processOnce()` drains on a consumer that was never `start()`ed must keep working.
+- [x] R6. (M2) `DbJobQueue.processOnce` in `packages/infra/src/job-queue/db-job-queue.ts` never holds a claimed row that no handler has started. Once claimed, a row starts `processJob` (and so lease renewal) at once. Setting `maxConcurrency < batchSize` must no longer let a waiting row's lease expire and let a rival consumer run it twice. After `stop()` is called, `processOnce` claims no further rows in the current cycle. Manual `processOnce()` drains on a consumer that was never `start()`ed must keep working.
 
-- [ ] R7. (M3) A job whose lease expires without the consumer settling it (worker crash/OOM/kill) counts that lost attempt. A leased `processing` row reclaimed by `QueueJobDao.claimReady` increments `attempts`. An expired-lease row whose `attempts + 1 >= max_retries` is moved to `failed` with a descriptive `error` instead of being reclaimed. A job that crashes every time therefore ends in `failed` after `maxRetries` reclaims instead of looping forever. The legacy token-less `resetStuckJobs` path follows the same accounting. Consumer-side `failOrRetry` math stays correct: each attempt is counted exactly once.
+- [x] R7. (M3) A job whose lease expires without the consumer settling it (worker crash/OOM/kill) counts that lost attempt. A leased `processing` row reclaimed by `QueueJobDao.claimReady` increments `attempts`. An expired-lease row whose `attempts + 1 >= max_retries` is moved to `failed` with a descriptive `error` instead of being reclaimed. A job that crashes every time therefore ends in `failed` after `maxRetries` reclaims instead of looping forever. The legacy token-less `resetStuckJobs` path follows the same accounting. Consumer-side `failOrRetry` math stays correct: each attempt is counted exactly once.
 
-- [ ] R8. (M6) `WorkflowPersistenceAdapter.finalizeRun` accepts an optional owner fence. When the caller knows its owner attempt id, the SQL adapter only updates the row if `owner_attempt` matches and `status = 'running'`. The memory adapter mirrors this. On a fence miss, `RunLifecycle` does not silently overwrite. It emits a stale-owner signal (a typed error or a `workflow.run.*` warning event, see Design) and leaves the new owner's state untouched. `RunLifecycle` knows its owner attempt on both start (the `proposed.owner_attempt`) and resume (the `ResumeOwnership` from `service.ts:184`). The interface change is additive: existing third-party adapters that ignore the new parameter still compile.
+- [x] R8. (M6) `WorkflowPersistenceAdapter.finalizeRun` accepts an optional owner fence. When the caller knows its owner attempt id, the SQL adapter only updates the row if `owner_attempt` matches and `status = 'running'`. The memory adapter mirrors this. On a fence miss, `RunLifecycle` does not silently overwrite. It emits a stale-owner signal (a typed error or a `workflow.run.*` warning event, see Design) and leaves the new owner's state untouched. `RunLifecycle` knows its owner attempt on both start (the `proposed.owner_attempt`) and resume (the `ResumeOwnership` from `service.ts:184`). The interface change is additive: existing third-party adapters that ignore the new parameter still compile.
 
-- [ ] R9. (m1) `resolveLayaDriver` and `resolveFmDriver` in `packages/ai-runner/src/decision/decision-maker.ts` only map a **module-load failure** to `DecisionConfigError("… requires … to be installed")`. A missing factory export is still a `DecisionConfigError`, but its message names the missing export. An error thrown by `createLayaDriver(options)`/`createFmDriver(options)` propagates unchanged, e.g. a `DecisionConfigError` about a bad option or a missing fm binary.
+- [x] R9. (m1) `resolveLayaDriver` and `resolveFmDriver` in `packages/ai-runner/src/decision/decision-maker.ts` only map a **module-load failure** to `DecisionConfigError("… requires … to be installed")`. A missing factory export is still a `DecisionConfigError`, but its message names the missing export. An error thrown by `createLayaDriver(options)`/`createFmDriver(options)` propagates unchanged, e.g. a `DecisionConfigError` about a bad option or a missing fm binary.
 
-- [ ] R10. (m2) In `DbJobQueue`, the completed, failed and retrying metrics and events are only emitted when the matching DAO write returns `true`. Those writes are `markCompleted`, `markFailed` in `failOrRetry`, and `markForRetry`. This matches the existing cancel path (`db-job-queue.ts:348-349`). A fenced-out write (lost lease or stale token) emits nothing.
+- [x] R10. (m2) In `DbJobQueue`, the completed, failed and retrying metrics and events are only emitted when the matching DAO write returns `true`. Those writes are `markCompleted`, `markFailed` in `failOrRetry`, and `markForRetry`. This matches the existing cancel path (`db-job-queue.ts:348-349`). A fenced-out write (lost lease or stale token) emits nothing.
 
-- [ ] R11. (m3) Shell actions and guards accept an optional numeric `timeout` option in milliseconds, passed to `processExecutor.run({ timeout })`. A timed-out action returns `ok: false` with an error that says it timed out. A timed-out guard returns `passed: false`. A missing option keeps today's no-timeout behavior. A non-positive or non-finite value is a `WorkflowValidationError`.
+- [x] R11. (m3) Shell actions and guards accept an optional numeric `timeout` option in milliseconds, passed to `processExecutor.run({ timeout })`. A timed-out action returns `ok: false` with an error that says it timed out. A timed-out guard returns `passed: false`. A missing option keeps today's no-timeout behavior. A non-positive or non-finite value is a `WorkflowValidationError`.
 
-- [ ] R12. (m4) `probeFmAvailability` and `countPromptTokens` in `packages/decision-fm/src/fm-process.ts` run with a bounded timeout and map `outcome === 'timeout'` to `DecisionTimeoutError`. The probe defaults to 10 s. Token counting uses the driver's `requestTimeoutMs` or a 10 s default. The `runFmRespond` timeout message no longer embeds the full argv: it keeps the subcommand plus at most 200 chars of the rest, then `…`.
+- [x] R12. (m4) `probeFmAvailability` and `countPromptTokens` in `packages/decision-fm/src/fm-process.ts` run with a bounded timeout and map `outcome === 'timeout'` to `DecisionTimeoutError`. The probe defaults to 10 s. Token counting uses the driver's `requestTimeoutMs` or a 10 s default. The `runFmRespond` timeout message no longer embeds the full argv: it keeps the subcommand plus at most 200 chars of the rest, then `…`.
 
-- [ ] R13. (m5) `observeOutput` in `packages/runtime/src/process-executor.ts` uses one `TextDecoder` per stream with `{ stream: true }`. Multi-byte UTF-8 characters split across chunk boundaries are delivered intact to `onOutput`, and the decoder is flushed at stream end.
+- [x] R13. (m5) `observeOutput` in `packages/runtime/src/process-executor.ts` uses one `TextDecoder` per stream with `{ stream: true }`. Multi-byte UTF-8 characters split across chunk boundaries are delivered intact to `onOutput`, and the decoder is flushed at stream end.
 
-- [ ] R14. (m6) The empty tracer span in `runStreaming` (`process-executor.ts:431`) is removed. Alternatively it is replaced by a span covering the real process lifetime, if the tracer API supports that without restructuring. The default is removal.
+- [x] R14. (m6) The empty tracer span in `runStreaming` (`process-executor.ts:431`) is removed. Alternatively it is replaced by a span covering the real process lifetime, if the tracer API supports that without restructuring. The default is removal.
 
-- [ ] R15. (m7) The `fm` shim validates `sessionId` before using it as a file-name component. The id must match `/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/` and must not contain `..`. An invalid id throws a `ValueError` that names the rejected value. A `sessionId` like `../../etc/x` never reaches `joinPath`.
+- [x] R15. (m7) The `fm` shim validates `sessionId` before using it as a file-name component. The id must match `/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/` and must not contain `..`. An invalid id throws a `ValueError` that names the rejected value. A `sessionId` like `../../etc/x` never reaches `joinPath`.
 
-- [ ] R16. (m8) The rule-engine fixer's containment check (`isInsideWorkdir`, `packages/rule-engine/src/fixers/fixers.ts:159-162`) decides on path **segments**: a first segment of exactly `..`, not a `..` prefix. So a sibling like `..foo/file.ts` inside the workdir is accepted. When the injected `FileSystem` exposes `realPath` (ADR-022), both the workdir and the target's nearest existing ancestor are resolved through it before comparing. A symlink inside the workdir that points outside it is then rejected before `writeFile`/`deleteFile` (`fixers.ts:121-123`).
+- [x] R16. (m8) The rule-engine fixer's containment check (`isInsideWorkdir`, `packages/rule-engine/src/fixers/fixers.ts:159-162`) decides on path **segments**: a first segment of exactly `..`, not a `..` prefix. So a sibling like `..foo/file.ts` inside the workdir is accepted. When the injected `FileSystem` exposes `realPath` (ADR-022), both the workdir and the target's nearest existing ancestor are resolved through it before comparing. A symlink inside the workdir that points outside it is then rejected before `writeFile`/`deleteFile` (`fixers.ts:121-123`).
 
-- [ ] R17. (m9) `APIError` created from a non-OK response (`packages/infra/src/api-client.ts:308`) carries at most 4096 chars of the response body, suffixed `…[truncated N chars]` when cut. The timeout error message (`api-client.ts:253`) uses `observableUrl` instead of the raw `url`, so query-string secrets are not leaked into error messages.
+- [x] R17. (m9) `APIError` created from a non-OK response (`packages/infra/src/api-client.ts:308`) carries at most 4096 chars of the response body, suffixed `…[truncated N chars]` when cut. The timeout error message (`api-client.ts:253`) uses `observableUrl` instead of the raw `url`, so query-string secrets are not leaked into error messages.
 
-- [ ] R18. (C2, MAY) Migrate `getGitContext` in `packages/ai-runner/src/identity.ts:102` off the deprecated `BunSyncProcessExecutor` default. Record a removal plan for `BunSyncProcessExecutor`, `BunPipeProcessSpawner` and the `ProcessExecutor` value alias (`process-executor.ts:668-729`) in the runtime README. Implement it, or record a one-line deferral in Solution.
+- [x] R18. (C2, MAY) Migrate `getGitContext` in `packages/ai-runner/src/identity.ts:102` off the deprecated `BunSyncProcessExecutor` default. Record a removal plan for `BunSyncProcessExecutor`, `BunPipeProcessSpawner` and the `ProcessExecutor` value alias (`process-executor.ts:668-729`) in the runtime README. Implement it, or record a one-line deferral in Solution.
 
-- [ ] R19. (C3, MAY) Extract the process-group containment block (`process-executor.ts` ~771-929) into `packages/runtime/src/process-group.ts` with no behavior change. Implement it, or record a one-line deferral in Solution.
+- [x] R19. (C3, MAY) Extract the process-group containment block (`process-executor.ts` ~771-929) into `packages/runtime/src/process-group.ts` with no behavior change. Implement it, or record a one-line deferral in Solution.
 
-- [ ] R20. (D1) Fix the docs drift. The `docs/03_ARCHITECTURE.md:116` heading says laya-mlx is "accepted design … not yet built", but the package exists and is published. The root `AGENTS.md` package table (read via the `CLAUDE.md` symlink) lacks the `ts-decision-fm` and `ts-laya-mlx` rows. Edits follow `docs/99_PROJECT_CONSTITUTION.md` (doc map and edit rules).
+- [x] R20. (D1) Fix the docs drift. The `docs/03_ARCHITECTURE.md:116` heading says laya-mlx is "accepted design … not yet built", but the package exists and is published. The root `AGENTS.md` package table (read via the `CLAUDE.md` symlink) lacks the `ts-decision-fm` and `ts-laya-mlx` rows. Edits follow `docs/99_PROJECT_CONSTITUTION.md` (doc map and edit rules).
 
 ### Acceptance Criteria
 
@@ -645,15 +645,199 @@ Work as one WBS. Commit per step group with Conventional Commits (`fix(<pkg>): �
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+**Implementation summary (implement stage)**
+
+Worktree `sp/run-0086-eccb35e4` (base `161f8672`). All fixes land as failing-first tests; 2,306 tests pass across the 8 touched packages with per-package `tsc --noEmit` clean and zero biome findings on changed files. No task-status change, no commits.
+
+**R-id outcomes**
+
+- **R1 (gates):** no `.skip`/`--no-verify`/test weakening; three biome-ignore comments carry documented type-contract reasons (legacy `Promise<void>` adapter assignability), matching existing repo precedent (`packages/rule-engine/tests/persistence.test.ts`). CHANGELOG `[Unreleased]` `### Fixed` entries added for every package.
+- **R2/C1 (dual-workflow-engine):** shared `spawnShellCommand()` used by shell action + shell guard; `optionalTimeoutOption()` validation.
+- **R3:** `resolveShellCommandTemplates()` binds shell-form template values as `${__WF_<n>}` env entries (`__wfShellEnv` carrier option); argv form substitutes raw; guards resolve identically; action-step strips the carrier before `saveActionStart`. Proven by `tests/shell-template-security.test.ts` (AC3/AC4/AC5 + R3 unit tests).
+- **R4 (decision-fm/ai-runner):** `count-tokens -q --instructions=<v> -- <prompt>`, `respond --no-stream --schema <p> --instructions=<v> -- <prompt>`; fm shim pins input after `--`.
+- **R5 (llm-jsonl-importer):** new `api-key` + `github-token` regexes (task-specified, positive/negative verified); anchored `SECRET_KEY` redaction; `tokens_used`/`max_tokens`/`tokenizer_name` negatives.
+- **R6 (infra):** `processOnce` claims `min(maxConcurrency, batchSize-claimed)` per iteration, honours `stopRequested` set by `stop()` (cleared by `start()`); short claim = drained batch (prevents same-cycle re-claim of just-retried jobs — spec loop variant broke the existing deadline test; behavior note "one claim per cycle at defaults" preserved).
+- **R7 (db):** `claimReady` exhaustion sweep (expired lease, `attempts+1 >= maxRetries` → failed, mirrors `markFailed` incl. `processingAt: null`); reclaim increments attempts via CASE on pre-update row (test-verified); `resetStuckJobs` gets `attempts+1` + its own exhaustion sweep.
+- **R8:** `finalizeRun(..., fence?: { ownerAttempt })`; DB conditional UPDATE + read-back, memory predicate; `RunLifecycle` threads `owner_attempt`, emits `workflow.run.stale_owner` + throws `WorkflowResumeError` on loss; `resume()` accepts explicit ownerAttempt. ADR-025 addendum documents the decision and the deliberate non-fencing of step/state/transition writes.
+- **R9:** import/export failures → install-hint `DecisionConfigError`; factory construction errors propagate unchanged (`PLATFORM` error reachable, no install hint).
+- **R10:** `markCompleted`/`markFailed`/`markForRetry` results gate metrics + events (cancel-path pattern).
+- **R11:** timeout option end-to-end (action error + guard `passed:false`/`report.timedOut`, invalid values rejected); documented in package README shell row.
+- **R12:** probe + count-tokens carry `requestTimeoutMs` (driver passes it); `DecisionTimeoutError` on expiry; respond timeout message drops argv.
+- **R13:** stream-mode `TextDecoder` per stream + end flush (`runtime/src/process-executor.ts`).
+- **R14:** empty `process.runStreaming` span removed; test asserts absence.
+- **R15:** `assertSafeSessionId` in `agent-spec.ts` (regex + `..` rejection, `ValueError`), called before path building in the fm shim.
+- **R16:** `isInsideWorkdir` resolves nearest existing ancestor's real path (ADR-022 approach via `fs.realPath`/`dirnamePath`); symlink escape deferred, `..foo/a.ts` accepted.
+- **R17:** timeout error uses `observableUrl`; `APIError.body` truncated at 4096 via `truncateBody`.
+- **R18 (MAY): DEFERRED** — removal plan recorded in runtime README "Deprecated" section (identity.ts default stays `BunSyncProcessExecutor` for now).
+- **R19 (MAY): DEFERRED** — process-group extraction is a pure move with no behavior gain; deferred to keep the diff surface reviewable. AC23 satisfied via recorded deferral.
+- **R20:** `docs/03_ARCHITECTURE.md` laya-mlx heading fixed ("ADR-027/ADR-028", no "not yet built"); `AGENTS.md` package table gains `ts-decision-fm` + `ts-laya-mlx` rows.
+
+**Evidence**
+
+- Failing-first baselines captured via scoped stash: R5 2 fails→0; R6/R7/R10 7 fails→0; R13/R14 2 fails→0; R16 2 fails→0; R17 4 fails→0; R2/R3/R8/R11/R4/R9/R12/R15 captured in the earlier session (5+6 pre-fix failures, now green).
+- Targeted tests: dual-workflow-engine 434, decision-fm 60 (incl. live fm count-tokens argv shape), ai-runner 304, db 223, infra 372, llm-jsonl-importer 339, runtime 253, rule-engine 321 — all 0 fail. `tsc --noEmit` clean per package; biome clean on all changed `.ts` files.
+
+**Residual risks / notes for host**
+
+- AC8's "B never claims the second job while A owns the cycle" is asserted at job level (each handler exactly once; A's cycle completes both rows) — wall-clock interleavings make a stricter "B never touches job 2" claim flaky; the R6 concurrency cap is what prevents over-claiming.
+- fm live test runs only when the local `fm` system model is available (gated, as before).
+- The reclaim-attempts CASE relies on SQLite SET evaluating against the pre-update row — pinned by an explicit test.
+
+**Key citations**
+
+- packages/dual-workflow-engine/src/host.ts:165 (spawnShellCommand), :271 (optionalTimeoutOption)
+- packages/dual-workflow-engine/src/variables.ts:60 (resolveShellCommandTemplates + SHELL_ENV_OPTION)
+- packages/dual-workflow-engine/src/action-step.ts:38 (strip carrier before saveActionStart)
+- packages/dual-workflow-engine/src/persistence.ts:105 (DB finalizeRun fence), :420 (memory fence)
+- packages/dual-workflow-engine/src/run-lifecycle.ts:60 (ownerAttempt threading / stale-owner finalize)
+- packages/dual-workflow-engine/tests/shell-template-security.test.ts:1 (AC3/AC4/AC5)
+- packages/decision-fm/src/fm-process.ts:36 (argv builders), :80 (probe deadline), :150 (countPromptTokens deadline)
+- packages/decision-fm/src/driver.ts:100,152 (requestTimeoutMs threaded)
+- packages/ai-runner/src/agents/shims.ts:470 (fm shim `--` + sessionId guard)
+- packages/ai-runner/src/agent-spec.ts:44 (assertSafeSessionId)
+- packages/ai-runner/src/decision/decision-maker.ts:96 (import/construction split)
+- packages/llm-jsonl-importer/src/redaction.ts:8 (api-key/github-token rules), :38 (SECRET_KEY)
+- packages/db/src/queue-job-dao.ts:228 (exhaustion sweep), :258 (CASE reclaim), :395 (resetStuckJobs rule)
+- packages/infra/src/job-queue/db-job-queue.ts:201 (claim-limited processOnce), :395 (gated markCompleted), :447 (failOrRetry gating)
+- packages/runtime/src/process-executor.ts:432 (span removed), :962 (observeOutput stream decoder)
+- packages/rule-engine/src/fixers/fixers.ts:162 (isInsideWorkdir realpath containment)
+- packages/infra/src/api-client.ts:80 (MAX_ERROR_BODY), :271 (observableUrl timeout message)
+- docs/00_ADR.md:419 (ADR-025 addendum), docs/03_ARCHITECTURE.md:115 (heading), CHANGELOG.md:5 (Unreleased)
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | .spur/run/0086-test-gate.log (host gate PASS, 2508 tests / 0 fail = 2506+2 new regression tests; spur-proof "All 2 rules passed"); CHANGELOG.md:9-27 [Unreleased] Fixed+Other entries covering M1/M3/M6, shell timeout, R18/R19 deferrals; dated ADR-025 addendum docs/00_ADR.md:441 (2026-09-23, task 0086 R8); `git diff 161f8672` grep: only suppression-pattern match is task-doc prose, no `.skip(`/`biome-ignore`/`--no-verify` added to code or tests |
+| R2 | MET | host.ts:162 single `spawnShellCommand` shared by ShellActionRunner (host.ts:192/:199) and ShellGuardRunner (host.ts:224/:230); consumer predicate host.ts:169; host.test.ts diff additions-only, pre-existing shell behavior tests unmodified |
+| R3 | MET | Predicate symmetry verified by static trace: producer variables.ts:106 `Array.isArray(args) && args.length > 0` (argv form) vs consumer host.ts:169 `usesShell = explicitArgs.length === 0` fed by arrayOption host.ts:259-264 (non-array/non-string args throw WorkflowValidationError pre-spawn — fails closed). Case trace: args undefined / `[]` / non-empty all agree producer↔consumer. Shell form binds `${__WF_n}` placeholders + SHELL_ENV_OPTION env map (variables.ts:113-121); runner receives bound command (action-step.ts:102) so `/bin/sh -c` never sees raw-substituted values; carrier stripped before saveActionStart (action-step.ts:94-95); error text built from bound command (host.ts:238) carries placeholders only. Regression tests shell-template-security.test.ts:278/:324 pass; review lap-2 probes (args:[''], guard args:[], env-riding metachars) all injection-safe |
+| R4 | MET | fm-process.ts:28 (`count-tokens -q --instructions=<v> -- <prompt>`), :46-49 (respond argv with `--`), :55-56 (probe); shims.ts:471 (`--` pins input positional); tests fm-process.test.ts:55/65/100/109 |
+| R5 | MET | redaction.ts:51 SECRET_KEY anchored rules + vendor token shapes; tests redaction.test.ts:49 (ghp_/github_pat_/sk_live_), :75 (anchored secret keys; token_count/max_tokens survive) |
+| R6 | MET | db-job-queue.ts:95 (stop() flag), :221 (claim only what can start in-cycle); queue-job-dao.ts:258 (lost-lease reclaim counts as attempt); tests lease-consumer.test.ts:241/:276 |
+| R7 | MET | queue-job-dao.ts:223 (expired lease at exhaustion → failed), :399 (age sweep, legacy token-less rows); tests queue-job-lease.test.ts:219/238/254, lease-consumer.test.ts:312 |
+| R8 | MET | persistence.ts:102/:419 (fenced finalizeRun, memory + DB adapters); run-lifecycle.ts:224 (ownerAttempt fence, stale-owner event); events.ts:133 stale_owner event; types.ts:332 `boolean |
+| R9 | MET | decision-maker.ts:93 (importModule seam; only import/export failures map to install-hint); tests driver-resolution-errors.test.ts:13/63 (construction errors propagate), :33-57 (import/missing-export → config error) |
+| R10 | MET | db-job-queue.ts:449 (`if (!applied) return` — no metric/event on lost fence), :466 (retry event gated); test lease-consumer.test.ts:338 (stolen attempt emits no completed/failed events) |
+| R11 | MET | host.ts:270 optionalTimeoutOption (positive finite ms), wired :209/:171; action timeout error :211-216, guard timedOut report :234-239; tests host.test.ts:380/389/406/426 |
+| R12 | MET | fm-process.ts:74 (probe timeoutMs → DecisionTimeoutError), :98 (count-tokens), :151 (respond timeout message drops argv/user content); tests fm-process.test.ts:164/:173 |
+| R13 | MET | process-executor.ts:957 (stream-mode TextDecoder + final flush); test process-executor.test.ts:75 (split multi-byte UTF-8 decodes intact) |
+| R14 | MET | fire-and-forget lifetime span removed from runStreaming path; test process-executor.test.ts:377 (`expect(spans).toEqual([])`) |
+| R15 | MET | shims.ts:463 (sessionId validated before any path built); test shims.test.ts:786 (hostile sessionIds rejected) |
+| R16 | MET | fixers.ts:163 (containment resolves nearest existing ancestor's real path); tests fixers.test.ts:162 (symlinked-parent escape deferred), :174 (`..foo` sibling accepted) |
+| R17 | MET | api-client.ts:79 (MAX_ERROR_BODY = 4096), :262 (observable URL, query strings dropped), :318 (bounded stored body); tests api-client.test.ts:383/:399/:452 |
+| R18 | MET | Requirement text (spec:102) is "Implement it, or record a one-line deferral in Solution" — deferral branch satisfied: Solution:671 one-line deferral + runtime/README.md:640-648 removal plan naming the ProcessExecutor value alias (:640), BunSyncProcessExecutor and BunPipeProcessSpawner with dated removal intent; identity.ts:102 default unchanged, consistent with deferral. Validated in laps 1-2; judged MET under the requirement's own deferral branch (consistent with AC-22) |
+| R19 | MET | Requirement text (spec:104) same deferral branch — Solution:672 one-line deferral recorded ("pure move with no behavior gain; deferred to keep the diff surface reviewable"); no process-group.ts added; CHANGELOG.md:25 Other entry records rationale. Judged MET under the requirement's own deferral branch (consistent with AC-23) |
+| R20 | MET | AGENTS.md:20-21 (ts-decision-fm + ts-laya-mlx rows with one-line roles); docs/03_ARCHITECTURE.md:116 heading "## laya-mlx (ADR-027/ADR-028)"; no "not yet built" remains in either file |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC-1 | MET | command | .spur/run/0086-test-gate.log gate PASS 2508/0 + spur-proof "All 2 rules passed"; CHANGELOG.md:9-27; docs/00_ADR.md:441 dated addendum; diff grep shows no test suppression added (only task-doc prose match) |
+| AC-2 | MET | test | host.ts:162 shared spawnShellCommand called by ShellActionRunner (:192/:199) and ShellGuardRunner (:224/:230); consumer predicate :169; host.test.ts additions-only |
+| AC-3 | MET | test | New regression test shell-template-security.test.ts:278 ("args: [] falls through to shell form: value rides as env, never executed") passes — metachar value `$(touch …)` never executes, delivered byte-for-byte to out.txt, persisted start options carry `${__WF_` without plaintext; static predicate symmetry variables.ts:106 vs host.ts:169 closes the lap-1 bypass; file runs 12/12 (37 assertions) |
+| AC-4 | MET | test | New regression test shell-template-security.test.ts:324 ("args: [] failing command does not leak the resolved value in its error") passes — no captured failure contains the secret; error text host.ts:238 builds from the bound command (placeholders only); arrayOption validation errors (host.ts:259) expose no command or value |
+| AC-5 | MET | test | shell-template-security.test.ts:242 "argv form keeps raw substitution (AC5)" passes — non-empty args still execFile, no reparse |
+| AC-6 | MET | test | fm-process.test.ts:55/65/100/109 (dash-leading prompts, flag-like/newline instructions after `--instructions=` / `--`); impl fm-process.ts:28/:46-49 |
+| AC-7 | MET | test | redaction.test.ts:49/:75 (vendor token positives, anchored secret keys, near-miss negatives) |
+| AC-8 | MET | test | lease-consumer.test.ts:241; impl db-job-queue.ts:221, queue-job-dao.ts:258 |
+| AC-9 | MET | test | lease-consumer.test.ts:276 (stop() halts claims within a cycle; manual drains work); impl db-job-queue.ts:95 |
+| AC-10 | MET | test | lease-consumer.test.ts:312 (ends failed after exactly maxRetries); queue-job-lease.test.ts:238/:254; impl queue-job-dao.ts:223 |
+| AC-11 | MET | test | interruption.test.ts:208/235 (fence false, row untouched, memory + db adapters); impl persistence.ts:102/:419, run-lifecycle.ts:224, events.ts:133 |
+| AC-12 | MET | test | driver-resolution-errors.test.ts:13/:63 (construction errors propagate), :33/:48 (import failure → install hint); impl decision-maker.ts:93 |
+| AC-13 | MET | test | lease-consumer.test.ts:338 (stolen attempt emits no success/failure events); impl db-job-queue.ts:449/:466 |
+| AC-14 | MET | test | host.test.ts:380 (action timeout error), :389 (guard timedOut report), :406 (validation rejects), :426 (valid timeout completes); impl host.ts:270/:209 |
+| AC-15 | MET | test | fm-process.test.ts:164/:173 (deadline carried, timeout → DecisionTimeoutError, message sanitized); impl fm-process.ts:74/:98/:151 |
+| AC-16 | MET | test | process-executor.test.ts:75 (split multi-byte UTF-8 intact); impl process-executor.ts:957 |
+| AC-17 | MET | test | process-executor.test.ts:377 (`spans` toEqual([]) on runStreaming) |
+| AC-18 | MET | test | shims.test.ts:786 (hostile sessionIds rejected); impl shims.ts:463 |
+| AC-19 | MET | test | fixers.test.ts:162 (symlink escape deferred), :174 (`..foo` accepted); impl fixers.ts:163 |
+| AC-20 | MET | test | api-client.test.ts:383 (sanitized timeout URL), :399 (4096 bound), :452 (no truncated key under cap); impl api-client.ts:79/:262/:318 |
+| AC-21 | MET | command | `rg -n "laya-mlx" docs/03_ARCHITECTURE.md` matches ARCHITECTURE.md:116 `## laya-mlx (ADR-027/ADR-028)`; `rg -n "ts-decision" AGENTS.md` and `rg -n "ts-laya" AGENTS.md` match AGENTS.md:20-21 rows with one-line roles; `rg -n "not yet built" docs/03_ARCHITECTURE.md AGENTS.md` exits 1 with no matches — both scenario Then-conditions hold on the current tree (upgraded from lap-1 PARTIAL) |
+| AC-22 | MET | command | `rg -n "R18" docs/tasks/0086_fix-2026-09-23-packages-secua-and-architecture-review-findin.md` matches Solution:671 `- **R18 (MAY): DEFERRED**` and spec:264/273 (Or-branch equivalence: "Either outcome, implemented or deferred with a reason, satisfies them"); `rg -n "R18" packages/runtime/README.md` matches :644 `**Deprecated — removal plan (task 0086 R18):**` listing BunSyncProcessExecutor, BunPipeProcessSpawner and the ProcessExecutor value alias at :640 (validated deferral; consistent with R18 MET) |
+| AC-23 | MET | command | `rg -n "R19" docs/tasks/0086_fix-2026-09-23-packages-secua-and-architecture-review-findin.md` matches Solution:672 `- **R19 (MAY): DEFERRED** — process-group extraction is a pure move with no behavior gain; deferred to keep the diff surface reviewable` and spec:270/273 (Or-branch: "Solution records a one-line deferral for R19") (validated deferral; consistent with R19 MET) |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+# Review (stage: review, adversarial-reviewer, 2026-09-23)
+
+# Review — task 0086, lap 2 (stage: review, adversarial-reviewer, 2026-09-23)
+
+Post-remediation delta confirmation. Lap-1 verdict was request-changes (1×P1 + 4×P3/advisory). This lap verifies the fix closed the P1 and introduces no new defect; lap-1 P3s remain notes unless regressed.
+
+**Verdict: approve** — lap-1 P1 is closed; no P0/P1 found in the delta; lap-1 P3 advisories unchanged.
+
+## Priority findings (lap 1 + lap 2)
+
+| id | Severity | Finding | Evidence |
+| --- | --- | --- | --- |
+| lap1-1 | P1 | argv/shell form predicate disagreement: `args: []` raw-substitutes template values into `/bin/sh -c` (injection bypass of the M1 fix) | variables.ts:104 vs host.ts:169 — CLOSED by attempt-2 fix (predicate alignment at variables.ts:106 + regression tests shell-template-security.test.ts:278/:324, 12/12 pass) |
+| lap2-1 | P3 | Non-array `args` silently downgrades to shell form (injection-safe; fails open on form selection only, not on injection) | variables.ts:104 — advisory, owner: human |
+| lap1-2 | P3 | Reserved `${__WF_n}` namespace collisions: author-literal `${__WF_0}` aliases the first bound var | variables.ts:82,114 — advisory note |
+| lap1-3 | P3 | Containment degrades silently when an injected FileSystem lacks `realPath` | fixers.ts:161 — advisory note, fail closed instead |
+| lap1-4 | P3 | Redaction key-anchor gaps outside the spec'd set | redaction.ts:51 — note |
+| lap1-5 | P3 | Guard env asymmetry: guards/conditions resolve with `env: {}` so `${env.X}` throws there but resolves in actions | all three guard call sites — pre-existing, conscious choice |
+| lap2-2 | P3 | No repo test drives a shell guard with `args: []` end-to-end | probe-confirmed safe (shared spawnShellCommand path with action runner) — test-gap note |
+
+## Delta under review
+
+- `packages/dual-workflow-engine/src/variables.ts:104`: argv predicate changed from `args !== undefined` to `Array.isArray(args) && args.length > 0`, with the producer/consumer invariant now documented in-source ("the predicates must agree or values would be raw-substituted into a shell line").
+- `packages/dual-workflow-engine/tests/shell-template-security.test.ts` (new file — untracked, which is why it is invisible to `git diff 161f8672`; 12 tests total): the 2 lap-2 regression tests are `args: [] falls through to shell form: value rides as env, never executed (AC3)` and `args: [] failing command does not leak the resolved value in its error (AC4)`. Both run end-to-end through `StateMachineDriver` → real host → real `/bin/sh`.
+
+## P1 closure — adversarial evidence (all executed against the worktree)
+
+1. **Empty-array matrix.**
+   - `args: []` → shell form with env binding: repo test proves the metachar value (`$(touch pwned-emptyargs); touch pwned-emptyargs2`) never executes, is delivered byte-for-byte to `out.txt`, and persisted options carry `${__WF_` placeholders without plaintext.
+   - `args` omitted → shell form (existing repo tests).
+   - `args: ['']` → **argv form on both sides**: producer takes `length > 0`; host `usesShell = explicitArgs.length === 0` is false → execFile. Probe: value `a; $(touch pwned)` created a file literally named `a; $(touch pwned)` with zero shell parsing, and `pwned` was never created.
+2. **Metachar values riding env.** Backticks and `$()` delivered byte-for-byte, never executed (probe). Safe by construction: `sh -c` performs a single expansion pass, so bound values are never reparsed as shell syntax.
+3. **Redaction on the shell-form error path.** Non-zero-exit error text is `Command "<bound command>" exited with N` (`host.ts` ShellActionRunner) — carries `${__WF_n}` placeholders only, never values (repo test 2 pins the `args: []` case; timeout probe: generic message, no command, no value). Validation errors expose nothing either: `args: [null]` → `WorkflowValidationError: Action option "args" must be a string array` with no command or value in the run result (probe).
+4. **Persisted options.** The `__wfShellEnv` carrier is stripped at `action-step.ts:94` before `saveActionStart`; repo tests assert the persisted form (`${__WF_` present, plaintext absent) for the `args: []` case specifically. Guard options are never persisted.
+5. **Predicate symmetry across call sites.** One producer (`resolveShellCommandTemplates`) at all four resolution points — `action-step.ts:90`, `state-machine.ts:240`, `transition-flow.ts:207`, `service.ts:350` — and one consumer (`spawnShellCommand`, `host.ts:167-171`) shared by `ShellActionRunner` and `ShellGuardRunner`. Guard `args: []` end-to-end probe: shell form + env binding, guard passes, no execution.
+6. **Do the new tests actually pin the fix?** Mechanically yes. Reverting to `args !== undefined`: `args: []` takes the argv branch (raw substitution) while the host still selects `sh -c` (`explicitArgs.length === 0`) → `$(touch pwned-emptyargs)` executes → the test fails on the file-exists assertion, the `out.txt` content assertion, AND the persisted-plaintext assertion (triple-pinned). The leak test fails on the error text, which would inline the raw value.
+7. **Runs.** Repo test file: 12/12 pass (37 assertions). Adversarial probes: 6/6 pass (`/tmp/0086-lap2-probe.test.ts` — scratch file outside the tree; worktree left pristine). Host-owned gate `0086-test-gate.log` PASS (2508 tests) not re-run.
+
+## New findings (lap 2)
+
+- **P3/advisory — non-array `args` silently downgrades to shell form** (`variables.ts:104` shell-form fallthrough drops the value via destructuring; host never sees it). `args: 'x'` / `args: null` now execute shell-form-with-binding instead of the pre-M1 `arrayOption` validation error. Injection-safe (probe: value rides env byte-for-byte, nothing executes), but an author typo in the `args` type silently changes the execution model without warning. Note only; tighten form-selection validation later if wanted.
+
+## Lap-1 P3 advisories — not regressed, remain notes
+
+Reserved `${__WF_n}` namespace collisions (`variables.ts:82,114`); `realPath` containment fallback (`fixers.ts:161`); redaction key-anchor gaps (`redaction.ts:51`); guard `env: {}` asymmetry (all three guard call sites). None are touched by the delta.
+
+## Residual risks
+
+- The silent shell-form downgrade for non-array `args` (new P3 above) is the only behavior change worth human awareness; it fails open on form selection but fails closed on injection.
+- Minor test gap: no repo test drives a shell *guard* with `args: []` end-to-end (probe-confirmed safe; path is shared with the action runner).
+
+— adversarial-reviewer, lap 2, 2026-09-23. Lap-1 verdict superseded; full lap-1 record and code anchors kept below.
+
+
+---
+
+#### Lap 1 record (2026-09-23, verdict superseded by lap 2; findings and anchors remain the durable reference)
+
+**Verdict: request-changes** — one P1 must block verify; all else advisory.
+
+## Findings
+
+- **P1 — `args: []` injection bypass of the M1 fix.** `variables.ts:104` takes the argv branch on `args !== undefined` (raw substitution, no `__wfShellEnv`), while `host.ts:169` runs shell form on `args.length === 0` (`/bin/sh -c`). A shell action/guard with `command: 'echo ${vars.msg}', args: []` and a metachar-laden var is raw-substituted into `sh -c` — command substitution executes. Violates R3's own "non-empty array" rule; zero tests cover `args: []` (why the gate is green). Fix: one-line predicate alignment in `variables.ts:104` (`Array.isArray(args) && args.length > 0`) + regression test. Applies to actions and all three guard/condition call sites.
+- **P3 — reserved `${__WF_n}` namespace collisions** (`variables.ts:82,114`): author-literal `${__WF_0}` aliases to the first bound var; unbound literals expand to empty in shell form but throw in argv form. Advisory.
+- **P3 — containment degrades silently** when an injected `FileSystem` lacks `realPath` (`fixers.ts:161`, `fs.realPath?.(p) ?? p` falls back to plain path math). In-repo FS safe; fail closed instead. Advisory.
+- **P3 — redaction key-anchor gaps** outside the spec'd set (`redaction.ts:51`): prefixed keys like `x-api-key` rely on shape rules; arbitrary values under them persist. Note.
+- **P3 — guard env asymmetry** (pre-existing): guards/conditions resolve with `env: {}`, so `${env.X}` throws there but resolves in actions. Conscious-choice note.
+
+## Per-dimension
+
+- **Traceability**: R1–R17 implemented and verified; **R18/R19 deferrals verified honest** (identity.ts:102 default still present + README removal plan; Solution + CHANGELOG record R19 rationale) — AC22/AC23 satisfied via "Or" branches. R20 docs fixed (AGENTS.md:20-21, ARCHITECTURE heading, ADR-025 addendum). AC evidence present across 20 modified + 2 new test files; gap: no `args: []` case.
+- **SECUA**: Security = F-1 only material issue; 13 attack scenarios constructed — injection via guards/conditions/values/single-quotes, redaction bypass, lease double-execution/zombie-writer, attempts-accounting, stale-owner completion, UTF-8 chunk split, path traversal (incl. macOS /etc aliasing), fm argv/sessionId abuse, API error/URL abuse, processOnce loop abuse — all blocked except F-1. Efficiency/correctness/usability/architecture clean: attempts boundary consistent across reclaim/failOrRetry/age-sweep; fenced acks gated; strict `applied === false` keeps legacy adapters; no new deps; drizzle confined to ts-db.
+
+## Gate
+
+`0086-test-gate.log` PASS (2/2 rules). Dynamic probe of the F-1 chain was cancelled by operator; the bypass is fully constructible from static code (predicates at variables.ts:104 vs host.ts:169).
 
 ### References
 
@@ -704,4 +888,7 @@ Work as one WBS. Commit per step group with Conventional Commits (`fix(<pkg>): �
 ### History
 
 - 2026-09-23T23:34:08.552Z backlog → todo (system)
+- 2026-09-24T00:47:29.347Z todo → wip (system)
+- 2026-09-24T02:54:22.436Z wip → testing (system)
+- 2026-09-24T02:58:49.986Z testing → done (system)
 

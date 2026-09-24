@@ -220,6 +220,23 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
         const leaseMs = options?.leaseMs;
         const leased = leaseMs !== undefined;
         const leaseExpiresAt = leased ? now + leaseMs : null;
+        // Task 0086 R7: attempts exhausted on an expired lease — fail the job
+        // instead of reclaiming it, mirroring exactly what markFailed writes.
+        await (this.db as UpdateChangesDb)
+            .update(queueJobs)
+            .set({
+                status: 'failed',
+                attempts: sql`${queueJobs.attempts} + 1`,
+                lastError: 'lease expired: attempts exhausted',
+                processingAt: null,
+                attemptToken: null,
+                leaseExpiresAt: null,
+                updatedAt: now,
+            })
+            .where(
+                sql`${queueJobs.status} = 'processing' AND ${queueJobs.attemptToken} IS NOT NULL AND ${queueJobs.leaseExpiresAt} IS NOT NULL
+                    AND ${queueJobs.leaseExpiresAt} <= ${now} AND ${queueJobs.attempts} + 1 >= ${queueJobs.maxRetries}`,
+            );
         const reclaimable = sql`(
             ${queueJobs.status} = 'pending'
             AND (${queueJobs.nextRetryAt} IS NULL OR ${queueJobs.nextRetryAt} <= ${now})
@@ -238,6 +255,11 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
                 updatedAt: now,
                 attemptToken: leased ? sql`lower(hex(randomblob(16)))` : null,
                 leaseExpiresAt,
+                // Task 0086 R7: a reclaim of an expired lease counts as an
+                // attempt; SQLite evaluates SET against the pre-update row, so
+                // status here still reads 'processing'. Fresh pending claims
+                // keep their attempt count (attempt 0 on first claim).
+                attempts: sql`CASE WHEN ${queueJobs.status} = 'processing' THEN ${queueJobs.attempts} + 1 ELSE ${queueJobs.attempts} END`,
             })
             .where(
                 sql`${queueJobs.id} IN (
@@ -374,9 +396,33 @@ export class QueueJobDao extends EntityDao<typeof queueJobs, typeof queueJobs.id
     async resetStuckJobs(visibilityTimeout: number): Promise<number> {
         const cutoff = this.now() - visibilityTimeout;
 
+        // Task 0086 R7: age sweep exhaustion — a stuck legacy (token-less) row
+        // whose next increment would hit maxRetries fails outright instead of
+        // being reset to pending forever.
+        await (this.db as UpdateChangesDb)
+            .update(queueJobs)
+            .set({
+                status: 'failed',
+                attempts: sql`${queueJobs.attempts} + 1`,
+                lastError: 'stuck job: attempts exhausted',
+                processingAt: null,
+                attemptToken: null,
+                leaseExpiresAt: null,
+                updatedAt: this.now(),
+            })
+            .where(
+                sql`${queueJobs.status} = 'processing' AND ${queueJobs.processingAt} IS NOT NULL AND ${queueJobs.processingAt} <= ${cutoff}
+                    AND ${queueJobs.attemptToken} IS NULL AND ${queueJobs.attempts} + 1 >= ${queueJobs.maxRetries}`,
+            );
+
         const result = await (this.db as UpdateChangesDb)
             .update(queueJobs)
-            .set({ status: 'pending', processingAt: null, updatedAt: this.now() })
+            .set({
+                status: 'pending',
+                processingAt: null,
+                updatedAt: this.now(),
+                attempts: sql`${queueJobs.attempts} + 1`,
+            })
             .where(
                 sql`${queueJobs.status} = 'processing' AND ${queueJobs.processingAt} IS NOT NULL AND ${queueJobs.processingAt} <= ${cutoff}
                 AND ${queueJobs.attemptToken} IS NULL`,

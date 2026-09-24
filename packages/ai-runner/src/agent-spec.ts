@@ -42,6 +42,21 @@ export function validateAgentId(id: string): string {
     return id;
 }
 
+/**
+ * Validate a caller-supplied session id before it is used in a filesystem path
+ * (task 0086 R15): 1-128 chars, starting alphanumeric, then alnum/`.`/`_`/`-`,
+ * and never containing `..`. Returns the id on success, throws `ValueError`
+ * otherwise — failing closed beats sanitizing attacker-controlled path input.
+ */
+export function assertSafeSessionId(id: string): string {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id) || id.includes('..')) {
+        throw new ValueError(
+            `Invalid session id "${id}": expected 1-128 chars (alphanumeric, ".", "_", "-", starting alphanumeric) without path separators or ".."`,
+        );
+    }
+    return id;
+}
+
 /** Load and validate all YAML agent spec files from `configDir`. Throws `ValueError` on parse failures or duplicate IDs. */
 export async function loadAgentSpecs(configDir: string, fs: FileSystem = createNodeFileSystem()): Promise<AgentSpec[]> {
     const entries = (await safeReadDir(configDir, fs))

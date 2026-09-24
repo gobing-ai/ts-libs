@@ -97,7 +97,7 @@ export function createFmDriver(options: FmDriverOptions = {}): FmDecisionDriver 
 
     async function ensureFmAvailable(): Promise<void> {
         if (availabilityVerified) return;
-        await probeFmAvailability(executor, fmPath);
+        await probeFmAvailability(executor, fmPath, requestTimeoutMs);
         availabilityVerified = true;
     }
 
@@ -149,7 +149,7 @@ export function createFmDriver(options: FmDriverOptions = {}): FmDecisionDriver 
             const prompt = buildPrompt(state, questions);
 
             // R4: pre-flight budget — over budget rejects before any `fm respond`.
-            const tokens = await countPromptTokens(executor, fmPath, instructions, prompt);
+            const tokens = await countPromptTokens(executor, fmPath, instructions, prompt, requestTimeoutMs);
             if (tokens > maxPromptTokens) {
                 throw new DecisionRequestError(
                     `prompt is ${tokens} tokens, above the maxPromptTokens budget of ${maxPromptTokens}`,

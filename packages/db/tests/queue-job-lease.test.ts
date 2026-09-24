@@ -215,4 +215,70 @@ describe('QueueJobDao lease ownership', () => {
         expect(await dao.markCompleted(id)).toBe(true);
         expect((await dao.getById(id))?.status).toBe('completed');
     });
+
+    test('R7: reclaiming an expired lease counts as an attempt (task 0086)', async () => {
+        const id = await dao.enqueue('reclaim-attempt', {});
+        await dao.claimReady(1, { leaseMs: 1 });
+        await new Promise((resolve) => setTimeout(resolve, 5));
+
+        const [reclaimed] = await dao.claimReady(1, { leaseMs: 60_000 });
+        expect(reclaimed?.id).toBe(id);
+        // SQLite evaluates SET against the pre-update row: status still reads
+        // 'processing' in the CASE, so the reclaim increments.
+        expect(reclaimed?.attempts).toBe(1);
+    });
+
+    test('R7: a fresh pending claim does not increment attempts (task 0086)', async () => {
+        const id = await dao.enqueue('fresh-claim', {});
+        const [claimed] = await dao.claimReady(1, { leaseMs: 60_000 });
+        expect(claimed?.id).toBe(id);
+        expect(claimed?.attempts).toBe(0);
+    });
+
+    test('R7: an expired lease on its last attempt fails the job instead of reclaiming (task 0086)', async () => {
+        const id = await dao.enqueue('exhausted-lease', {}, { maxRetries: 1 });
+        await dao.claimReady(1, { leaseMs: 1 });
+        await new Promise((resolve) => setTimeout(resolve, 5));
+
+        const claimed = await dao.claimReady(1, { leaseMs: 60_000 });
+        expect(claimed).toEqual([]); // exhaustion sweep removed it from reclaimable
+
+        const row = await dao.getById(id);
+        expect(row?.status).toBe('failed');
+        expect(row?.attempts).toBe(1);
+        expect(row?.lastError).toBe('lease expired: attempts exhausted');
+        expect(row?.attemptToken).toBeNull();
+        expect(row?.processingAt).toBeNull();
+    });
+
+    test('R7: stuck legacy row on its last attempt fails via the age sweep (task 0086)', async () => {
+        const id = await dao.enqueue('exhausted-stuck', {}, { maxRetries: 2 });
+        await adapter.run(
+            `UPDATE queue_jobs SET status = 'processing', processing_at = ?, attempts = 1,
+             attempt_token = NULL, lease_expires_at = NULL WHERE id = ?`,
+            Date.now() - 60_000,
+            id,
+        );
+
+        expect(await dao.resetStuckJobs(30_000)).toBe(0);
+        const row = await dao.getById(id);
+        expect(row?.status).toBe('failed');
+        expect(row?.attempts).toBe(2);
+        expect(row?.lastError).toBe('stuck job: attempts exhausted');
+    });
+
+    test('R7: stuck legacy reset below exhaustion increments attempts and requeues (task 0086)', async () => {
+        const id = await dao.enqueue('stuck-counts', {}, { maxRetries: 5 });
+        await adapter.run(
+            `UPDATE queue_jobs SET status = 'processing', processing_at = ?, attempts = 1,
+             attempt_token = NULL, lease_expires_at = NULL WHERE id = ?`,
+            Date.now() - 60_000,
+            id,
+        );
+
+        expect(await dao.resetStuckJobs(30_000)).toBe(1);
+        const row = await dao.getById(id);
+        expect(row?.status).toBe('pending');
+        expect(row?.attempts).toBe(2); // the stuck attempt was consumed
+    });
 });

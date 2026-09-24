@@ -373,3 +373,59 @@ describe('createDefaultWorkflowEngineHost', () => {
         expect(result.data).toEqual({ message: 'hello' });
     });
 });
+
+describe('shell timeout option (task 0086 AC14)', () => {
+    const context = { runId: 'r', stateOrNodeId: 's', vars: {}, env: {}, workdir: process.cwd() };
+
+    test('shell action honors timeout and reports a timeout error', async () => {
+        const host = createDefaultWorkflowEngineHost();
+        const start = Date.now();
+        const result = await host.runAction('shell', { command: 'sleep 5', timeout: 100 }, context);
+        expect(Date.now() - start).toBeLessThan(2000);
+        expect(result.ok).toBe(false);
+        expect(String(result.error)).toContain('timed out');
+    }, 10_000);
+
+    test('shell guard honors timeout and reports timedOut in the report', async () => {
+        const host = createDefaultWorkflowEngineHost();
+        const start = Date.now();
+        const evaluation = await host.evaluateGuardResult(
+            'shell',
+            { command: 'sleep 5', timeout: 100 },
+            {
+                runId: 'r',
+                current: 's',
+                vars: {},
+            },
+        );
+        expect(Date.now() - start).toBeLessThan(2000);
+        expect(evaluation.passed).toBe(false);
+        expect((evaluation.report as { timedOut?: boolean } | undefined)?.timedOut).toBe(true);
+    }, 10_000);
+
+    test('invalid timeout values raise WorkflowValidationError', async () => {
+        const host = createDefaultWorkflowEngineHost();
+        for (const timeout of [0, -1, 'abc']) {
+            await expect(host.runAction('shell', { command: 'true', timeout }, context)).rejects.toThrow(
+                WorkflowValidationError,
+            );
+            await expect(
+                host.evaluateGuard(
+                    'shell',
+                    { command: 'true', timeout },
+                    {
+                        runId: 'r',
+                        current: 's',
+                        vars: {},
+                    },
+                ),
+            ).rejects.toThrow(WorkflowValidationError);
+        }
+    });
+
+    test('a valid timeout runs the command to completion', async () => {
+        const host = createDefaultWorkflowEngineHost();
+        const result = await host.runAction('shell', { command: 'true', timeout: 5000 }, context);
+        expect(result.ok).toBe(true);
+    });
+});

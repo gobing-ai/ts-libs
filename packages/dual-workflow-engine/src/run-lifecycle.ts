@@ -7,6 +7,7 @@ import {
     traceAsync,
 } from '@gobing-ai/ts-infra';
 import { getProcessEnv } from '@gobing-ai/ts-runtime';
+import { WorkflowResumeError } from './errors';
 import type { WorkflowEngineEvents } from './events';
 import type {
     ActionResult,
@@ -86,6 +87,8 @@ export class RunLifecycle {
     private readonly persistence: WorkflowPersistenceAdapter;
     private readonly events: EventBus<WorkflowEngineEvents> | undefined;
     private readonly logger: Logger;
+    /** Owner attempt recorded on the run row; undefined for lifecycles that never claimed a run (external transitions, direct construction). Gates the finalize fence (task 0086 AC11). */
+    private ownerAttempt: string | undefined;
 
     private constructor(
         runId: string,
@@ -170,6 +173,7 @@ export class RunLifecycle {
                 }
                 const extKey = record.external_key ?? undefined;
                 const lifecycle = new RunLifecycle(record.id, workflowName, mode, deps, extKey);
+                lifecycle.ownerAttempt = proposed.owner_attempt ?? undefined;
                 lifecycle.logger.info('workflow run started');
                 addSpanEvent('workflow.run.started', {
                     workflowName,
@@ -202,16 +206,47 @@ export class RunLifecycle {
         runId: string,
         externalKey: string | undefined,
         loop: (lifecycle: RunLifecycle) => Promise<WorkflowRunResult>,
+        ownerAttempt?: string,
     ): Promise<WorkflowRunResult> {
         return await traceAsync(
             'workflow.run',
             async () => {
                 const lifecycle = new RunLifecycle(runId, workflowName, mode, deps, externalKey);
+                lifecycle.ownerAttempt = ownerAttempt;
                 lifecycle.logger.info('workflow run resumed');
                 return await lifecycle.execute(loop);
             },
             { attributes: { 'workflow.name': workflowName, 'workflow.mode': mode } },
         );
+    }
+
+    /**
+     * Terminal write guarded by the owner fence (task 0086 AC11): when this lifecycle
+     * claimed the run, the persistence adapter only applies the finalize if the run is
+     * still running and owned by this attempt. A rejected write emits
+     * `workflow.run.stale_owner` and raises a typed resume error instead of stomping a
+     * newer attempt's state.
+     */
+    private async finalizeAsOwner(status: WorkflowStatus, completedAt: string): Promise<void> {
+        if (this.ownerAttempt === undefined) {
+            // Lifecycle without an ownership claim (external transitions) keeps the legacy write.
+            await this.persistence.finalizeRun(this.runId, status, completedAt);
+            return;
+        }
+        const applied = await this.persistence.finalizeRun(this.runId, status, completedAt, {
+            ownerAttempt: this.ownerAttempt,
+        });
+        if (applied === false) {
+            void this.events?.emit('workflow.run.stale_owner', {
+                runId: this.runId,
+                ownerAttemptId: this.ownerAttempt,
+                status,
+                severity: 'warning',
+            });
+            throw new WorkflowResumeError(
+                `stale owner "${this.ownerAttempt}" cannot finalize run "${this.runId}" as "${status}": ownership was lost`,
+            );
+        }
     }
 
     private async execute(loop: (lifecycle: RunLifecycle) => Promise<WorkflowRunResult>): Promise<WorkflowRunResult> {
@@ -220,7 +255,7 @@ export class RunLifecycle {
         } catch (error) {
             // Preserve the original failure, including a failed attempt to mark the run failed.
             try {
-                await this.persistence.finalizeRun(this.runId, 'failed', new Date().toISOString());
+                await this.finalizeAsOwner('failed', new Date().toISOString());
             } catch (finalizeError) {
                 throw new AggregateError([error, finalizeError], 'Workflow execution and failure persistence failed');
             }
@@ -309,7 +344,7 @@ export class RunLifecycle {
     /** Finalize the run as succeeded and return its result. */
     async done(finalState: string, transitionsTaken: number): Promise<WorkflowRunResult> {
         await this.persistence.savePhase(this.runId, finalState, 'done');
-        await this.persistence.finalizeRun(this.runId, 'done', new Date().toISOString());
+        await this.finalizeAsOwner('done', new Date().toISOString());
         this.logger.info('workflow run done', { finalState, transitionsTaken });
         addSpanEvent('workflow.run.done', { runId: this.runId, finalState, transitionsTaken });
         void this.events?.emit('workflow.run.done', {
@@ -325,7 +360,7 @@ export class RunLifecycle {
     /** Finalize the run as failed and return its result. */
     async fail(finalState: string, transitionsTaken: number, reason = 'failed'): Promise<WorkflowRunResult> {
         await this.persistence.savePhase(this.runId, finalState, 'failed');
-        await this.persistence.finalizeRun(this.runId, 'failed', new Date().toISOString());
+        await this.finalizeAsOwner('failed', new Date().toISOString());
         addSpanEvent('workflow.run.failed', { runId: this.runId, finalState, reason });
         void this.events?.emit('workflow.run.failed', {
             runId: this.runId,
@@ -357,7 +392,7 @@ export class RunLifecycle {
         if (lastActionResult !== undefined) data.lastActionResult = { ok: lastActionResult.ok };
         await this.persistence.saveWorkflowState(this.runId, stateOrNodeId, data);
         await this.persistence.savePhase(this.runId, stateOrNodeId, 'paused');
-        await this.persistence.finalizeRun(this.runId, 'paused', new Date().toISOString());
+        await this.finalizeAsOwner('paused', new Date().toISOString());
         this.logger.info('workflow run paused', { stateOrNodeId, transitionsTaken });
         addSpanEvent('workflow.run.paused', { runId: this.runId, node: stateOrNodeId, transitionsTaken });
         void this.events?.emit('workflow.run.paused', {

@@ -380,6 +380,39 @@ describe('APIClient.rawRequest', () => {
         expect(emitted.length).toBe(1);
     });
 
+    test('AC20: timeout errors use the sanitized URL and never leak query secrets (task 0086 R17)', async () => {
+        mockFetch.mockImplementationOnce((_url: string, init?: RequestInit) => {
+            const signal = init?.signal;
+            return new Promise<never>((_resolve, reject) => {
+                signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {
+                    once: true,
+                });
+            });
+        });
+
+        const { client } = createClientWithEvents({ timeout: 5 });
+        const err = (await client.get('/slow?api_key=supersecret').catch((e: unknown) => e)) as Error;
+        expect(err.message).toMatch(/timed out after 5ms: GET https:\/\/api\.example\.com\/slow/);
+        expect(err.message).not.toContain('supersecret');
+    });
+
+    test('AC20: non-2xx error bodies are bounded at 4096 chars (task 0086 R17)', async () => {
+        const big = 'x'.repeat(6000);
+        mockFetch.mockResolvedValueOnce({
+            status: 500,
+            ok: false,
+            headers: new Headers({ 'content-type': 'text/plain' }),
+            text: async () => big,
+        });
+
+        const client = createClient();
+        const err = await client.get('/boom').catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(APIError);
+        const body = (err as APIError).body;
+        expect(body).toContain('…[truncated 1904 chars]');
+        expect(body.length).toBeLessThan(4200);
+    });
+
     test('enforces maxResponseBytes with stream body', async () => {
         const body = 'x'.repeat(100);
         mockFetch.mockResolvedValueOnce({

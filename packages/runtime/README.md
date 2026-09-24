@@ -641,6 +641,12 @@ The `ProcessExecutor` const (value alias for `NodeProcessExecutor`), `BunSyncPro
 and `BunPipeProcessSpawner` are kept as deprecated backward-compatible wrappers. Prefer
 `NodeProcessExecutor` or `nodeBunFactory.createProcessExecutor()` in new code.
 
+**Deprecated — removal plan (task 0086 R18):** `identity.ts` still defaults to
+`new BunSyncProcessExecutor()` for synchronous spawn callers. Deferred: migrate that
+default to a sync executor built on the runtime's non-deprecated sync API (or make the
+callers async), then delete `BunSyncProcessExecutor` and `BunPipeProcessSpawner` in the
+next major version.
+
 ### SpanContext (for telemetry)
 
 ```ts
