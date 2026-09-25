@@ -66,7 +66,7 @@ describe('applyWorkflowEngineSchema', () => {
         // WORKFLOW_ENGINE_SCHEMA_SQL has 6 statements separated by ';'.
         // The split produces a trailing empty string after the final ';'.
         // applyWorkflowEngineSchema must handle it (trim + length > 0 check),
-        // then run the 3 guarded column migrations (duplicate-column on fresh
+        // then run the 4 guarded column migrations (duplicate-column on fresh
         // DBs → swallowed).
         const execCalls: string[] = [];
         const db = {
@@ -75,7 +75,7 @@ describe('applyWorkflowEngineSchema', () => {
             },
         } as unknown as DbAdapter;
         await applyWorkflowEngineSchema(db);
-        expect(execCalls.length).toBe(9);
+        expect(execCalls.length).toBe(10);
         expect(execCalls.slice(6).every((sql) => sql.startsWith('ALTER TABLE runs ADD COLUMN'))).toBe(true);
     });
 });
@@ -801,5 +801,73 @@ describe('MemoryWorkflowPersistenceAdapter', () => {
         expect(adapter.states).toHaveLength(1);
         expect(adapter.states[0]).toEqual({ runId: 'r1', state: 'done', data: {} });
         expect(adapter.phases).toHaveLength(0);
+    });
+});
+
+describe('terminal_reason plumbing (task 0937)', () => {
+    test('fresh schema creates the runs.terminal_reason column', async () => {
+        const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        try {
+            await applyWorkflowEngineSchema(db);
+            const columns = await db.queryAll<{ name: string }>('SELECT name FROM pragma_table_info("runs")');
+            expect(columns.map((c) => c.name)).toContain('terminal_reason');
+        } finally {
+            db.close();
+        }
+    });
+
+    test('DB adapter persists terminal_reason from the finalizeRun reason param', async () => {
+        const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        const adapter = new DbWorkflowPersistenceAdapter(db);
+        try {
+            await adapter.createRun(makeRecord({ id: 'r-reason' }));
+            await adapter.finalizeRun('r-reason', 'done', new Date().toISOString(), undefined, 'terminal:done-x');
+            const run = await adapter.loadRun('r-reason');
+            expect(run?.terminal_reason).toBe('terminal:done-x');
+
+            await adapter.createRun(makeRecord({ id: 'r-no-reason' }));
+            await adapter.finalizeRun('r-no-reason', 'done', new Date().toISOString());
+            const bare = await adapter.loadRun('r-no-reason');
+            expect(bare?.terminal_reason).toBeNull();
+        } finally {
+            db.close();
+        }
+    });
+
+    test('DB adapter interruptRun records terminal_reason and claimRunOwnership clears it', async () => {
+        const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+        const adapter = new DbWorkflowPersistenceAdapter(db);
+        try {
+            await adapter.createRun(makeRecord({ id: 'r-int', owner_attempt: 'a1' }));
+            const interrupted = await adapter.interruptRun('r-int', 'lost-owner');
+            expect(interrupted?.interrupt_reason).toBe('lost-owner');
+            expect(interrupted?.terminal_reason).toBe('lost-owner');
+
+            const claimed = await adapter.claimRunOwnership('r-int', { attemptId: 'a2' }, ['interrupted']);
+            expect(claimed?.status).toBe('running');
+            expect(claimed?.terminal_reason).toBeNull();
+        } finally {
+            db.close();
+        }
+    });
+
+    test('memory adapter persists and clears terminal_reason', async () => {
+        const adapter = new MemoryWorkflowPersistenceAdapter();
+        await adapter.createRun(makeRecord({ id: 'r-mem', owner_attempt: 'a1' }));
+        const paused = await adapter.finalizeRun(
+            'r-mem',
+            'paused',
+            new Date().toISOString(),
+            {
+                ownerAttempt: 'a1',
+            },
+            'paused-operator',
+        );
+        expect(paused).toBe(true);
+        expect((await adapter.loadRun('r-mem'))?.terminal_reason).toBe('paused-operator');
+
+        const claimed = await adapter.claimRunOwnership('r-mem', { attemptId: 'a2' }, ['paused']);
+        expect(claimed?.status).toBe('running');
+        expect(claimed?.terminal_reason).toBeNull();
     });
 });

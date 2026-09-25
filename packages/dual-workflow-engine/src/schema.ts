@@ -107,6 +107,8 @@ export const StateMachineWorkflowDefSchema = z
                     description: z.string().optional(),
                     trigger: z.string().optional(),
                     guard: GuardDefSchema.optional(),
+                    /** Declared terminal reason carried onto the runs row when this edge closes the run. */
+                    terminalReason: z.string().optional(),
                 })
                 .strict(),
         ),

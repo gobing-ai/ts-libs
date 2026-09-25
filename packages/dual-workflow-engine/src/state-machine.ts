@@ -75,6 +75,10 @@ export class StateMachineDriver {
         // phase atomically (every iteration after the first), `enter` must skip
         // the persist half to avoid duplicate INSERT rows (ADR-020).
         let persistedViaHop = false;
+        // Declared `terminalReason` of the transition just taken (task 0937). Consumed only
+        // when the loop's terminal check closes the run; cleared otherwise so action-driven
+        // terminal/pause/fail paths keep their built-in reasons.
+        let declaredTerminalReason: string | undefined;
 
         if (current === undefined) {
             const label = resumeFromState ?? workflow.initialState;
@@ -144,9 +148,11 @@ export class StateMachineDriver {
 
             const outbound = workflow.transitions.filter((transition) => transition.from === current?.id);
             if (terminal.has(current.id) || outbound.length === 0) {
+                const declared = declaredTerminalReason;
+                declaredTerminalReason = undefined;
                 return failure.has(current.id)
-                    ? await lifecycle.fail(current.id, transitionsTaken, `terminal:${current.id}`)
-                    : await lifecycle.done(current.id, transitionsTaken);
+                    ? await lifecycle.fail(current.id, transitionsTaken, declared ?? `terminal:${current.id}`)
+                    : await lifecycle.done(current.id, transitionsTaken, declared);
             }
 
             // 5. Evaluate transition guards in declaration order and pick the first passing transition.
@@ -216,6 +222,7 @@ export class StateMachineDriver {
             const nextState = states.get(nextTransition.to);
             if (nextState === undefined) throw new FSMError(`Transition target "${nextTransition.to}" is not declared`);
             current = nextState;
+            declaredTerminalReason = nextTransition.terminalReason;
             persistedViaHop = true;
         }
     }

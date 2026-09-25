@@ -531,3 +531,32 @@ describe('RunLifecycle.forExternalTransition', () => {
         expect(seen).toEqual(['allow-if-reviewed:false:entity/9']);
     });
 });
+
+describe('terminal reason forwarding (task 0937)', () => {
+    test('done/fail/pause forward the reason to persistence terminal_reason', async () => {
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+
+        await RunLifecycle.run('wf', 'state-machine', { persistence }, { runId: 'r-done' }, async (lc) =>
+            lc.done('end', 0, 'done-x'),
+        );
+        expect((await persistence.loadRun('r-done'))?.terminal_reason).toBe('done-x');
+
+        await RunLifecycle.run('wf', 'state-machine', { persistence }, { runId: 'r-fail' }, async (lc) =>
+            lc.fail('end', 0, 'failed-agent'),
+        );
+        expect((await persistence.loadRun('r-fail'))?.terminal_reason).toBe('failed-agent');
+
+        await RunLifecycle.run('wf', 'state-machine', { persistence }, { runId: 'r-pause' }, async (lc) =>
+            lc.pause('mid', 0, undefined, undefined, 'paused-operator'),
+        );
+        expect((await persistence.loadRun('r-pause'))?.terminal_reason).toBe('paused-operator');
+    });
+
+    test('finalize without a reason persists null (legacy shape)', async () => {
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        await RunLifecycle.run('wf', 'state-machine', { persistence }, { runId: 'r-bare' }, async (lc) =>
+            lc.done('end', 0),
+        );
+        expect((await persistence.loadRun('r-bare'))?.terminal_reason).toBeNull();
+    });
+});
