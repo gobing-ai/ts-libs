@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS runs (
     updated_at INTEGER NOT NULL DEFAULT 0,
     owner_attempt TEXT,
     owner_pid INTEGER,
-    interrupt_reason TEXT
+    interrupt_reason TEXT,
+    terminal_reason TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_external_key
@@ -76,4 +77,5 @@ export const WORKFLOW_ENGINE_MIGRATIONS_SQL = `
 ALTER TABLE runs ADD COLUMN owner_attempt TEXT;
 ALTER TABLE runs ADD COLUMN owner_pid INTEGER;
 ALTER TABLE runs ADD COLUMN interrupt_reason TEXT;
+ALTER TABLE runs ADD COLUMN terminal_reason TEXT;
 `.trim();

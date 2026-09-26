@@ -99,30 +99,35 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         );
     }
 
-    /** Finalize a run with terminal status and timestamp. With a fence (task 0086 AC11), the
+    /** Finalize a run with terminal status, timestamp and opaque reason. With a fence (task 0086 AC11), the
      *  update only applies when the run is still running AND owned by `fence.ownerAttempt`;
      *  otherwise the row stays untouched and false is returned. Without a fence the legacy
-     *  unconditional write applies (external service finalization paths). */
+     *  unconditional write applies (external service finalization paths). `reason` is opaque
+     *  engine vocabulary (Spur owns classification) and lands in `runs.terminal_reason` —
+     *  null when omitted. */
     async finalizeRun(
         runId: string,
         status: WorkflowStatus,
         completedAt: string,
         fence?: { readonly ownerAttempt: string },
+        reason?: string,
     ): Promise<boolean> {
         if (fence === undefined) {
             await this.db.run(
-                'UPDATE runs SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?',
+                'UPDATE runs SET status = ?, completed_at = ?, terminal_reason = ?, updated_at = ? WHERE id = ?',
                 status,
                 completedAt,
+                reason ?? null,
                 Date.now(),
                 runId,
             );
             return true;
         }
         await this.db.run(
-            "UPDATE runs SET status = ?, completed_at = ?, updated_at = ? WHERE id = ? AND owner_attempt = ? AND status = 'running'",
+            "UPDATE runs SET status = ?, completed_at = ?, terminal_reason = ?, updated_at = ? WHERE id = ? AND owner_attempt = ? AND status = 'running'",
             status,
             completedAt,
+            reason ?? null,
             Date.now(),
             runId,
             fence.ownerAttempt,
@@ -141,7 +146,7 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         await this.ensureSchema();
         const placeholders = expectedStatuses.map(() => '?').join(', ');
         await this.db.run(
-            `UPDATE runs SET status = 'running', completed_at = NULL, owner_attempt = ?, owner_pid = ?, updated_at = ?
+            `UPDATE runs SET status = 'running', completed_at = NULL, terminal_reason = NULL, owner_attempt = ?, owner_pid = ?, updated_at = ?
              WHERE id = ? AND status IN (${placeholders})`,
             owner.attemptId,
             owner.pid ?? null,
@@ -153,11 +158,13 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         return run !== undefined && run.status === 'running' && run.owner_attempt === owner.attemptId ? run : undefined;
     }
 
-    /** CAS running → interrupted with a reason (lost-owner / crash reconciliation). */
+    /** CAS running → interrupted with a reason (lost-owner / crash reconciliation).
+     *  The reason also lands in `terminal_reason` so every closed row carries one. */
     async interruptRun(runId: string, reason: string): Promise<WorkflowRunRecord | undefined> {
         await this.ensureSchema();
         await this.db.run(
-            "UPDATE runs SET status = 'interrupted', interrupt_reason = ?, completed_at = NULL, updated_at = ? WHERE id = ? AND status = 'running'",
+            "UPDATE runs SET status = 'interrupted', interrupt_reason = ?, terminal_reason = ?, completed_at = NULL, updated_at = ? WHERE id = ? AND status = 'running'",
+            reason,
             reason,
             Date.now(),
             runId,
@@ -416,7 +423,7 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
         this.runs.set(record.id, record);
     }
 
-    /** Finalize a run with terminal status and timestamp. With a fence (task 0086 AC11),
+    /** Finalize a run with terminal status, timestamp and opaque reason. With a fence (task 0086 AC11),
      *  the write only applies when the run is still running AND owned by `fence.ownerAttempt`;
      *  otherwise the row stays untouched and false is returned. */
     async finalizeRun(
@@ -424,16 +431,18 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
         status: WorkflowStatus,
         completedAt: string,
         fence?: { readonly ownerAttempt: string },
+        reason?: string,
     ): Promise<boolean> {
         const run = this.runs.get(runId);
         if (fence === undefined) {
-            if (run !== undefined) this.runs.set(runId, { ...run, status, completed_at: completedAt });
+            if (run !== undefined)
+                this.runs.set(runId, { ...run, status, completed_at: completedAt, terminal_reason: reason ?? null });
             return true;
         }
         if (run === undefined || run.owner_attempt !== fence.ownerAttempt || run.status !== 'running') {
             return false;
         }
-        this.runs.set(runId, { ...run, status, completed_at: completedAt });
+        this.runs.set(runId, { ...run, status, completed_at: completedAt, terminal_reason: reason ?? null });
         return true;
     }
 
@@ -451,6 +460,7 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
             ...run,
             status: 'running',
             completed_at: null,
+            terminal_reason: null,
             owner_attempt: owner.attemptId,
             owner_pid: owner.pid ?? null,
         };
@@ -458,7 +468,8 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
         return claimed;
     }
 
-    /** CAS running → interrupted with a reason (lost-owner / crash reconciliation). */
+    /** CAS running → interrupted with a reason (lost-owner / crash reconciliation).
+     *  The reason also lands in `terminal_reason` so every closed row carries one. */
     async interruptRun(runId: string, reason: string): Promise<WorkflowRunRecord | undefined> {
         const run = this.runs.get(runId);
         if (run === undefined || run.status !== 'running') return undefined;
@@ -466,6 +477,7 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
             ...run,
             status: 'interrupted',
             interrupt_reason: reason,
+            terminal_reason: reason,
         };
         this.runs.set(runId, interrupted);
         return interrupted;

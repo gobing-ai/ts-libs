@@ -766,3 +766,70 @@ test('shell guards honor run workdir for relative artifact paths (0425 R4)', asy
     expect(result.finalState).toBe('done');
     await rm(dir, { recursive: true, force: true });
 });
+
+describe('declared transition terminalReason (task 0937)', () => {
+    /** Driver plus its persistence so tests can assert the persisted run row. */
+    function makeInstrumentedDriver() {
+        const host = createDefaultWorkflowEngineHost();
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        return { persistence, driver: new StateMachineDriver({ host, persistence }) };
+    }
+
+    const failureWorkflow = (terminalReason?: string): StateMachineWorkflowDef => ({
+        name: 'failure-edge',
+        initialState: 'start',
+        failureStates: ['failed'],
+        states: [{ id: 'start' }, { id: 'failed' }],
+        transitions: [
+            {
+                from: 'start',
+                to: 'failed',
+                guard: { kind: 'always' },
+                ...(terminalReason === undefined ? {} : { terminalReason }),
+            },
+        ],
+    });
+
+    test('declared terminalReason overrides the built-in terminal:<id> reason', async () => {
+        const { driver, persistence } = makeInstrumentedDriver();
+        const result = await driver.run(failureWorkflow('failed-guard'), { runId: 'r-declared' });
+        expect(result.status).toBe('failed');
+        expect(result.reason).toBe('failed-guard');
+        expect((await persistence.loadRun('r-declared'))?.terminal_reason).toBe('failed-guard');
+    });
+
+    test('undeclared failure edge keeps the built-in terminal:<id> reason', async () => {
+        const { driver, persistence } = makeInstrumentedDriver();
+        const result = await driver.run(failureWorkflow(), { runId: 'r-builtin' });
+        expect(result.status).toBe('failed');
+        expect(result.reason).toBe('terminal:failed');
+        expect((await persistence.loadRun('r-builtin'))?.terminal_reason).toBe('terminal:failed');
+    });
+
+    test('declared terminalReason on a success edge lands on the done row', async () => {
+        const { driver, persistence } = makeInstrumentedDriver();
+        const result = await driver.run(
+            simpleWorkflow({
+                transitions: [{ from: 'start', to: 'done', guard: { kind: 'always' }, terminalReason: 'done' }],
+            }),
+            { runId: 'r-done' },
+        );
+        expect(result.status).toBe('done');
+        expect((await persistence.loadRun('r-done'))?.terminal_reason).toBe('done');
+    });
+
+    test('no-passing-transition persists its built-in reason', async () => {
+        const { driver, persistence } = makeInstrumentedDriver();
+        const result = await driver.run(
+            {
+                name: 'dead-end-reason',
+                initialState: 'start',
+                states: [{ id: 'start' }, { id: 'end' }],
+                transitions: [{ from: 'start', to: 'end', guard: { kind: 'never' } }],
+            },
+            { runId: 'r-dead' },
+        );
+        expect(result.reason).toBe('no-passing-transition');
+        expect((await persistence.loadRun('r-dead'))?.terminal_reason).toBe('no-passing-transition');
+    });
+});

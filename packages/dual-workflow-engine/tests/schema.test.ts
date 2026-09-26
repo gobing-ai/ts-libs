@@ -332,3 +332,38 @@ describe('packaged JSON schemas declare extensions', () => {
         expect(json.$defs.extensions.additionalProperties).toBe(false);
     });
 });
+
+describe('StateMachineWorkflowDefSchema transitions.terminalReason (task 0937)', () => {
+    const base = {
+        name: 'wf',
+        initialState: 'start',
+        failureStates: ['failed'],
+        states: [{ id: 'start' }, { id: 'failed' }],
+    };
+
+    test('accepts a declared terminalReason on a transition', () => {
+        const result = StateMachineWorkflowDefSchema.safeParse({
+            ...base,
+            transitions: [{ from: 'start', to: 'failed', terminalReason: 'failed-guard' }],
+        });
+        expect(result.success).toBe(true);
+        expect(result.data?.transitions[0]?.terminalReason).toBe('failed-guard');
+    });
+
+    test('transitions without terminalReason stay valid (built-in reason)', () => {
+        const result = StateMachineWorkflowDefSchema.safeParse({
+            ...base,
+            transitions: [{ from: 'start', to: 'failed' }],
+        });
+        expect(result.success).toBe(true);
+        expect(result.data?.transitions[0]?.terminalReason).toBeUndefined();
+    });
+
+    test('unknown transition keys are still rejected (.strict preserved)', () => {
+        const result = StateMachineWorkflowDefSchema.safeParse({
+            ...base,
+            transitions: [{ from: 'start', to: 'failed', terminalReasonX: 'nope' }],
+        });
+        expect(result.success).toBe(false);
+    });
+});

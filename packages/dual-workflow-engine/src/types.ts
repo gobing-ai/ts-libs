@@ -88,6 +88,8 @@ export interface TransitionDef {
     readonly description?: string;
     readonly trigger?: string;
     readonly guard?: GuardDef;
+    /** Declared terminal reason carried onto the runs row when this edge closes the run. */
+    readonly terminalReason?: string;
 }
 
 /** State-machine workflow definition. */
@@ -278,6 +280,9 @@ export interface WorkflowRunRecord {
     readonly owner_pid?: number | null;
     /** Reason recorded by the last interruption (task 0902 R2). */
     readonly interrupt_reason?: string | null;
+    /** Opaque terminal reason recorded when the run was finalized (paused rows keep the
+     *  pre-resume reason until the next finalize overwrites it; running rows read null). */
+    readonly terminal_reason?: string | null;
 }
 
 /** Result of force-setting the current state of a run. */
@@ -356,6 +361,7 @@ export interface WorkflowPersistenceAdapter {
         status: WorkflowStatus,
         completedAt: string,
         fence?: { readonly ownerAttempt: string },
+        reason?: string,
     ): Promise<boolean | LegacyAdapterVoid>;
     savePhase(runId: string, phase: string, status: WorkflowStatus): Promise<void>;
     saveTransition(runId: string, from: string, to: string, trigger: string | null): Promise<void>;
