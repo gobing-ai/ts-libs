@@ -8,6 +8,16 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-09-25
+
+### Added
+
+- **`@gobing-ai/ts-dual-workflow-engine`: terminal reason plumbing.** `finalizeRun` accepts an optional opaque reason persisted to the new nullable `runs.terminal_reason` column (schema-sql `CREATE` + guarded `ALTER`); `interruptRun` mirrors its reason into `terminal_reason` and `claimRunOwnership` clears it on resume. `RunLifecycle` `done`/`fail`/`pause` forward the reason (with `fail` defaulting to `'failed'`), and state-machine transitions accept a declared `terminalReason` that overrides the built-in `terminal:<id>` string when their edge closes the run. The engine stays enum-agnostic — consumers own classification. `fabfad09`.
+
+### Other
+
+- **Merge `feat/engine-terminal-reason` into `main`.** `--no-ff` merge landing the terminal-reason plumbing; local + remote branch deleted. `b4ba0a38`.
+
 ## [0.5.5] - 2026-09-23
 
 ### Fixed
