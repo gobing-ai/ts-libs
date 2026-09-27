@@ -8,6 +8,12 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-09-26
+
+### Fixed
+
+- **`@gobing-ai/ts-infra`: Windows bootstrap failure + masked startup errors.** Three defects found via the spur `windows-serve-smoke` CI job (Bun 1.3.14, windows-latest): (1) `parentDir` in `event-bus/file-observer.ts` scanned only `/`, so Windows paths resolved to parent `'.'` and `attachFileObserver` mkdir'd the process cwd — which Bun on Windows rejects with `EEXIST` for `mkdirSync('.', { recursive: true })`; it now honors `\` separators when present. (2) The Node subpath's default `fileObserverWriter.ensureDir` propagates `EEXIST` despite the ensureDir contract (an existing directory is success) — it now tolerates `EEXIST` explicitly. (3) `runApplication`'s catch teardown dereferenced `state.pluginHost` before assignment, replacing any pre-host startup failure with `TypeError: undefined is not an object (evaluating 'state.pluginHost.stopAll')` and hiding the original error entirely; both teardown calls are optional-chained. Regression tests cover the Windows path split and the original-error rethrow. `c77d392a`.
+
 ## [0.5.7] - 2026-09-25
 
 ### Added
