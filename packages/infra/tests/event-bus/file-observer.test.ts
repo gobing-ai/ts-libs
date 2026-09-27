@@ -62,6 +62,19 @@ describe('attachFileObserver', () => {
         expect(Date.parse(line.ts as string)).not.toBeNaN();
     });
 
+    test('computes the parent dir of backslash-separated (Windows) paths', () => {
+        const w = memoryWriter();
+        const bus = createLifecycleBus();
+        attachFileObserver(bus, 'C:\\proj\\.spur\\logs\\events.jsonl', w);
+
+        void bus.emit('bus.emit.noop', { event: 'app.startup', severity: 'info' });
+
+        // Regression: a `/`-only scan returned '.' for Windows paths, making the
+        // observer mkdir the process cwd — which Bun-on-Windows rejects (EEXIST).
+        expect(w.dirs).toEqual(['C:\\proj\\.spur\\logs']);
+        expect(w.lines('C:\\proj\\.spur\\logs\\events.jsonl')).toHaveLength(1);
+    });
+
     test('omits payload key when detail is absent', () => {
         const w = memoryWriter();
         const bus = createLifecycleBus();

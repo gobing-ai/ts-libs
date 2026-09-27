@@ -37,6 +37,30 @@ function tracker() {
 describe('runApplication — portable lifecycle', () => {
     afterEach(resetModules);
 
+    test('startup failure before pluginHost assignment rethrows the original error', async () => {
+        // Regression: the catch teardown dereferenced state.pluginHost before
+        // assignment, so a bootstrap failure (observed: file-observer ensureDir
+        // throwing EEXIST on Bun-Windows) surfaced as `TypeError: ... pluginHost
+        // .stopAll` instead of the real error.
+        const promise = runApplication({
+            config: {
+                logging: { console: false },
+                telemetry: { enabled: false },
+                events: { fileObserver: true, filePath: 'C:\\proj\\.spur\\logs\\events.jsonl' },
+            },
+            services: {
+                fileObserverWriter: {
+                    ensureDir() {
+                        throw Object.assign(new Error('EEXIST: file already exists, mkdir'), { code: 'EEXIST' });
+                    },
+                    appendFile() {},
+                },
+            },
+            start: async () => {},
+        });
+        await expect(promise).rejects.toThrow('EEXIST: file already exists');
+    });
+
     test('creates default services when no options provided', async () => {
         const app = await runApplication(minimalOptions());
 

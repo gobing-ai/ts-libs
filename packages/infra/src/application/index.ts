@@ -255,8 +255,11 @@ export async function runApplication<TAppConfig = unknown, TEvents extends Event
         // order, via the host. Each plugin's onStop/onUnload is best-effort, so a
         // partially-started ring still releases its resources (telemetry, scheduler,
         // owned DB). Caller-injected services.db is caller-owned and not touched.
-        await state.pluginHost.stopAll('error');
-        await state.pluginHost.unloadAll('error');
+        // Optional chaining: pluginHost is assigned late in the try — a failure
+        // before it (e.g. file-observer setup) must rethrow the ORIGINAL error,
+        // not a teardown TypeError masking it.
+        await state.pluginHost?.stopAll('error');
+        await state.pluginHost?.unloadAll('error');
         throw error;
     }
 }

@@ -16,9 +16,15 @@ export interface FileObserverWriter {
     appendFile(path: string, content: string): void | Promise<void>;
 }
 
-/** Parent directory of a `/`-separated path (no `node:path` dependency). */
+/**
+ * Parent directory of a `/`- or `\`-separated path (no `node:path` dependency,
+ * ADR-011). Windows paths (`path.resolve` output) are backslash-separated; a
+ * `/`-only scan would return `'.'` for them and make the observer mkdir the
+ * process cwd — which Bun-on-Windows rejects with EEXIST.
+ */
 function parentDir(filePath: string): string {
-    const idx = filePath.lastIndexOf('/');
+    const sep = filePath.includes('\\') ? '\\' : '/';
+    const idx = filePath.lastIndexOf(sep);
     return idx <= 0 ? '.' : filePath.slice(0, idx);
 }
 

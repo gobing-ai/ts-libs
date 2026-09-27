@@ -469,7 +469,15 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
     const injectedFileSystem = createNodeFileSystem();
     const fileObserverWriter = options.services?.fileObserverWriter ?? {
         ensureDir: (dir: string) => {
-            mkdirSync(dir, { recursive: true });
+            try {
+                mkdirSync(dir, { recursive: true });
+            } catch (error) {
+                // ensureDir contract: an existing directory is success. Node
+                // semantics already suppress EEXIST with `recursive: true`, but
+                // Bun on Windows still leaks EEXIST (observed for '.'), so
+                // tolerate it explicitly; anything else is a real failure.
+                if ((error as NodeJS.ErrnoException)?.code !== 'EEXIST') throw error;
+            }
         },
         appendFile: (path: string, content: string) => {
             appendFileSync(path, content);
