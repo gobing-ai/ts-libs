@@ -33,7 +33,7 @@ This will:
 4. **Tag** each package: `@gobing-ai/ts-<pkg>-v0.1.5` (annotated), plus the aggregate trigger tag `@gobing-ai/ts-libs-v0.1.5`.
 5. **Push** the branch first (without tags), then tags **individually**.
 
-The aggregate tag push triggers one `publish.yml` run, which builds and publishes via OIDC (no token, provenance automatic). The publish script publishes packages in dependency order (`utils → runtime → db → infra`) so dependents publish after dependencies.
+The aggregate tag push triggers one `publish.yml` run, which builds and publishes via OIDC (no token, provenance automatic). The publish script publishes packages in dependency order (`utils → runtime → db → infra`) so dependents publish after dependencies. That order is **canonical**: it is derived from the package set (roots and edges visited in name order), never from filesystem discovery order, so a given commit builds and publishes in the same sequence on every machine and in CI.
 
 > Update `CHANGELOG.md` with a `0.1.5` section **before** running `bump-ver` — it gets folded into the release commit.
 

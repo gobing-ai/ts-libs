@@ -250,6 +250,28 @@ describe('sortPackagesByDependencyOrder', () => {
         const sorted = await sortPackagesByDependencyOrder([runtime, db, utils]);
         expect(sorted.map((p) => p.name)).toEqual(['@gobing-ai/ts-utils', '@gobing-ai/ts-runtime', '@gobing-ai/ts-db']);
     });
+
+    test('is independent of workspace discovery order', async () => {
+        // findWorkspacePackages returns Glob scan order, which differs between a
+        // developer machine and CI. The build/publish sequence — and therefore
+        // which package a failure lands on — must not.
+        const utils = pkg('@gobing-ai/ts-utils', 'packages/utils');
+        const runtime = pkg('@gobing-ai/ts-runtime', 'packages/runtime', { '@gobing-ai/ts-utils': '^0.1.5' });
+        const db = pkg('@gobing-ai/ts-db', 'packages/db', { '@gobing-ai/ts-runtime': '^0.1.5' });
+        const infra = {
+            ...pkg('@gobing-ai/ts-infra', 'packages/infra', { '@gobing-ai/ts-utils': '^0.1.5' }),
+            devDependencies: { '@gobing-ai/ts-db': '^0.1.5' },
+        };
+        const input = [utils, runtime, db, infra];
+        const expected = ['@gobing-ai/ts-utils', '@gobing-ai/ts-runtime', '@gobing-ai/ts-db', '@gobing-ai/ts-infra'];
+
+        for (let rotation = 0; rotation < input.length; rotation += 1) {
+            const rotated = [...input.slice(rotation), ...input.slice(0, rotation)];
+            for (const candidate of [rotated, [...rotated].reverse()]) {
+                expect((await sortPackagesByDependencyOrder(candidate)).map((p) => p.name)).toEqual(expected);
+            }
+        }
+    });
 });
 
 describe('release command git push args', () => {

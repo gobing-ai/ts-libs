@@ -35,14 +35,34 @@ export function tagPushArgs(tag: string): string[] {
     return ['-c', 'push.followTags=false', 'push', 'origin', `refs/tags/${tag}:refs/tags/${tag}`];
 }
 
+/**
+ * Canonical package-name order. Deliberately a code-unit compare, not
+ * `localeCompare` — ICU/locale availability differs between environments and
+ * this order has to be identical on every machine and in CI.
+ */
+function comparePackageNames(a: string, b: string): number {
+    if (a === b) return 0;
+    return a < b ? -1 : 1;
+}
+
+/**
+ * Order packages so every internal dependency precedes its dependents.
+ *
+ * The result depends only on the *set* of packages, never on the order they
+ * were discovered in: `findWorkspacePackages` returns filesystem Glob order,
+ * which differs per machine, and a discovery-order-sensitive sort would make
+ * the build/publish sequence (and therefore which package fails first) vary
+ * between local runs and CI. Both the DFS roots and each package's outgoing
+ * edges are visited in canonical name order.
+ */
 export async function sortPackagesByDependencyOrder(packages: WorkspacePackage[]): Promise<WorkspacePackage[]> {
-    const publishable = packages.filter((pkg) => !pkg.private);
+    const publishable = packages.filter((pkg) => !pkg.private).sort((a, b) => comparePackageNames(a.name, b.name));
     const packageByName = new Map(packages.map((pkg) => [pkg.name, pkg]));
     const publishableByName = new Map(publishable.map((pkg) => [pkg.name, pkg]));
 
     /**
      * DFS post-order over the given workspace edges; undefined on a cycle.
-     * Unrelated packages keep input order — they need no ordering.
+     * Unrelated packages keep name order — they need no ordering.
      */
     const orderByEdges = (edgeSource: (pkg: WorkspacePackage) => string[]): WorkspacePackage[] | undefined => {
         const visiting = new Set<string>();
@@ -59,7 +79,7 @@ export async function sortPackagesByDependencyOrder(packages: WorkspacePackage[]
             }
 
             visiting.add(pkg.name);
-            for (const dependencyName of edgeSource(pkg)) {
+            for (const dependencyName of [...edgeSource(pkg)].sort(comparePackageNames)) {
                 const dependency = packageByName.get(dependencyName);
                 if (dependency) visit(dependency);
             }

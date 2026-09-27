@@ -206,8 +206,10 @@ function cleanGitSpawn(push = false): { spawn: Spawn; calls: string[] } {
     if (push) {
         script.push(
             { match: (c, a) => c === 'git' && a.join(' ').includes('--no-follow-tags'), stdout: '' },
-            { match: (c, a) => c === 'git' && a.join(' ').includes(`refs/tags/${UTILS_TAG}`), stdout: '' },
+            // Tag pushes follow the canonical dependency order (name order here —
+            // the fixture's runtime has no workspace deps), aggregate tag last.
             { match: (c, a) => c === 'git' && a.join(' ').includes(`refs/tags/${RUNTIME_TAG}`), stdout: '' },
+            { match: (c, a) => c === 'git' && a.join(' ').includes(`refs/tags/${UTILS_TAG}`), stdout: '' },
             { match: (c, a) => c === 'git' && a.join(' ').includes(`refs/tags/${AGG_TAG}`), stdout: '' },
             { match: gh(...listArgs()), stdout: PUSH_RUN },
         );
@@ -573,9 +575,15 @@ describe('publishPackages', () => {
         await installFixture(false);
         npmPackageMissing = true;
 
-        await expect(publishPackages('tag', `@gobing-ai/ts-libs-v0.1.5`, fixtureDeps())).rejects.toThrow(
-            /not on npm yet: @gobing-ai\/ts-utils, @gobing-ai\/ts-runtime/,
+        const message = await publishPackages('tag', `@gobing-ai/ts-libs-v0.1.5`, fixtureDeps()).then(
+            () => '',
+            (error: Error) => error.message,
         );
+
+        // Order-independent: the message lists every unpublished package.
+        expect(message).toMatch(/^not on npm yet: /);
+        expect(message).toContain('@gobing-ai/ts-utils');
+        expect(message).toContain('@gobing-ai/ts-runtime');
         expect(publishCalls).toBe(0);
     });
 

@@ -29,7 +29,7 @@ bun run bump-ver 0.1.6 --push
 bun run drop-tags 0.1.6 --remote
 ```
 
-Root `build` and `typecheck` also delegate here. They discover publishable workspaces from the root `workspaces` globs, sort them by internal package dependencies, then run each package script. `build` finishes by smoke-importing every package's `dist/index.js` with Bun; packages listed in `buildConfig.nodeSmokePackages` are also smoke-imported with Node. That list is empty by default.
+Root `build` and `typecheck` also delegate here. They discover publishable workspaces from the root `workspaces` globs, sort them by internal package dependencies, then run each package script. The sort is canonical — it depends on the package set, not on filesystem discovery order — so the sequence is identical on every machine and in CI. `build` finishes by smoke-importing every package's `dist/index.js` with Bun; packages listed in `buildConfig.nodeSmokePackages` are also smoke-imported with Node. That list is empty by default.
 
 ## Layout
 
