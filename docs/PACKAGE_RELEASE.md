@@ -5,7 +5,7 @@ How releases work for the `@gobing-ai/ts-*` packages in this monorepo.
 ## How releasing works here
 
 - **Existing packages** are published by **GitHub Actions** via npm **Trusted Publishing** (OIDC). You never run `npm publish` by hand — you push git **tags** and CI does the rest.
-- **Brand-new packages** must be **bootstrapped once manually**, because a Trusted Publisher can only be configured for a package that already exists on npm (chicken-and-egg).
+- **Brand-new packages** must be **bootstrapped once manually**, because a Trusted Publisher can only be configured for a package that already exists on npm (chicken-and-egg). A package npm has never seen has nothing to authenticate the OIDC exchange against, so `npm publish` in CI fails with `ENEEDAUTH`. The publish script **preflights** every pending package and aborts *before publishing anything* when one is unknown to npm, so a new package can no longer strand the packages ordered after it.
 - **All packages are versioned in lockstep** — every release bumps all package manifests to the same version and tags each one (`@gobing-ai/ts-<pkg>-v<version>`).
 - The publish workflow (`.github/workflows/publish.yml`) is **aggregate-tag scoped and idempotent**: `@gobing-ai/ts-libs-v<version>` is resolved against the root workspace manifest, then publishes all non-private packages in dependency order. It skips cleanly if npm already has a package version.
 
@@ -124,14 +124,20 @@ Create `packages/<new-pkg>/` following the conventions of the existing packages.
 
 ### 2. Publish the first version manually
 
-`prepublishOnly` builds automatically. From the package directory:
+Do **not** run a bare `npm publish` from the package directory: npm packs the manifest as-is, so a sibling dependency written as `workspace:*` (ADR-002) would be published unresolved and uninstallable. Use the release script's bootstrap mode from the **repo root** — it substitutes `workspace:` ranges for the tarball, restores the manifest afterwards, and skips the "must already exist on npm" preflight:
 
 ```bash
-cd packages/<new-pkg>
-npm publish --access public
+npm login                                                        # personal account + 2FA
+bun scripts/builder.ts publish-packages --bootstrap @gobing-ai/ts-<new-pkg>
 ```
 
-This uses your **personal npm login + 2FA** — expected and fine for a one-time bootstrap.
+This is the one publish that uses your **personal npm login + 2FA** instead of OIDC — expected and fine for a one-time bootstrap. If your account requires a one-time password and the shell is not interactive, pass it through the environment:
+
+```bash
+NPM_CONFIG_OTP=<code> bun scripts/builder.ts publish-packages --bootstrap @gobing-ai/ts-<new-pkg>
+```
+
+> Running `--bootstrap` in CI cannot work: there is no Trusted Publisher to authenticate against yet. It is a local, operator-run command.
 
 ### 3. Configure the Trusted Publisher on npm
 
@@ -180,6 +186,8 @@ From now on this package releases with the others via `bun run bump-ver <version
 | Publish run skips everything | Version already on npm | Bump to a new version — npm versions are immutable |
 | Publish run fails with tag/version mismatch | The workflow checked out a commit whose manifest version does not match the tag | Recreate the tag on the correct release commit, or use a new version if npm already has the old one |
 | Publish run shows "already published" skip | Normal for a retried run or a version already present on npm | None if npm has the expected version |
+| Publish run fails with `ENEEDAUTH` on a package that isn't on npm | Brand-new package in the release — npm has no Trusted Publisher to attach to a package it does not have (the preflight normally catches this *before* publishing anything) | Bootstrap the first publish (`publish-packages --bootstrap <name>`, step 2), configure the Trusted Publisher (step 3), then re-run the workflow — it is idempotent |
+| Publish run fails with `ENEEDAUTH` on a package that *is* on npm | Trusted Publisher not configured / field mismatch | Re-check the table in step 3 (workflow filename = `publish.yml`, env blank) |
 | `npm publish` fails with auth error in CI | Trusted Publisher not configured / field mismatch | Re-check the table in step 3 (workflow filename = `publish.yml`, env blank) |
 | Consumer install conflict after release | Consumer mixes different lockstep releases | Align all `@gobing-ai/ts-*` packages to the same released version |
 | `bump-ver` aborts "already published on npm" | The target version exists on npm | Use a higher version |

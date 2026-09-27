@@ -9,8 +9,10 @@ import type { WorkspacePackage } from '../lib/workspace';
 let fixture: { root: string; packages: WorkspacePackage[] } = { root: '', packages: [] };
 const fixtureRoots: string[] = [];
 let npmAlreadyPublished = false;
+let npmPackageMissing = false;
 let publishFailure = '';
 let publishConflict = false;
+let publishCalls = 0;
 
 const noopLog = () => {};
 
@@ -18,8 +20,11 @@ function fixtureDeps() {
     return {
         findWorkspacePackages: async () => fixture.packages,
         npmViewVersion: () => npmAlreadyPublished,
-        npmPublish: () =>
-            publishFailure !== '' ? { ok: false, output: publishFailure } : { ok: true, output: 'published' },
+        npmViewPackage: () => !npmPackageMissing,
+        npmPublish: () => {
+            publishCalls += 1;
+            return publishFailure !== '' ? { ok: false, output: publishFailure } : { ok: true, output: 'published' };
+        },
         isAlreadyPublishedError: () => publishConflict,
         log: noopLog,
     };
@@ -93,8 +98,10 @@ afterAll(async () => {
 beforeEach(() => {
     fixture = { root: '', packages: [] };
     npmAlreadyPublished = false;
+    npmPackageMissing = false;
     publishFailure = '';
     publishConflict = false;
+    publishCalls = 0;
 });
 
 // ── scripted spawn ──────────────────────────────────────────────────────────
@@ -557,5 +564,55 @@ describe('publishPackages', () => {
         await expect(publishPackages('tag', `@gobing-ai/ts-libs-v0.1.5`, fixtureDeps())).rejects.toThrow(
             'registry unreachable',
         );
+    });
+
+    // A package npm has never seen has no Trusted Publisher to authenticate
+    // against, so the OIDC publish fails with ENEEDAUTH. Aborting up front keeps
+    // that failure from stranding every package ordered after it.
+    test('aborts before publishing anything when a package is not on npm yet', async () => {
+        await installFixture(false);
+        npmPackageMissing = true;
+
+        await expect(publishPackages('tag', `@gobing-ai/ts-libs-v0.1.5`, fixtureDeps())).rejects.toThrow(
+            /not on npm yet: @gobing-ai\/ts-utils, @gobing-ai\/ts-runtime/,
+        );
+        expect(publishCalls).toBe(0);
+    });
+
+    test('names the bootstrap path when only one package is unpublished', async () => {
+        await installFixture(false);
+        const missing = '@gobing-ai/ts-runtime';
+        const deps = fixtureDeps();
+        await expect(
+            publishPackages('tag', `@gobing-ai/ts-libs-v0.1.5`, {
+                ...deps,
+                npmViewPackage: (name: string) => name !== missing,
+            }),
+        ).rejects.toThrow(/--bootstrap <name>/);
+        expect(publishCalls).toBe(0);
+    });
+
+    test('--bootstrap publishes a package npm has never seen, resolving workspace ranges', async () => {
+        await installFixture(true);
+        npmPackageMissing = true;
+
+        await publishPackages(undefined, undefined, fixtureDeps(), { bootstrap: '@gobing-ai/ts-runtime' });
+
+        expect(publishCalls).toBe(1);
+        const runtime = fixture.packages.find((pkg) => pkg.name === '@gobing-ai/ts-runtime');
+        expect(await readFile(runtime?.path as string, 'utf8')).toContain('workspace:*');
+    });
+
+    test('--bootstrap rejects a name that is not a publishable workspace package', async () => {
+        await installFixture(false);
+        const deps = fixtureDeps();
+
+        await expect(
+            publishPackages(undefined, undefined, deps, { bootstrap: '@gobing-ai/ts-missing' }),
+        ).rejects.toThrow('no workspace package has that name');
+        await expect(
+            publishPackages(undefined, undefined, deps, { bootstrap: releaseConfig.aggregatePackageName }),
+        ).rejects.toThrow('private package');
+        expect(publishCalls).toBe(0);
     });
 });

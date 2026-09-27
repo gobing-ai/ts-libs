@@ -182,6 +182,26 @@ export function npmViewVersion(name: string, version: string, spawn?: Spawn): bo
     return result.ok && result.stdout !== '';
 }
 
+/**
+ * True when the registry has the package at all (any version).
+ *
+ * Distinct from {@link npmViewVersion}: a brand-new package has no Trusted
+ * Publisher configuration — npm can only attach one to a package it already
+ * has — so the first publish cannot go through OIDC.
+ */
+export function npmViewPackage(name: string, spawn?: Spawn): boolean {
+    const result = runCommand(
+        'npm',
+        ['view', name, 'version'],
+        {
+            stdio: ['ignore', 'pipe', 'ignore'],
+        },
+        spawn,
+    );
+
+    return result.ok && result.stdout !== '';
+}
+
 export function npmPublish(dir: string, spawn?: Spawn): { ok: boolean; output: string } {
     const result = runCommand(
         'npm',

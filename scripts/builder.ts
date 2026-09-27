@@ -46,7 +46,7 @@ try {
         }
 
         case 'publish-packages': {
-            await publishPackages();
+            await publishPackages(undefined, undefined, {}, { bootstrap: flagValue(args, '--bootstrap') });
             break;
         }
 
@@ -61,6 +61,15 @@ try {
     }
 } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
+}
+
+function flagValue(args: string[], flag: string): string | undefined {
+    const index = args.indexOf(flag);
+    if (index === -1) return undefined;
+
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith('--')) fail(`${flag} requires a value`);
+    return value;
 }
 
 function usage(commandUsage?: string): never {
@@ -78,7 +87,7 @@ Commands:
   build
   typecheck
   fix-dist-esm-extensions <dist-dir> [...dist-dir]
-  publish-packages
+  publish-packages [--bootstrap <package>]
   smoke-dist-imports`);
 }
 

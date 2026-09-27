@@ -10,9 +10,14 @@ bun scripts/builder.ts drop-tags <version> [--remote]
 bun scripts/builder.ts build
 bun scripts/builder.ts typecheck
 bun scripts/builder.ts fix-dist-esm-extensions <dist-dir> [...dist-dir]
-bun scripts/builder.ts publish-packages
+bun scripts/builder.ts publish-packages [--bootstrap <package>]
 bun scripts/builder.ts smoke-dist-imports
 ```
+
+`publish-packages --bootstrap <package>` publishes exactly one package, resolving `workspace:`
+dependency ranges and skipping the "must already exist on npm" preflight. It is the one-time
+first publish for a brand-new package (run locally with a personal npm login); every later
+release goes through the Publish workflow. See `docs/PACKAGE_RELEASE.md`.
 
 `bump-version --push` creates per-package tags for traceability and one aggregate trigger tag,
 `@gobing-ai/ts-libs-v<version>`, which starts a single Publish workflow run for the whole lockstep release.

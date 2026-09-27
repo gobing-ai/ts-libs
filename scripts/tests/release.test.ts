@@ -6,6 +6,7 @@ import {
     createReleaseTag,
     isAlreadyPublishedError,
     npmPublish,
+    npmViewPackage,
     npmViewVersion,
     parseReleaseTag,
     selectPackagesForPublish,
@@ -156,6 +157,16 @@ describe('npm publish helpers', () => {
 
         expect(npmViewVersion('@gobing-ai/ts-cache', '0.1.5', okSpawn)).toBe(true);
         expect(npmViewVersion('@gobing-ai/ts-cache', '0.1.5', missingSpawn)).toBe(false);
+    });
+
+    test('detects whether the registry has the package at all', () => {
+        const okSpawn = (() => ({ status: 0, stdout: '0.1.5\n', stderr: '' })) as typeof spawnSync;
+        const missingSpawn = (() => ({ status: 1, stdout: '', stderr: 'E404 not found' })) as typeof spawnSync;
+        const emptySpawn = (() => ({ status: 0, stdout: '', stderr: '' })) as typeof spawnSync;
+
+        expect(npmViewPackage('@gobing-ai/ts-cache', okSpawn)).toBe(true);
+        expect(npmViewPackage('@gobing-ai/ts-cache', missingSpawn)).toBe(false);
+        expect(npmViewPackage('@gobing-ai/ts-cache', emptySpawn)).toBe(false);
     });
 
     test('normalizes npm publish output', () => {

@@ -8,6 +8,7 @@ import {
     createReleaseTag,
     isAlreadyPublishedError,
     npmPublish,
+    npmViewPackage,
     npmViewVersion,
     selectPackagesForPublish,
     sortPackagesByDependencyOrder,
@@ -78,31 +79,91 @@ export interface PublishPackagesDeps {
     selectPackagesForPublish?: typeof selectPackagesForPublish;
     sortPackagesByDependencyOrder?: typeof sortPackagesByDependencyOrder;
     npmViewVersion?: typeof npmViewVersion;
+    npmViewPackage?: typeof npmViewPackage;
     npmPublish?: typeof npmPublish;
     isAlreadyPublishedError?: typeof isAlreadyPublishedError;
     log?: (message: string) => void;
+}
+
+export interface PublishPackagesOptions {
+    /**
+     * Publish exactly this one package, bypassing both the tag/aggregate
+     * selection and the "must already exist on npm" preflight.
+     *
+     * This is the one-time bootstrap for a brand-new package: Trusted
+     * Publishing cannot create a package, so the first publish runs locally
+     * with a personal npm login. It still resolves `workspace:` ranges and
+     * restores the manifest afterwards.
+     */
+    bootstrap?: string;
 }
 
 export async function publishPackages(
     refType = getEnvVar('GITHUB_REF_TYPE'),
     refName = getEnvVar('GITHUB_REF_NAME'),
     deps: PublishPackagesDeps = {},
+    options: PublishPackagesOptions = {},
 ): Promise<void> {
     const findPkgs = deps.findWorkspacePackages ?? findWorkspacePackages;
     const selectPkgs = deps.selectPackagesForPublish ?? selectPackagesForPublish;
     const sortPkgs = deps.sortPackagesByDependencyOrder ?? sortPackagesByDependencyOrder;
     const checkNpm = deps.npmViewVersion ?? npmViewVersion;
+    const checkExists = deps.npmViewPackage ?? npmViewPackage;
     const pubNpm = deps.npmPublish ?? npmPublish;
     const isAlreadyPubErr = deps.isAlreadyPublishedError ?? isAlreadyPublishedError;
     const log = deps.log ?? console.log;
 
     const packages = await findPkgs();
     const versions = new Map(packages.map((pkg) => [pkg.name, pkg.version]));
-    const selected = await selectPkgs(packages, refType, refName);
-    const orderedSelected = await sortPkgs(selected);
+
+    let orderedSelected: WorkspacePackage[];
+    if (options.bootstrap !== undefined) {
+        const target = packages.find((pkg) => pkg.name === options.bootstrap);
+        if (!target) {
+            throw new Error(`--bootstrap names ${options.bootstrap}, but no workspace package has that name`);
+        }
+
+        if (target.private) {
+            throw new Error(`--bootstrap names private package ${target.name}`);
+        }
+
+        orderedSelected = [target];
+    } else {
+        const selected = await selectPkgs(packages, refType, refName);
+        orderedSelected = await sortPkgs(selected);
+    }
+
+    // Memoized so the preflight and the loop agree on what is pending without
+    // asking the registry twice for the same package.
+    const published = new Map<string, boolean>();
+    const isPublished = (pkg: WorkspacePackage): boolean => {
+        const known = published.get(pkg.name);
+        if (known !== undefined) return known;
+
+        const value = checkNpm(pkg.name, pkg.version);
+        published.set(pkg.name, value);
+        return value;
+    };
+
+    // Fail before touching the registry when a package has never been published:
+    // npm can only store a Trusted Publisher on an existing package, so OIDC
+    // cannot authenticate the first publish (ENEEDAUTH). Aborting here keeps a
+    // brand-new package from stranding every package ordered after it.
+    if (options.bootstrap === undefined) {
+        const unknown = orderedSelected
+            .filter((pkg) => !isPublished(pkg) && !checkExists(pkg.name))
+            .map((pkg) => pkg.name);
+        if (unknown.length > 0) {
+            throw new Error(
+                `not on npm yet: ${unknown.join(', ')}. Trusted Publishing cannot create a package — bootstrap the ` +
+                    'first publish locally (bun scripts/builder.ts publish-packages --bootstrap <name>), then re-run ' +
+                    'this workflow. See docs/PACKAGE_RELEASE.md → "Releasing a brand-new package".',
+            );
+        }
+    }
 
     for (const pkg of orderedSelected) {
-        if (checkNpm(pkg.name, pkg.version)) {
+        if (isPublished(pkg)) {
             log(`skip: ${pkg.name}@${pkg.version} already published`);
             continue;
         }
