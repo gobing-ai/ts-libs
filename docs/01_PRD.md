@@ -3,9 +3,9 @@ name: Product Requirements Document
 doc: 01_PRD
 owns: WHAT — product vision, users, scope (in / out / deferred)
 authority: authoritative-on-scope
-version: 1.1.0
+version: 1.2.0
 owner: Robin Min
-updated_at: 2026-09-26
+updated_at: 2026-09-27
 read_before: adding a package or public capability
 edit_rules: 99 §6.2
 sync: [T1, T4, T6]
@@ -29,7 +29,7 @@ AI-agent, rules, workflow, import, and browser automation concerns across Gobing
 
 ### In scope
 
-- Lockstep-versioned `@gobing-ai/ts-*` libraries under `packages/*`, including the planned browser automation package for dedicated authenticated profiles.
+- Lockstep-versioned `@gobing-ai/ts-*` libraries under `packages/*`, including browser automation for dedicated authenticated profiles.
 - Portable core APIs with platform-specific behavior isolated behind owning packages or adapter subpaths.
 - Bun-based build, test, release, and Spur rule gates for the workspace.
 

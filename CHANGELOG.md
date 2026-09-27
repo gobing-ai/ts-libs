@@ -8,6 +8,12 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.10] - 2026-09-27
+
+### Other
+
+- **Feature M scaffold + task 0088 intake — `@gobing-ai/ts-browser-automation`.** Added a feature M satellite covering a portable Playwright browser-session package (headed login + headless profile reuse) and the first intake task, `0088 build reusable playwright browser profile sessions`, which designs and ships the new package with typed `persistent-context` / `page` exports. Docs-only in this release: PRD v1.1.0 / ROADMAP Phase 2 + the feature satellite and the task requirement file. No runtime code, no public API change. `cc59b2f5`, `7ff07e70`.
+
 ## [0.5.8] - 2026-09-26
 
 ### Fixed

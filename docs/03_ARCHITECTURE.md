@@ -3,10 +3,10 @@ name: Architecture
 doc: 03_ARCHITECTURE
 owns: HOW — module boundaries, data flow, runtime model, invariants, rationale-in-depth
 authority: derived
-version: 1.4.0
+version: 1.5.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-09-20
+updated_at: 2026-09-26
 read_before: cross-package, seam, or schema work
 edit_rules: 99 §6.4
 sync: [T1]
@@ -245,3 +245,27 @@ path utilities, and optional process inventory.
 
 `@gobing-ai/ts-utils` is the zero-dependency base layer for errors, output, API responses, cursors,
 dates, origins, access roles, and object helpers.
+
+## browser-automation
+
+`@gobing-ai/ts-browser-automation` (ADR-032) provides reusable Playwright persistent-profile
+browser sessions — one headed sign-in into a dedicated `profileDir`, then headless reuse from
+later automation. Surface shapes: `docs/design/browser-profile-sessions.md`.
+
+`packages/browser-automation/src/launcher.ts` is a single-module adapter seam and the sanctioned
+platform-API exception (ADR-011 addendum): it alone may use `node:fs/promises` and the runtime-lazy
+`import('playwright')`. Every other module routes generic path and existence work through
+`ts-runtime`. Playwright is a required peer `^1.55.0`, so the package is Node/Bun-only and the
+consumer owns the browser install.
+
+Invariants:
+
+- No module has a browser side effect at import time (`sideEffects: false`); the default launcher is
+  constructed on first use.
+- Authentication is established only by a caller-owned `isAuthenticated(page)` predicate, never by
+  profile-directory existence; a headless launch against a missing profile fails.
+- A profile directory is created owner-only (`0o700`) or adopted in place — never moved,
+  re-permissioned, or deleted — and its contents are never copied, logged, or exported.
+- One process per profile: Chromium's singleton lock surfaces as a typed `BrowserProfileBusyError`
+  instead of being swallowed or retried.
+- No app-specific defaults (channel registry, site selectors, credential store, profile path).

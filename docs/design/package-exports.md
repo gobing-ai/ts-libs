@@ -14,3 +14,5 @@ document usage.
 | `@gobing-ai/ts-dual-workflow-engine` | `.` | [README](../../packages/dual-workflow-engine/README.md) |
 | `@gobing-ai/ts-llm-jsonl-importer` | `.` | [README](../../packages/llm-jsonl-importer/README.md) |
 | `@gobing-ai/ts-laya-mlx` | `.` | [README](../../packages/laya-mlx/README.md) |
+| `@gobing-ai/ts-decision-fm` | `.` | [README](../../packages/decision-fm/README.md) |
+| `@gobing-ai/ts-browser-automation` | `.` | [README](../../packages/browser-automation/README.md) |

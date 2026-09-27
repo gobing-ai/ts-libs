@@ -17,5 +17,5 @@
 [done] **J**: Local Laya decision backend in ts-laya-mlx ([J_local-laya-decision-backend-in-ts-laya-mlx.md](./J_local-laya-decision-backend-in-ts-laya-mlx.md))
 [done] **K**: Apple fm on-device agent and ts-decision-fm decision backend ([K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md](./K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md))
 [done] **L**: hardening-review-remediation ([L_hardening-review-remediation.md](./L_hardening-review-remediation.md))
-[backlog] **M**: Reusable browser profile automation ([M_reusable-browser-profile-automation.md](./M_reusable-browser-profile-automation.md))
+[done] **M**: Reusable browser profile automation ([M_reusable-browser-profile-automation.md](./M_reusable-browser-profile-automation.md))
 <!-- END AUTO-GENERATED -->

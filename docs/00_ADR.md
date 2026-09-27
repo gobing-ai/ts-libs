@@ -3,9 +3,9 @@ name: Architecture Decision Records
 doc: 00_ADR
 owns: WHY — which cross-cutting decision was made, and the one-line reason
 authority: authoritative
-version: 1.3.0
+version: 1.4.0
 owner: Robin Min
-updated_at: 2026-09-20
+updated_at: 2026-09-26
 read_before: any structural change
 edit_rules: 99 §6.1
 sync: [T1, T2]
@@ -581,3 +581,41 @@ explicit `fm` request still does.
 cannot route tool-using work to a model that would only narrate the edits.
 
 **Detail:** `docs/design/decision-fm-backend.md` § `fm` agent in `ts-ai-runner`.
+
+---
+
+## ADR-032: Browser Profile Sessions Ship as `ts-browser-automation` with a Sanctioned Playwright Adapter and Peer-Only Playwright Dependency
+
+**Status:** Accepted · **Date:** 2026-09-26 · **Targets:** `ts-browser-automation` (new)
+
+**Decision.** Reusable Playwright persistent profile sessions ship as their own
+lockstep-versioned workspace package, `@gobing-ai/ts-browser-automation` (source
+`packages/browser-automation`, task 0088). One internal launcher module
+(`src/launcher.ts`) is the single sanctioned exception to the ADR-011 addendum / ADR-014
+platform-API ownership rule, and only for the browser lifecycle: it may import
+`node:fs/promises` (owner-only `0o700` creation of the profile directory; existing
+directories are adopted in place) and it runtime-lazily `import('playwright')` so a missing
+peer fails with a clear, actionable error instead of an import-time crash. Every other
+generic operation — path resolution and existence checks — routes through
+`@gobing-ai/ts-runtime`. `playwright` is a required peer dependency at `^1.55.0` (matching
+knowledge-kit's current 1.55.0) plus a pinned `1.55.0` devDependency for typecheck and
+tests; consumers own the browser install (`playwright install chromium`).
+
+**Why.** Playwright only exists where a Chromium lifecycle exists, so a peer dependency
+keeps the package installable and type-safe without forcing a browser download on
+consumers that never open one. A single adapter module keeps the exception auditable and
+mirrorable into `.spur/rules/typescript/runtime-boundaries.yaml` (same pattern as
+`packages/infra/src/application-node.ts` for ADR-014 subpath adapters). The persistent
+user-data directory holds cookies and local storage, so creation is owner-only and the
+adapter never logs or exports profile contents.
+
+**Consequences.** The package is Node/Bun-only and requires the consumer to install
+Playwright plus Chromium. `.spur/rules/typescript/runtime-boundaries.yaml` lists
+`packages/browser-automation/src/launcher.ts` among the `no-direct-fs-io` adapter
+exclusions, added in the same change; no `no-direct-node-path` exclusion is required
+because path math routes through `ts-runtime`. `connectOverCDP` and `storageState` export
+stay deferred — callers get the typed `BrowserContext`/`Page` and own any site-specific CDP
+commands via `context.newCDPSession(page)`.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § browser-automation;
+`docs/design/browser-profile-sessions.md`; README under `packages/browser-automation/`.

@@ -3,10 +3,10 @@ name: Features
 doc: 05_FEATURES
 owns: STATUS — feature decomposition + state; index over docs/features/
 authority: derived
-version: 1.3.0
+version: 1.4.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-09-23
+updated_at: 2026-09-27
 read_before: finding a feature's state
 edit_rules: 99 §6.6
 sync: [T4, T9]
@@ -35,5 +35,7 @@ Feature satellites are owned by `spur feature`. The generated, authoritative ros
 | I | Add DeepSeek dsh coding agent support | 🔶 partial | [`I_add-deepseek-dsh-coding-agent-support.md`](features/I_add-deepseek-dsh-coding-agent-support.md) |
 | J | Local Laya decision backend in ts-laya-mlx | ✅ done | [`J_local-laya-decision-backend-in-ts-laya-mlx.md`](features/J_local-laya-decision-backend-in-ts-laya-mlx.md) |
 | K | Apple fm on-device agent and ts-decision-fm decision backend | ✅ done | [`K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md`](features/K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md) |
+| L | hardening-review-remediation | ✅ done | [`L_hardening-review-remediation.md`](features/L_hardening-review-remediation.md) |
+| M | Reusable browser profile automation | ✅ done | [`M_reusable-browser-profile-automation.md`](features/M_reusable-browser-profile-automation.md) |
 
 **Status legend:** ✅ done · 🔶 partial · ⏳ planned · 💤 deferred

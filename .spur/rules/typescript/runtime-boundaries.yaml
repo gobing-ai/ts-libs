@@ -110,6 +110,9 @@ rules:
             - "packages/runtime/src/file-system-node.ts"
             - "packages/runtime/src/file-system-cf.ts"
             - "packages/infra/src/application-node.ts"
+            # ADR-032: browser adapter owns Playwright/Chromium lifecycle; needs
+            # node:fs/promises for owner-only (0o700) profile-dir creation only.
+            - "packages/browser-automation/src/launcher.ts"
 
   # ── Path math ──────────────────────────────────────────────────────────
 
