@@ -48,7 +48,7 @@
         "format": "biome check . --write",
         "parity": "bun scripts/full-parity.ts",
         "check": "bun run lint && bun run test",
-        "prepublishOnly": "bun run build",
+        "prepublishOnly": "bun ../../scripts/builder.ts check-publish-manifest . && bun run build",
         "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-laya-mlx-v<version> && git push --tags' && exit 1"
     },
     "dependencies": {

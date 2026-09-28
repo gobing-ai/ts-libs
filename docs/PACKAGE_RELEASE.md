@@ -124,7 +124,9 @@ Create `packages/<new-pkg>/` following the conventions of the existing packages.
 
 ### 2. Publish the first version manually
 
-Do **not** run a bare `npm publish` from the package directory: npm packs the manifest as-is, so a sibling dependency written as `workspace:*` (ADR-002) would be published unresolved and uninstallable. Use the release script's bootstrap mode from the **repo root** — it substitutes `workspace:` ranges for the tarball, restores the manifest afterwards, and skips the "must already exist on npm" preflight:
+Do **not** run a bare `npm publish` from the package directory: npm packs the manifest as-is, so a sibling dependency written as `workspace:*` (ADR-002) would be published unresolved and uninstallable. A bare publish is now **blocked**, not merely discouraged — every package's `prepublishOnly` runs `builder.ts check-publish-manifest`, which refuses to pack an unresolved `workspace:` range.
+
+Use the release script's bootstrap mode from the **repo root** — it substitutes `workspace:` ranges for the tarball, restores the manifest afterwards, and skips the "must already exist on npm" preflight:
 
 ```bash
 npm login                                                        # personal account + 2FA
@@ -187,6 +189,7 @@ From now on this package releases with the others via `bun run bump-ver <version
 | Publish run fails with tag/version mismatch | The workflow checked out a commit whose manifest version does not match the tag | Recreate the tag on the correct release commit, or use a new version if npm already has the old one |
 | Publish run shows "already published" skip | Normal for a retried run or a version already present on npm | None if npm has the expected version |
 | Publish run fails with `ENEEDAUTH` on a package that isn't on npm | Brand-new package in the release — npm has no Trusted Publisher to attach to a package it does not have (the preflight normally catches this *before* publishing anything) | Bootstrap the first publish (`publish-packages --bootstrap <name>`, step 2), configure the Trusted Publisher (step 3), then re-run the workflow — it is idempotent |
+| `npm publish` aborts with `unresolved workspace range "...": "workspace:*" — refusing to publish a broken manifest` | A hand-run publish (bootstrap) is packing a manifest whose `workspace:` ranges were never substituted | Use `publish-packages --bootstrap <name>` from the repo root (step 2) — it resolves the ranges first. Do not work around the guard |
 | Publish run fails with `ENEEDAUTH` on a package that *is* on npm | Trusted Publisher not configured / field mismatch | Re-check the table in step 3 (workflow filename = `publish.yml`, env blank) |
 | `npm publish` fails with auth error in CI | Trusted Publisher not configured / field mismatch | Re-check the table in step 3 (workflow filename = `publish.yml`, env blank) |
 | Consumer install conflict after release | Consumer mixes different lockstep releases | Align all `@gobing-ai/ts-*` packages to the same released version |

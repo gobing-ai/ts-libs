@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+
 /**
  * Resolution of `workspace:*` internal dependency ranges for publishing.
  *
@@ -14,6 +16,7 @@
 
 /** A package.json shape, narrowed to the dependency maps we rewrite. */
 export interface ManifestLike {
+    name?: string;
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
     peerDependencies?: Record<string, string>;
@@ -94,4 +97,25 @@ export function assertNoWorkspaceRanges(manifest: ManifestLike, packageName: str
             }
         }
     }
+}
+
+/**
+ * Fail-closed guard for `npm publish` itself, wired into every package's
+ * `prepublishOnly`.
+ *
+ * npm packs the manifest verbatim, so a hand-run `npm publish` (the one-time
+ * bootstrap of a new package) would otherwise ship `"workspace:*"` and break
+ * the package on the registry: consumers fail with EUNSUPPORTEDPROTOCOL.
+ * `prepublishOnly` runs in the package directory, so this inspects the manifest
+ * npm is about to pack. The CI path writes resolved ranges to disk before
+ * invoking npm, so it passes.
+ *
+ * @param dir directory holding the manifest to check; defaults to the current
+ *   working directory, which is the package being published.
+ */
+export async function assertPublishableManifest(dir = '.'): Promise<void> {
+    const manifestPath = join(dir, 'package.json');
+    const manifest = (await Bun.file(manifestPath).json()) as ManifestLike;
+
+    assertNoWorkspaceRanges(manifest, manifest.name ?? manifestPath);
 }

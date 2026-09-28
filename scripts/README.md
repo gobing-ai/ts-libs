@@ -10,9 +10,14 @@ bun scripts/builder.ts drop-tags <version> [--remote]
 bun scripts/builder.ts build
 bun scripts/builder.ts typecheck
 bun scripts/builder.ts fix-dist-esm-extensions <dist-dir> [...dist-dir]
+bun scripts/builder.ts check-publish-manifest [dir]
 bun scripts/builder.ts publish-packages [--bootstrap <package>]
 bun scripts/builder.ts smoke-dist-imports
 ```
+
+`check-publish-manifest` fails closed when the manifest npm is about to pack still contains a
+`workspace:` range. It is wired into every package's `prepublishOnly`, so a hand-run
+`npm publish` refuses to ship an unresolvable dependency instead of publishing a broken version.
 
 `publish-packages --bootstrap <package>` publishes exactly one package, resolving `workspace:`
 dependency ranges and skipping the "must already exist on npm" preflight. It is the one-time

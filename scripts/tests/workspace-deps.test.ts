@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
     assertNoWorkspaceRanges,
+    assertPublishableManifest,
     isWorkspaceRange,
     resolveWorkspaceRange,
     substituteWorkspaceRanges,
@@ -96,5 +100,50 @@ describe('assertNoWorkspaceRanges (fail-closed)', () => {
         expect(() =>
             assertNoWorkspaceRanges({ dependencies: { '@gobing-ai/ts-db': 'workspace:*' } }, '@gobing-ai/ts-x'),
         ).toThrow('refusing to publish');
+    });
+});
+
+describe('assertPublishableManifest (prepublishOnly guard)', () => {
+    /** Write a package.json into a throwaway directory and return that directory. */
+    async function fixture(manifest: unknown): Promise<string> {
+        const dir = await mkdtemp(join(tmpdir(), 'publish-manifest-'));
+        await writeFile(join(dir, 'package.json'), `${JSON.stringify(manifest, null, 4)}\n`);
+        return dir;
+    }
+
+    test('passes a manifest whose ranges were resolved for publish', async () => {
+        const dir = await fixture({
+            name: '@gobing-ai/ts-x',
+            dependencies: { '@gobing-ai/ts-db': '^0.2.0' },
+        });
+        try {
+            await expect(assertPublishableManifest(dir)).resolves.toBeUndefined();
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('refuses a hand-run publish that would ship workspace:*', async () => {
+        const dir = await fixture({
+            name: '@gobing-ai/ts-x',
+            dependencies: { '@gobing-ai/ts-runtime': 'workspace:*' },
+        });
+        try {
+            // Names the package and the offending range, so the failure is actionable.
+            await expect(assertPublishableManifest(dir)).rejects.toThrow(
+                '@gobing-ai/ts-x: unresolved workspace range "@gobing-ai/ts-runtime": "workspace:*"',
+            );
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('falls back to the manifest path when the manifest has no name', async () => {
+        const dir = await fixture({ dependencies: { '@gobing-ai/ts-runtime': 'workspace:*' } });
+        try {
+            await expect(assertPublishableManifest(dir)).rejects.toThrow(/package\.json: unresolved workspace range/);
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
     });
 });

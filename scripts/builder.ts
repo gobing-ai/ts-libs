@@ -2,6 +2,7 @@
 import { buildPackages, cleanPackages, fixDistRoots, smokeDistImports, typecheckPackages } from './lib/build';
 import { bumpVersion, dropTags, publishPackages } from './lib/release-commands';
 import { findWorkspacePackages } from './lib/workspace';
+import { assertPublishableManifest } from './lib/workspace-deps';
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -24,6 +25,12 @@ try {
 
         case 'fix-dist-esm-extensions': {
             await fixDistRoots(args);
+            break;
+        }
+
+        case 'check-publish-manifest': {
+            await assertPublishableManifest(args[0] ?? '.');
+            console.log('publish manifest is clean: no unresolved workspace: ranges');
             break;
         }
 
@@ -87,6 +94,7 @@ Commands:
   build
   typecheck
   fix-dist-esm-extensions <dist-dir> [...dist-dir]
+  check-publish-manifest [dir]
   publish-packages [--bootstrap <package>]
   smoke-dist-imports`);
 }
