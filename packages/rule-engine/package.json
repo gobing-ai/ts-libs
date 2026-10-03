@@ -28,7 +28,9 @@
         ".": {
             "types": "./dist/index.d.ts",
             "import": "./dist/index.js"
-        }
+        },
+        "./schemas/*": "./schemas/*",
+        "./package.json": "./package.json"
     },
     "files": [
         "dist",

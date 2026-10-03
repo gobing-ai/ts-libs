@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadPresetRules, loadRuleFile } from '../../src/config/loader';
@@ -150,5 +150,44 @@ describe('loadPresetRules schema validation', () => {
             'failed JSON schema validation',
         );
         expect(await loadPresetRules('recommended', { roots: [root], validateSchema: false })).toEqual([]);
+    });
+});
+
+describe('documented package-specifier $schema refs', () => {
+    // The README tells authors to write these specifiers; they resolve through node_modules from the
+    // config file's directory, so the fixture must live inside the workspace, not in tmpdir().
+    test('resolve through the package exports map', async () => {
+        const dir = await mkdtemp(join(import.meta.dir, '.schema-spec-'));
+        try {
+            const rulePath = join(dir, 'rules.yaml');
+            await writeFile(
+                rulePath,
+                '$schema: "@gobing-ai/ts-rule-engine/schemas/rule-file.schema.json"\nrules:\n  - id: ok\n    evaluator:\n      type: path\n',
+            );
+            expect((await loadRuleFile(rulePath)).rules).toHaveLength(1);
+
+            await writeFile(
+                join(dir, 'recommended.yaml'),
+                '$schema: "@gobing-ai/ts-rule-engine/schemas/preset.schema.json"\nname: recommended\nextra: nope\n',
+            );
+            await expect(loadPresetRules('recommended', { roots: [dir] })).rejects.toThrow(
+                'failed JSON schema validation',
+            );
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    // Standard (exports-gated) resolvers — editors, Node's require.resolve — must reach the
+    // documented specifiers directly, not only via ts-runtime's package.json sidestep.
+    test('are exported for standard module resolution', () => {
+        for (const name of ['rule-file', 'preset']) {
+            expect(Bun.resolveSync(`@gobing-ai/ts-rule-engine/schemas/${name}.schema.json`, import.meta.dir)).toEndWith(
+                `rule-engine/schemas/${name}.schema.json`,
+            );
+        }
+        expect(Bun.resolveSync('@gobing-ai/ts-rule-engine/package.json', import.meta.dir)).toEndWith(
+            'rule-engine/package.json',
+        );
     });
 });
