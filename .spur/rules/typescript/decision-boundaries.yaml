@@ -90,3 +90,39 @@ rules:
         scope:
           include:
             - "packages/decision-fm/src/**/*.ts"
+
+  - id: no-ai-decision-import-in-ai-runner
+    description: "ADR-033 / task 0089: @gobing-ai/ts-ai-runner must not import @gobing-ai/ts-ai-decision. The decision catalog is a consumer of the DecisionMaker surface; the dependency stays one-way."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-ai-decision"
+        scope:
+          include:
+            - "packages/ai-runner/src/**/*.ts"
+
+  - id: no-ai-decision-import-in-decision-fm
+    description: "ADR-033 / task 0089: @gobing-ai/ts-decision-fm must not import @gobing-ai/ts-ai-decision. The fm driver sits below the catalog layer; the dependency stays one-way."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-ai-decision"
+        scope:
+          include:
+            - "packages/decision-fm/src/**/*.ts"
+
+  - id: no-ai-decision-import-in-laya-mlx
+    description: "ADR-033 / task 0089: @gobing-ai/ts-laya-mlx must not import @gobing-ai/ts-ai-decision. The local driver sits below the catalog layer; the dependency stays one-way."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-ai-decision"
+        scope:
+          include:
+            - "packages/laya-mlx/src/**/*.ts"

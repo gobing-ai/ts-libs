@@ -1,0 +1,11 @@
+# The `instructions` parameter is reserved and implicit; declaring it is a load error.
+version: 1
+decisions:
+  category:
+    type: choice
+    parameters:
+      instructions: string
+    criteria:
+      bug_report: Something is broken
+      billing: Charges and refunds
+    fallback: billing

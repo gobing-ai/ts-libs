@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=../schemas/decision-catalog.schema.json
+$schema: "@gobing-ai/ts-ai-decision/schemas/decision-catalog.schema.json"
+version: 1
+defaults:
+  maker: typesafe        # a registered maker name (built-ins: typesafe | fm-local | laya-local)
+  model: jev-latest      # forwarded as the ask-level model; omit for the backend default
+  minConfidence: 0.7
+
+decisions:
+  category:
+    type: choice
+    description: Route an inbound support ticket
+    instructions: "Classify this ${params.channel} ticket: ${params.instructions}"
+    parameters:
+      channel: { type: enum, values: [email, chat], default: email }
+    criteria:                   # label -> description; >= 2 labels
+      bug_report: The user is reporting something that is broken or producing errors
+      billing: Charges, invoices, refunds, subscriptions
+      feature_request: The user is requesting new functionality
+      account: Login, permissions, profile, security
+    fallback: account           # must be a criteria label
+
+  bug_severity:
+    type: score
+    parameters:
+      component: string         # shorthand: type only -> required
+      affected_users: { type: number, default: 10 }
+    # no `instructions` key -> defaults to "${params.instructions}"
+    criteria:                   # ordered rubric, index = level; >= 2 entries
+      - Cosmetic; no impact to functionality
+      - "Broken or degraded feature in ${params.component}; workaround exists"
+      - Blocking issue; no workaround exists
+    fallback: 1                 # integer level in [0, criteria.length - 1]
+    maker: laya-local           # per-decision override
+
+  refund_requested:
+    type: noul
+    criteria:                   # optional; Jev keys
+      true: The customer explicitly asks for money back
+      false: Anything else
+    fallback: false             # boolean
+    minConfidence: 0.8
+
+  send_reply:
+    type: choice
+    description: Draft or drop an automated reply
+    instructions: "Reply in a ${params.tone} tone. Context: ${params.context}"
+    parameters:
+      tone: { type: enum, values: [formal, casual], default: casual }
+      context: { type: json, default: null }   # optional; substitutes as "" when null
+    criteria:
+      send: Draft a reply for review
+      discard: Do not reply
+    fallback: discard

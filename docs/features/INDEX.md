@@ -18,5 +18,5 @@
 [done] **K**: Apple fm on-device agent and ts-decision-fm decision backend ([K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md](./K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md))
 [done] **L**: hardening-review-remediation ([L_hardening-review-remediation.md](./L_hardening-review-remediation.md))
 [done] **M**: Reusable browser profile automation ([M_reusable-browser-profile-automation.md](./M_reusable-browser-profile-automation.md))
-[backlog] **N**: Declarative AI decision catalog and hub in ts-ai-decision ([N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md](./N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md))
+[active] **N**: Declarative AI decision catalog and hub in ts-ai-decision ([N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md](./N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md))
 <!-- END AUTO-GENERATED -->

@@ -1,0 +1,9 @@
+# Fallback outside the answer vocabulary: "unknown_label" is not a declared criteria label.
+version: 1
+decisions:
+  category:
+    type: choice
+    criteria:
+      bug_report: Something is broken
+      billing: Charges and refunds
+    fallback: unknown_label

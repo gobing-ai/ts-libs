@@ -1,0 +1,52 @@
+# Multi-decision catalog used by the e2e suite (no $schema header here; see with-schema-ref.yaml).
+version: 1
+defaults:
+  maker: typesafe
+  model: jev-latest
+  minConfidence: 0.7
+
+decisions:
+  category:
+    type: choice
+    description: Route an inbound support ticket
+    instructions: "Classify this ${params.channel} ticket: ${params.instructions}"
+    parameters:
+      channel: { type: enum, values: [email, chat], default: email }
+    criteria:
+      bug_report: The user is reporting something that is broken or producing errors
+      billing: Charges, invoices, refunds, subscriptions
+      feature_request: The user is requesting new functionality
+      account: Login, permissions, profile, security
+    fallback: account
+
+  bug_severity:
+    type: score
+    parameters:
+      component: string
+      affected_users: { type: number, default: 10 }
+    criteria:
+      - Cosmetic; no impact to functionality
+      - "Broken or degraded feature in ${params.component}; workaround exists"
+      - Blocking issue; no workaround exists
+    fallback: 1
+    maker: laya-local
+
+  refund_requested:
+    type: noul
+    criteria:
+      true: The customer explicitly asks for money back
+      false: Anything else
+    fallback: false
+    minConfidence: 0.8
+
+  send_reply:
+    type: choice
+    description: Draft or drop an automated reply
+    instructions: "Reply in a ${params.tone} tone. Context: ${params.context}"
+    parameters:
+      tone: { type: enum, values: [formal, casual], default: casual }
+      context: { type: json, default: null }
+    criteria:
+      send: Draft a reply for review
+      discard: Do not reply
+    fallback: discard

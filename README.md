@@ -31,6 +31,9 @@ graph TD
     dual["@gobing-ai/ts-dual-workflow-engine<br/>→ runtime, db"]
     importer["@gobing-ai/ts-llm-jsonl-importer<br/>→ runtime, db"]
     infra["@gobing-ai/ts-infra<br/>→ runtime, db"]
+    laya-mlx["@gobing-ai/ts-laya-mlx<br/>→ runtime, ai-runner"]
+    decision-fm["@gobing-ai/ts-decision-fm<br/>→ runtime, ai-runner"]
+    ai-decision["@gobing-ai/ts-ai-decision<br/>→ runtime, ai-runner, decision-fm, laya-mlx"]
 
     runtime --> utils
     db --> runtime
@@ -43,9 +46,17 @@ graph TD
     importer --> db
     infra --> runtime
     infra --> db
+    laya-mlx --> runtime
+    laya-mlx --> ai-runner
+    decision-fm --> runtime
+    decision-fm --> ai-runner
+    ai-decision --> runtime
+    ai-decision --> ai-runner
+    ai-decision --> decision-fm
+    ai-decision --> laya-mlx
 ```
 
-**592 tests across 8 packages.** All pass. No skipped.
+**2700 tests across 12 packages.** All pass. No skipped.
 
 ### Core Packages
 
@@ -60,6 +71,7 @@ graph TD
 - **[@gobing-ai/ts-rule-engine](packages/rule-engine/README.md)** — Constraint rule schemas, preset loading, evaluator orchestration, and result formatting. Powers `spur` and quality gates.
 - **[@gobing-ai/ts-dual-workflow-engine](packages/dual-workflow-engine/README.md)** — Standalone workflow runtime combining state-machine and transition-flow engines. Owns workflow definition loading, validation, variable resolution, action execution, persistence schema, and driver loops.
 - **[@gobing-ai/ts-llm-jsonl-importer](packages/llm-jsonl-importer/README.md)** — Generic JSONL importer for LLM agent history files. Handles schema validation, source definitions, content redaction, hash-based deduplication, and checkpointed incremental imports.
+- **[@gobing-ai/ts-ai-decision](packages/ai-decision/README.md)** — Declarative YAML decision catalogs (ADR-033) over the `DecisionMaker` surface of `@gobing-ai/ts-ai-runner`: strict catalog schema (JSON Schema + zod), `${params.*}` template validation/rendering, and load-time consistency checks. Declares `ts-decision-fm`/`ts-laya-mlx` as bundled driver dependencies.
 
 ## Getting Started
 

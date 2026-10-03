@@ -1,0 +1,12 @@
+# Score fallback outside the rubric: 3 levels -> valid levels are 0..2, not 5.
+version: 1
+decisions:
+  severity:
+    type: score
+    parameters:
+      component: string
+    criteria:
+      - Cosmetic
+      - Degraded
+      - Blocking
+    fallback: 5

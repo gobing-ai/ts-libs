@@ -1,0 +1,11 @@
+# Default type mismatch: `affected_users` is a number but the default is a string.
+version: 1
+decisions:
+  severity:
+    type: score
+    parameters:
+      affected_users: { type: number, default: "ten" }
+    criteria:
+      - Cosmetic
+      - Blocking
+    fallback: 0

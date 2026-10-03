@@ -1,0 +1,11 @@
+# Valid content, but the $schema package specifier cannot be resolved — rejected when
+# schema validation is on (the default), accepted with validateSchema: false.
+$schema: "@gobing-ai/no-such-pkg/schemas/missing.schema.json"
+version: 1
+decisions:
+  category:
+    type: choice
+    criteria:
+      a: First option
+      b: Second option
+    fallback: a

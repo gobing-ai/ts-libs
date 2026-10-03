@@ -1,0 +1,13 @@
+# AC2 — a catalog that declares the bundled schema through the package specifier.
+$schema: "@gobing-ai/ts-ai-decision/schemas/decision-catalog.schema.json"
+version: 1
+decisions:
+  escalate:
+    type: noul
+    instructions: "Escalate to a human? ${params.instructions}"
+    parameters:
+      sentiment: { type: enum, values: [positive, neutral, negative], default: neutral }
+    criteria:
+      true: The customer is frustrated or the issue repeats
+      false: Handle automatically
+    fallback: false

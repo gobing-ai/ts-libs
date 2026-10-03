@@ -24,6 +24,9 @@
         },
         {
             "path": "./packages/llm-jsonl-importer"
+        },
+        {
+            "path": "./packages/ai-decision"
         }
     ]
 }

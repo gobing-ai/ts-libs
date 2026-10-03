@@ -1,0 +1,226 @@
+{
+    "$schema": "http://json-schema.org/draft/2020-12/schema",
+    "title": "AI decision catalog",
+    "description": "Declarative decision catalog for @gobing-ai/ts-ai-decision (task 0089). Strict: unknown keys are rejected at every level. Cross-field checks (fallback vocabulary, ${params.*} references, defaults, reserved instructions parameter) run at load time.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["version", "decisions"],
+    "properties": {
+        "$schema": {
+            "type": "string",
+            "description": "Bundled package-specifier ref to this schema; validated when present."
+        },
+        "version": {
+            "const": 1
+        },
+        "defaults": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "maker": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$",
+                    "description": "Registered maker name (built-ins: typesafe | fm-local | laya-local)."
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Forwarded as the ask-level model; omit for the backend default."
+                },
+                "minConfidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                }
+            }
+        },
+        "decisions": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_-]*$"
+            },
+            "additionalProperties": {
+                "$ref": "#/$defs/decision"
+            }
+        }
+    },
+    "$defs": {
+        "jsonValue": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/jsonValue"
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/$defs/jsonValue"
+                    }
+                }
+            ]
+        },
+        "jevEntry": {
+            "description": "A Jev entry: description string, JSON object, JSON array, or null (left undescribed). Description string leaves support ${params.*} templating.",
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/jsonValue"
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/$defs/jsonValue"
+                    }
+                }
+            ]
+        },
+        "paramType": {
+            "enum": ["string", "number", "boolean", "enum", "json"]
+        },
+        "param": {
+            "anyOf": [
+                {
+                    "$ref": "#/$defs/paramType"
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["type"],
+                    "properties": {
+                        "type": {
+                            "$ref": "#/$defs/paramType"
+                        },
+                        "default": {},
+                        "values": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "minItems": 1,
+                            "description": "Accepted strings for type: enum (at least one)."
+                        },
+                        "description": {
+                            "type": "string"
+                        }
+                    }
+                }
+            ]
+        },
+        "choiceCriteria": {
+            "type": "object",
+            "minProperties": 2,
+            "additionalProperties": {
+                "$ref": "#/$defs/jevEntry"
+            }
+        },
+        "scoreCriteria": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+                "$ref": "#/$defs/jevEntry"
+            }
+        },
+        "noulCriteria": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "true": {
+                    "$ref": "#/$defs/jevEntry"
+                },
+                "false": {
+                    "$ref": "#/$defs/jevEntry"
+                }
+            }
+        },
+        "decision": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "fallback"],
+            "properties": {
+                "type": {
+                    "enum": ["choice", "score", "noul"]
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Documentation only; never sent to the model."
+                },
+                "instructions": {
+                    "$ref": "#/$defs/jevEntry",
+                    "description": "Templated Jev entry; defaults to \"${params.instructions}\"."
+                },
+                "parameters": {
+                    "type": "object",
+                    "propertyNames": {
+                        "pattern": "^[a-z][a-zA-Z0-9_]*$"
+                    },
+                    "additionalProperties": {
+                        "$ref": "#/$defs/param"
+                    }
+                },
+                "criteria": {
+                    "description": "choice: label map (>= 2 labels); score: ordered rubric (>= 2 levels); noul: optional { true?, false? }.",
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/choiceCriteria"
+                        },
+                        {
+                            "$ref": "#/$defs/scoreCriteria"
+                        },
+                        {
+                            "$ref": "#/$defs/noulCriteria"
+                        }
+                    ]
+                },
+                "fallback": {
+                    "description": "choice: a declared label; score: integer level in [0, levels-1]; noul: boolean.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "boolean"
+                        }
+                    ]
+                },
+                "minConfidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                },
+                "maker": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$",
+                    "description": "Registered maker name; checked by the hub, not the loader."
+                },
+                "model": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

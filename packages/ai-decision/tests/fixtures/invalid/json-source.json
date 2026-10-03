@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "decisions": {
+        "category": {
+            "type": "choice",
+            "criteria": { "a": "First option", "b": "Second option" },
+            "fallback": "a"
+        }
+    }
+}

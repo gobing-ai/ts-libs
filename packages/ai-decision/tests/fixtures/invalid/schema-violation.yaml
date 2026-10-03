@@ -1,0 +1,11 @@
+# Schema violation: `extras` is not part of the catalog schema (additionalProperties: false).
+$schema: "@gobing-ai/ts-ai-decision/schemas/decision-catalog.schema.json"
+version: 1
+extras: nope
+decisions:
+  category:
+    type: choice
+    criteria:
+      a: First option
+      b: Second option
+    fallback: a

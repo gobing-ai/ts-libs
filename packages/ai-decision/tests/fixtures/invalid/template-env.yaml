@@ -1,0 +1,10 @@
+# Template refs may only use the params namespace; ${env.HOME} would leak environment values.
+version: 1
+decisions:
+  category:
+    type: choice
+    instructions: "Classify this ticket (home: ${env.HOME})"
+    criteria:
+      bug_report: Something is broken
+      billing: Charges and refunds
+    fallback: billing

@@ -1,0 +1,251 @@
+{
+  "suite": "hub-e2e",
+  "results": [
+    {
+      "case": "choice accepted",
+      "id": "category",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "billing"
+    },
+    {
+      "case": "precedence: catalog defaults",
+      "id": "plain_choice",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "maker-catalog",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a"
+    },
+    {
+      "case": "precedence: decision maker",
+      "id": "pinned_choice",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "maker-decision",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a"
+    },
+    {
+      "case": "precedence: per-call maker",
+      "id": "pinned_choice",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "maker-percall",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a"
+    },
+    {
+      "case": "precedence: hub defaultMaker",
+      "id": "bare_choice",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "maker-default",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a"
+    },
+    {
+      "case": "model: decision wins",
+      "id": "modeled",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "model-check",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a"
+    },
+    {
+      "case": "model: catalog default",
+      "id": "unmodeled",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "model-check",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a"
+    },
+    {
+      "case": "model: omitted",
+      "id": "plain",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "model-check",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a"
+    },
+    {
+      "case": "score accepted",
+      "id": "bug_severity",
+      "confidence": 0.85,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "laya-local",
+      "durationMs": 0,
+      "type": "score",
+      "value": 1.5
+    },
+    {
+      "case": "noul accepted",
+      "id": "refund_requested",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "noul",
+      "value": true,
+      "probability": 0.9
+    },
+    {
+      "case": "noul boundary at half",
+      "id": "coin",
+      "confidence": 0.5,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "boundary",
+      "durationMs": 0,
+      "type": "noul",
+      "value": true,
+      "probability": 0.5
+    },
+    {
+      "case": "noul boundary below half",
+      "id": "coin",
+      "confidence": 0.55,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "boundary",
+      "durationMs": 0,
+      "type": "noul",
+      "value": false,
+      "probability": 0.45
+    },
+    {
+      "case": "low-confidence choice",
+      "id": "category",
+      "confidence": 0.5,
+      "source": "default",
+      "reason": "low-confidence",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "low-confidence noul",
+      "id": "refund_requested",
+      "confidence": 0.5,
+      "source": "default",
+      "reason": "low-confidence",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "noul",
+      "value": false,
+      "probability": 0.5
+    },
+    {
+      "case": "no-backend: missing key",
+      "id": "plain",
+      "confidence": null,
+      "source": "default",
+      "reason": "no-backend",
+      "maker": "keyless",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a"
+    },
+    {
+      "case": "no-backend: factory throws",
+      "id": "plain",
+      "confidence": null,
+      "source": "default",
+      "reason": "no-backend",
+      "maker": "boom",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "b"
+    },
+    {
+      "case": "timeout",
+      "id": "bug_severity",
+      "confidence": null,
+      "source": "default",
+      "reason": "timeout",
+      "maker": "laya-local",
+      "durationMs": 0,
+      "type": "score",
+      "value": 1
+    },
+    {
+      "case": "error: missing answer",
+      "id": "category",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "error: mismatched answer kind",
+      "id": "category",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "empty instructions",
+      "id": "category",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "createDecisionHub: choice",
+      "id": "category",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "bug_report"
+    },
+    {
+      "case": "createDecisionHub: score",
+      "id": "triage_priority",
+      "confidence": 0.8,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "scorer",
+      "durationMs": 0,
+      "type": "score",
+      "value": 1
+    }
+  ]
+}

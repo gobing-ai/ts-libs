@@ -1,0 +1,10 @@
+# Template ref to an undeclared parameter (${params.topic}).
+version: 1
+decisions:
+  category:
+    type: choice
+    instructions: "Classify this ${params.topic} ticket"
+    criteria:
+      bug_report: Something is broken
+      billing: Charges and refunds
+    fallback: billing

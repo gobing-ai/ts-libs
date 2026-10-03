@@ -1,0 +1,14 @@
+# The `yaml` lib rejects duplicate mapping keys, so this fails at parse time.
+version: 1
+decisions:
+  category:
+    type: choice
+    parameters:
+      channel:
+        type: string
+        default: email
+        default: chat
+    criteria:
+      a: First option
+      b: Second option
+    fallback: a
