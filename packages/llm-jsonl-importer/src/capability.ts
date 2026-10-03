@@ -323,7 +323,7 @@ export function parseLiteralReadTargets(command: string): readonly string[] {
                     sawNoPrint = false;
                     break;
                 }
-                if (lastPathSegment(arg) === 'SKILL.md') targets.push(arg);
+                if (sawNoPrint && lastPathSegment(arg) === 'SKILL.md') targets.push(arg); // only the -n print form
                 break; // only one path per sed invocation
             }
             if (!sawNoPrint) continue;
@@ -365,7 +365,7 @@ export function extractNestedExecCommandLiterals(payloadText: string): readonly 
             line = end === -1 ? line.slice(0, blockStart) : line.slice(0, blockStart) + line.slice(end + 2);
             if (end === -1) inBlockComment = true;
         }
-        const statementStart = /(?:^|[{};]\s*)$/; // match must follow whitespace or a statement boundary
+        const statementStart = /(?:^|[{};])\s*$/; // match must follow whitespace or a statement boundary
         shape.lastIndex = 0;
         let match: RegExpExecArray | null = shape.exec(line);
         while (match !== null) {

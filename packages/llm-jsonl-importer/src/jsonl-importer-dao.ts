@@ -160,6 +160,7 @@ const SKILL_CALL_CAPABILITY_COLUMNS = [
     ['origin_identity', 'TEXT'],
 ] as const;
 
+/** Add any missing capability columns to an existing `history_skill_call` table; no-op when the table is absent. */
 export async function ensureSkillCallCapabilityColumns(db: ImportOptions['db']): Promise<void> {
     const existing = new Set<string>();
     for (const row of await db.queryAll<{ name: string }>('PRAGMA table_info(history_skill_call)')) {
