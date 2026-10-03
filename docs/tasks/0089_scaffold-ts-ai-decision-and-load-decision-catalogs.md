@@ -4,7 +4,7 @@ name: Scaffold ts-ai-decision and load decision catalogs
 status: done
 template: feature-impl
 created_at: 2026-10-03T05:42:57.272Z
-updated_at: "2026-10-03T17:53:41.186Z"
+updated_at: "2026-10-03T22:03:27.794Z"
 feature_id: N
 priority: P2
 tags:
@@ -188,21 +188,21 @@ bun run build → exit 0 (12/12 packages "Exited with code 0", incl. @gobing-ai/
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | packages/ai-decision/package.json:2-3,23,27-41 (name/version/sideEffects/exports/files); tsconfig.json:29; bun.lock:14; README.md:36,53-56,74; docs/design/package-exports.md:18 |
-| R2 | MET | packages/ai-decision/package.json deps workspace:* x4 + zod; packages/ai-decision/tsconfig.json:4-8 sibling paths; zero node:/Bun. imports in src (ts-runtime createNodeFileSystem/parseStructuredConfig) |
-| R3 | MET | .spur/rules/typescript/decision-boundaries.yaml:94,106,118 three forbidden-import rules scoped to packages/{ai-runner,decision-fm,laya-mlx}/src; zero reverse imports |
-| R4 | MET | packages/ai-decision/schemas/decision-catalog.schema.json strict additionalProperties:false at every level + patterns; mirrored zod .strict() src/schema.ts:12-16,44-95; tests/schema.test.ts pins |
-| R5 | MET | src/catalog.ts loadDecisionCatalog/parseDecisionCatalog over ts-runtime parseStructuredConfig ($schema default-on; package-specifier ref runtime schema-validation.ts:304-314); YAML-only; implicit reserved instructions param src/params.ts |
-| R6 | MET | src/errors.ts DecisionCatalogError{source,decisionId?,field?}; all-or-nothing buildCatalog/checkDecision; checkFallback/checkTemplateRefs/declared-instructions guard/defaultMatches; AC4 tests + tests/fixtures/invalid/ |
-| R7 | MET | src/params.ts resolveDecisionInput (Object.hasOwn guard, DecisionInputError), renderQuestion (${params.*} into instructions+criteria leaves only, default template src/params.ts:14), buildState excludes instructions/nulls |
+| R1 | MET | `packages/ai-decision/package.json:2-3` (name `@gobing-ai/ts-ai-decision`, lockstep 0.5.12), :23 `sideEffects:false`, :27-34 exports `.`/`./schemas/*`/`./package.json`, :35-41 files; `tsconfig.json:29` root reference; `README.md:36,53-56,74`; `docs/design/package-exports.md:18` — all re-read this run |
+| R2 | MET | `packages/ai-decision/package.json:54-58` workspace:* on ts-ai-runner/ts-decision-fm/ts-laya-mlx/ts-runtime + zod ^4.1.0; grep `node:`/`Bun.`/`process.env` over `packages/ai-decision/src/` → zero matches this run |
+| R3 | MET | `.spur/rules/typescript/decision-boundaries.yaml:94,106,118` three forbidden-import rules scoped to packages/{ai-runner,decision-fm,laya-mlx}/src — re-read this run |
+| R4 | MET | `packages/ai-decision/schemas/decision-catalog.schema.json` (strict, additionalProperties:false) mirrored by zod `DecisionCatalogSchema` in `packages/ai-decision/src/schema.ts`; pinned by `tests/schema.test.ts` (pass this run) |
+| R5 | MET | `packages/ai-decision/src/catalog.ts:49` `loadDecisionCatalog`, :65 `parseDecisionCatalog`, :73 over ts-runtime `parseStructuredConfig`; `packages/ai-decision/src/params.ts:14` default template `${params.instructions}`; implicit reserved `instructions` param via `implicitInstructionsParam()` (params.ts:20) |
+| R6 | MET | `packages/ai-decision/src/errors.ts:6` `DecisionCatalogError {source; decisionId?; field?}`; all-or-nothing checks proven by `tests/catalog.test.ts` AC4 describe over `tests/fixtures/invalid/` — pass this run |
+| R7 | MET | `packages/ai-decision/src/params.ts` `resolveDecisionInput` (Object.hasOwn unknown-key guard :61, missing-required + type mismatch → `DecisionInputError`), `renderQuestion` (:121, labels/fallback/maker never templated), `buildState` (:160, excludes instructions/nulls, null when empty) — re-read this run |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC-1 | MET | test | tests/catalog.test.ts multi-decision catalog load (tests/fixtures/valid/catalog.yaml) + shipped examples/support.yaml e2e |
-| AC-2 | MET | test | tests/catalog.test.ts bundled-schema ref validation (tests/fixtures/valid/with-schema-ref.yaml:2); negative unresolvable-$schema + validateSchema:false paths |
-| AC-3 | MET | test | tests/params.test.ts defaults overlay/unknown keys/missing required/type+enum/null-json describes; catalog.test.ts implicit instructions + buildState |
-| AC-4 | MET | test | tests/catalog.test.ts AC4 describe (schema violation, choice/score fallback vocab, undeclared + ${env.*} refs, declared instructions, default type mismatch, prototype-key fallback) each asserting decisionId+field |
-| AC-5 | MET | test | workspace:* deps x4; root tsconfig.json:29; bun.lock:14/281; README.md:36,53-56,74; docs/design/package-exports.md:18; decision-boundaries.yaml:94-127 |
+| AC-1 | MET | test | `cd packages/ai-decision && bun test` → 97 pass / 0 fail (this run); "loads a multi-decision catalog with defaults and per-decision fields" over `tests/fixtures/valid/catalog.yaml` |
+| AC-2 | MET | test | `tests/catalog.test.ts` "validates a catalog that declares the bundled schema" + unresolvable-$schema negative — pass this run |
+| AC-3 | MET | test | `tests/params.test.ts` defaults overlay / unknown keys / missing required / type+enum mismatch / null-json — pass this run |
+| AC-4 | MET | test | `tests/catalog.test.ts` AC4 describe (schema violation, fallback vocab, undeclared + env refs, declared instructions, default type mismatch) each asserting decisionId+field — pass this run |
+| AC-5 | MET | test | workspace:* deps re-read (`package.json:54-58`); root `tsconfig.json:29`; boundary rules `.spur/rules/typescript/decision-boundaries.yaml:94-127` re-read this run |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

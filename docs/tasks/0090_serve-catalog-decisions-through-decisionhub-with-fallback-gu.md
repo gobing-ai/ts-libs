@@ -4,7 +4,7 @@ name: Serve catalog decisions through DecisionHub with fallback-guaranteed decid
 status: done
 template: feature-impl
 created_at: 2026-10-03T05:42:57.282Z
-updated_at: "2026-10-03T19:06:23.370Z"
+updated_at: "2026-10-03T22:16:56.512Z"
 feature_id: N
 priority: P2
 tags:
@@ -171,29 +171,34 @@ Rationale: single `decide` call site makes the fallback guarantee auditable (Des
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | hub.ts:150 registry, 182 load, 221 loadFile, 226 list, 236 describe; all-or-nothing staging hub.ts:196-218; duplicate names both sources hub.ts:198-204 (field id), decision/defaults maker hub.ts:185-191,207-212 (field maker); tests hub.test.ts:196 duplicate both sources + nothing registered, 225, 251 |
-| R2 | MET | list hub.ts:226-233 {id,type,description,source}; describe hub.ts:236-258 parameters (incl. instructions), criteria, fallback, effective floor/maker; purity test 'list() and describe() never run a maker factory' hub.test.ts:802 (factoryRuns 0); contract test hub.test.ts:163 |
-| R3 | MET | single request hub.ts:278-285 (questions keyed by decision id, model decision->defaults->omitted), one maker.ask hub.ts:291; q.choice/q.score/q.noul hub.ts:133-147 (noul yes/no criteria hub.ts:139-145); test hub.test.ts:314 exactly one substituted question; model precedence hub.test.ts:416 |
-| R4 | MET | DecisionResult envelope hub.ts:44-63; choice label hub.ts:317-318, score number hub.ts:319-320, noul p>=0.5 + probability hub.ts:321-327, confidence max(p,1-p) hub.ts:123; tests hub.test.ts:459 fractional 1.5, 488, 512 boundary 0.5/0.45 |
-| R5 | MET | catch mapping hub.ts:328-334 (DecisionConfigError->no-backend, Timeout->timeout, else error); fallback source:'default' hub.ts:361-388; floor decision->defaults->0.7 hub.ts:110-112 + :37; low-confidence hub.ts:296-306; tests hub.test.ts:593, 622 factory throw->no-backend, 656, 674, 556, 573, 782 default 0.7 floor |
-| R6 | MET | UnknownDecisionError hub.ts:263 via mustGet hub.ts:343-351 (errors.ts:33-46); DecisionInputError hub.ts:264 via params.ts:57-84; per-call UnknownDecisionMakerError hub.ts:266-275; constructor hub.ts:166-172; all pre-backend — tests hub.test.ts:276, 286, 298, 307 each assert 0 driver requests |
-| R7 | MET | precedence hub.ts:266 options.maker ?? definition.maker ?? defaults.maker ?? this.defaultMaker; DEFAULT_MAKER 'typesafe' hub.ts:40; resolved only via registry.resolve hub.ts:289-290, hub builds no maker; test hub.test.ts:351 every maker-precedence step |
-| R8 | MET | examples/decisions.yaml:16-49 category/bug_severity/refund_requested field-for-field identical to design doc; README.md:14,50 catalog format + reserved instructions + ${params.*}, :57 hub usage, :81 fallback contract, :104,128 maker registration/selection |
-| R9 | MET | createDecisionHub hub.ts:409-423: registry-or-builtins :410, makers registered :411-413, catalogs loadFile in order with catalogOptions :414-416; failure rejects; tests hub.test.ts:709 two catalogs end-to-end, 760 bad path and second-file failure |
+| R1 | MET | `packages/ai-decision/src/hub.ts:157` `DecisionHub`, :221 `loadFile`, :199 duplicate-id error naming both sources, all-or-nothing `load` (hub.ts:177-199); unregistered maker names checked at load — tests "rejects a duplicate decision id" / load-time maker checks pass this run |
+| R2 | MET | `hub.ts:226` `list()` returns {id,type,description,source}; :236 `describe(id)` returns parameter contract incl. instructions, criteria, fallback, effective floor and maker; purity proven by test "list() and describe() never run a maker factory" — pass this run |
+| R3 | MET | `hub.ts:261` `decide` issues exactly one `maker.ask` with `questions: { [id]: question }` (:282-286); `buildJevQuestion` maps choice/score/noul; model resolves decision → catalog default → omitted (:280) |
+| R4 | MET | `hub.ts:308-325` result envelope per type: choice label, score number, noul boolean p>=0.5 with probability; `durationMs` via injectable `now` (:262) |
+| R5 | MET | `hub.ts:329-335` error taxonomy: `DecisionConfigError`/resolve failure → `no-backend`, `DecisionTimeoutError` → `timeout`, else `error`; `low-confidence` floor at :300-307; each returns declared fallback with `source:'default'` via `fallbackResult` (:366) |
+| R6 | MET | caller errors before any backend call: `UnknownDecisionError` at `mustGet` (:263, :342), `DecisionInputError` at :264, unregistered per-call maker → `UnknownDecisionMakerError` at :267-275; constructor defaultMaker check |
+| R7 | MET | maker precedence per-call → decision → catalog defaults → hub default at `hub.ts:266`; resolved only via `registry.resolve` (:290), hub builds no maker itself |
+| R8 | MET | `packages/ai-decision/examples/decisions.yaml` declares `category` (:10), `bug_severity` (:23), `refund_requested` (:36); README documents catalog format/hub usage/fallback contract/maker registration |
+| R9 | MET | `hub.ts:409` `createDecisionHub`: registry or builtins, register makers, construct, loadFile catalogs in order, any failure rejects with no partial hub — test "a bad catalog path rejects; no partially built hub is returned" pass this run |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC-1 | MET | test | hub.test.ts:163 loads examples/decisions.yaml (3 decisions); :196 duplicate id rejected naming duplicate.yaml + EXAMPLES_PATH, brand_new not registered |
-| AC-2 | MET | test | hub.test.ts:163 list summaries + describe (floor 0.7, maker typesafe, model jev-latest, instructions param); :802 discovery runs 0 factories |
-| AC-3 | MET | test | hub.test.ts:314 exact substituted question + state {channel:'chat'}, exactly 1 request; :697 no ${params. reaches the wire |
-| AC-4 | MET | test | hub.test.ts:314 result source:'model' confidence 0.9 maker 'typesafe' with ask-level model 'jev-latest'; score/noul accepted hub.test.ts:459, 488 |
-| AC-5 | MET | test | hub.test.ts:593 keyless->no-backend, 622 factory throw->no-backend with retry, 656 timeout, 674 missing/mismatched answer->error; all source:'default' |
-| AC-6 | MET | test | hub.test.ts:556 0.5<0.7 fallback low-confidence, 573 noul 0.5<declared 0.8, 782 default floor 0.65->low-confidence |
-| AC-7 | MET | test | hub.test.ts:276 UnknownDecisionError, 286 DecisionInputError, 298 per-call UnknownDecisionMakerError, 307 constructor defaultMaker; each 0 requests |
-| AC-8 | MET | test | hub.test.ts:351 all four precedence levels asserted; name-only routing via registry.resolve, no new driver code |
-| AC-9 | MET | test | hub.test.ts:314 caller text lands in prompt, :488 noul passthrough, :697 empty-input default renders empty; implicit param params.ts:14-19 |
-| AC-10 | MET | test | hub.test.ts:225 decision maker (field maker, nothing registered), 251 defaults.maker, 298 per-call throws before backend |
-| AC-11 | MET | test | hub.test.ts:709 one createDecisionHub call over two catalog files + 3 makers serves decide; :760 bad path and second-file failure reject with no partial hub |
+| AC-1 | MET | test | `cd packages/ai-decision && bun test` → 97 pass / 0 fail (this run); hub.test.ts AC1 duplicate-id describe |
+| AC-2 | MET | test | hub.test.ts AC2 describe + "list() and describe() never run a maker factory" |
+| AC-3 | MET | test | hub.test.ts AC3 describe: exactly one Jev-shaped question with params substituted (scripted driver records requests) |
+| AC-4 | MET | test | hub.test.ts AC4 describe: confident answer → source model, reason accepted, maker + durationMs |
+| AC-5 | MET | test | hub.test.ts AC5/AC6 describe: backend cannot be constructed / timeout / decision error / invalid label all resolve to fallback without rejecting |
+| AC-6 | MET | test | hub.test.ts AC5/AC6: below-floor noul answer → fallback, reason low-confidence; above floor → model |
+| AC-7 | MET | test | hub.test.ts AC7: unknown id / invalid input / unregistered per-call maker throw named errors, no backend request |
+| AC-8 | MET | test | hub.test.ts AC8: precedence per-call → decision → catalog → hub default with scripted makers alpha/beta/gamma/delta |
+| AC-9 | MET | test | hub.test.ts AC9: reserved instructions carries caller text; empty when omitted; state null |
+| AC-10 | MET | test | hub.test.ts AC10: unregistered maker fails loudly at load / per-call; factory throw → no-backend fallback |
+| AC-11 | MET | test | hub.test.ts AC11: `createDecisionHub` over two catalog files with scripted-judge; factory lazy until first decide |
+| R12 — Caller mistakes raise named errors instead of falling back | MET | test | hub.test.ts AC7 (this run): unknown id → UnknownDecisionError, invalid input → DecisionInputError, unregistered per-call maker → UnknownDecisionMakerError, each before any backend request (`hub.ts:263-275`) |
+| R13 — Maker selection follows a fixed precedence by name without new driver code | MET | test | hub.test.ts AC8 (this run): precedence per-call → decision → catalog defaults → hub default `typesafe` (`hub.ts:266`), resolved via registry.resolve only, no new driver code |
+| R14 — The reserved instructions parameter carries caller text to the model | MET | test | hub.test.ts AC9 (this run): caller instructions land in the question prompt; empty input renders empty text; state null (implicit param `params.ts:14-20`) |
+| R16 — An unregistered maker name fails loudly instead of falling back | MET | test | hub.test.ts AC10 (this run): catalog declaring unregistered maker fails at load naming source/decision/field; per-call unregistered maker throws before backend; factory throw → fallback no-backend |
+| R17 — One call builds a ready hub from catalog files and maker registrations | MET | test | hub.test.ts AC11 (this run): one `createDecisionHub` call over two catalog files + registered scripted-judge serves decide; bad path rejects with no partial hub (`hub.ts:409`) |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

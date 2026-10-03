@@ -4,7 +4,7 @@ name: Register DecisionMakers by name in a DecisionMakerRegistry
 status: done
 template: feature-impl
 created_at: 2026-10-03T15:39:23.464Z
-updated_at: "2026-10-03T18:28:47.645Z"
+updated_at: "2026-10-03T22:16:56.847Z"
 feature_id: N
 
 dependencies: ["0089"]
@@ -113,15 +113,16 @@ Surface detail: `docs/design/ai-decision-catalog.md` § API, § Maker registry.
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | DecisionMakerRegistry at packages/ai-decision/src/registry.ts:30 with register:60, has:76, names:80, resolve:88; barrel export src/index.ts:4; package name @gobing-ai/ts-ai-decision (package.json:2); MakerSource sync/async/instance union registry.ts:8; name pattern ^[a-z][a-z0-9-]*$ enforced registry.ts:19,62-64 — tests registry.test.ts:165 invalid-name throws (6 bad names), :150 unknown-name |
-| R2 | MET | Guard builtins === false registry.ts:39; typesafe -> createDecisionMaker({backend:'typesafe',...makerOptions}) registry.ts:41; fm-local -> createFmDriver(driverOptions['fm-local'] ?? {}) registry.ts:42-45; laya-local -> createLayaDriver(driverOptions['laya-local'] ?? {}) registry.ts:46-48 — tests registry.test.ts:43 built-in names, :194/:205 driver identity via injected executor/client, :217 typesafe+memoised |
-| R3 | MET | Lazy: constructor only registers factories — registry.test.ts:52 win32 poison driverOptions (no eager build), :84 runs===0 after register; first resolve runs+memoises registry.ts:100-107 — tests :74 runs 1 same instance, :91 async; throw not memoised -> retry registry.ts:105-108 catch clears pending — tests :173 runs 1->2, :122 rejected in-flight cleared |
-| R4 | MET | Invalid/duplicate name -> DecisionRegistryError registry.ts:63,67 (errors.ts:20-26); unknown -> UnknownDecisionMakerError carrying name registry.ts:89-93 (errors.ts:31-39); factory errors unwrapped — await entry.pending rethrows original — tests registry.test.ts:62 message passthrough not instanceOf registry errors, :177 exact message |
-| R5 | MET | MakerSource registry.ts:8 + BuiltinMakerOptions registry.ts:13 exported via src/index.ts:4; README.md:36-56 "Maker registry" section documents built-ins, builtins:false, lazy memoise+retry, both error types, makerOptions/driverOptions injection |
+| R1 | MET | `packages/ai-decision/src/registry.ts:26` `DecisionMakerRegistry` with `register` (:44, chains, name pattern `^[a-z][a-z0-9-]*$` at :15), `has` (:59), `names()` (:63), `resolve` (:73); exported via `src/index.ts:5` (`export * from './registry'`) |
+| R2 | MET | `registry.ts:32-42` constructor pre-registers `typesafe` / `fm-local` / `laya-local` via `createDecisionMaker({ backend:'typesafe', ... })` and `{ driver: createFmDriver/createLayaDriver(driverOptions[...] ?? {}) }` with `...makerOptions`; `builtins: false` skips (:33) — re-read this run |
+| R3 | MET | laziness: `register` stores `{ source }` only (:50); first `resolve` runs and memoises (:73-95); failed factory not memoised — `run.catch` clears `entry.pending` (:90-92) so a later resolve retries; tests "registering never constructs a maker or driver" + "a throwing factory is not memoised" pass this run |
+| R4 | MET | invalid/duplicate name → `DecisionRegistryError` (:45-49); unknown resolve → `UnknownDecisionMakerError` (:76-79); factory errors propagate unchanged (no wrapping in `resolve`) — test "built-in factory errors propagate unchanged" pass this run |
+| R5 | MET | `MakerSource` (:7) and `BuiltinMakerOptions` (:10) exported from the barrel; README registry section at `packages/ai-decision/README.md:106-119` documents registration, laziness and names — re-read this run |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC-15 | MET | test | registry.test.ts:43 pre-registers the three built-in names + consumer registration :74 resolves a scripted factory once and memoises + :144 registered DecisionMaker instance resolves as-is (register chains); 16-test registry suite at 100% spec coverage of R1-R5 |
+| AC-1 | MET | test | `cd packages/ai-decision && bun test` → 97 pass / 0 fail (this run); `tests/registry.test.ts` AC1 describe: built-in names listed without construction, scripted factory registered and run once, fm-local/laya-local resolve on injected driver options, duplicate/invalid name throw, unknown resolve throws |
+| R15 — Built-in DecisionMakers are registered by name and consumers register their own | MET | test | registry.test.ts (this run): `names()` lists typesafe/fm-local/laya-local with zero factories run; registering scripted-judge adds it and double-resolve runs the factory once; fm-local resolves on stub driver options keeping driver identity; duplicate/invalid name → DecisionRegistryError; unknown resolve → UnknownDecisionMakerError (`registry.ts:32-95`) |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
