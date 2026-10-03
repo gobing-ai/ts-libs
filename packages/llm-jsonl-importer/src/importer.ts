@@ -9,6 +9,7 @@ import {
     walkDir,
 } from '@gobing-ai/ts-runtime';
 import { throwIfImportAborted } from './cancellation';
+import { validateCapabilityOrigins } from './capability';
 import { sha256 } from './hash';
 import {
     applyHistoryImportSchema,
@@ -21,6 +22,8 @@ import {
     reconcileFullImport,
     recordInsertOp,
     resetCheckpoints,
+    resolveSkillCallRows,
+    skillCallOutcomeUpdateOp,
     targetTableFor,
     toolCallDurationUpdateOp,
     toolCallResultBytesUpdateOp,
@@ -76,6 +79,77 @@ const TOOL_CALL_KEY_SEP = '\u0000';
 
 function toolCallKey(source: string, sessionId: string, callId: string): string {
     return `${source}${TOOL_CALL_KEY_SEP}${sessionId}${TOOL_CALL_KEY_SEP}${callId}`;
+}
+
+/** Observed result signal that can upgrade a paired skill-call row (E93 task 1028 §8.2). */
+interface SkillResultSignal {
+    readonly callId: string;
+    readonly status: 'ok' | 'error';
+    readonly completedAtMs: number | undefined;
+    readonly durationMs: number | undefined;
+}
+
+/**
+ * Detect a tool-result / dispatch-outcome record whose call id may pair a skill row:
+ * omp + pi toolResult envelopes, claude tool_result blocks, codex function_call_output
+ * items. Null when the record carries no pairable result (detection stays source-native).
+ */
+function skillResultSignal(source: string, raw: JsonObject): SkillResultSignal | null {
+    if (source === 'omp' || source === 'pi') {
+        const timing = ompToolResultTiming(raw as Record<string, unknown>);
+        if (timing === null) return null;
+        return {
+            callId: timing.toolCallId,
+            status: timing.isError ? 'error' : 'ok',
+            completedAtMs: timing.timestampMs,
+            durationMs: timing.wallTimeMs,
+        };
+    }
+    if (source === 'claude') {
+        const timing = claudeToolResultTiming(raw as Record<string, unknown>);
+        if (timing === null) return null;
+        return {
+            callId: timing.toolCallId,
+            status: timing.isError ? 'error' : 'ok',
+            completedAtMs: timing.timestampMs,
+            durationMs: timing.durationMs,
+        };
+    }
+    if (source === 'codex') {
+        const payload = (raw.payload ?? raw) as Record<string, unknown>;
+        if (String(payload.type ?? '') !== 'function_call_output') return null;
+        const callId = typeof payload.call_id === 'string' ? payload.call_id : undefined;
+        if (callId === undefined || callId.length === 0) return null;
+        // Codex carries no envelope-level error flag, but its shell output body does:
+        // non-zero metadata.exit_code or an explicit is_error/error flag is a failed
+        // dispatch. Text-only outputs stay ok (documented source-evidence limit).
+        let status: 'ok' | 'error' = 'ok';
+        const outputText = typeof payload.output === 'string' ? payload.output : undefined;
+        if (outputText !== undefined) {
+            try {
+                const parsed: unknown = JSON.parse(outputText);
+                if (typeof parsed === 'object' && parsed !== null) {
+                    const body = parsed as Record<string, unknown>;
+                    const meta = body.metadata;
+                    const exitCode =
+                        typeof meta === 'object' && meta !== null
+                            ? (meta as Record<string, unknown>).exit_code
+                            : undefined;
+                    if (typeof exitCode === 'number' && exitCode !== 0) status = 'error';
+                    else if (body.is_error === true || body.error === true) status = 'error';
+                }
+            } catch {
+                // not JSON — text-only output, keep the dispatch-ok default
+            }
+        }
+        return {
+            callId,
+            status,
+            completedAtMs: timestampToEpochMs(raw.timestamp),
+            durationMs: undefined,
+        };
+    }
+    return null;
 }
 
 /** Resolve a tool-call row this run did not see (its line is behind the checkpoint). */
@@ -136,6 +210,9 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     const definition = resolveSourceDefinition(source);
     const resolvedSource = definition.source;
     const fileSystem = options.fileSystem ?? createNodeFileSystem();
+    // E93 task 1028: validate capability origins BEFORE any write (schema included) — a
+    // malformed origin rejects the run without touching the database.
+    const capabilityOrigins = validateCapabilityOrigins(options.capabilityOrigins);
     await applyHistoryImportSchema(options.db);
 
     const mode = options.mode ?? 'incremental';
@@ -164,6 +241,12 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
     // Task 0564 R1: tool-call rows emitted by earlier assistant lines, keyed by
     // (source, session_id, call_id) so a later toolResult line can attach its duration.
     const toolCallRows = new Map<string, PendingToolCall>();
+    // E93 task 1028: skill-call rows prepared by this run, keyed like toolCallRows —
+    // result pairing updates every row sharing the (source, session, call) identity.
+    const skillCallRows = new Map<string, string[]>();
+    // Bounded capability-conflict findings across the whole run (dedup by reason).
+    const capabilityConflictSeen = new Set<string>();
+    let capabilityConflictFindings = 0;
 
     // 0678 R3: codex token_count events carry usage on a meta row; the numbers belong
     // to the most recent assistant message of that session.
@@ -209,6 +292,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                 sourceFile: file,
                 sourceLine: lineNumber,
                 splitIndex: 0,
+                capabilityOrigins,
             });
             let lineSucceeded = false;
             // Atomic per-record acceptance (R2, task 0504): a schema-invalid split rejects the
@@ -232,6 +316,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                     sourceFile: file,
                     sourceLine: lineNumber,
                     splitIndex,
+                    capabilityOrigins,
                 });
                 const parsed = definition.schema.safeParse(normalized);
                 if (!parsed.success) {
@@ -260,6 +345,37 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             // A rejected line is reported (validationErrors above) but never persisted — no
             // second pass, no checkpoint advance, no partial rows from this record.
             if (lineRejected) continue;
+
+            // E93 task 1028: bounded capability-conflict findings. A conflict is evidence,
+            // not a rejection — the row persists with unknown capability facts and the
+            // finding is reported once per distinct reason (hard cap 10 per run).
+            for (const entry of prepared) {
+                if (entry.split.targetTable !== 'history_skill_call') continue;
+                const conflict = entry.normalized._capabilityConflict;
+                if (typeof conflict !== 'string' || conflict.length === 0) continue;
+                if (capabilityConflictSeen.has(conflict) || capabilityConflictFindings >= 10) continue;
+                capabilityConflictSeen.add(conflict);
+                capabilityConflictFindings += 1;
+                validationErrors.push({ sourceFile: file, sourceLine: lineNumber, reason: conflict });
+            }
+
+            // E93 task 1028: register this line's skill-call rows for result pairing (same
+            // shape as the toolCallRows registration above; runs over ALL prepared entries
+            // because pairing targets a deterministic record_hash).
+            for (const entry of prepared) {
+                const callId = entry.normalized.call_id;
+                if (
+                    entry.split.targetTable === 'history_skill_call' &&
+                    typeof callId === 'string' &&
+                    callId.length > 0 &&
+                    typeof entry.normalized.session_id === 'string'
+                ) {
+                    const key = toolCallKey(resolvedSource, entry.normalized.session_id, callId);
+                    const hashes = skillCallRows.get(key) ?? [];
+                    hashes.push(entry.recordHash);
+                    skillCallRows.set(key, hashes);
+                }
+            }
 
             // Task 0564 R1 (omp): register this line's tool-call rows for later duration
             // attach. Runs over ALL prepared entries — including duplicates — because a
@@ -473,6 +589,34 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                                     );
                                 }
                             }
+                        }
+                    }
+                }
+                // E93 task 1028: a arriving result upgrades every skill-call row sharing
+                // its call id — status ok/error (+ completed_at and native duration when
+                // observed). Never fabricates timing; unpaired results attach nothing.
+                const skillResult = skillResultSignal(definition.source, raw);
+                if (skillResult !== null) {
+                    const sessionId = prepared.find((entry) => typeof entry.normalized.session_id === 'string')
+                        ?.normalized.session_id;
+                    if (typeof sessionId === 'string') {
+                        const inRun = skillCallRows.get(toolCallKey(resolvedSource, sessionId, skillResult.callId));
+                        const hashes: readonly string[] =
+                            inRun ??
+                            // The skill-call line sits behind this run's checkpoint — the
+                            // rows exist from an earlier import; resolve them from the DB.
+                            (await resolveSkillCallRows(options.db, resolvedSource, sessionId, skillResult.callId));
+                        for (const recordHash of hashes) {
+                            ops.push(
+                                skillCallOutcomeUpdateOp(
+                                    recordHash,
+                                    skillResult.status,
+                                    skillResult.completedAtMs === undefined
+                                        ? null
+                                        : new Date(skillResult.completedAtMs).toISOString(),
+                                    skillResult.durationMs === undefined ? null : skillResult.durationMs,
+                                ),
+                            );
                         }
                     }
                 }

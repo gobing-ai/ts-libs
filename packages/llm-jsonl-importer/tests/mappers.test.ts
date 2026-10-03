@@ -1524,7 +1524,21 @@ describe('field maps', () => {
         'duration_ms',
     ];
 
-    const ALL_KEYS = [...new Set([...MESSAGE_KEYS, ...TOOL_CALL_KEYS, ...SKILL_CALL_KEYS, '_codexUsageCarrier'])];
+    const ALL_KEYS = [
+        ...new Set([
+            ...MESSAGE_KEYS,
+            ...TOOL_CALL_KEYS,
+            ...SKILL_CALL_KEYS,
+            '_codexUsageCarrier',
+            // E93 1028 capability facts ride the identity field maps (marker key travels
+            // into the record hash, then the DAO ignores it on insert).
+            'capability_kind',
+            'evidence_kind',
+            'invocation_id',
+            'origin_identity',
+            '_capabilityConflict',
+        ]),
+    ];
 
     function checkFieldMap(_name: string, map: Record<string, string>) {
         expect(Object.keys(map).sort()).toEqual([...ALL_KEYS].sort());

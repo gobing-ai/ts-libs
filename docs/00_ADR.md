@@ -5,7 +5,7 @@ owns: WHY — which cross-cutting decision was made, and the one-line reason
 authority: authoritative
 version: 1.4.0
 owner: Robin Min
-updated_at: 2026-09-26
+updated_at: 2026-10-02
 read_before: any structural change
 edit_rules: 99 §6.1
 sync: [T1, T2]
@@ -619,3 +619,35 @@ commands via `context.newCDPSession(page)`.
 
 **Detail:** `docs/03_ARCHITECTURE.md` § browser-automation;
 `docs/design/browser-profile-sessions.md`; README under `packages/browser-automation/`.
+
+## ADR-033: Declarative AI Decision Catalogs Ship as `ts-ai-decision`, a Fallback-Guaranteed Hub over `DecisionMaker`
+
+**Status:** Accepted (design) · **Date:** 2026-10-02 · **Targets:** `ts-ai-decision` (new)
+
+**Decision.** Static, named AI decision points are declared in YAML catalog files and served by an
+in-process `DecisionHub` in a new lockstep-versioned package, `@gobing-ai/ts-ai-decision` (source
+`packages/ai-decision`, feature N). A catalog decision is a TypeSafe Jev question (`type` choice |
+score | noul, templated `instructions`, `criteria`) plus typed `parameters`, a reserved caller
+`instructions` parameter, and a mandatory `fallback`. Templates use `${params.<name>}` only.
+`decide(id, input)` asks exactly one question and never rejects because of the model: an
+unavailable backend, timeout, backend error or answer below the confidence floor resolves to the
+declared fallback with `source: 'default'`. Only caller errors and catalog load errors throw. The
+package bundles all three backends as direct dependencies: `typesafe` through `ts-ai-runner`, and
+`fm-local` / `laya-local` through `ts-decision-fm` / `ts-laya-mlx`, injected as
+`createDecisionMaker({ driver })`.
+
+**Why.** Consumers keep hand-rolling prompt assembly, input validation and confidence-gated fallback
+(Spur's `decide` action); one declarative, schema-checked contract replaces that glue, and a
+separate package keeps it out of the neutral `ts-ai-runner` contract (ADR-026) with ADR-028's
+one-way dependency.
+
+**Consequences.** One more published package (README, release, docs). The fallback policy that
+ADR-026 assigns to applications gets a reusable library default, and applications opt in by
+declaring a catalog. Depending on the driver packages keeps the ADR-028 direction (ai-decision →
+driver → ai-runner) and makes local backends resolvable without relying on the consumer's install
+layout. Catalog loading reuses `ts-runtime`'s `parseStructuredConfig`, so the package needs no YAML
+dependency and no platform-API exception. Network serving, caching, multi-decision batching,
+persistence, JSON catalogs and template logic stay out of scope.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § ai-decision; `docs/design/ai-decision-catalog.md`;
+feature N.

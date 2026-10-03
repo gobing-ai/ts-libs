@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { sha256 } from './hash';
+import {
+    type CapabilityOriginMatch,
+    capabilityInvocationId,
+    extractNestedExecCommandLiterals,
+    matchCapabilityOrigin,
+    parseLiteralReadTargets,
+} from './capability';
+import { sha256, sha256Text } from './hash';
 import type { JsonObject, SkillCallSplitRecord, SplitEntry, TransformContext } from './types';
 
 // ---------------------------------------------------------------------------
@@ -50,7 +57,7 @@ const TOOL_CALL_MAPPER_KEYS: readonly string[] = [
     'error_text',
 ];
 
-/** Columns the mapper may produce for history_skill_call (0736). */
+/** Columns the mapper may produce for history_skill_call (0736, E93 1028). */
 const SKILL_CALL_MAPPER_KEYS: readonly string[] = [
     '_messageSplitIndex',
     'session_id',
@@ -65,6 +72,13 @@ const SKILL_CALL_MAPPER_KEYS: readonly string[] = [
     'started_at',
     'completed_at',
     'duration_ms',
+    'capability_kind',
+    'evidence_kind',
+    'invocation_id',
+    'origin_identity',
+    // Classification-conflict marker (E93 1028): rides the record into the record_hash and
+    // is surfaced as a bounded importer finding; the DAO typed path ignores it on insert.
+    '_capabilityConflict',
 ];
 
 /** Build an identity fieldMap for the given column list. */
@@ -108,15 +122,14 @@ export interface SkillCallIdentity {
 }
 
 /**
- * Detect skill-load events in one raw source record (0736 R1/R2). Dispatches on the source in
- * the transform context; unknown sources return nothing. Detection signatures per source are
- * the verified ones from the storm report §10.3:
- *
- * - L1 native load tool is authoritative (claude/omp `Skill`, agy `view_file` skill reads,
- *   grok `read_file` on SKILL.md, opencode native `skill`).
- * - Sources with no L1 trigger on their structural signal: pi's `<skill name= location=>`
- *   wrapper, codex's `<skill><name>/<path>` block, gemini's L0 harness prefix.
- * - L0/L2 never trigger for agents that have an L1 (false-positive suppression, 0736 R4).
+ * Detect skill activity in one raw source record (0736 R1/R2; E93 task 1028). Dispatches on
+ * the source in the transform context; unknown/deferred sources return nothing. Detection is
+ * signature-driven, never keyword-based: quoted skill text, summaries, wrappers inside quotes
+ * or comments, and ordinary skill-file reads outside the bounded literal grammar produce no
+ * rows. E93 rows classify capability facts by precedence: native source identity (command
+ * expansion envelope, native command record, delegation record), then a unique supplied
+ * {@link TransformContext.capabilityOrigins} match (source + canonical name + exact path +
+ * complete-artifact digest agreement), then unknown — never from a name prefix alone.
  */
 export function extractSkillCalls(
     raw: JsonObject,
@@ -125,19 +138,19 @@ export function extractSkillCalls(
 ): readonly SkillCallSplitRecord[] {
     switch (context?.source) {
         case 'claude':
-            return detectClaudeSkillCalls(raw, identity);
+            return detectClaudeSkillCalls(raw, identity, context);
         case 'pi':
-            return detectPiSkillCalls(raw, identity);
+            return detectPiSkillCalls(raw, identity, context);
         case 'omp':
-            return detectOmpSkillCalls(raw, identity);
+            return detectOmpSkillCalls(raw, identity, context);
         case 'codex':
-            return detectCodexSkillCalls(raw, identity);
+            return detectCodexSkillCalls(raw, identity, context);
         case 'agy':
-            return detectAgySkillCalls(raw, identity);
+            return detectAgySkillCalls(raw, identity, context);
         case 'gemini':
-            return detectGeminiSkillCalls(raw, identity);
+            return detectGeminiSkillCalls(raw, identity, context);
         case 'grok':
-            return detectGrokSkillCalls(raw, identity);
+            return detectGrokSkillCalls(raw, identity, context);
         default:
             return [];
     }
@@ -154,7 +167,13 @@ export function skillCallEntry(record: SkillCallSplitRecord): SplitEntry {
     return { targetTable: 'history_skill_call', record: record as unknown as JsonObject };
 }
 
-/** Build a fully-populated skill row: every optional column set explicitly for hash stability. */
+/** Build a fully-populated skill row: every optional column set explicitly for hash stability.
+ *
+ * Status defaults to `'unknown'` (E93 1028): a request, an unpaired load, or an attempt
+ * with unobserved outcome is never recorded as success. Detectors upgrade to `'ok'` only
+ * on verified harness injection (a complete injected wrapper) or an observed outcome, and
+ * result pairing (§8.2) upgrades call-id-bearing rows when their result arrives.
+ */
 function skillRecord(
     identity: SkillCallIdentity,
     skillName: string,
@@ -171,12 +190,87 @@ function skillRecord(
         args_raw: null,
         args_digest: null,
         call_id: null,
-        status: 'ok',
+        status: 'unknown',
         started_at: null,
         completed_at: null,
         duration_ms: null,
+        capability_kind: null,
+        evidence_kind: null,
+        invocation_id: null,
+        origin_identity: null,
         ...extra,
     };
+}
+
+// ---------------------------------------------------------------------------
+// Capability classification helpers (E93 task 1028)
+// ---------------------------------------------------------------------------
+
+/** Per-record invocation ordinal allocator: distinct keys keep distinct ordinals, repeated keys share theirs. */
+function createOrdinalAllocator(): (key: string) => number {
+    const ordinals = new Map<string, number>();
+    return (key) => {
+        const existing = ordinals.get(key);
+        if (existing !== undefined) return existing;
+        const ordinal = ordinals.size;
+        ordinals.set(key, ordinal);
+        return ordinal;
+    };
+}
+
+/** Origin match + conflict marker fields for one observable skill identity. */
+function originFields(
+    context: TransformContext | undefined,
+    canonicalName: string,
+    observable: { skillPath?: string | null; artifactDigest?: string | null },
+): Pick<SkillCallSplitRecord, 'capability_kind' | 'origin_identity' | '_capabilityConflict'> {
+    const origins = context?.capabilityOrigins;
+    if (origins === undefined || origins.length === 0) {
+        return { capability_kind: null, origin_identity: null, _capabilityConflict: undefined };
+    }
+    const match: CapabilityOriginMatch = matchCapabilityOrigin(
+        origins,
+        context?.source ?? '',
+        canonicalName,
+        observable,
+    );
+    return {
+        capability_kind: match.origin?.capabilityKind ?? null,
+        origin_identity: match.origin?.originIdentity ?? null,
+        _capabilityConflict: match.conflict ?? undefined,
+    };
+}
+
+/** Stable version-1 invocation identity for one skill row (precedence: invocation id → call id → record id+ordinal → file/line+ordinal). */
+function invocationIdFor(
+    context: TransformContext | undefined,
+    sessionId: string,
+    ref: { invocationId?: string; callId?: string; recordId?: string; ordinal: number },
+): string {
+    const source = context?.source ?? 'unknown';
+    if (ref.invocationId !== undefined) {
+        return capabilityInvocationId({ source, sessionId, kind: 'invocation', id: ref.invocationId });
+    }
+    if (ref.callId !== undefined) {
+        return capabilityInvocationId({
+            source,
+            sessionId,
+            kind: 'call',
+            id: ref.callId,
+            ordinal: ref.ordinal > 0 ? ref.ordinal : undefined,
+        });
+    }
+    if (ref.recordId !== undefined) {
+        return capabilityInvocationId({ source, sessionId, kind: 'record', id: ref.recordId, ordinal: ref.ordinal });
+    }
+    return capabilityInvocationId({
+        source,
+        sessionId,
+        kind: 'line',
+        file: context?.sourceFile ?? '',
+        line: context?.sourceLine ?? 0,
+        ordinal: ref.ordinal,
+    });
 }
 
 /** Skill name from a `.../skills/<name>/SKILL.md` path; falls back to the SKILL.md sibling. */
@@ -188,78 +282,439 @@ function skillNameFromPath(path: string): string {
     return stem.split('/').pop() ?? stem;
 }
 
-function detectClaudeSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+function detectClaudeSkillCalls(
+    raw: JsonObject,
+    identity: SkillCallIdentity,
+    context: TransformContext,
+): readonly SkillCallSplitRecord[] {
     const contentBlocks = raw.content ?? o(raw.message).content;
     if (!Array.isArray(contentBlocks)) return [];
     const rows: SkillCallSplitRecord[] = [];
+    const role = mapRole(raw.type ?? o(raw.message).role);
+    const recordId = s(raw.uuid, raw.id, raw.requestId);
+    const ts = timestampOf(raw.timestamp, raw.ts, o(raw.message).timestamp) ?? null;
+    const ordinal = createOrdinalAllocator();
+
+    // Tool-use blocks: native Skill loads, Task delegations, and implicit SKILL.md reads
+    // (Read tool / literal Bash cat/sed command) — each pairable with its tool_result by id.
     for (const block of contentBlocks) {
         if (typeof block !== 'object' || block === null) continue;
         const b = block as Record<string, unknown>;
-        if (b.type !== 'tool_use' || b.name !== 'Skill') continue;
+        if (b.type !== 'tool_use') continue;
         const input = (b.input ?? {}) as Record<string, unknown>;
-        const skill = s(input.skill);
-        if (skill === undefined) continue;
-        // caller.type "direct" = user-invoked (storm report §10.3); absence = model-invoked.
-        rows.push(
-            skillRecord(identity, skill, s(o(b.caller).type) === 'direct' ? 'user' : 'model', {
-                args_raw: maybeArgsRaw('claude', 'Skill', input) ?? null,
-                args_digest: argsDigest(input),
-                call_id: s(b.id) ?? null,
-            }),
-        );
+        const callId = s(b.id);
+        const invocation =
+            callId !== undefined ? { callId, ordinal: 0 } : { recordId, ordinal: ordinal(`tool:${rows.length}`) };
+
+        if (b.name === 'Skill') {
+            const skill = s(input.skill);
+            if (skill === undefined) continue;
+            const canonical = canonicalizeSkillName(skill);
+            // caller.type "direct" = user-invoked (storm report §10.3); absence = model-invoked.
+            rows.push(
+                skillRecord(identity, skill, s(o(b.caller).type) === 'direct' ? 'user' : 'model', {
+                    args_raw: maybeArgsRaw('claude', 'Skill', input) ?? null,
+                    args_digest: argsDigest(input),
+                    call_id: callId ?? null,
+                    started_at: ts,
+                    evidence_kind: 'load',
+                    status: 'unknown',
+                    invocation_id: invocationIdFor(context, identity.sessionId, invocation),
+                    ...originFields(context, canonical, {}),
+                }),
+            );
+            continue;
+        }
+        if (b.name === 'Task') {
+            // Native delegation record: capability kind established by source identity.
+            const subagent = s(input.subagent_type, input.agent_type, input.agent) ?? 'subagent';
+            rows.push(
+                skillRecord(identity, subagent, 'model', {
+                    args_raw: maybeArgsRaw('claude', 'Task', input) ?? null,
+                    args_digest: argsDigest(input),
+                    call_id: callId ?? null,
+                    started_at: ts,
+                    ...originFields(context, canonicalizeSkillName(subagent), {}),
+                    capability_kind: 'subagent',
+                    evidence_kind: 'delegation',
+                    status: 'unknown',
+                    invocation_id: invocationIdFor(context, identity.sessionId, invocation),
+                }),
+            );
+            continue;
+        }
+        if (b.name === 'Read') {
+            const filePath = s(input.file_path, input.path);
+            if (filePath === undefined || lastPathSegmentNorm(filePath) !== 'SKILL.md') continue;
+            const canonical = canonicalizeSkillName(skillNameFromPath(filePath));
+            rows.push(
+                skillRecord(identity, skillNameFromPath(filePath), 'model', {
+                    skill_path: filePath,
+                    args_raw: maybeArgsRaw('claude', 'Read', input) ?? null,
+                    args_digest: argsDigest(input),
+                    call_id: callId ?? null,
+                    started_at: ts,
+                    evidence_kind: 'load',
+                    status: 'unknown',
+                    invocation_id: invocationIdFor(context, identity.sessionId, invocation),
+                    ...originFields(context, canonical, { skillPath: filePath }),
+                }),
+            );
+            continue;
+        }
+        if (b.name === 'Bash') {
+            // Bounded literal grammar only: cat [--] <path...> / sed -n '<range>p' <path>.
+            const command = s(input.command);
+            if (command === undefined) continue;
+            const targets = parseLiteralReadTargets(command);
+            for (let i = 0; i < targets.length; i += 1) {
+                const target = targets[i] ?? '';
+                const canonical = canonicalizeSkillName(skillNameFromPath(target));
+                rows.push(
+                    skillRecord(identity, skillNameFromPath(target), 'model', {
+                        skill_path: target,
+                        args_raw: maybeArgsRaw('claude', 'Bash', input) ?? null,
+                        args_digest: argsDigest(input),
+                        call_id: callId ?? null,
+                        started_at: ts,
+                        evidence_kind: 'load',
+                        status: 'unknown',
+                        invocation_id: invocationIdFor(context, identity.sessionId, { ...invocation, ordinal: i }),
+                        ...originFields(context, canonical, { skillPath: target }),
+                    }),
+                );
+            }
+        }
+    }
+
+    // User records: the `<command-name>` expansion envelope is the verified native command
+    // activation. Plain user text starting with `/name` is quoted/typed text, not an
+    // invocation (false-positive suppression, 0736 R4 — preserved).
+    if (role === 'user') {
+        const text = extractUserTextClaude(contentBlocks);
+        if (text !== undefined) {
+            // Only the envelope that STARTS the text is the harness injection; the
+            // same shape fenced or quoted mid-text is an example, not a command (E93 R6).
+            const envelope = leadingInjectionMatch(text, CLAUDE_COMMAND_NAME_ANCHORED);
+            const rawName = envelope?.[1] ?? '';
+            if (rawName.length > 0) {
+                const canonical = canonicalizeSkillName(rawName);
+                if (canonical.length > 0) {
+                    rows.push(
+                        skillRecord(identity, canonical, 'user', {
+                            args_raw: text.match(CLAUDE_COMMAND_ARGS)?.[1]?.trim() || null,
+                            started_at: ts,
+                            capability_kind: 'command',
+                            evidence_kind: 'request',
+                            status: 'unknown',
+                            invocation_id: invocationIdFor(context, identity.sessionId, {
+                                recordId,
+                                ordinal: ordinal(`cmd:${canonical}`),
+                            }),
+                        }),
+                    );
+                }
+            }
+        }
     }
     return rows;
 }
 
-/** pi is inline-only: the `<skill name= location=>` wrapper in a user message is the sole trigger. */
-const PI_SKILL_WRAPPER = /<skill\s+name="([^"]+)"(?:\s+location="([^"]*)")?\s*>/g;
+/** `<command-name>` expansion envelope — claude's verified native command activation. */
+const CLAUDE_COMMAND_NAME_ANCHORED = /^<command-name>([^<]+)<\/command-name>/;
+const CLAUDE_COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
 
-function detectPiSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+/** Concatenate text-block text, skipping tool_result blocks (their text is a result, not user intent). */
+function extractUserTextClaude(contentBlocks: readonly unknown[]): string | undefined {
+    const parts: string[] = [];
+    for (const block of contentBlocks) {
+        if (typeof block !== 'object' || block === null) continue;
+        const b = block as Record<string, unknown>;
+        if (b.type === 'tool_result') continue;
+        if (typeof b.text === 'string') parts.push(b.text);
+    }
+    return parts.length > 0 ? parts.join('\n') : undefined;
+}
+
+/** Final path segment with normalized separators — target-shape check for SKILL.md reads. */
+function lastPathSegmentNorm(path: string): string {
+    const normalized = path.replace(/\\/g, '/');
+    const idx = normalized.lastIndexOf('/');
+    return idx === -1 ? normalized : normalized.slice(idx + 1);
+}
+
+/**
+ * Quoted-signature context for text-signature matches (E93 §8.2: quoted/fenced
+ * wrappers and catalogs are ignored — R6/AC6). A match is quoted when text
+ * precedes it on its own line (inline quoting, incl. template literals) or an
+ * unclosed code fence (``` / ~~~) opens earlier in the same text. A fence only
+ * closes for a run of the same character at least as long as its opener
+ * (CommonMark closing-fence rule), so a 4-backtick outer fence is not closed by
+ * an inner ``` example fence. Real harness injections start their own text and
+ * are never fenced.
+ */
+function isQuotedSignatureContext(text: string, matchIndex: number): boolean {
+    const lineStart = text.lastIndexOf('\n', matchIndex - 1) + 1;
+    if (text.slice(lineStart, matchIndex).trim().length > 0) return true;
+    let openFence = '';
+    for (const line of text.slice(0, lineStart).split('\n')) {
+        const fence = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+        if (fence === null) continue;
+        const run = fence[1] ?? '';
+        if (openFence === '') openFence = run;
+        else if (run[0] === openFence[0] && run.length >= openFence.length) openFence = '';
+    }
+    return openFence !== '';
+}
+
+/**
+ * A line that only introduces a codex skill injection — invocation-marker
+ * syntax (`$name …`, `/name …`, or a `- skill: name` bullet) with no prose.
+ */
+function isCodexMarkerLine(line: string): boolean {
+    const trimmed = line.trim();
+    return CODEX_DOLLAR_MARKER.test(trimmed) || CODEX_SLASH_MARKER.test(trimmed) || /^-\s+skill:\s*\S+/.test(trimmed);
+}
+
+/**
+ * Codex wrapper lead position, mirroring the anchored sibling seams: a wrapper
+ * block only counts at the text position (after optional leading whitespace),
+ * directly below a single invocation-marker line (the codex injection shape),
+ * or contiguous with an already-accepted wrapper block (repeat injections).
+ * Prose- or code-introduced blocks are quoted examples, not loads.
+ */
+function isCodexWrapperLeadPosition(text: string, matchIndex: number, chainStart: number | undefined): boolean {
+    const before = text.slice(0, matchIndex);
+    if (before.trim().length === 0) return true;
+    if (chainStart !== undefined && text.slice(chainStart, matchIndex).trim().length === 0) return true;
+    const lines = before.split('\n');
+    if ((lines[lines.length - 1] ?? '').trim().length > 0) return false;
+    if (lines.length < 2) return false;
+    return isCodexMarkerLine(lines[lines.length - 2] ?? '');
+}
+
+/**
+ * First unquoted match of a wrapper-shaped regex anchored at the start of the
+ * text (after leading whitespace) — the position real harness injections carry
+ * and quoted examples never do. Null when the only matches are quoted.
+ */
+function leadingInjectionMatch(text: string, pattern: RegExp): RegExpMatchArray | null {
+    const trimmed = text.trimStart();
+    const offset = text.length - trimmed.length;
+    const match = trimmed.match(pattern);
+    if (match === null || match.index === undefined) return null;
+    if (isQuotedSignatureContext(text, offset + match.index)) return null;
+    return match;
+}
+
+/** pi injects skills inline: the `<skill name= location=>` wrapper in a user message is the load marker. */
+const PI_SKILL_WRAPPER_ANCHORED = /^<skill\s+name="([^"]+)"(?:\s+location="([^"]*)")?\s*>/;
+
+/** pi read-family tool names carrying implicit SKILL.md reads (bounded by verified shapes). */
+const READ_FAMILY_TOOLS = new Set(['read', 'read_file', 'view']);
+
+function detectPiSkillCalls(
+    raw: JsonObject,
+    identity: SkillCallIdentity,
+    context: TransformContext,
+): readonly SkillCallSplitRecord[] {
     const msg = raw.message as Record<string, unknown> | undefined;
-    if (piRole(msg?.role ?? raw.role ?? raw.recordType ?? raw.type) !== 'user') return [];
-    const text = extractContentText(msg?.content ?? raw.content);
-    if (text === undefined) return [];
+    const role = piRole(msg?.role ?? raw.role ?? raw.recordType ?? raw.type);
+    const recordId = s(raw.id, raw.uuid, raw.requestId);
+    const ts = timestampOf(raw.timestamp, raw.ts, o(msg).timestamp) ?? null;
     const rows: SkillCallSplitRecord[] = [];
-    for (const match of text.matchAll(PI_SKILL_WRAPPER)) {
-        rows.push(skillRecord(identity, match[1] ?? '', 'user', { skill_path: match[2] || null }));
+    if (role === 'user') {
+        const text = extractContentText(msg?.content ?? raw.content);
+        if (text === undefined) return [];
+        const ordinal = createOrdinalAllocator();
+        // Only the wrapper that STARTS the text is the harness injection; the same
+        // shape fenced or quoted mid-text is an example, not a load (E93 R6).
+        const wrapper = leadingInjectionMatch(text, PI_SKILL_WRAPPER_ANCHORED);
+        if (wrapper !== null) {
+            const skillPath = wrapper[2] || null;
+            const canonical = canonicalizeSkillName(wrapper[1] ?? '');
+            if (canonical.length > 0) {
+                rows.push(
+                    skillRecord(identity, canonical, 'user', {
+                        skill_path: skillPath,
+                        started_at: ts,
+                        // The wrapper IS the harness injection — a verified (user-invoker) load.
+                        evidence_kind: 'load',
+                        status: 'ok',
+                        invocation_id: invocationIdFor(context, identity.sessionId, {
+                            recordId,
+                            ordinal: ordinal(`skill:${canonical}`),
+                        }),
+                        ...originFields(context, canonical, { skillPath }),
+                    }),
+                );
+            }
+        }
+        return rows;
+    }
+    if (role === 'assistant') {
+        // Implicit ordinary loads: a read-family tool call targeting a SKILL.md path.
+        const contentBlocks = msg?.content ?? raw.content;
+        if (!Array.isArray(contentBlocks)) return [];
+        for (const block of contentBlocks) {
+            if (typeof block !== 'object' || block === null) continue;
+            const call = normalizeOmpToolCall(block as Record<string, unknown>);
+            if (call === null || !READ_FAMILY_TOOLS.has(String(call.name ?? ''))) continue;
+            const args = (call.input ?? call.arguments ?? {}) as Record<string, unknown>;
+            const filePath = s(args.filePath, args.file_path, args.path, args.target_file);
+            if (filePath === undefined || lastPathSegmentNorm(filePath) !== 'SKILL.md') continue;
+            const callId = s(call.id);
+            const canonical = canonicalizeSkillName(skillNameFromPath(filePath));
+            rows.push(
+                skillRecord(identity, canonical, 'model', {
+                    skill_path: filePath,
+                    args_raw: maybeArgsRaw('pi', String(call.name ?? 'read'), args) ?? null,
+                    args_digest: argsDigest(args),
+                    call_id: callId ?? null,
+                    started_at: ts,
+                    evidence_kind: 'load',
+                    status: 'unknown',
+                    invocation_id: invocationIdFor(context, identity.sessionId, {
+                        callId,
+                        recordId: callId === undefined ? recordId : undefined,
+                        ordinal: rows.length,
+                    }),
+                    ...originFields(context, canonical, { skillPath: filePath }),
+                }),
+            );
+        }
     }
     return rows;
 }
 
-function detectOmpSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+function detectOmpSkillCalls(
+    raw: JsonObject,
+    identity: SkillCallIdentity,
+    context: TransformContext,
+): readonly SkillCallSplitRecord[] {
     const msg = raw.message as Record<string, unknown> | undefined;
-    if (mapRole(msg?.role ?? raw.type ?? raw.role) !== 'assistant') return [];
-    const contentBlocks = msg?.content ?? raw.content;
-    if (!Array.isArray(contentBlocks)) return [];
+    const role = mapRole(msg?.role ?? raw.type ?? raw.role);
+    const recordId = s(raw.id, raw.uuid, raw.requestId);
+    const ts = timestampOf(raw.timestamp, raw.ts, o(msg).timestamp) ?? null;
     const rows: SkillCallSplitRecord[] = [];
-    for (const block of contentBlocks as Record<string, unknown>[]) {
-        const call = normalizeOmpToolCall(block);
-        if (call === null || call.name !== 'Skill') continue;
-        const input = call.input ?? call.arguments;
-        const skill = s((input as Record<string, unknown> | undefined)?.skill);
-        if (skill === undefined) continue;
-        rows.push(
-            skillRecord(identity, skill, 'model', {
-                args_raw: maybeArgsRaw('omp', 'Skill', input) ?? null,
-                args_digest: argsDigest(input),
-                call_id: s(call.id) ?? null,
-            }),
-        );
+
+    if (role === 'assistant') {
+        const contentBlocks = msg?.content ?? raw.content;
+        if (!Array.isArray(contentBlocks)) return [];
+        for (const block of contentBlocks as Record<string, unknown>[]) {
+            const call = normalizeOmpToolCall(block);
+            if (call === null) continue;
+            const input = call.input ?? call.arguments;
+            if (call.name === 'Skill') {
+                const skill = s((input as Record<string, unknown> | undefined)?.skill);
+                if (skill === undefined) continue;
+                const callId = s(call.id);
+                rows.push(
+                    skillRecord(identity, skill, 'model', {
+                        args_raw: maybeArgsRaw('omp', 'Skill', input) ?? null,
+                        args_digest: argsDigest(input),
+                        call_id: callId ?? null,
+                        started_at: ts,
+                        evidence_kind: 'load',
+                        status: 'unknown',
+                        invocation_id: invocationIdFor(context, identity.sessionId, {
+                            callId,
+                            recordId: callId === undefined ? recordId : undefined,
+                            ordinal: rows.length,
+                        }),
+                        ...originFields(context, canonicalizeSkillName(skill), {}),
+                    }),
+                );
+                continue;
+            }
+            // Implicit ordinary loads: read-family call targeting a SKILL.md path.
+            if (READ_FAMILY_TOOLS.has(String(call.name ?? ''))) {
+                const args = (input ?? {}) as Record<string, unknown>;
+                const filePath = s(args.filePath, args.file_path, args.path, args.target_file);
+                if (filePath === undefined || lastPathSegmentNorm(filePath) !== 'SKILL.md') continue;
+                const callId = s(call.id);
+                const canonical = canonicalizeSkillName(skillNameFromPath(filePath));
+                rows.push(
+                    skillRecord(identity, canonical, 'model', {
+                        skill_path: filePath,
+                        args_raw: maybeArgsRaw('omp', String(call.name ?? 'read'), args) ?? null,
+                        args_digest: argsDigest(args),
+                        call_id: callId ?? null,
+                        started_at: ts,
+                        evidence_kind: 'load',
+                        status: 'unknown',
+                        invocation_id: invocationIdFor(context, identity.sessionId, {
+                            callId,
+                            recordId: callId === undefined ? recordId : undefined,
+                            ordinal: rows.length,
+                        }),
+                        ...originFields(context, canonical, { skillPath: filePath }),
+                    }),
+                );
+            }
+        }
+        return rows;
+    }
+
+    // User wrapper (shared injection protocol with pi): the load marker is NOT ignored
+    // solely because omp also has a native Skill tool — signature-driven detection (E93).
+    if (role === 'user') {
+        const text = extractContentText(msg?.content ?? raw.content);
+        if (text === undefined) return [];
+        const ordinal = createOrdinalAllocator();
+        // Same leading-injection rule as pi: quoted/fenced wrappers are examples (E93 R6).
+        const wrapper = leadingInjectionMatch(text, PI_SKILL_WRAPPER_ANCHORED);
+        if (wrapper !== null) {
+            const skillPath = wrapper[2] || null;
+            const canonical = canonicalizeSkillName(wrapper[1] ?? '');
+            if (canonical.length > 0) {
+                rows.push(
+                    skillRecord(identity, canonical, 'user', {
+                        skill_path: skillPath,
+                        started_at: ts,
+                        evidence_kind: 'load',
+                        status: 'ok',
+                        invocation_id: invocationIdFor(context, identity.sessionId, {
+                            recordId,
+                            ordinal: ordinal(`skill:${canonical}`),
+                        }),
+                        ...originFields(context, canonical, { skillPath }),
+                    }),
+                );
+            }
+        }
     }
     return rows;
 }
 
-/** Codex has no native load tool call: the child-element `<skill>` block is the trigger. */
-const CODEX_SKILL_BLOCK = /<skill>\s*<name>([^<]+)<\/name>\s*<path>([^<]+)<\/path>\s*<\/skill>/g;
+/** Codex has no native load tool call: the full-body child-element `<skill>` block is the load marker. */
+const CODEX_SKILL_BLOCK = /<skill>\s*<name>([^<]+)<\/name>\s*<path>([^<]+)<\/path>([\s\S]*?)<\/skill>/g;
 
-function detectCodexSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+/** Leading `$name` / `/name` invocation markers — request syntax, not logical identity. */
+const CODEX_DOLLAR_MARKER = /^\$([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(?![\w./:])/;
+const CODEX_SLASH_MARKER = /^\/([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(?![\w./:])/;
+
+/** codex shell tool names accepted by the bounded literal read grammar. */
+const CODEX_SHELL_TOOLS = new Set(['shell', 'exec_command', 'exec']);
+
+function detectCodexSkillCalls(
+    raw: JsonObject,
+    identity: SkillCallIdentity,
+    context: TransformContext,
+): readonly SkillCallSplitRecord[] {
     const payload = (raw.payload ?? raw) as Record<string, unknown>;
     const recordType = String(raw.type ?? '');
     const payloadType = String(payload.type ?? '');
     let role: string;
     if (recordType === 'response_item') {
         role =
-            payloadType === 'message' ? mapRole(payload.role) : payloadType === 'agent_message' ? 'assistant' : 'meta';
+            payloadType === 'message'
+                ? mapRole(payload.role)
+                : payloadType === 'agent_message'
+                  ? 'assistant'
+                  : payloadType === 'function_call' || payloadType === 'custom_tool_call'
+                    ? 'tool'
+                    : 'meta';
     } else if (recordType === 'user' || recordType === 'assistant') {
         role = mapRole(recordType);
     } else if (recordType === 'message') {
@@ -267,36 +722,236 @@ function detectCodexSkillCalls(raw: JsonObject, identity: SkillCallIdentity): re
     } else {
         return [];
     }
+
+    if (role === 'tool') {
+        // Shell-tool reads: bounded literal `cat`/`sed -n` grammar over the call arguments,
+        // plus nested `tools.exec_command({cmd: <literal>})` payloads. String-typed
+        // arguments are parsed as data (serialized JSON), never regex-split (E93 §8.2).
+        const toolName = String(payload.name ?? '');
+        if (!CODEX_SHELL_TOOLS.has(toolName) && !toolName.endsWith('.exec')) return [];
+        const callId = s(payload.call_id, payload.id);
+        const argsText = s(payload.arguments, payload.input);
+        if (argsText === undefined) return [];
+        const rows: SkillCallSplitRecord[] = [];
+        const ts = timestampOf(raw.timestamp, raw.ts, payload.created_at) ?? null;
+        let command: string | null = null;
+        try {
+            const parsed: unknown = JSON.parse(argsText);
+            if (typeof parsed === 'object' && parsed !== null) {
+                const cmd = (parsed as Record<string, unknown>).command;
+                if (typeof cmd === 'string') command = cmd;
+                else if (Array.isArray(cmd)) command = cmd.filter((c) => typeof c === 'string').join(' ');
+            }
+        } catch {
+            command = null; // not JSON — treated below as raw payload text for the nested grammar
+        }
+        const pushRead = (target: string, ordinal: number): void => {
+            const canonical = canonicalizeSkillName(skillNameFromPath(target));
+            rows.push(
+                skillRecord(identity, canonical, 'model', {
+                    skill_path: target,
+                    args_raw: argsText,
+                    args_digest: sha256Text(argsText),
+                    call_id: callId ?? null,
+                    started_at: ts,
+                    evidence_kind: 'load',
+                    status: 'unknown',
+                    invocation_id: invocationIdFor(context, identity.sessionId, {
+                        callId: callId ?? recordIdFallback(raw),
+                        ordinal,
+                    }),
+                    ...originFields(context, canonical, { skillPath: target }),
+                }),
+            );
+        };
+        if (command !== null) {
+            for (let i = 0; i < parseLiteralReadTargets(command).length; i += 1) {
+                pushRead(parseLiteralReadTargets(command)[i] ?? '', i);
+            }
+        }
+        // Nested grammar always applies to the raw payload text (exec bodies may wrap commands).
+        const nestedLiterals = extractNestedExecCommandLiterals(argsText);
+        let nestedOrdinal = 0;
+        for (const literal of nestedLiterals) {
+            for (const target of parseLiteralReadTargets(literal)) {
+                pushRead(target, 1000 + nestedOrdinal);
+                nestedOrdinal += 1;
+            }
+        }
+        return rows;
+    }
+
     if (role !== 'user') return [];
     const text = extractContentText(payload.content ?? raw.content) ?? s(payload.text, raw.text);
     if (text === undefined) return [];
     const rows: SkillCallSplitRecord[] = [];
+    const recordId = s(raw.id, payload.id, raw.uuid);
+    const ts = timestampOf(raw.timestamp, raw.ts) ?? null;
+    const ordinal = createOrdinalAllocator();
+
+    // Full-body wrappers: name + path + injected body. A closed wrapper is a verified
+    // complete injection (successful load); the body digest enables origin agreement.
+    interface CodexWrapper {
+        readonly name: string;
+        readonly path: string | null;
+        readonly digest: string | null;
+    }
+    const wrappers: CodexWrapper[] = [];
+    let acceptedWrapperEnd: number | undefined;
     for (const match of text.matchAll(CODEX_SKILL_BLOCK)) {
-        rows.push(skillRecord(identity, match[1] ?? '', 'user', { skill_path: match[2] ?? null }));
+        // Fenced or inline-quoted `<skill>` blocks are transcript examples, not
+        // injections (E93 R6); only structurally unquoted, lead-position blocks
+        // are loads (see isCodexWrapperLeadPosition for the anchor invariants).
+        const start = match.index ?? 0;
+        if (isQuotedSignatureContext(text, start)) continue;
+        if (!isCodexWrapperLeadPosition(text, start, acceptedWrapperEnd)) continue;
+        acceptedWrapperEnd = start + match[0].length;
+        const body = (match[3] ?? '').trim();
+        const skillPath = match[2] || null;
+        wrappers.push({
+            name: canonicalizeSkillName(match[1] ?? ''),
+            path: skillPath,
+            digest: body.length > 0 ? sha256Text(body) : null,
+        });
+    }
+    // Each wrapper block is its own invocation: repeat same-name wrappers get a
+    // distinct ordinal (the first keeps the marker-correlation key).
+    const wrapperOccurrences = new Map<string, number>();
+    for (const wrapper of wrappers) {
+        const occurrence = (wrapperOccurrences.get(wrapper.name) ?? 0) + 1;
+        wrapperOccurrences.set(wrapper.name, occurrence);
+        const ordinalKey = occurrence === 1 ? `skill:${wrapper.name}` : `skill:${wrapper.name}#${occurrence}`;
+        rows.push(
+            skillRecord(identity, wrapper.name, 'user', {
+                skill_path: wrapper.path,
+                args_digest: wrapper.digest,
+                started_at: ts,
+                evidence_kind: 'load',
+                status: 'ok',
+                invocation_id: invocationIdFor(context, identity.sessionId, {
+                    recordId,
+                    ordinal: ordinal(ordinalKey),
+                }),
+                ...originFields(context, wrapper.name, { skillPath: wrapper.path, artifactDigest: wrapper.digest }),
+            }),
+        );
+    }
+
+    // Leading dollar/slash markers: explicit request syntax. Evidence kind is `request`;
+    // logical kind stays unknown unless the supplied origin proves it (never from spelling).
+    const leadingMarker = text.match(CODEX_DOLLAR_MARKER) ?? text.match(CODEX_SLASH_MARKER);
+    if (leadingMarker !== null) {
+        const markerName = canonicalizeSkillName(leadingMarker[1] ?? '');
+        rows.push(
+            skillRecord(identity, markerName, 'user', {
+                started_at: ts,
+                evidence_kind: 'request',
+                status: 'unknown',
+                invocation_id: invocationIdFor(context, identity.sessionId, {
+                    recordId,
+                    ordinal: ordinal(`skill:${markerName}`),
+                }),
+                ...originFields(context, markerName, {}),
+            }),
+        );
     }
     return rows;
 }
 
+/** Fallback record identity when a codex tool record carries no call id. */
+function recordIdFallback(raw: JsonObject): string {
+    return s(raw.id, raw.uuid) ?? 'codex-record';
+}
+
 /** agy loads skills via `view_file` with toolAction "Viewing skill file" on a SKILL.md path. */
-function detectAgySkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
-    if (String(raw.type ?? '') !== 'PLANNER_RESPONSE' || !Array.isArray(raw.tool_calls)) return [];
+function detectAgySkillCalls(
+    raw: JsonObject,
+    identity: SkillCallIdentity,
+    context: TransformContext,
+): readonly SkillCallSplitRecord[] {
+    const recordType = String(raw.type ?? '');
+    const recordId = s(raw.id, raw.event_id, raw.request_id);
+    const ts = timestampOf(raw.created_at, raw.timestamp, raw.ts) ?? null;
     const rows: SkillCallSplitRecord[] = [];
-    for (const tc of raw.tool_calls as Record<string, unknown>[]) {
-        const tool = s(tc.name, tc.tool_name);
-        if (tool !== 'view_file') continue;
-        const args = (tc.args ?? tc.arguments ?? {}) as Record<string, unknown>;
-        if (args.toolAction !== 'Viewing skill file') continue;
-        const path = s(args.AbsolutePath, args.absolute_path);
-        if (path === undefined || !path.replace(/\\/g, '/').endsWith('/SKILL.md')) continue;
-        const summary = s(args.toolSummary);
-        const skillName = summary?.match(/SKILL\.md for (.+)$/)?.[1] ?? skillNameFromPath(path);
-        rows.push(
-            skillRecord(identity, skillName, 'model', {
-                skill_path: path,
-                args_raw: maybeArgsRaw('agy', 'view_file', args) ?? null,
-                args_digest: argsDigest(args),
-            }),
-        );
+
+    if (recordType === 'PLANNER_RESPONSE' && Array.isArray(raw.tool_calls)) {
+        for (const tc of raw.tool_calls as Record<string, unknown>[]) {
+            const tool = s(tc.name, tc.tool_name);
+
+            if (tool === 'view_file') {
+                const args = (tc.args ?? tc.arguments ?? {}) as Record<string, unknown>;
+                if (args.toolAction !== 'Viewing skill file') continue;
+                const path = s(args.AbsolutePath, args.absolute_path);
+                if (path === undefined || lastPathSegmentNorm(path) !== 'SKILL.md') continue;
+                const summary = s(args.toolSummary);
+                const skillName = summary?.match(/SKILL\.md for (.+)$/)?.[1] ?? skillNameFromPath(path);
+                const canonical = canonicalizeSkillName(skillName);
+                const callId = s(tc.id, tc.call_id);
+                rows.push(
+                    skillRecord(identity, canonical, 'model', {
+                        skill_path: path,
+                        args_raw: maybeArgsRaw('agy', 'view_file', args) ?? null,
+                        args_digest: argsDigest(args),
+                        call_id: callId ?? null,
+                        started_at: ts,
+                        evidence_kind: 'load',
+                        status: 'unknown',
+                        invocation_id: invocationIdFor(context, identity.sessionId, {
+                            callId,
+                            recordId: callId === undefined ? recordId : undefined,
+                            ordinal: rows.length,
+                        }),
+                        ...originFields(context, canonical, { skillPath: path }),
+                    }),
+                );
+                continue;
+            }
+
+            // Native delegation record: capability kind established by source identity.
+            if (tool === 'INVOKE_SUBAGENT') {
+                const args = (tc.args ?? tc.arguments ?? {}) as Record<string, unknown>;
+                const subagent =
+                    s(args.subagent_type, args.subagent, args.agent_name, args.agent, args.name) ?? 'subagent';
+                const callId = s(tc.id, tc.call_id);
+                rows.push(
+                    skillRecord(identity, subagent, 'model', {
+                        args_raw: maybeArgsRaw('agy', 'INVOKE_SUBAGENT', args) ?? null,
+                        args_digest: argsDigest(args),
+                        call_id: callId ?? null,
+                        started_at: ts,
+                        ...originFields(context, canonicalizeSkillName(subagent), {}),
+                        capability_kind: 'subagent',
+                        evidence_kind: 'delegation',
+                        status: 'unknown',
+                        invocation_id: invocationIdFor(context, identity.sessionId, {
+                            callId,
+                            recordId: callId === undefined ? recordId : undefined,
+                            ordinal: rows.length,
+                        }),
+                    }),
+                );
+            }
+        }
+    }
+
+    // Native slash-command record: the source's own command identity — not marker spelling.
+    // Gated on a display payload, which is what guarantees the carrying message entry exists.
+    if (recordType === 'slash_command') {
+        const display = s(raw.display);
+        if (display !== undefined) {
+            const commandName = s(raw.command, raw.name) ?? display.match(/(?:^|\s)\/([a-z][a-z0-9:-]*)/)?.[1];
+            if (commandName !== undefined) {
+                rows.push(
+                    skillRecord(identity, canonicalizeSkillName(commandName), 'user', {
+                        started_at: ts,
+                        capability_kind: 'command',
+                        evidence_kind: 'request',
+                        status: 'unknown',
+                        invocation_id: invocationIdFor(context, identity.sessionId, { recordId, ordinal: 0 }),
+                    }),
+                );
+            }
+        }
     }
     return rows;
 }
@@ -304,31 +959,71 @@ function detectAgySkillCalls(raw: JsonObject, identity: SkillCallIdentity): read
 /** Gemini has no verified L1: the L0 harness prefix in a user message is the trigger. */
 const GEMINI_L0_PREFIX = /^\s*\/((?:sp|rd3)-[a-z0-9-]+)/;
 
-function detectGeminiSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+function detectGeminiSkillCalls(
+    raw: JsonObject,
+    identity: SkillCallIdentity,
+    context: TransformContext,
+): readonly SkillCallSplitRecord[] {
     if (String(raw.type ?? '') !== 'user') return [];
     const content = geminiContent(raw);
     if (content === null) return [];
     const match = content.match(GEMINI_L0_PREFIX);
     if (match === null) return [];
-    return [skillRecord(identity, match[1] ?? '', 'user')];
+    const canonical = canonicalizeSkillName(match[1] ?? '');
+    const recordId = s(raw.id, raw.uuid);
+    const ts = timestampOf(raw.timestamp, raw.ts) ?? null;
+    // Deferred-source limit: no native command/load identity exists — the row is a request
+    // with unknown capability kind unless the supplied origin proves it (E93 R7).
+    return [
+        skillRecord(identity, canonical, 'user', {
+            started_at: ts,
+            evidence_kind: 'request',
+            status: 'unknown',
+            invocation_id: invocationIdFor(context, identity.sessionId, { recordId, ordinal: 0 }),
+            ...originFields(context, canonical, {}),
+        }),
+    ];
 }
 
 /** grok loads skills via `read_file` (grok_build namespace) targeting a SKILL.md path. */
-function detectGrokSkillCalls(raw: JsonObject, identity: SkillCallIdentity): readonly SkillCallSplitRecord[] {
+function detectGrokSkillCalls(
+    raw: JsonObject,
+    identity: SkillCallIdentity,
+    context: TransformContext,
+): readonly SkillCallSplitRecord[] {
     const n = normalizeGrokRecord(raw);
     if (n.recordType !== 'tool_call' || n.toolName !== 'read_file') return [];
     const meta = (n.body._meta ?? raw._meta ?? {}) as Record<string, unknown>;
     if (o(meta['x.ai/tool']).namespace !== 'grok_build') return [];
     const targetFile = s(o(n.toolArgs).target_file);
-    if (targetFile === undefined || !targetFile.replace(/\\/g, '/').endsWith('/SKILL.md')) return [];
+    if (targetFile === undefined || lastPathSegmentNorm(targetFile) !== 'SKILL.md') return [];
+    const canonical = canonicalizeSkillName(skillNameFromPath(targetFile));
+    const recordId = s(n.body.id, raw.id, raw.uuid);
+    const callId = s(n.body.call_id, n.body.itemId, recordId);
+    // The record carries the observed outcome inline — ride it; anything unrecognized stays
+    // unknown. Read the RAW status (normalizeGrokRecord defaults its toolStatus to 'ok').
+    const status = grokOutcomeStatus(typeof n.body.status === 'string' ? n.body.status : undefined);
     return [
-        skillRecord(identity, skillNameFromPath(targetFile), 'model', {
+        skillRecord(identity, canonical, 'model', {
             skill_path: targetFile,
             args_raw: maybeArgsRaw('grok', 'read_file', n.toolArgs) ?? null,
             args_digest: argsDigest(n.toolArgs),
+            call_id: callId ?? null,
             started_at: n.ts ?? null,
+            status,
+            evidence_kind: 'load',
+            invocation_id: invocationIdFor(context, identity.sessionId, { callId, ordinal: 0 }),
+            ...originFields(context, canonical, { skillPath: targetFile }),
         }),
     ];
+}
+
+/** Map a grok tool outcome string onto the bounded skill status domain. */
+function grokOutcomeStatus(toolStatus: string | undefined): 'ok' | 'error' | 'unknown' {
+    const value = String(toolStatus ?? '').toLowerCase();
+    if (value === 'ok' || value === 'success' || value === 'done' || value === 'completed') return 'ok';
+    if (value === 'error' || value === 'failed') return 'error';
+    return 'unknown';
 }
 
 // ---------------------------------------------------------------------------
@@ -909,6 +1604,8 @@ function normalizeOmpToolCall(block: Record<string, unknown>): Record<string, un
 export interface OmpToolResultTiming {
     /** The toolCall id this result answers — joins `toolCall.id` exactly. */
     toolCallId: string;
+    /** True when the result envelope carries isError (E93 1028 skill pairing). */
+    isError: boolean;
     /** The tool's own measured wall time in ms, when present and finite. */
     wallTimeMs: number | undefined;
     /** Message timestamp as epoch millis, when parseable. */
@@ -943,7 +1640,12 @@ export function ompToolResultTiming(raw: Record<string, unknown>): OmpToolResult
     const details = o(msg.details);
     const wallTimeMs =
         typeof details.wallTimeMs === 'number' && Number.isFinite(details.wallTimeMs) ? details.wallTimeMs : undefined;
-    return { toolCallId, wallTimeMs, timestampMs: timestampToEpochMs(raw.timestamp ?? msg.timestamp) };
+    return {
+        toolCallId,
+        isError: msg.isError === true,
+        wallTimeMs,
+        timestampMs: timestampToEpochMs(raw.timestamp ?? msg.timestamp),
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -954,6 +1656,8 @@ export function ompToolResultTiming(raw: Record<string, unknown>): OmpToolResult
 export interface ClaudeToolResultTiming {
     /** The `toolu_…` id from the answered tool_use block — joins `tool_use.id` exactly. */
     toolCallId: string;
+    /** True when the tool_result block carries is_error (E93 1028 skill pairing). */
+    isError: boolean;
     /** Message timestamp as epoch millis, when parseable. */
     timestampMs: number | undefined;
     /** Native tool duration, when Claude Code emits one. */
@@ -995,6 +1699,7 @@ export function claudeToolResultTiming(raw: Record<string, unknown>): ClaudeTool
         const resultBytes = JSON.stringify(payload ?? null)?.length ?? 2;
         return {
             toolCallId,
+            isError: b.is_error === true,
             timestampMs: timestampToEpochMs(raw.timestamp),
             durationMs,
             resultBytes,

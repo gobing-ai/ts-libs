@@ -20,3 +20,15 @@ export function stableJson(value: unknown): string {
 export function sha256(value: unknown): string {
     return createHash('sha256').update(stableJson(value)).digest('hex');
 }
+
+/**
+ * SHA-256 over the raw UTF-8 bytes of a string (E93 task 1028).
+ *
+ * Distinct from {@link sha256}, which hashes the *stable-JSON encoding* of a value:
+ * artifact digests must be computed over the exact observed artifact bytes so a
+ * supplied {@link CapabilityOrigin} digest recorded from the real file matches the
+ * digest observed in a transcript wrapper.
+ */
+export function sha256Text(text: string): string {
+    return createHash('sha256').update(text, 'utf8').digest('hex');
+}

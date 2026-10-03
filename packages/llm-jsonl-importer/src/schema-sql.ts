@@ -4,7 +4,7 @@
  * Guaranteed to match the package version; a bump-or-fail test enforces that
  * any modification to HISTORY_IMPORT_SCHEMA_SQL must be accompanied by a version bump.
  */
-export const HISTORY_IMPORT_SCHEMA_VERSION = '0.5.11';
+export const HISTORY_IMPORT_SCHEMA_VERSION = '0.5.12';
 
 /**
  * DDL string that creates the history import checkpoint, ledger, and typed contract tables.
@@ -119,7 +119,14 @@ CREATE TABLE IF NOT EXISTS history_skill_call (
     started_at      TEXT,
     completed_at    TEXT,
     duration_ms     REAL,
-    imported_at     TEXT NOT NULL
+    imported_at     TEXT NOT NULL,
+    -- Capability facts (E93 task 1028). Nullable on every row: legacy rows and rows
+    -- whose classification could not be established store NULL. Column order after
+    -- imported_at converges with the guarded standalone upgrade in the DAO.
+    capability_kind TEXT,
+    evidence_kind   TEXT,
+    invocation_id   TEXT,
+    origin_identity TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_history_skill_call_session
     ON history_skill_call(source, session_id, seq);

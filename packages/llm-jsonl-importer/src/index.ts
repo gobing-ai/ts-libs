@@ -27,6 +27,9 @@ export {
 } from './sources';
 export { BOOKKEEPING_HISTORY_TABLES, IMPORTER_OWNED_TABLES } from './tables';
 export type {
+    CapabilityEvidenceKind,
+    CapabilityKind,
+    CapabilityOrigin,
     FieldTransform,
     ImportIssue,
     ImportMode,

@@ -219,6 +219,50 @@ The custom `source` name flows through checkpoints, the ledger, and `ImportResul
 like a built-in key. The importer creates the target ETL table on demand if it does not exist
 (idempotent `CREATE TABLE IF NOT EXISTS`), so built-in tables are unaffected.
 
+## Skill-Call Capability Facts (E93)
+
+`history_skill_call` classifies every observed skill invocation with four nullable facts plus a
+stable identity:
+
+- `invocation_id` — content-hash identity over `(source, session, kind, id, ordinal, file, line)`;
+  correlated representations of one invocation (e.g. a codex `$skill` marker plus its companion
+  `<skill>` block) share one id.
+- `capability_kind` — `skill`, `command`, or `subagent` — where the invocation's target artifact
+  was resolved to (native classification first, then a unique supplied origin; `NULL` when unknown).
+- `origin_identity` — the origin index identity for the resolved artifact.
+- `evidence_kind` — `load` (skill observed executing/loaded), `request` (command spelled by the
+  user), or `delegation` (agent-to-agent subagent dispatch).
+- `status` — `unknown` until a paired tool result rides the row (`ok`/`error`) or the harness
+  wrapper itself is the verified injection.
+
+Capability classification never infers from name spelling alone: a `$sp-dev-run` marker without a
+matching command record or skill block classifies as unknown. Pass a verified origin index to make
+resolved origins part of the import contract (invalid entries reject the run before any write):
+
+```ts
+const result = await runJsonlImport('codex', {
+    db,
+    files,
+    mode: 'incremental',
+    capabilityOrigins: [
+        {
+            source: 'codex',
+            skillName: 'sp:dev-run',
+            skillPath: '/skills/sp-dev-run/SKILL.md',
+            artifactDigest: sha256Text(body.trim()),
+            capabilityKind: 'skill',
+            originIdentity: 'sp/src/skills/dev-run',
+        },
+    ],
+});
+```
+
+Digest mismatches and conflicting origin entries never cause a silent guess: the row classifies as
+unknown and the run reports a bounded, deduplicated validation finding. Shell reads of `SKILL.md`
+files (`cat`, `sed -n '<range>p'`) inside tool payloads — including nested
+`tools.exec_command({cmd: ...})` literals — surface as implicit loads. Results may arrive in a later
+incremental run; pairing falls back to the database and upgrades the existing row in place.
+
 ## Boundary Notes
 
 - This package imports JSONL files and writes importer-owned tables; it does not model conversations, turns, tool calls, or analytics semantics.

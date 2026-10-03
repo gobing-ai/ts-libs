@@ -6,13 +6,36 @@ authority: derived
 version: 1.5.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-09-26
+updated_at: 2026-10-02
 read_before: cross-package, seam, or schema work
 edit_rules: 99 §6.4
 sync: [T1]
 ---
 
 # Architecture
+
+## ai-decision (accepted design — ADR-033; not yet built)
+
+`@gobing-ai/ts-ai-decision` turns the `ts-ai-runner` `DecisionMaker` into declarative, static
+decision catalogs served by an in-process `DecisionHub` (`load`/`list`/`describe`/`decide`). Surface
+shapes: `docs/design/ai-decision-catalog.md`.
+
+Dependencies run one way: `ts-ai-decision` → `ts-ai-runner` (decision surface, `createDecisionMaker`,
+`typesafe`), → `ts-decision-fm` and `ts-laya-mlx` (bundled local drivers, injected as
+`createDecisionMaker({ driver })`), and → `ts-runtime` (`parseStructuredConfig`, `FileSystem`). It
+holds no driver code of its own and imports no platform API. Catalogs are YAML only, follow the Jev
+question shape (`type` / `instructions` / `criteria`), and template with `${params.<name>}`.
+
+Invariants:
+
+- A catalog is validated completely at load, and a failing catalog registers nothing. The fallback
+  must sit in the answer vocabulary, every `${...}` must be `${params.<declared or instructions>}`
+  (never `${env.*}`), defaults must match their types, and ids must be unique across the hub.
+- `decide` asks exactly one question per call and never rejects because of the backend. Failures and
+  low confidence resolve to the declared fallback with `source: 'default'` and a closed `reason`.
+- Caller mistakes (unknown id, invalid input) throw named errors before any backend call.
+- Backend precedence: injected `DecisionMaker` → decision `backend` → catalog `defaults.backend` →
+  `typesafe`. Makers and drivers are built lazily, so `list`/`describe` never touch a backend.
 
 ## ai-runner
 

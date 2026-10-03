@@ -139,7 +139,7 @@
     },
     "packages/llm-jsonl-importer": {
       "name": "@gobing-ai/ts-llm-jsonl-importer",
-      "version": "0.5.11",
+      "version": "0.5.12",
       "dependencies": {
         "@gobing-ai/ts-db": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",

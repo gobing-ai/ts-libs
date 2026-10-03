@@ -656,8 +656,16 @@ describe('runJsonlImport agy history.jsonl (0063)', () => {
             });
 
             expect(result.scannedFiles).toBe(2);
-            expect(result.importedRecords).toBe(3);
+            // E93 1028: the native `slash_command` record now also produces a command
+            // request row in history_skill_call (capability_kind='command') — 4 records.
+            expect(result.importedRecords).toBe(4);
             expect(result.validationErrors).toHaveLength(0);
+            const commandRows = await db.queryAll<Record<string, unknown>>(
+                'SELECT skill_name, capability_kind, evidence_kind, status FROM history_skill_call',
+            );
+            expect(commandRows).toEqual([
+                { skill_name: 'rd3:dev-run', capability_kind: 'command', evidence_kind: 'request', status: 'unknown' },
+            ]);
             const rows = await db.queryAll<{ source_file: string; content_text: string | null; cwd: string | null }>(
                 'SELECT source_file, content_text, cwd FROM history_message',
             );

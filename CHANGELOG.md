@@ -8,6 +8,16 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.12] - 2026-10-03
+
+### Added
+
+- **History capability contract (`@gobing-ai/ts-llm-jsonl-importer`, schema 0.5.12).** Classified history capability usage for commands/subagents/skills across native and converted agent sources: new `capability` module with `CapabilityOrigin`, independent `capability_kind` / `evidence_kind` / `invocation_id` / `origin_identity` columns, per-occurrence ordinals for duplicate codex wrappers, error-status propagation for codex `function_call_output` with non-zero `exit_code`/`is_error`, and pre-write origin validation (malformed origins raise `HistoryImportError` before table creation).
+
+### Fixed
+
+- **Quoted-signature exclusion (task 1028 R6/AC6).** Quoted example blocks (fenced or unfenced) no longer fabricate `status='ok'` load rows: leading-position anchored exclusion shared across the claude/pi/omp/codex seams, marker-line-tolerant codex anchoring, and CommonMark fence-length matching (a 4-backtick outer fence is no longer closed by an inner ``` example fence). Real-injection controls (wrapper after closed fence, marker-only texts, envelopes after blank lines) still extract. 374 tests green.
+
 ## [0.5.10] - 2026-09-27
 
 ### Other

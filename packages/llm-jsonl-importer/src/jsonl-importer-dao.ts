@@ -94,13 +94,17 @@ const TYPED_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
         'completed_at',
         'duration_ms',
         'imported_at',
+        'capability_kind',
+        'evidence_kind',
+        'invocation_id',
+        'origin_identity',
     ],
 };
 
 /** Keys that a typed table mapper may produce that are not columns. */
 // `split_index` and `source_record_id` (task 0067 R2) ride the normalized record into the
 // record_hash but are not history_message columns — identity-relevant, never persisted.
-const TYPED_IGNORED_KEYS = new Set<string>(['_meta', 'split_index', 'source_record_id']);
+const TYPED_IGNORED_KEYS = new Set<string>(['_meta', 'split_index', 'source_record_id', '_capabilityConflict']);
 
 function targetTableFor(table: string): string {
     if (!VALID_TABLE_NAME.test(table)) {
@@ -138,6 +142,78 @@ export async function applyHistoryImportSchema(db: ImportOptions['db']): Promise
             await db.exec(sql);
         }
     }
+    await ensureSkillCallCapabilityColumns(db);
+}
+
+/**
+ * Guarded standalone upgrade for the E93 capability-fact columns (task 1028).
+ *
+ * WHY: a database created by an older schema keeps `history_skill_call` without the four
+ * capability columns. Instead of requiring a full rebuild, add the nullable columns in the
+ * canonical order (after `imported_at`, matching the current DDL) only when missing. The
+ * upgrade is idempotent and never touches existing rows — legacy rows stay NULL.
+ */
+const SKILL_CALL_CAPABILITY_COLUMNS = [
+    ['capability_kind', 'TEXT'],
+    ['evidence_kind', 'TEXT'],
+    ['invocation_id', 'TEXT'],
+    ['origin_identity', 'TEXT'],
+] as const;
+
+export async function ensureSkillCallCapabilityColumns(db: ImportOptions['db']): Promise<void> {
+    const existing = new Set<string>();
+    for (const row of await db.queryAll<{ name: string }>('PRAGMA table_info(history_skill_call)')) {
+        existing.add(row.name);
+    }
+    if (existing.size === 0) return; // table absent — the DDL above created it fresh
+    for (const [column, type] of SKILL_CALL_CAPABILITY_COLUMNS) {
+        if (!existing.has(column)) {
+            await db.exec(`ALTER TABLE history_skill_call ADD COLUMN ${column} ${type}`);
+        }
+    }
+}
+
+/**
+ * Result-arrival update op for one skill-call row (task 1028 §8.2): pair a later
+ * tool-result/dispatch outcome with the invocation row, setting `status`,
+ * `completed_at` and `duration_ms` without touching identity columns or `started_at`.
+ * Idempotent — re-importing the same result writes the same values.
+ */
+export function skillCallOutcomeUpdateOp(
+    recordHash: string,
+    status: 'ok' | 'error',
+    completedAt: string | null,
+    durationMs: number | null,
+): DbBatchOp {
+    return {
+        sql: `UPDATE history_skill_call
+             SET status = ?, completed_at = ?, duration_ms = ?
+             WHERE record_hash = ?`,
+        params: [status, completedAt, durationMs, recordHash],
+    };
+}
+
+/**
+ * Resolve persisted skill-call rows by invocation call id (task 1028 §8.2): the DB-side
+ * fallback for result pairing when the row's import batch is already behind the current
+ * checkpoint. Returns every matching record hash in deterministic row order (a multi-file
+ * literal read shares one call id across its target rows).
+ */
+export async function resolveSkillCallRows(
+    db: ImportOptions['db'],
+    source: string,
+    sessionId: string,
+    callId: string,
+): Promise<readonly string[]> {
+    const rows = await db.queryAll<{ record_hash: string }>(
+        `SELECT record_hash FROM history_skill_call
+         WHERE source = ? AND session_id = ? AND call_id = ?
+         ORDER BY seq, record_hash`,
+        source,
+        sessionId,
+        callId,
+    );
+    return rows.map((row) => row.record_hash);
 }
 
 /** Ensure one accepted record's target exists; typed targets come from the static schema. */

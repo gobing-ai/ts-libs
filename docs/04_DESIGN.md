@@ -6,7 +6,7 @@ authority: derived
 version: 1.5.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-09-26
+updated_at: 2026-10-02
 read_before: changing a public export, config key, schema, or DTO
 edit_rules: 99 §6.5
 sync: [T3, T9]
@@ -26,6 +26,7 @@ API; generated declarations are the compile-time contract.
 | Laya local decision backend (`ts-laya-mlx`) | accepted design — ADR-027/ADR-028 | [`laya-local-decision-backend.md`](design/laya-local-decision-backend.md) |
 | Apple `fm` decision backend (`ts-decision-fm`) and `fm` agent | built 2026-09-23 — ADR-029/ADR-030/ADR-031 | [`decision-fm-backend.md`](design/decision-fm-backend.md) |
 | Browser profile sessions (`ts-browser-automation`) | built 2026-09-26 — ADR-032 | [`browser-profile-sessions.md`](design/browser-profile-sessions.md) |
+| AI decision catalog and hub (`ts-ai-decision`) | accepted design — ADR-033; not yet built | [`ai-decision-catalog.md`](design/ai-decision-catalog.md) |
 
 Cross-package and platform constraints are architectural decisions in `docs/00_ADR.md`, not
 duplicated here.

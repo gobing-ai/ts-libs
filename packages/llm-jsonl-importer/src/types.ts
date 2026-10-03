@@ -54,6 +54,41 @@ export interface TransformContext {
     readonly sourceFile: string;
     readonly sourceLine: number;
     readonly splitIndex: number;
+    /**
+     * Operator-declared capability origins (E93 task 1028). Supplied by the Spur forwarder
+     * from its artifact index; consulted during skill-call classification to resolve
+     * {@link SkillCallSplitRecord.capability_kind} and `origin_identity`. Absent (the
+     * default) preserves classification purely from source-native identity.
+     */
+    readonly capabilityOrigins?: readonly CapabilityOrigin[];
+}
+
+/** Logical capability kind recorded on a `history_skill_call` row (E93 task 1028). */
+export type CapabilityKind = 'command' | 'subagent' | 'skill';
+
+/** Evidence kind recorded on a `history_skill_call` row (E93 task 1028). */
+export type CapabilityEvidenceKind = 'request' | 'load' | 'delegation';
+
+/**
+ * One operator-declared capability origin (E93 task 1028 §8.1). Origins are validated
+ * upfront by the importer and consulted by skill-call classification; a unique origin
+ * whose source, canonical name, optional exact path and observed complete-artifact digest
+ * agree with the invoking record establishes `capability_kind` + `origin_identity` on the
+ * produced row. Conflicting or ambiguous origins classify as unknown rather than guessing.
+ */
+export interface CapabilityOrigin {
+    /** Importer source identifier the origin was observed under. */
+    readonly source: string;
+    /** Canonical skill/command name — normalized with the importer's skill-name canonicalizer. */
+    readonly skillName: string;
+    /** Optional exact artifact path as observed in the transcript (when known to the index). */
+    readonly skillPath?: string | undefined;
+    /** SHA-256 hex digest of the complete observed artifact's UTF-8 bytes. */
+    readonly artifactDigest: string;
+    /** Logical kind of the capability the artifact provides. */
+    readonly capabilityKind: CapabilityKind;
+    /** Opaque, stable identifier of the upstream artifact (passed through to `origin_identity`). */
+    readonly originIdentity: string;
 }
 
 /** Declarative importer configuration for one LLM history source. */
@@ -105,6 +140,13 @@ export interface ImportOptions {
      * the hard fallback for blocking work. Omitting the signal preserves existing behavior.
      */
     readonly signal?: AbortSignal;
+    /**
+     * Operator-declared capability origins (E93 task 1028). Validated upfront — before any
+     * schema application or write — and threaded into every record's transform context so
+     * skill-call classification can resolve capability facts. Malformed entries reject the
+     * run with a structured error; omitting them keeps classification source-native only.
+     */
+    readonly capabilityOrigins?: readonly CapabilityOrigin[];
     /**
      * Optional cwd/home anchor (ADR-023 A1 / task 0042). When set, registry `defaultRoots`
      * resolve against `paths.home` instead of the ambient working directory; explicit
@@ -187,6 +229,23 @@ export interface SkillCallSplitRecord {
     readonly started_at?: string | null;
     readonly completed_at?: string | null;
     readonly duration_ms?: number | null;
+    /**
+     * Capability facts (E93 task 1028). `capability_kind` + `origin_identity` classify the
+     * row only when established by native source identity or a unique supplied origin;
+     * `evidence_kind` distinguishes a request from a verified load/delegation;
+     * `invocation_id` is the stable cross-source invocation identity for consumers.
+     * All four are nullable — legacy rows and unestablished classifications store NULL.
+     */
+    readonly capability_kind?: string | null;
+    readonly evidence_kind?: string | null;
+    readonly invocation_id?: string | null;
+    readonly origin_identity?: string | null;
+    /**
+     * Classification-conflict marker (E93 task 1028): set when candidate origins disagreed
+     * or a digest mismatched. Rides the record into the record_hash and is surfaced by the
+     * importer as a bounded validation finding; never persisted (ignored by the typed insert).
+     */
+    readonly _capabilityConflict?: string;
 }
 
 /** Normalized skill-call record imported into history_skill_call. */
@@ -208,5 +267,13 @@ export interface SkillCall {
     readonly started_at?: string | null;
     readonly completed_at?: string | null;
     readonly duration_ms?: number | null;
+    /** See {@link SkillCallSplitRecord.capability_kind}. */
+    readonly capability_kind?: string | null;
+    /** See {@link SkillCallSplitRecord.evidence_kind}. */
+    readonly evidence_kind?: string | null;
+    /** See {@link SkillCallSplitRecord.invocation_id}. */
+    readonly invocation_id?: string | null;
+    /** See {@link SkillCallSplitRecord.origin_identity}. */
+    readonly origin_identity?: string | null;
     readonly imported_at: string;
 }
