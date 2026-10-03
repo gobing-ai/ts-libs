@@ -5,7 +5,7 @@ owns: WHY — which cross-cutting decision was made, and the one-line reason
 authority: authoritative
 version: 1.4.0
 owner: Robin Min
-updated_at: 2026-10-02
+updated_at: 2026-10-03
 read_before: any structural change
 edit_rules: 99 §6.1
 sync: [T1, T2]
@@ -648,6 +648,13 @@ driver → ai-runner) and makes local backends resolvable without relying on the
 layout. Catalog loading reuses `ts-runtime`'s `parseStructuredConfig`, so the package needs no YAML
 dependency and no platform-API exception. Network serving, caching, multi-decision batching,
 persistence, JSON catalogs and template logic stay out of scope.
+
+**Amendment (2026-10-03, feature N R15–R17).** Makers are selected by name from a
+`DecisionMakerRegistry`. It pre-registers the three bundled backends (`typesafe`, `fm-local`,
+`laya-local`), and consumers register more. The catalog key `backend` becomes `maker`, which names
+any registered maker. Precedence is per-call `maker` → decision → catalog default → hub
+`defaultMaker`, and an unregistered name fails loudly instead of falling back. Why: one string
+should route any decision to any maker, built-in or the consumer's own.
 
 **Detail:** `docs/03_ARCHITECTURE.md` § ai-decision; `docs/design/ai-decision-catalog.md`;
 feature N.

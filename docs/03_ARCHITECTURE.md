@@ -6,7 +6,7 @@ authority: derived
 version: 1.5.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-10-02
+updated_at: 2026-10-03
 read_before: cross-package, seam, or schema work
 edit_rules: 99 §6.4
 sync: [T1]
@@ -17,7 +17,8 @@ sync: [T1]
 ## ai-decision (accepted design — ADR-033; not yet built)
 
 `@gobing-ai/ts-ai-decision` turns the `ts-ai-runner` `DecisionMaker` into declarative, static
-decision catalogs served by an in-process `DecisionHub` (`load`/`list`/`describe`/`decide`). Surface
+decision catalogs served by an in-process `DecisionHub` (`load`/`list`/`describe`/`decide`), with
+makers picked by name from a `DecisionMakerRegistry` (built-ins plus consumer registrations). Surface
 shapes: `docs/design/ai-decision-catalog.md`.
 
 Dependencies run one way: `ts-ai-decision` → `ts-ai-runner` (decision surface, `createDecisionMaker`,
@@ -30,12 +31,15 @@ Invariants:
 
 - A catalog is validated completely at load, and a failing catalog registers nothing. The fallback
   must sit in the answer vocabulary, every `${...}` must be `${params.<declared or instructions>}`
-  (never `${env.*}`), defaults must match their types, and ids must be unique across the hub.
+  (never `${env.*}`), defaults must match their types, ids must be unique across the hub, and every
+  `maker` name must be registered when the catalog enters a hub.
 - `decide` asks exactly one question per call and never rejects because of the backend. Failures and
   low confidence resolve to the declared fallback with `source: 'default'` and a closed `reason`.
-- Caller mistakes (unknown id, invalid input) throw named errors before any backend call.
-- Backend precedence: injected `DecisionMaker` → decision `backend` → catalog `defaults.backend` →
-  `typesafe`. Makers and drivers are built lazily, so `list`/`describe` never touch a backend.
+- Caller mistakes (unknown id, invalid input, unregistered per-call maker) throw named errors before
+  any backend call.
+- Maker precedence: per-call `maker` → decision `maker` → catalog `defaults.maker` → hub
+  `defaultMaker` (`typesafe`). Registry factories run lazily and are memoised on success, so
+  `list`/`describe` never touch a backend.
 
 ## ai-runner
 
