@@ -20,12 +20,14 @@ import { spawnSync } from 'node:child_process';
 import {
     closeSync,
     existsSync,
+    lstatSync,
     mkdirSync,
     openSync,
     readdirSync,
     readFileSync,
     realpathSync,
     renameSync,
+    statSync,
     writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -99,6 +101,30 @@ const nodeFsShim = {
     readFile: (path) => {
         return readFileSync(path, 'utf8');
     },
+    realPath: (path) => {
+        // Rule 0785 R2 physical-path confinement: the seams bundle refuses a
+        // FileSystem without realPath support.
+        return realpathSync(path);
+    },
+    lstat: (path) => {
+        try {
+            return lstatSync(path);
+        } catch {
+            return null;
+        }
+    },
+    stat: (path) => {
+        // Soft stat: the seams bundle probes paths with `await stat(p) !== null`
+        // and expects null (not undefined/throw) when absent.
+        try {
+            return statSync(path);
+        } catch {
+            return null;
+        }
+    },
+    readDir: (path) => {
+        return readdirSync(path);
+    },
 };
 
 async function verify(featureId, runId, spurModule) {
@@ -139,7 +165,10 @@ async function verify(featureId, runId, spurModule) {
     try {
         await new mod.ArtifactDao(db.adapter).record({
             runId,
-            path: join(runDir, `${runId}-feature-verification.json`),
+            // The completion check matches the artifact row against the receipt's
+            // run-scoped durable path (`.spur/memory/evidence/<runId>-…json`), not
+            // the legacy `.spur/run/` scratch location.
+            path: join(dirname(runDir), 'memory', 'evidence', `${runId}-feature-verification.json`),
             kind: 'feature-verification',
         });
     } finally {
