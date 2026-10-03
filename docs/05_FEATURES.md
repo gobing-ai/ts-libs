@@ -37,5 +37,6 @@ Feature satellites are owned by `spur feature`. The generated, authoritative ros
 | K | Apple fm on-device agent and ts-decision-fm decision backend | ✅ done | [`K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md`](features/K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md) |
 | L | hardening-review-remediation | ✅ done | [`L_hardening-review-remediation.md`](features/L_hardening-review-remediation.md) |
 | M | Reusable browser profile automation | ✅ done | [`M_reusable-browser-profile-automation.md`](features/M_reusable-browser-profile-automation.md) |
+| N | Declarative AI decision catalog and hub in ts-ai-decision | ✅ done | [`N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md`](features/N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md) |
 
 **Status legend:** ✅ done · 🔶 partial · ⏳ planned · 💤 deferred
