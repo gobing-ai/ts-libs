@@ -4,7 +4,7 @@ name: TransitionFlowDriver parallel region scheduler, concurrency bounding, and 
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.278Z
-updated_at: "2026-10-04T22:04:28.634Z"
+updated_at: "2026-10-04T22:37:59.233Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -111,10 +111,25 @@ Provides parallel execution backbone to task 0096 (cancellation), 0097 (pause/re
 
 ### Testing
 
-- `bun test packages/dual-workflow-engine/tests/transition-flow.test.ts`: PASS (21 passed, 0 failed).
-- `bun test packages/dual-workflow-engine/tests/`: PASS (479 passed, 0 failed).
-- `bun run spur-check`: PASS (2,768 passed, 0 failed across 230 files, 99.25% line coverage, all 58 pre-check and 2 post-check rules green).
-- `bun run build`: PASS (all 12 workspace packages built cleanly).
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:150` — concurrencyLimit ?? 4 bounding active branches |
+| R2 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:245` — per-branch isolated branchVars/branchSetVars accumulation via mergeSetVars |
+| R3 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:246` — collect policy merges deltas deterministically; test proof at `packages/dual-workflow-engine/tests/transition-flow.test.ts:608` |
+| R4 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:246` — declaration-order mergeSetVars join; collision rule per merge order |
+| R5 | MET | Out-of-scope row (SIGTERM escalation → 0096, pause/resume → 0097); boundary confirmed in commit 29f83335 |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| R2 — Concurrent branch execution overlaps under bounded concurrency | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:414` ('runs parallel branches concurrently') and :549 ('enforces concurrencyLimit') — anchors corrected from in-body :430 |
+| R4 — Collect failure policy allows all branches to complete before recording aggregate failure | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:608` — anchor corrected from :580 (wrong test body) |
+| R5 — Branch variable isolation and deterministic join merge | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:478` — anchor corrected from in-body :480 |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 

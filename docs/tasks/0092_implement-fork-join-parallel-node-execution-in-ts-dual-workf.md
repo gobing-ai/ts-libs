@@ -4,7 +4,7 @@ name: Implement fork/join parallel node execution in ts-dual-workflow-engine
 status: done
 template: feature-impl
 created_at: 2026-10-04T06:57:19.806Z
-updated_at: "2026-10-04T22:20:56.101Z"
+updated_at: "2026-10-04T22:37:55.397Z"
 feature_id: C2
 
 dependencies: ["0093", "0094", "0095", "0096", "0097", "0098"]
@@ -117,10 +117,32 @@ Umbrella delivery covering Feature C2 via 6 cohesive child tasks:
 
 ### Testing
 
-- All 6 subtasks verified with passing tests (0093: 97 tests, 0094: 60 tests, 0095: 21 tests, 0096: 3 tests, 0097: 23 tests, 0098: 1 E2E test).
-- Complete package suite: `bun test packages/dual-workflow-engine/tests/` — 485 passed, 0 failed.
-- Full workspace check: `bun run spur-check` — 2,774 passed, 0 failed across 232 files, 99.25% line coverage, all 58 pre-check and 2 post-check rules green.
-- Full build: `bun run build` — 12/12 packages built cleanly.
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/dual-workflow-engine/src/config.ts:155` — validateTransitionFlow; branch schema at `packages/dual-workflow-engine/src/schema.ts:120` |
+| R2 | MET | `packages/dual-workflow-engine/src/persistence.ts:66` — DbWorkflowPersistenceAdapter; ledger table at `packages/dual-workflow-engine/src/schema-sql.ts:74` |
+| R3 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:150` — concurrencyLimit ?? 4 bounded scheduler in TransitionFlowDriver |
+| R4 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:165` — fail-fast abortSiblings; signal threading at `packages/dual-workflow-engine/src/host.ts:166` |
+| R5 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:246` — isolated branchSetVars deltas merged via mergeSetVars in declaration order |
+| R6 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:283` — branch pause barrier; ledger status 'paused' at :288 |
+| R7 | MET | `packages/dual-workflow-engine/src/events.ts:149` — workflow.branch.started event family; emission at `packages/dual-workflow-engine/src/run-lifecycle.ts:487` |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| R1 — Validation accepts structured fork-join and rejects invalid parallel definitions | MET | test | `packages/dual-workflow-engine/tests/config.test.ts:348` |
+| R2 — Concurrent branch execution overlaps under bounded concurrency | MET | test | `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10`; unit proof at `packages/dual-workflow-engine/tests/transition-flow.test.ts:414` |
+| R3 — Fail-fast cancels active siblings with process-group cleanup | MET | test | `packages/dual-workflow-engine/tests/cancellation.test.ts:41` |
+| R4 — Collect failure policy allows all branches to complete before recording aggregate failure | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:608` |
+| R5 — Branch variable isolation and deterministic join merge | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:478` |
+| R6 — Persisted branch execution ledger and idempotent join activation | MET | test | `packages/dual-workflow-engine/tests/persistence.test.ts:875` |
+| R7 — Per-branch pause and resume preserves completed siblings | MET | test | `packages/dual-workflow-engine/tests/pause-resume.test.ts:432` and :488 |
+| R8 — Existing serial workflows and FSM runs remain unchanged | MET | test | bun run spur-check: 2774 pass / 0 fail across 232 files, exit 0 (fresh this run); bun test (packages/dual-workflow-engine): 485 pass / 0 fail |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 

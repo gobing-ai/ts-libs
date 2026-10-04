@@ -4,7 +4,7 @@ name: ActionRunContext AbortSignal propagation and fail-fast process-group cance
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.280Z
-updated_at: "2026-10-04T22:08:25.885Z"
+updated_at: "2026-10-04T22:38:00.687Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -101,10 +101,22 @@ Provides safe termination for fail-fast workflows and run-level abort to task 00
 
 ### Testing
 
-- `bun test packages/dual-workflow-engine/tests/cancellation.test.ts`: PASS (3 passed, 0 failed).
-- `bun test packages/dual-workflow-engine/tests/`: PASS (482 passed, 0 failed).
-- `bun run spur-check`: PASS (2,771 passed, 0 failed across 231 files, 99.25% line coverage, all 58 pre-check and 2 post-check rules green).
-- `bun run build`: PASS (all 12 workspace packages built cleanly).
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/dual-workflow-engine/src/types.ts:211` — ActionRunContext.signal?: AbortSignal |
+| R2 | MET | `packages/dual-workflow-engine/src/host.ts:166` — ShellActionRunner forwards signal to ProcessExecutor.run |
+| R3 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:165` — fail-fast abortSiblings aborts all active sibling AbortControllers (anchor corrected from brace line :162) |
+| R4 | MET | Out-of-scope row (process-group management owned by ts-runtime); boundary confirmed in commit 70f43421 |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| R3 — Fail-fast cancels active siblings with process-group cleanup | MET | test | `packages/dual-workflow-engine/tests/cancellation.test.ts:41` ('fail-fast aborts active sibling branches') — anchor corrected from :7; signal exposure proof at :7; subprocess termination at :112 |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 

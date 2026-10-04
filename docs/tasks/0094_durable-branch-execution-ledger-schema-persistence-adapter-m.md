@@ -4,7 +4,7 @@ name: Durable branch execution ledger schema, persistence adapter methods, and a
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.276Z
-updated_at: "2026-10-04T21:59:53.027Z"
+updated_at: "2026-10-04T22:37:57.601Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -126,10 +126,22 @@ Supplies durable branch operations and atomic join commit to task 0095 (schedule
 
 ### Testing
 
-- `bun test packages/dual-workflow-engine/tests/persistence.test.ts`: PASS (60 passed, 0 failed).
-- `bun test packages/dual-workflow-engine/tests/`: PASS (475 passed, 0 failed).
-- `bun run spur-check`: PASS (2,764 passed, 0 failed across 230 files, 99.25% line coverage, all 58 pre-check and 2 post-check rules green).
-- `bun run build`: PASS (all 12 workspace packages built cleanly).
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/dual-workflow-engine/src/schema-sql.ts:74` — CREATE TABLE IF NOT EXISTS workflow_branches with run_id/parallel_node/branch_id/status/node/output_vars_json/error |
+| R2 | MET | `packages/dual-workflow-engine/src/types.ts:497` — saveBranchStart/saveBranchFinalize/listRunBranches adapter contract (anchor corrected from stale :359); Db + Memory impls at `packages/dual-workflow-engine/src/persistence.ts:66` |
+| R3 | MET | `packages/dual-workflow-engine/src/persistence.ts:66` — atomic commitJoin batch transaction (ADR-020) |
+| R4 | MET | Out-of-scope row (in-process scheduling owned by 0095); scope boundary confirmed in commit 54b61ccb |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| R6 — Persisted branch execution ledger and idempotent join activation | MET | test | `packages/dual-workflow-engine/tests/persistence.test.ts:875` — 'Branch ledger persistence (task 0094)'; fresh run: bun test (packages/dual-workflow-engine) 485 pass / 0 fail |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 

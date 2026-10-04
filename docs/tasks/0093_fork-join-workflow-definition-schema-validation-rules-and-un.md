@@ -4,7 +4,7 @@ name: Fork-join workflow definition schema, validation rules, and unhandled para
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.268Z
-updated_at: "2026-10-04T21:46:58.517Z"
+updated_at: "2026-10-04T22:36:19.823Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -109,10 +109,22 @@ Provides verified `FlowParallelNodeDef` and invariant checks to task 0094 (persi
 
 ### Testing
 
-- `bun test packages/dual-workflow-engine/tests/schema.test.ts packages/dual-workflow-engine/tests/config.test.ts`: PASS (97 passed, 0 failed).
-- `bun test packages/dual-workflow-engine/tests/`: PASS (471 passed, 0 failed).
-- `bun run spur-check`: PASS (2,760 passed, 0 failed across 230 files, 99.25% line coverage, all 58 pre-check and 2 post-check rules green).
-- `bun run build`: PASS (all 12 workspace packages built cleanly).
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/dual-workflow-engine/src/types.ts:121` — JoinPolicy and parallel node props; branch def schema at `packages/dual-workflow-engine/src/schema.ts:120` |
+| R2 | MET | `packages/dual-workflow-engine/src/config.ts:155` — validateTransitionFlow enforces branches/join/acyclic rules |
+| R3 | MET | `packages/dual-workflow-engine/src/schema.ts:120` — FlowParallelBranchDefSchema; nested parallel rejected with WorkflowValidationError |
+| R4 | MET | `packages/dual-workflow-engine/src/schema.ts:119` — parallel schema isolated from FSM defs; state-machine untouched (scope: commit dac4db66) |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| R1 — Validation accepts structured fork-join and rejects invalid parallel definitions | MET | test | `packages/dual-workflow-engine/tests/config.test.ts:348` — 'accepts valid structured fork-join workflow'; fresh run: bun test (packages/dual-workflow-engine) 485 pass / 0 fail |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
