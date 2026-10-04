@@ -483,6 +483,76 @@ export class RunLifecycle {
         });
     }
 
+    /** Emit when an execution branch in a parallel region starts. */
+    branchStarted(parallelNode: string, branchId: string, node: string): void {
+        addSpanEvent('workflow.branch.started', {
+            runId: this.runId,
+            parallelNode,
+            branchId,
+            node,
+        });
+        void this.events?.emit('workflow.branch.started', {
+            runId: this.runId,
+            parallelNode,
+            branchId,
+            node,
+            severity: 'info',
+        });
+    }
+
+    /** Emit when an execution branch in a parallel region finishes. */
+    branchDone(parallelNode: string, branchId: string, durationMs: number, ok: boolean): void {
+        addSpanEvent('workflow.branch.done', {
+            runId: this.runId,
+            parallelNode,
+            branchId,
+            durationMs,
+            ok,
+        });
+        void this.events?.emit('workflow.branch.done', {
+            runId: this.runId,
+            parallelNode,
+            branchId,
+            durationMs,
+            ok,
+            severity: ok ? 'info' : 'error',
+        });
+    }
+
+    /** Emit when an execution branch in a parallel region fails. */
+    branchFailed(parallelNode: string, branchId: string, error?: string): void {
+        addSpanEvent('workflow.branch.failed', {
+            runId: this.runId,
+            parallelNode,
+            branchId,
+            ...(error !== undefined ? { error } : {}),
+        });
+        void this.events?.emit('workflow.branch.failed', {
+            runId: this.runId,
+            parallelNode,
+            branchId,
+            error,
+            severity: 'error',
+        });
+    }
+
+    /** Emit when an execution branch in a parallel region pauses. */
+    branchPaused(parallelNode: string, branchId: string, node: string): void {
+        addSpanEvent('workflow.branch.paused', {
+            runId: this.runId,
+            parallelNode,
+            branchId,
+            node,
+        });
+        void this.events?.emit('workflow.branch.paused', {
+            runId: this.runId,
+            parallelNode,
+            branchId,
+            node,
+            severity: 'warning',
+        });
+    }
+
     private result(
         status: WorkflowStatus,
         finalState: string,

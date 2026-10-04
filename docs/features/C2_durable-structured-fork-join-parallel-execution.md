@@ -99,7 +99,7 @@ Feature: Durable structured fork-join parallel execution
 | 0095 | TransitionFlowDriver parallel region scheduler, concurrency bounding, and variable isolation | done |
 | 0096 | ActionRunContext AbortSignal propagation and fail-fast process-group cancellation | done |
 | 0097 | Per-branch pause, resume, and crash recovery with resumeRerun checks | done |
-| 0098 | Branch observability events, tracing, and multi-channel publish E2E integration tests | todo |
+| 0098 | Branch observability events, tracing, and multi-channel publish E2E integration tests | done |
 <!-- END AUTO-GENERATED -->
 
 ## Notes

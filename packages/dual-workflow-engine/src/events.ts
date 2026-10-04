@@ -145,4 +145,37 @@ export type WorkflowEngineEvents = {
         externalKey?: string;
         severity: EventSeverity;
     }) => void;
+    /** Emitted when an execution branch in a parallel region starts. */
+    'workflow.branch.started': (data: {
+        runId: string;
+        parallelNode: string;
+        branchId: string;
+        node: string;
+        severity: EventSeverity;
+    }) => void;
+    /** Emitted when an execution branch in a parallel region finishes. */
+    'workflow.branch.done': (data: {
+        runId: string;
+        parallelNode: string;
+        branchId: string;
+        durationMs: number;
+        ok: boolean;
+        severity: EventSeverity;
+    }) => void;
+    /** Emitted when an execution branch in a parallel region fails. */
+    'workflow.branch.failed': (data: {
+        runId: string;
+        parallelNode: string;
+        branchId: string;
+        error?: string;
+        severity: EventSeverity;
+    }) => void;
+    /** Emitted when an execution branch in a parallel region pauses. */
+    'workflow.branch.paused': (data: {
+        runId: string;
+        parallelNode: string;
+        branchId: string;
+        node: string;
+        severity: EventSeverity;
+    }) => void;
 };

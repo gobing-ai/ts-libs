@@ -850,6 +850,10 @@ output or control events without widening the persisted action schema.
 | `workflow.run.paused` | `{ runId, node, transitionsTaken, externalKey? }` | When a run pauses at a declared pause point |
 | `workflow.run.resumed` | `{ runId, node, resumeMode, ownerAttemptId, externalKey? }` | When a paused or interrupted run is resumed (`resumeMode`: `skip-enter` \| `rerun-enter`) |
 | `workflow.run.interrupted` | `{ runId, node?, reason, externalKey?, severity }` | When a running run is marked interrupted (crash marker / external stop) |
+| `workflow.branch.started` | `{ runId, parallelNode, branchId, node }` | When an execution branch in a parallel region starts |
+| `workflow.branch.done` | `{ runId, parallelNode, branchId, durationMs, ok }` | When an execution branch in a parallel region finishes |
+| `workflow.branch.failed` | `{ runId, parallelNode, branchId, error? }` | When an execution branch in a parallel region fails |
+| `workflow.branch.paused` | `{ runId, parallelNode, branchId, node }` | When an execution branch in a parallel region pauses |
 ### Compatibility Policy
 
 The event map is a **cross-package public contract**. Policy: **additive-only** — new events allowed, new optional payload fields allowed; never rename, remove, or repurpose an existing event or field.
