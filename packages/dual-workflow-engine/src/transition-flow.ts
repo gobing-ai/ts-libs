@@ -4,6 +4,7 @@ import type { WorkflowEngineHost } from './host';
 import { allowedEnv, RunLifecycle, snapshotActionResult, snapshotTransitions } from './run-lifecycle';
 import type {
     ActionResult,
+    FlowNodeDef,
     FlowParallelNodeDef,
     TransitionFlowWorkflowDef,
     Vars,
@@ -149,6 +150,7 @@ export class TransitionFlowDriver {
                 const concurrency = parallelNode.concurrencyLimit ?? 4;
 
                 if (!options.dryRun) {
+                    const existingBranches = await this.options.persistence.listRunBranches(runId, parallelNode.id);
                     const branchControllers = new Map<string, AbortController>();
                     for (const b of parallelNode.branches) {
                         const ctrl = new AbortController();
@@ -171,15 +173,37 @@ export class TransitionFlowDriver {
                         parallelNode.branches,
                         concurrency,
                         async (branch) => {
+                            const existing = existingBranches.find((b) => b.branch_id === branch.id);
+                            if (existing?.status === 'done') {
+                                let restoredVars: Vars = {};
+                                if (existing.output_vars_json) {
+                                    try {
+                                        restoredVars = JSON.parse(existing.output_vars_json);
+                                    } catch {
+                                        restoredVars = {};
+                                    }
+                                }
+                                return { ok: true, branchId: branch.id, setVars: restoredVars };
+                            }
+
                             const branchCtrl = branchControllers.get(branch.id) ?? new AbortController();
-                            await this.options.persistence.saveBranchStart(
-                                runId,
-                                parallelNode.id,
-                                branch.id,
-                                branch.startNode,
-                            );
                             const branchStartMs = Date.now();
-                            let branchCurrent = nodes.get(branch.startNode);
+                            let branchCurrent: FlowNodeDef | undefined;
+                            let skipEnter = false;
+
+                            if (existing?.status === 'paused') {
+                                branchCurrent = nodes.get(existing.node) ?? nodes.get(branch.startNode);
+                                skipEnter = (resumeMode ?? options.resumeMode ?? 'skip-enter') === 'skip-enter';
+                            } else {
+                                branchCurrent = nodes.get(branch.startNode);
+                                await this.options.persistence.saveBranchStart(
+                                    runId,
+                                    parallelNode.id,
+                                    branch.id,
+                                    branch.startNode,
+                                );
+                            }
+
                             let branchVars = { ...vars };
                             let branchSetVars: Vars = {};
 
@@ -196,54 +220,74 @@ export class TransitionFlowDriver {
                                     return { ok: false, branchId: branch.id, error: 'cancelled' };
                                 }
 
-                                if (branchCurrent.action !== undefined) {
-                                    const step = await runActionStep(branchCurrent.action, branchVars, {
-                                        host: this.options.host,
-                                        persistence: this.options.persistence,
-                                        lifecycle,
-                                        workflowName: workflow.name,
-                                        stateOrNodeId: branchCurrent.id,
-                                        runId,
-                                        mode: 'transition-flow',
-                                        transitionsTaken,
-                                        env,
-                                        options,
-                                        defaultOnError,
-                                        signal: branchCtrl.signal,
-                                    });
-                                    if (step.result?.setVars) {
-                                        branchVars = mergeSetVars(branchVars, step.result.setVars);
-                                        branchSetVars = mergeSetVars(branchSetVars, step.result.setVars);
+                                if (skipEnter) {
+                                    skipEnter = false;
+                                } else {
+                                    if (branchCurrent.action !== undefined) {
+                                        const step = await runActionStep(branchCurrent.action, branchVars, {
+                                            host: this.options.host,
+                                            persistence: this.options.persistence,
+                                            lifecycle,
+                                            workflowName: workflow.name,
+                                            stateOrNodeId: branchCurrent.id,
+                                            runId,
+                                            mode: 'transition-flow',
+                                            transitionsTaken,
+                                            env,
+                                            options,
+                                            defaultOnError,
+                                            signal: branchCtrl.signal,
+                                        });
+                                        if (step.result?.setVars) {
+                                            branchVars = mergeSetVars(branchVars, step.result.setVars);
+                                            branchSetVars = mergeSetVars(branchSetVars, step.result.setVars);
+                                        }
+                                        if (branchCtrl.signal.aborted) {
+                                            await this.options.persistence.saveBranchFinalize(
+                                                runId,
+                                                branch.id,
+                                                'cancelled',
+                                                Date.now() - branchStartMs,
+                                                undefined,
+                                                'cancelled',
+                                            );
+                                            return { ok: false, branchId: branch.id, error: 'cancelled' };
+                                        }
+                                        if (step.outcome === 'fail') {
+                                            abortSiblings(branch.id);
+                                            await this.options.persistence.saveBranchFinalize(
+                                                runId,
+                                                branch.id,
+                                                'failed',
+                                                Date.now() - branchStartMs,
+                                                undefined,
+                                                step.result?.error ?? 'action-failed',
+                                            );
+                                            return {
+                                                ok: false,
+                                                branchId: branch.id,
+                                                error: step.result?.error ?? 'action-failed',
+                                            };
+                                        }
+                                        if (step.outcome === 'terminal') {
+                                            break;
+                                        }
                                     }
-                                    if (branchCtrl.signal.aborted) {
+
+                                    if (branchCurrent.pause === true) {
                                         await this.options.persistence.saveBranchFinalize(
                                             runId,
                                             branch.id,
-                                            'cancelled',
+                                            'paused',
                                             Date.now() - branchStartMs,
-                                            undefined,
-                                            'cancelled',
-                                        );
-                                        return { ok: false, branchId: branch.id, error: 'cancelled' };
-                                    }
-                                    if (step.outcome === 'fail') {
-                                        abortSiblings(branch.id);
-                                        await this.options.persistence.saveBranchFinalize(
-                                            runId,
-                                            branch.id,
-                                            'failed',
-                                            Date.now() - branchStartMs,
-                                            undefined,
-                                            step.result?.error ?? 'action-failed',
+                                            branchSetVars,
                                         );
                                         return {
-                                            ok: false,
+                                            ok: true,
                                             branchId: branch.id,
-                                            error: step.result?.error ?? 'action-failed',
+                                            paused: true,
+                                            setVars: branchSetVars,
                                         };
-                                    }
-                                    if (step.outcome === 'terminal') {
-                                        break;
                                     }
                                 }
 
@@ -307,8 +351,12 @@ export class TransitionFlowDriver {
                         return await lifecycle.fail(current.id, transitionsTaken, failed.error ?? 'branch-failed');
                     }
 
+                    const anyPaused = branchResults.some((r) => 'paused' in r && r.paused === true);
                     for (const res of branchResults) {
                         if (res.setVars) vars = mergeSetVars(vars, res.setVars);
+                    }
+                    if (anyPaused) {
+                        return await lifecycle.pause(current.id, transitionsTaken, vars);
                     }
                 }
 

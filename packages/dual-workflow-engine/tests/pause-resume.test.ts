@@ -427,3 +427,135 @@ describe('Pause schema validation', () => {
         expect(result.success).toBe(false);
     });
 });
+
+describe('Per-branch pause and resume (task 0097)', () => {
+    test('pauses within a branch while allowing sibling branches to finish', async () => {
+        let b2Executed = false;
+        const host = createDefaultWorkflowEngineHost()
+            .registerAction({
+                kind: 'b1-act',
+                async execute() {
+                    return { ok: true, setVars: { b1_val: 'step1' } };
+                },
+            })
+            .registerAction({
+                kind: 'b2-act',
+                async execute() {
+                    b2Executed = true;
+                    return { ok: true, setVars: { b2_val: 'done2' } };
+                },
+            });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new TransitionFlowDriver({ host, persistence });
+
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'branch-pause-flow',
+            initialNode: 'fork',
+            terminalNodes: ['done'],
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel',
+                    branches: [
+                        { id: 'b1', startNode: 'n1' },
+                        { id: 'b2', startNode: 'n2' },
+                    ],
+                    join: 'join-node',
+                },
+                { id: 'n1', action: { kind: 'b1-act' }, pause: true },
+                { id: 'n2', action: { kind: 'b2-act' } },
+                { id: 'join-node' },
+                { id: 'done' },
+            ],
+            edges: [
+                { from: 'fork', to: 'n1' },
+                { from: 'fork', to: 'n2' },
+                { from: 'n1', to: 'join-node' },
+                { from: 'n2', to: 'join-node' },
+                { from: 'join-node', to: 'done' },
+            ],
+        });
+
+        expect(result.status).toBe('paused');
+        expect(b2Executed).toBe(true);
+
+        const branches = await persistence.listRunBranches(result.runId, 'fork');
+        expect(branches.find((b) => b.branch_id === 'b1')?.status).toBe('paused');
+        expect(branches.find((b) => b.branch_id === 'b2')?.status).toBe('done');
+    });
+
+    test('resumes paused branch without re-executing completed siblings', async () => {
+        let b2ExecutionCount = 0;
+        let b1PostPauseExecuted = false;
+
+        const host = createDefaultWorkflowEngineHost()
+            .registerAction({
+                kind: 'b1-pre-act',
+                async execute() {
+                    return { ok: true };
+                },
+            })
+            .registerAction({
+                kind: 'b1-post-act',
+                async execute() {
+                    b1PostPauseExecuted = true;
+                    return { ok: true, setVars: { b1_resumed: 'yes' } };
+                },
+            })
+            .registerAction({
+                kind: 'b2-act',
+                async execute() {
+                    b2ExecutionCount++;
+                    return { ok: true, setVars: { b2_val: 'once' } };
+                },
+            });
+
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const service = new WorkflowService(host, persistence);
+
+        const wf: TransitionFlowWorkflowDef = {
+            kind: 'transition-flow',
+            name: 'branch-resume-flow',
+            initialNode: 'fork',
+            terminalNodes: ['done'],
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel',
+                    branches: [
+                        { id: 'b1', startNode: 'n1' },
+                        { id: 'b2', startNode: 'n2' },
+                    ],
+                    join: 'join-node',
+                },
+                { id: 'n1', action: { kind: 'b1-pre-act' }, pause: true },
+                { id: 'n1-post', action: { kind: 'b1-post-act' } },
+                { id: 'n2', action: { kind: 'b2-act' } },
+                { id: 'join-node' },
+                { id: 'done' },
+            ],
+            edges: [
+                { from: 'fork', to: 'n1' },
+                { from: 'fork', to: 'n2' },
+                { from: 'n1', to: 'n1-post' },
+                { from: 'n1-post', to: 'join-node' },
+                { from: 'n2', to: 'join-node' },
+                { from: 'join-node', to: 'done' },
+            ],
+        };
+
+        const initialResult = await service.run(wf, { runId: 'res-flow-1' });
+        expect(initialResult.status).toBe('paused');
+        expect(b2ExecutionCount).toBe(1);
+
+        // Resume run
+        const resumedResult = await service.resumeRun(wf, 'res-flow-1');
+        expect(resumedResult.status).toBe('done');
+        expect(b1PostPauseExecuted).toBe(true);
+        expect(b2ExecutionCount).toBe(1); // Sibling branch b2 was NOT re-executed!
+
+        const branches = await persistence.listRunBranches('res-flow-1', 'fork');
+        expect(branches.every((b) => b.status === 'done')).toBe(true);
+    });
+});
