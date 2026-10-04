@@ -122,6 +122,7 @@ export class TransitionFlowDriver {
                         env,
                         options,
                         defaultOnError,
+                        signal: options.signal,
                     });
                     lastActionResult = step.result;
                     if (step.result?.setVars) vars = mergeSetVars(vars, step.result.setVars);
@@ -148,10 +149,29 @@ export class TransitionFlowDriver {
                 const concurrency = parallelNode.concurrencyLimit ?? 4;
 
                 if (!options.dryRun) {
+                    const branchControllers = new Map<string, AbortController>();
+                    for (const b of parallelNode.branches) {
+                        const ctrl = new AbortController();
+                        branchControllers.set(b.id, ctrl);
+                        if (options.signal) {
+                            if (options.signal.aborted) ctrl.abort();
+                            else options.signal.addEventListener('abort', () => ctrl.abort(), { once: true });
+                        }
+                    }
+
+                    const abortSiblings = (failingBranchId: string) => {
+                        if (parallelNode.failurePolicy === 'fail-fast') {
+                            for (const [id, ctrl] of branchControllers.entries()) {
+                                if (id !== failingBranchId) ctrl.abort();
+                            }
+                        }
+                    };
+
                     const branchResults = await runWithConcurrencyLimit(
                         parallelNode.branches,
                         concurrency,
                         async (branch) => {
+                            const branchCtrl = branchControllers.get(branch.id) ?? new AbortController();
                             await this.options.persistence.saveBranchStart(
                                 runId,
                                 parallelNode.id,
@@ -164,6 +184,18 @@ export class TransitionFlowDriver {
                             let branchSetVars: Vars = {};
 
                             while (branchCurrent && branchCurrent.id !== parallelNode.join) {
+                                if (branchCtrl.signal.aborted) {
+                                    await this.options.persistence.saveBranchFinalize(
+                                        runId,
+                                        branch.id,
+                                        'cancelled',
+                                        Date.now() - branchStartMs,
+                                        undefined,
+                                        'cancelled',
+                                    );
+                                    return { ok: false, branchId: branch.id, error: 'cancelled' };
+                                }
+
                                 if (branchCurrent.action !== undefined) {
                                     const step = await runActionStep(branchCurrent.action, branchVars, {
                                         host: this.options.host,
@@ -177,12 +209,25 @@ export class TransitionFlowDriver {
                                         env,
                                         options,
                                         defaultOnError,
+                                        signal: branchCtrl.signal,
                                     });
                                     if (step.result?.setVars) {
                                         branchVars = mergeSetVars(branchVars, step.result.setVars);
                                         branchSetVars = mergeSetVars(branchSetVars, step.result.setVars);
                                     }
+                                    if (branchCtrl.signal.aborted) {
+                                        await this.options.persistence.saveBranchFinalize(
+                                            runId,
+                                            branch.id,
+                                            'cancelled',
+                                            Date.now() - branchStartMs,
+                                            undefined,
+                                            'cancelled',
+                                        );
+                                        return { ok: false, branchId: branch.id, error: 'cancelled' };
+                                    }
                                     if (step.outcome === 'fail') {
+                                        abortSiblings(branch.id);
                                         await this.options.persistence.saveBranchFinalize(
                                             runId,
                                             branch.id,
@@ -215,10 +260,12 @@ export class TransitionFlowDriver {
                                         vars: branchVars,
                                         env,
                                         workdir: options.workdir,
+                                        signal: branchCtrl.signal,
                                     },
                                     lifecycle,
                                 );
                                 if (edge === undefined) {
+                                    abortSiblings(branch.id);
                                     await this.options.persistence.saveBranchFinalize(
                                         runId,
                                         branch.id,
@@ -230,6 +277,18 @@ export class TransitionFlowDriver {
                                     return { ok: false, branchId: branch.id, error: 'no-passing-edge' };
                                 }
                                 branchCurrent = nodes.get(edge.to);
+                            }
+
+                            if (branchCtrl.signal.aborted) {
+                                await this.options.persistence.saveBranchFinalize(
+                                    runId,
+                                    branch.id,
+                                    'cancelled',
+                                    Date.now() - branchStartMs,
+                                    undefined,
+                                    'cancelled',
+                                );
+                                return { ok: false, branchId: branch.id, error: 'cancelled' };
                             }
 
                             await this.options.persistence.saveBranchFinalize(
@@ -286,6 +345,7 @@ export class TransitionFlowDriver {
                     lastActionResult,
                     // Shell conditions must share the run workdir with actions (relative paths).
                     workdir: options.workdir,
+                    signal: options.signal,
                 },
                 lifecycle,
             );

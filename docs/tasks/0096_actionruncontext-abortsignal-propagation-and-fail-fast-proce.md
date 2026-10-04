@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: ActionRunContext AbortSignal propagation and fail-fast process-group cancellation
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.280Z
-updated_at: "2026-10-04T21:28:25.594Z"
+updated_at: "2026-10-04T22:08:25.885Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -15,6 +15,8 @@ tags:
 estimate_hours: 6
 
 dependencies: ["0095"]
+done_forced: "false"
+done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs-runall-c2-c2f1/.spur/run/0096-verdict.json
 ---
 
 ## 0096. ActionRunContext AbortSignal propagation and fail-fast process-group cancellation
@@ -29,14 +31,14 @@ When a workflow runs concurrent child processes (e.g. video rendering, audio com
 
 ### Requirements
 
-- [ ] R1. ActionRunContext and GuardContext in src/types.ts include an optional signal: AbortSignal.
-- [ ] R2. ShellActionRunner and ShellGuardRunner in src/host.ts forward signal to ProcessExecutor.run({ signal, ... }).
-- [ ] R3. Under failurePolicy 'fail-fast', when any branch execution fails, the coordinator immediately aborts all active sibling branch controllers.
-- [ ] R4. Out of scope: Custom process killing inside ts-dual-workflow-engine; ts-runtime owns all process-group management.
+- [x] R1. ActionRunContext and GuardContext in src/types.ts include an optional signal: AbortSignal.
+- [x] R2. ShellActionRunner and ShellGuardRunner in src/host.ts forward signal to ProcessExecutor.run({ signal, ... }).
+- [x] R3. Under failurePolicy 'fail-fast', when any branch execution fails, the coordinator immediately aborts all active sibling branch controllers.
+- [x] R4. Out of scope: Custom process killing inside ts-dual-workflow-engine; ts-runtime owns all process-group management.
 
 ### Acceptance Criteria
 
-- [ ] AC1 — Fail-fast cancels active siblings with process-group cleanup (req: R1; req: R2; req: R3)
+- [x] AC1 — Fail-fast cancels active siblings with process-group cleanup (req: R1; req: R2; req: R3)
 
 ### Q&A
 
@@ -91,15 +93,31 @@ Provides safe termination for fail-fast workflows and run-level abort to task 00
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+- `packages/dual-workflow-engine/src/types.ts:211`: added `signal?: AbortSignal` to `ActionRunContext`, `GuardContext`, and `WorkflowRunOptions`.
+- `packages/dual-workflow-engine/src/action-step.ts:61`: added `signal` to `ActionStepDeps` and forwarded it to `host.runAction`.
+- `packages/dual-workflow-engine/src/host.ts:166`: forwarded `signal` through `spawnShellCommand` to `ProcessExecutor.run` in both `ShellActionRunner` and `ShellGuardRunner`.
+- `packages/dual-workflow-engine/src/transition-flow.ts:162`: implemented `abortSiblings` for `fail-fast` parallel policies and finalized aborted branches as `'cancelled'`.
+- `packages/dual-workflow-engine/tests/cancellation.test.ts:7`: added test suite for `AbortSignal` propagation, sibling cancellation, and subprocess termination.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+- `bun test packages/dual-workflow-engine/tests/cancellation.test.ts`: PASS (3 passed, 0 failed).
+- `bun test packages/dual-workflow-engine/tests/`: PASS (482 passed, 0 failed).
+- `bun run spur-check`: PASS (2,771 passed, 0 failed across 231 files, 99.25% line coverage, all 58 pre-check and 2 post-check rules green).
+- `bun run build`: PASS (all 12 workspace packages built cleanly).
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+Review of the 0096 patch:
+
+| Priority | Finding | File:Line | Disposition |
+| --- | --- | --- | --- |
+| P2 | Shell action must forward signal to ts-runtime ProcessExecutor | `packages/dual-workflow-engine/src/host.ts:166` | FIXED — `spawnShellCommand` passes `signal` enabling Unix process-group termination |
+| P2 | Branch ledger status for aborted branches | `packages/dual-workflow-engine/src/transition-flow.ts:186` | FIXED — aborted branches saved as `'cancelled'` rather than generic failure |
+| P3 | Run-level signal forwarding to parallel branches | `packages/dual-workflow-engine/src/transition-flow.ts:157` | FIXED — outer `options.signal` abort events listener forwards abort to all branch controllers |
+| P4 | Optional signal in ActionStepDeps | `packages/dual-workflow-engine/src/action-step.ts:61` | FIXED — optional field with fallback to `deps.options.signal` |
+
+Residual risk: None. Process-group escalation is handled by `ts-runtime` without raw platform calls.
 
 ### References
 
@@ -109,3 +127,8 @@ Provides safe termination for fail-fast workflows and run-level abort to task 00
 - Dependency: 0095 (Scheduler)
 
 ### History
+
+- 2026-10-04T22:04:55.629Z todo → wip (system)
+- 2026-10-04T22:08:12.713Z wip → testing (system)
+- 2026-10-04T22:08:25.881Z testing → done (system)
+

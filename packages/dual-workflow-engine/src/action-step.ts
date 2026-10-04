@@ -58,6 +58,7 @@ export interface ActionStepDeps {
     readonly env: Record<string, string>;
     readonly options: WorkflowRunOptions;
     readonly defaultOnError: OnErrorPolicy | undefined;
+    readonly signal?: AbortSignal;
 }
 
 /**
@@ -106,6 +107,7 @@ export async function runActionStep(
             env: deps.env,
             metadata: deps.options.metadata,
             events: deps.options.events,
+            signal: deps.signal ?? deps.options.signal,
         });
     } catch (error) {
         result = { ok: false, error: error instanceof Error ? error.message : String(error) };

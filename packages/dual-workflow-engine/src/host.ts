@@ -163,6 +163,7 @@ async function spawnShellCommand(
     processExecutor: ProcessExecutor,
     options: Record<string, unknown>,
     workdir: string | undefined,
+    signal?: AbortSignal,
 ): Promise<ShellSpawnOutcome> {
     const command = stringOption(options, 'command');
     const explicitArgs = arrayOption(options, 'args');
@@ -177,6 +178,7 @@ async function spawnShellCommand(
         cwd: optionalStringOption(options, 'cwd', workdir),
         ...(env !== undefined ? { env, envMode: 'merge' as const } : {}),
         ...(timeout !== undefined ? { timeout } : {}),
+        ...(signal !== undefined ? { signal } : {}),
         rejectOnError: false,
         forceBuffered: true,
     });
@@ -204,7 +206,7 @@ export class ShellActionRunner implements ActionRunner {
      * the old behavior — fails with a null exit code for any line containing spaces.
      */
     async execute(options: Record<string, unknown>, context: ActionRunContext): Promise<ActionResult> {
-        const spawn = await spawnShellCommand(this.processExecutor, options, context.workdir);
+        const spawn = await spawnShellCommand(this.processExecutor, options, context.workdir, context.signal);
         if (spawn.timedOut) {
             const timeout = optionalTimeoutOption(options);
             return {
@@ -229,7 +231,7 @@ export class ShellGuardRunner implements GuardRunner {
     constructor(private readonly processExecutor: ProcessExecutor) {}
 
     async evaluate(options: Record<string, unknown>, context: GuardContext): Promise<GuardEvaluationResult> {
-        const spawn = await spawnShellCommand(this.processExecutor, options, context.workdir);
+        const spawn = await spawnShellCommand(this.processExecutor, options, context.workdir, context.signal);
         return {
             passed: !spawn.timedOut && spawn.exitCode === 0,
             report: {

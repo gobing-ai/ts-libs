@@ -207,6 +207,8 @@ export interface ActionRunContext {
     readonly metadata?: Record<string, unknown>;
     /** Optional event bus for in-process run observability. Action runners can emit workflow events through this. */
     readonly events?: EventBus<WorkflowEngineEvents>;
+    /** Optional cancellation signal for cooperative and process-group termination (task 0096). */
+    readonly signal?: AbortSignal;
 }
 
 /** Result of a single action execution. */
@@ -234,6 +236,8 @@ export interface GuardContext {
     /** Run env (allowed-env filtered) — guards resolve `${env.X}` identically to actions (task 0087 R5). */
     readonly env?: Record<string, string>;
     readonly lastActionResult?: ActionResult;
+    /** Optional cancellation signal for cooperative guard evaluation (task 0096). */
+    readonly signal?: AbortSignal;
 }
 
 /** Rich guard evaluation result. Boolean guard runners remain supported for compatibility. */
@@ -257,6 +261,8 @@ export interface WorkflowRunOptions {
     readonly metadata?: Record<string, unknown>;
     /** Optional event bus for structured run observability. */
     readonly events?: EventBus<WorkflowEngineEvents>;
+    /** Optional cancellation signal for aborting in-flight child processes and actions (task 0096). */
+    readonly signal?: AbortSignal;
     /** Run-level error policy override. Lowest precedence; action-level wins. */
     readonly onError?: OnErrorPolicy;
     /**

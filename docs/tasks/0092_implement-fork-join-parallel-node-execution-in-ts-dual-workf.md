@@ -98,7 +98,7 @@ Umbrella execution roster covering Feature C2:
 | 0093 | Fork-join workflow definition schema, validation rules, and unhandled parallel rejection | done |
 | 0094 | Durable branch execution ledger schema, persistence adapter methods, and atomic join commit | done |
 | 0095 | TransitionFlowDriver parallel region scheduler, concurrency bounding, and variable isolation | done |
-| 0096 | ActionRunContext AbortSignal propagation and fail-fast process-group cancellation | todo |
+| 0096 | ActionRunContext AbortSignal propagation and fail-fast process-group cancellation | done |
 | 0097 | Per-branch pause, resume, and crash recovery with resumeRerun checks | todo |
 | 0098 | Branch observability events, tracing, and multi-channel publish E2E integration tests | todo |
 <!-- END AUTO-GENERATED -->
