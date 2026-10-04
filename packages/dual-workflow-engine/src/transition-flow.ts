@@ -4,7 +4,9 @@ import type { WorkflowEngineHost } from './host';
 import { allowedEnv, RunLifecycle, snapshotActionResult, snapshotTransitions } from './run-lifecycle';
 import type {
     ActionResult,
+    FlowParallelNodeDef,
     TransitionFlowWorkflowDef,
+    Vars,
     WorkflowPersistenceAdapter,
     WorkflowRunOptions,
     WorkflowRunResult,
@@ -137,6 +139,135 @@ export class TransitionFlowDriver {
                 }
             }
 
+            // Structured parallel fork-join execution
+            if (current.type === 'parallel') {
+                if (!current.branches || !current.join) {
+                    throw new FSMError(`Parallel node "${current.id}" must declare branches and join target`);
+                }
+                const parallelNode = current as FlowParallelNodeDef;
+                const concurrency = parallelNode.concurrencyLimit ?? 4;
+
+                if (!options.dryRun) {
+                    const branchResults = await runWithConcurrencyLimit(
+                        parallelNode.branches,
+                        concurrency,
+                        async (branch) => {
+                            await this.options.persistence.saveBranchStart(
+                                runId,
+                                parallelNode.id,
+                                branch.id,
+                                branch.startNode,
+                            );
+                            const branchStartMs = Date.now();
+                            let branchCurrent = nodes.get(branch.startNode);
+                            let branchVars = { ...vars };
+                            let branchSetVars: Vars = {};
+
+                            while (branchCurrent && branchCurrent.id !== parallelNode.join) {
+                                if (branchCurrent.action !== undefined) {
+                                    const step = await runActionStep(branchCurrent.action, branchVars, {
+                                        host: this.options.host,
+                                        persistence: this.options.persistence,
+                                        lifecycle,
+                                        workflowName: workflow.name,
+                                        stateOrNodeId: branchCurrent.id,
+                                        runId,
+                                        mode: 'transition-flow',
+                                        transitionsTaken,
+                                        env,
+                                        options,
+                                        defaultOnError,
+                                    });
+                                    if (step.result?.setVars) {
+                                        branchVars = mergeSetVars(branchVars, step.result.setVars);
+                                        branchSetVars = mergeSetVars(branchSetVars, step.result.setVars);
+                                    }
+                                    if (step.outcome === 'fail') {
+                                        await this.options.persistence.saveBranchFinalize(
+                                            runId,
+                                            branch.id,
+                                            'failed',
+                                            Date.now() - branchStartMs,
+                                            undefined,
+                                            step.result?.error ?? 'action-failed',
+                                        );
+                                        return {
+                                            ok: false,
+                                            branchId: branch.id,
+                                            error: step.result?.error ?? 'action-failed',
+                                        };
+                                    }
+                                    if (step.outcome === 'terminal') {
+                                        break;
+                                    }
+                                }
+
+                                const outbound = workflow.edges.filter((e) => e.from === branchCurrent?.id);
+                                if (outbound.length === 0 || terminal.has(branchCurrent.id)) {
+                                    break;
+                                }
+                                const edge = await firstPassingEdge(
+                                    outbound,
+                                    this.options.host,
+                                    {
+                                        runId,
+                                        current: branchCurrent.id,
+                                        vars: branchVars,
+                                        env,
+                                        workdir: options.workdir,
+                                    },
+                                    lifecycle,
+                                );
+                                if (edge === undefined) {
+                                    await this.options.persistence.saveBranchFinalize(
+                                        runId,
+                                        branch.id,
+                                        'failed',
+                                        Date.now() - branchStartMs,
+                                        undefined,
+                                        'no-passing-edge',
+                                    );
+                                    return { ok: false, branchId: branch.id, error: 'no-passing-edge' };
+                                }
+                                branchCurrent = nodes.get(edge.to);
+                            }
+
+                            await this.options.persistence.saveBranchFinalize(
+                                runId,
+                                branch.id,
+                                'done',
+                                Date.now() - branchStartMs,
+                                branchSetVars,
+                            );
+                            return { ok: true, branchId: branch.id, setVars: branchSetVars };
+                        },
+                    );
+
+                    const failed = branchResults.find((r) => !r.ok);
+                    if (failed) {
+                        return await lifecycle.fail(current.id, transitionsTaken, failed.error ?? 'branch-failed');
+                    }
+
+                    for (const res of branchResults) {
+                        if (res.setVars) vars = mergeSetVars(vars, res.setVars);
+                    }
+                }
+
+                transitionsTaken += 1;
+                await this.options.persistence.commitJoin(runId, current.id, parallelNode.join, vars, {
+                    phase: parallelNode.join,
+                    status: 'running',
+                });
+
+                const joinNode = nodes.get(parallelNode.join);
+                if (joinNode === undefined) {
+                    throw new FSMError(`Join target "${parallelNode.join}" is not declared`);
+                }
+                current = joinNode;
+                persistedViaHop = true;
+                continue;
+            }
+
             // 3. Stop when the node is terminal or no outgoing edge exists.
             const outbound = workflow.edges.filter((edge) => edge.from === current?.id);
             if (terminal.has(current.id) || outbound.length === 0) {
@@ -215,4 +346,26 @@ async function firstPassingEdge(
         if (passed) return edge;
     }
     return undefined;
+}
+
+/** Execute tasks concurrently with a maximum concurrency limit. */
+async function runWithConcurrencyLimit<T, R>(
+    items: readonly T[],
+    limit: number,
+    fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+    const results: R[] = new Array(items.length);
+    let nextIndex = 0;
+    const workerCount = Math.max(1, Math.min(limit, items.length));
+    const workers = new Array(workerCount).fill(null).map(async () => {
+        while (nextIndex < items.length) {
+            const index = nextIndex++;
+            const item = items[index];
+            if (item !== undefined) {
+                results[index] = await fn(item);
+            }
+        }
+    });
+    await Promise.all(workers);
+    return results;
 }

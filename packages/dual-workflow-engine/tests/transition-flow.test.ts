@@ -409,3 +409,258 @@ describe('TransitionFlowDriver — setVars cross-action flow', () => {
         expect(result.status).toBe('done');
     });
 });
+
+describe('TransitionFlowDriver — structured parallel execution (task 0095)', () => {
+    test('runs parallel branches concurrently and advances to join node', async () => {
+        const events: string[] = [];
+        const host = createDefaultWorkflowEngineHost().registerAction({
+            kind: 'slow-action',
+            async execute(options) {
+                const id = String(options.id);
+                events.push(`start:${id}`);
+                await new Promise((r) => setTimeout(r, 30));
+                events.push(`end:${id}`);
+                return { ok: true, setVars: { [`result_${id}`]: `done_${id}` } };
+            },
+        });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new TransitionFlowDriver({ host, persistence });
+
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'parallel-flow',
+            initialNode: 'fork',
+            terminalNodes: ['done'],
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel',
+                    branches: [
+                        { id: 'b1', startNode: 'n1' },
+                        { id: 'b2', startNode: 'n2' },
+                    ],
+                    join: 'join-node',
+                    joinPolicy: 'all',
+                    failurePolicy: 'collect',
+                },
+                { id: 'n1', action: { kind: 'slow-action', options: { id: 'n1' } } },
+                { id: 'n2', action: { kind: 'slow-action', options: { id: 'n2' } } },
+                { id: 'join-node' },
+                { id: 'done' },
+            ],
+            edges: [
+                { from: 'fork', to: 'n1' },
+                { from: 'fork', to: 'n2' },
+                { from: 'n1', to: 'join-node' },
+                { from: 'n2', to: 'join-node' },
+                { from: 'join-node', to: 'done' },
+            ],
+        });
+
+        expect(result.status).toBe('done');
+        expect(result.finalState).toBe('done');
+
+        // Both started before either ended (concurrent execution!)
+        const startN1 = events.indexOf('start:n1');
+        const startN2 = events.indexOf('start:n2');
+        const endN1 = events.indexOf('end:n1');
+        const endN2 = events.indexOf('end:n2');
+        expect(startN1).toBeLessThan(endN1);
+        expect(startN2).toBeLessThan(endN2);
+        expect(startN1).toBeLessThan(endN2);
+        expect(startN2).toBeLessThan(endN1);
+
+        const branches = await persistence.listRunBranches(result.runId, 'fork');
+        expect(branches.length).toBe(2);
+        expect(branches.every((b) => b.status === 'done')).toBe(true);
+    });
+
+    test('isolates branch variables and merges them deterministically at join', async () => {
+        let n1SawShared = '';
+        let n2SawShared = '';
+        let finalVars: Record<string, string> = {};
+
+        const host = createDefaultWorkflowEngineHost()
+            .registerAction({
+                kind: 'branch1-act',
+                async execute(_options, ctx) {
+                    n1SawShared = ctx.vars.shared ?? '';
+                    return { ok: true, setVars: { from_b1: 'val1', shared: 'updated_by_b1' } };
+                },
+            })
+            .registerAction({
+                kind: 'branch2-act',
+                async execute(_options, ctx) {
+                    n2SawShared = ctx.vars.shared ?? '';
+                    return { ok: true, setVars: { from_b2: 'val2', shared: 'updated_by_b2' } };
+                },
+            })
+            .registerAction({
+                kind: 'join-act',
+                async execute(_options, ctx) {
+                    finalVars = { ...ctx.vars };
+                    return { ok: true };
+                },
+            });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new TransitionFlowDriver({ host, persistence });
+
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'parallel-vars',
+            initialNode: 'fork',
+            terminalNodes: ['done'],
+            vars: { shared: 'initial_value' },
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel',
+                    branches: [
+                        { id: 'b1', startNode: 'n1' },
+                        { id: 'b2', startNode: 'n2' },
+                    ],
+                    join: 'join-node',
+                },
+                { id: 'n1', action: { kind: 'branch1-act' } },
+                { id: 'n2', action: { kind: 'branch2-act' } },
+                { id: 'join-node', action: { kind: 'join-act' } },
+                { id: 'done' },
+            ],
+            edges: [
+                { from: 'fork', to: 'n1' },
+                { from: 'fork', to: 'n2' },
+                { from: 'n1', to: 'join-node' },
+                { from: 'n2', to: 'join-node' },
+                { from: 'join-node', to: 'done' },
+            ],
+        });
+
+        expect(result.status).toBe('done');
+        // Both branches saw the frozen fork-time snapshot
+        expect(n1SawShared).toBe('initial_value');
+        expect(n2SawShared).toBe('initial_value');
+
+        // Both branch variables merged; b2 declared after b1 so its write to 'shared' won
+        expect(finalVars.from_b1).toBe('val1');
+        expect(finalVars.from_b2).toBe('val2');
+        expect(finalVars.shared).toBe('updated_by_b2');
+    });
+
+    test('enforces concurrencyLimit bounding active branches', async () => {
+        let maxConcurrent = 0;
+        let currentConcurrent = 0;
+
+        const host = createDefaultWorkflowEngineHost().registerAction({
+            kind: 'metered',
+            async execute() {
+                currentConcurrent++;
+                if (currentConcurrent > maxConcurrent) maxConcurrent = currentConcurrent;
+                await new Promise((r) => setTimeout(r, 25));
+                currentConcurrent--;
+                return { ok: true };
+            },
+        });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new TransitionFlowDriver({ host, persistence });
+
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'bounded-parallel',
+            initialNode: 'fork',
+            terminalNodes: ['done'],
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel',
+                    concurrencyLimit: 2,
+                    branches: [
+                        { id: 'b1', startNode: 'n1' },
+                        { id: 'b2', startNode: 'n2' },
+                        { id: 'b3', startNode: 'n3' },
+                        { id: 'b4', startNode: 'n4' },
+                    ],
+                    join: 'join-node',
+                },
+                { id: 'n1', action: { kind: 'metered' } },
+                { id: 'n2', action: { kind: 'metered' } },
+                { id: 'n3', action: { kind: 'metered' } },
+                { id: 'n4', action: { kind: 'metered' } },
+                { id: 'join-node' },
+                { id: 'done' },
+            ],
+            edges: [
+                { from: 'fork', to: 'n1' },
+                { from: 'fork', to: 'n2' },
+                { from: 'fork', to: 'n3' },
+                { from: 'fork', to: 'n4' },
+                { from: 'n1', to: 'join-node' },
+                { from: 'n2', to: 'join-node' },
+                { from: 'n3', to: 'join-node' },
+                { from: 'n4', to: 'join-node' },
+                { from: 'join-node', to: 'done' },
+            ],
+        });
+
+        expect(result.status).toBe('done');
+        expect(maxConcurrent).toBeLessThanOrEqual(2);
+    });
+
+    test('collect failure policy waits for all branches before recording failure', async () => {
+        let b2Finished = false;
+        const host = createDefaultWorkflowEngineHost()
+            .registerAction({
+                kind: 'fail-now',
+                async execute() {
+                    return { ok: false, error: 'b1-failed' };
+                },
+            })
+            .registerAction({
+                kind: 'slow-pass',
+                async execute() {
+                    await new Promise((r) => setTimeout(r, 30));
+                    b2Finished = true;
+                    return { ok: true, setVars: { b2_out: 'success' } };
+                },
+            });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const driver = new TransitionFlowDriver({ host, persistence });
+
+        const result = await driver.run({
+            kind: 'transition-flow',
+            name: 'collect-flow',
+            initialNode: 'fork',
+            terminalNodes: ['done'],
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel',
+                    failurePolicy: 'collect',
+                    branches: [
+                        { id: 'b1', startNode: 'n1' },
+                        { id: 'b2', startNode: 'n2' },
+                    ],
+                    join: 'join-node',
+                },
+                { id: 'n1', action: { kind: 'fail-now' } },
+                { id: 'n2', action: { kind: 'slow-pass' } },
+                { id: 'join-node' },
+                { id: 'done' },
+            ],
+            edges: [
+                { from: 'fork', to: 'n1' },
+                { from: 'fork', to: 'n2' },
+                { from: 'n1', to: 'join-node' },
+                { from: 'n2', to: 'join-node' },
+                { from: 'join-node', to: 'done' },
+            ],
+        });
+
+        expect(b2Finished).toBe(true);
+        expect(result.status).toBe('failed');
+        expect(result.reason).toBe('b1-failed');
+
+        const branches = await persistence.listRunBranches(result.runId, 'fork');
+        expect(branches.find((b) => b.branch_id === 'b1')?.status).toBe('failed');
+        expect(branches.find((b) => b.branch_id === 'b2')?.status).toBe('done');
+    });
+});
