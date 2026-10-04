@@ -70,6 +70,26 @@ CREATE TABLE IF NOT EXISTS action_runs (
     updated_at INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (run_id) REFERENCES runs(id)
 );
+
+CREATE TABLE IF NOT EXISTS workflow_branches (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    parallel_node TEXT NOT NULL,
+    branch_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    node TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    duration_ms INTEGER,
+    output_vars_json TEXT,
+    error TEXT,
+    created_at INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (run_id) REFERENCES runs(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_branches_run_branch
+    ON workflow_branches (run_id, parallel_node, branch_id);
 `.trim();
 
 /** Guarded ALTERs adding the 0.5.0 ownership/interruption columns for databases created before them. */

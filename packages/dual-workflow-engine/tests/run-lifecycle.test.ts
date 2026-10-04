@@ -75,6 +75,13 @@ function recordingPersistence(): { adapter: WorkflowPersistenceAdapter; calls: s
             calls.push(`interruptRun:${runId}:${reason}`);
             return inner.interruptRun(runId, reason);
         },
+        saveBranchStart: async (runId, parallelNode, branchId, startNode) =>
+            inner.saveBranchStart(runId, parallelNode, branchId, startNode),
+        saveBranchFinalize: async (runId, branchId, status, durationMs, outputVars, error) =>
+            inner.saveBranchFinalize(runId, branchId, status, durationMs, outputVars, error),
+        listRunBranches: async (runId, parallelNode) => inner.listRunBranches(runId, parallelNode),
+        commitJoin: async (runId, parallelNode, joinNode, mergedVars, phase) =>
+            inner.commitJoin(runId, parallelNode, joinNode, mergedVars, phase),
     };
     return { adapter, calls };
 }

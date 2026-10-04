@@ -3,7 +3,10 @@ import { RunCollisionError } from './errors';
 import { WORKFLOW_ENGINE_MIGRATIONS_SQL, WORKFLOW_ENGINE_SCHEMA_SQL } from './schema-sql';
 import type {
     ActionRedactor,
+    BranchStatus,
     ResumeOwnership,
+    Vars,
+    WorkflowBranchRecord,
     WorkflowPersistenceAdapter,
     WorkflowReseedResult,
     WorkflowRunRecord,
@@ -408,6 +411,85 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         params.push(limit);
         return await this.db.queryAll<WorkflowRunRecord>(sql, ...params);
     }
+
+    /** Record the start of a branch execution in a parallel region. */
+    async saveBranchStart(runId: string, parallelNode: string, branchId: string, startNode: string): Promise<string> {
+        await this.ensureSchema();
+        const id = crypto.randomUUID();
+        const now = Date.now();
+        await this.db.run(
+            `INSERT INTO workflow_branches (id, run_id, parallel_node, branch_id, status, node, started_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(run_id, parallel_node, branch_id) DO UPDATE SET
+               status = 'running', node = excluded.node, started_at = excluded.started_at, completed_at = NULL, error = NULL, updated_at = excluded.updated_at`,
+            id,
+            runId,
+            parallelNode,
+            branchId,
+            'running',
+            startNode,
+            new Date(now).toISOString(),
+            now,
+            now,
+        );
+        return id;
+    }
+
+    /** Finalize a branch execution with terminal status, duration, output variables, and optional error. */
+    async saveBranchFinalize(
+        runId: string,
+        branchId: string,
+        status: BranchStatus,
+        durationMs: number,
+        outputVars?: Vars,
+        error?: string,
+    ): Promise<void> {
+        await this.ensureSchema();
+        const now = Date.now();
+        await this.db.run(
+            `UPDATE workflow_branches
+             SET status = ?, duration_ms = ?, output_vars_json = ?, error = ?, completed_at = ?, updated_at = ?
+             WHERE run_id = ? AND branch_id = ?`,
+            status,
+            durationMs,
+            outputVars !== undefined ? JSON.stringify(outputVars) : null,
+            error ?? null,
+            new Date(now).toISOString(),
+            now,
+            runId,
+            branchId,
+        );
+    }
+
+    /** List all branch records for a run, optionally filtered by parallel node ID. */
+    async listRunBranches(runId: string, parallelNode?: string): Promise<readonly WorkflowBranchRecord[]> {
+        await this.ensureSchema();
+        if (parallelNode !== undefined) {
+            return await this.db.queryAll<WorkflowBranchRecord>(
+                'SELECT * FROM workflow_branches WHERE run_id = ? AND parallel_node = ? ORDER BY created_at ASC',
+                runId,
+                parallelNode,
+            );
+        }
+        return await this.db.queryAll<WorkflowBranchRecord>(
+            'SELECT * FROM workflow_branches WHERE run_id = ? ORDER BY created_at ASC',
+            runId,
+        );
+    }
+
+    /** Atomically transition a parallel region to its join node and commit merged variables. */
+    async commitJoin(
+        runId: string,
+        parallelNode: string,
+        joinNode: string,
+        mergedVars?: Vars,
+        phase?: { phase: string; status: WorkflowStatus },
+    ): Promise<void> {
+        await this.ensureSchema();
+        const data: Record<string, unknown> = {};
+        if (mergedVars !== undefined) data.effectiveVars = mergedVars;
+        await this.commitTransition(runId, parallelNode, joinNode, '__join__', joinNode, data, phase);
+    }
 }
 
 /** In-memory persistence adapter for tests and embedding. */
@@ -633,5 +715,78 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
         // Memory adapter has no updated_at tracking; use insertion order (reverse = most-recent-first).
         runs.reverse();
         return runs.slice(0, options?.limit ?? 100);
+    }
+
+    readonly branches = new Map<string, WorkflowBranchRecord>();
+
+    /** Record the start of a branch execution in a parallel region. */
+    async saveBranchStart(runId: string, parallelNode: string, branchId: string, startNode: string): Promise<string> {
+        const id = crypto.randomUUID();
+        const now = Date.now();
+        const key = `${runId}:${parallelNode}:${branchId}`;
+        const record: WorkflowBranchRecord = {
+            id,
+            run_id: runId,
+            parallel_node: parallelNode,
+            branch_id: branchId,
+            status: 'running',
+            node: startNode,
+            started_at: new Date(now).toISOString(),
+            completed_at: null,
+            duration_ms: null,
+            output_vars_json: null,
+            error: null,
+        };
+        this.branches.set(key, record);
+        return id;
+    }
+
+    /** Finalize a branch execution with terminal status, duration, output variables, and optional error. */
+    async saveBranchFinalize(
+        runId: string,
+        branchId: string,
+        status: BranchStatus,
+        durationMs: number,
+        outputVars?: Vars,
+        error?: string,
+    ): Promise<void> {
+        const now = Date.now();
+        for (const [key, b] of this.branches.entries()) {
+            if (b.run_id === runId && b.branch_id === branchId) {
+                this.branches.set(key, {
+                    ...b,
+                    status,
+                    duration_ms: durationMs,
+                    completed_at: new Date(now).toISOString(),
+                    output_vars_json: outputVars !== undefined ? JSON.stringify(outputVars) : null,
+                    error: error ?? null,
+                });
+                break;
+            }
+        }
+    }
+
+    /** List all branch records for a run, optionally filtered by parallel node ID. */
+    async listRunBranches(runId: string, parallelNode?: string): Promise<readonly WorkflowBranchRecord[]> {
+        const result: WorkflowBranchRecord[] = [];
+        for (const b of this.branches.values()) {
+            if (b.run_id === runId && (parallelNode === undefined || b.parallel_node === parallelNode)) {
+                result.push(b);
+            }
+        }
+        return result;
+    }
+
+    /** Atomically transition a parallel region to its join node and commit merged variables. */
+    async commitJoin(
+        runId: string,
+        parallelNode: string,
+        joinNode: string,
+        mergedVars?: Vars,
+        phase?: { phase: string; status: WorkflowStatus },
+    ): Promise<void> {
+        const data: Record<string, unknown> = {};
+        if (mergedVars !== undefined) data.effectiveVars = mergedVars;
+        await this.commitTransition(runId, parallelNode, joinNode, '__join__', joinNode, data, phase);
     }
 }

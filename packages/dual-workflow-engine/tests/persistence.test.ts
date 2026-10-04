@@ -57,13 +57,14 @@ describe('applyWorkflowEngineSchema', () => {
             expect(names).toContain('transition_runs');
             expect(names).toContain('workflow_states');
             expect(names).toContain('action_runs');
+            expect(names).toContain('workflow_branches');
         } finally {
             db.close();
         }
     });
 
     test('splits multi-statement SQL and skips empty fragments', async () => {
-        // WORKFLOW_ENGINE_SCHEMA_SQL has 6 statements separated by ';'.
+        // WORKFLOW_ENGINE_SCHEMA_SQL has 8 statements separated by ';'.
         // The split produces a trailing empty string after the final ';'.
         // applyWorkflowEngineSchema must handle it (trim + length > 0 check),
         // then run the 4 guarded column migrations (duplicate-column on fresh
@@ -75,8 +76,8 @@ describe('applyWorkflowEngineSchema', () => {
             },
         } as unknown as DbAdapter;
         await applyWorkflowEngineSchema(db);
-        expect(execCalls.length).toBe(10);
-        expect(execCalls.slice(6).every((sql) => sql.startsWith('ALTER TABLE runs ADD COLUMN'))).toBe(true);
+        expect(execCalls.length).toBe(12);
+        expect(execCalls.slice(8).every((sql) => sql.startsWith('ALTER TABLE runs ADD COLUMN'))).toBe(true);
     });
 });
 
@@ -869,5 +870,75 @@ describe('terminal_reason plumbing (task 0937)', () => {
         const claimed = await adapter.claimRunOwnership('r-mem', { attemptId: 'a2' }, ['paused']);
         expect(claimed?.status).toBe('running');
         expect(claimed?.terminal_reason).toBeNull();
+    });
+
+    describe('Branch ledger persistence (task 0094)', () => {
+        test('DB adapter saves branch start, finalize, and lists branches', async () => {
+            const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+            const adapter = new DbWorkflowPersistenceAdapter(db);
+            try {
+                await adapter.createRun(makeRecord({ id: 'r-branch' }));
+                const b1Id = await adapter.saveBranchStart('r-branch', 'fork', 'b1', 'n1');
+                const b2Id = await adapter.saveBranchStart('r-branch', 'fork', 'b2', 'n2');
+                expect(b1Id).toBeDefined();
+                expect(b2Id).toBeDefined();
+
+                let branches = await adapter.listRunBranches('r-branch');
+                expect(branches.length).toBe(2);
+                expect(branches.find((b) => b.branch_id === 'b1')?.status).toBe('running');
+
+                await adapter.saveBranchFinalize('r-branch', 'b1', 'done', 150, { v1: 'res1' });
+                await adapter.saveBranchFinalize('r-branch', 'b2', 'failed', 200, undefined, 'timeout');
+
+                branches = await adapter.listRunBranches('r-branch');
+                const b1 = branches.find((b) => b.branch_id === 'b1');
+                expect(b1?.status).toBe('done');
+                expect(b1?.duration_ms).toBe(150);
+                expect(parseStoredJson(b1?.output_vars_json)).toEqual({ v1: 'res1' });
+
+                const b2 = branches.find((b) => b.branch_id === 'b2');
+                expect(b2?.status).toBe('failed');
+                expect(b2?.error).toBe('timeout');
+            } finally {
+                db.close();
+            }
+        });
+
+        test('memory adapter saves branch start, finalize, and lists branches', async () => {
+            const adapter = new MemoryWorkflowPersistenceAdapter();
+            await adapter.createRun(makeRecord({ id: 'r-branch-mem' }));
+            await adapter.saveBranchStart('r-branch-mem', 'fork', 'b1', 'n1');
+            await adapter.saveBranchFinalize('r-branch-mem', 'b1', 'done', 50, { out: 'val' });
+
+            const branches = await adapter.listRunBranches('r-branch-mem');
+            expect(branches.length).toBe(1);
+            expect(branches[0]?.status).toBe('done');
+            expect(parseStoredJson(branches[0]?.output_vars_json)).toEqual({ out: 'val' });
+        });
+
+        test('commitJoin atomically records join transition and state in DB adapter', async () => {
+            const db = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+            const adapter = new DbWorkflowPersistenceAdapter(db);
+            try {
+                await adapter.createRun(makeRecord({ id: 'r-join' }));
+                await adapter.commitJoin('r-join', 'fork', 'join-node', { merged: 'yes' });
+
+                const state = await adapter.loadLatestStateSnapshot('r-join');
+                expect(state?.state).toBe('join-node');
+                expect(state?.data?.effectiveVars).toEqual({ merged: 'yes' });
+            } finally {
+                db.close();
+            }
+        });
+
+        test('commitJoin atomically records join transition and state in memory adapter', async () => {
+            const adapter = new MemoryWorkflowPersistenceAdapter();
+            await adapter.createRun(makeRecord({ id: 'r-join-mem' }));
+            await adapter.commitJoin('r-join-mem', 'fork', 'join-node', { merged: 'mem' });
+
+            const state = await adapter.loadLatestStateSnapshot('r-join-mem');
+            expect(state?.state).toBe('join-node');
+            expect(state?.data?.effectiveVars).toEqual({ merged: 'mem' });
+        });
     });
 });

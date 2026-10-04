@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Durable branch execution ledger schema, persistence adapter methods, and atomic join commit
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.276Z
-updated_at: "2026-10-04T21:28:12.941Z"
+updated_at: "2026-10-04T21:59:53.027Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -15,6 +15,8 @@ tags:
 estimate_hours: 6
 
 dependencies: ["0093"]
+done_forced: "false"
+done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs-runall-c2-c2f1/.spur/run/0094-verdict.json
 ---
 
 ## 0094. Durable branch execution ledger schema, persistence adapter methods, and atomic join commit
@@ -29,14 +31,14 @@ This task extends the persistence schema and adapter interface to support a dura
 
 ### Requirements
 
-- [ ] R1. WORKFLOW_ENGINE_SCHEMA_SQL and migrations define the branch execution ledger table (workflow_branches) with run_id, parallel_node, branch_id, status, node, output_vars_json, and error.
-- [ ] R2. WorkflowPersistenceAdapter exposes saveBranchStart, saveBranchFinalize, and listRunBranches with identical contracts in Db and Memory adapters.
-- [ ] R3. Atomic batch commitJoin records all branch outcomes and transitions the parent run to the join node in a single transaction (ADR-020).
-- [ ] R4. Out of scope: In-memory branch scheduling and thread management (owned by task 0095).
+- [x] R1. WORKFLOW_ENGINE_SCHEMA_SQL and migrations define the branch execution ledger table (workflow_branches) with run_id, parallel_node, branch_id, status, node, output_vars_json, and error.
+- [x] R2. WorkflowPersistenceAdapter exposes saveBranchStart, saveBranchFinalize, and listRunBranches with identical contracts in Db and Memory adapters.
+- [x] R3. Atomic batch commitJoin records all branch outcomes and transitions the parent run to the join node in a single transaction (ADR-020).
+- [x] R4. Out of scope: In-memory branch scheduling and thread management (owned by task 0095).
 
 ### Acceptance Criteria
 
-- [ ] AC1 — Persisted branch execution ledger and idempotent join activation (req: R1; req: R2; req: R3)
+- [x] AC1 — Persisted branch execution ledger and idempotent join activation (req: R1; req: R2; req: R3)
 
 ### Q&A
 
@@ -117,15 +119,30 @@ Supplies durable branch operations and atomic join commit to task 0095 (schedule
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+- `packages/dual-workflow-engine/src/schema-sql.ts:74`: added `workflow_branches` table and unique index `idx_workflow_branches_run_branch`.
+- `packages/dual-workflow-engine/src/types.ts:359`: defined `BranchStatus`, `WorkflowBranchRecord`, and adapter methods (`saveBranchStart`, `saveBranchFinalize`, `listRunBranches`, `commitJoin`).
+- `packages/dual-workflow-engine/src/persistence.ts:66`: `DbWorkflowPersistenceAdapter` and `MemoryWorkflowPersistenceAdapter` implemented branch methods with upsert on conflict and in-memory branch records.
+- `packages/dual-workflow-engine/tests/persistence.test.ts:875`: added comprehensive test suite for branch ledger operations, query filtering, and atomic join commit.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+- `bun test packages/dual-workflow-engine/tests/persistence.test.ts`: PASS (60 passed, 0 failed).
+- `bun test packages/dual-workflow-engine/tests/`: PASS (475 passed, 0 failed).
+- `bun run spur-check`: PASS (2,764 passed, 0 failed across 230 files, 99.25% line coverage, all 58 pre-check and 2 post-check rules green).
+- `bun run build`: PASS (all 12 workspace packages built cleanly).
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+Review of the 0094 patch:
+
+| Priority | Finding | File:Line | Disposition |
+| --- | --- | --- | --- |
+| P2 | Upsert conflict handling on branch restart | `packages/dual-workflow-engine/src/persistence.ts:416` | FIXED — `ON CONFLICT(run_id, parallel_node, branch_id) DO UPDATE` updates status and node cleanly on retry |
+| P2 | D1/SQLite batch compatibility for commitJoin | `packages/dual-workflow-engine/src/persistence.ts:488` | FIXED — delegates to existing atomic `commitTransition` batch transaction seam |
+| P3 | Branch output variables stored as JSON string | `packages/dual-workflow-engine/src/persistence.ts:446` | FIXED — serialized as JSON and deserialized safely in memory/callers |
+| P4 | Query ordering for listRunBranches | `packages/dual-workflow-engine/src/persistence.ts:468` | FIXED — ordered by created_at ascending for deterministic branch sequencing |
+
+Residual risk: None. Backwards compatibility for serial runs preserved without schema overhead.
 
 ### References
 
@@ -135,3 +152,8 @@ Supplies durable branch operations and atomic join commit to task 0095 (schedule
 - Dependency: 0093 (Schema and types)
 
 ### History
+
+- 2026-10-04T21:55:24.632Z todo → wip (system)
+- 2026-10-04T21:59:40.284Z wip → testing (system)
+- 2026-10-04T21:59:53.022Z testing → done (system)
+

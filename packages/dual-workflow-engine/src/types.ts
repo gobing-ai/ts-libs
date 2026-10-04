@@ -352,6 +352,24 @@ export interface TransitionDenied {
 /** Discriminated union result for external transition requests. */
 export type TransitionRequestResult = TransitionAllowed | TransitionDenied;
 
+/** Execution status of an individual branch in a parallel region. */
+export type BranchStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'paused';
+
+/** Persisted branch execution record. */
+export interface WorkflowBranchRecord {
+    readonly id: string;
+    readonly run_id: string;
+    readonly parallel_node: string;
+    readonly branch_id: string;
+    readonly status: BranchStatus;
+    readonly node: string;
+    readonly started_at: string;
+    readonly completed_at: string | null;
+    readonly duration_ms: number | null;
+    readonly output_vars_json: string | null;
+    readonly error: string | null;
+}
+
 /** Persisted action run record — one row per action executed in a workflow run. */
 export interface ActionRunRecord {
     readonly id: string;
@@ -469,4 +487,25 @@ export interface WorkflowPersistenceAdapter {
      * updated record, or undefined when the run is missing or not running.
      */
     interruptRun(runId: string, reason: string): Promise<WorkflowRunRecord | undefined>;
+    /** Record the start of a branch execution in a parallel region. */
+    saveBranchStart(runId: string, parallelNode: string, branchId: string, startNode: string): Promise<string>;
+    /** Finalize a branch execution with terminal status, duration, output variables, and optional error. */
+    saveBranchFinalize(
+        runId: string,
+        branchId: string,
+        status: BranchStatus,
+        durationMs: number,
+        outputVars?: Vars,
+        error?: string,
+    ): Promise<void>;
+    /** List all branch records for a run, optionally filtered by parallel node ID. */
+    listRunBranches(runId: string, parallelNode?: string): Promise<readonly WorkflowBranchRecord[]>;
+    /** Atomically transition a parallel region to its join node and commit merged variables. */
+    commitJoin(
+        runId: string,
+        parallelNode: string,
+        joinNode: string,
+        mergedVars?: Vars,
+        phase?: { phase: string; status: WorkflowStatus },
+    ): Promise<void>;
 }
