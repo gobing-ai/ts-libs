@@ -324,7 +324,7 @@ export interface WorkflowRunOptions {
 export interface WorkflowRunResult {
     readonly runId: string;
     readonly workflowName: string;
-    readonly mode: 'state-machine' | 'transition-flow';
+    readonly mode: 'state-machine' | 'transition-flow' | 'dag';
     readonly status: WorkflowStatus;
     readonly finalState: string;
     readonly transitionsTaken: number;

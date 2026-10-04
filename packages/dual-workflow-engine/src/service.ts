@@ -1,5 +1,6 @@
 import { type BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
 import { loadWorkflowDef } from './config';
+import { DagDriver } from './dag';
 import { FSMError, WorkflowResumeError } from './errors';
 import type { WorkflowEngineEvents } from './events';
 import type { WorkflowEngineHost } from './host';
@@ -67,7 +68,10 @@ export class WorkflowService {
             });
         }
         if (workflow.kind === 'dag') {
-            throw new FSMError('DAG driver not implemented (task 0100)');
+            return await new DagDriver({ host: this.host, persistence: this.persistence }).run(workflow, {
+                ...options,
+                events,
+            });
         }
         return await new StateMachineDriver({ host: this.host, persistence: this.persistence }).run(
             workflow as StateMachineWorkflowDef,
@@ -222,7 +226,10 @@ export class WorkflowService {
             }).resume(workflow, runId, currentState, extKey, mergedOptions);
         }
         if (workflow.kind === 'dag') {
-            throw new FSMError('DAG resume not implemented (task 0100)');
+            return await new DagDriver({
+                host: this.host,
+                persistence: this.persistence,
+            }).resume(workflow, runId, extKey, mergedOptions);
         }
         return await new StateMachineDriver({
             host: this.host,

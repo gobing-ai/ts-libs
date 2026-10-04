@@ -158,13 +158,16 @@ export class RunLifecycle {
                     record = await deps.persistence.createOrAttachRun(proposed);
                     if (record.owner_attempt !== proposed.owner_attempt) {
                         const snapshot = await deps.persistence.loadLatestStateSnapshot(record.id);
+                        const recordMode = record.mode;
                         return {
                             runId: record.id,
                             workflowName: record.workflow_name,
                             mode:
-                                record.mode === 'transition-flow'
+                                recordMode === 'transition-flow'
                                     ? ('transition-flow' as const)
-                                    : ('state-machine' as const),
+                                    : recordMode === 'dag'
+                                      ? ('dag' as const)
+                                      : ('state-machine' as const),
                             status: record.status,
                             finalState: snapshot?.state ?? '',
                             transitionsTaken: snapshotTransitions(snapshot?.data),

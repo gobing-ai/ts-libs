@@ -1,15 +1,16 @@
 # @gobing-ai/ts-dual-workflow-engine
 
-State-machine and transition-flow workflow runtime with pluggable action runners, guard runners, trust-gated extension loading, memory or database persistence, and rich observability.
+State-machine, transition-flow, and static-dependency-DAG workflow runtime with pluggable action runners, guard runners, trust-gated extension loading, memory or database persistence, and rich observability.
 
 ## What It Provides
 
-`ts-dual-workflow-engine` runs declarative workflows in two execution modes:
+`ts-dual-workflow-engine` runs declarative workflows in three execution modes:
 
 | Mode | Use When |
 |------|----------|
 | `state-machine` | A run owns one current state and chooses the next state by evaluating ordered transition guards |
 | `transition-flow` | A run moves through nodes and edges in a DAG-like flow, executing node actions as it advances |
+| `dag` | A run dispatches nodes as their declared `dependsOn` prerequisites complete; the graph must be acyclic (ADR-034) |
 
 The package exposes:
 
@@ -17,9 +18,10 @@ The package exposes:
 
 | Export | Purpose |
 |--------|---------|
-| `WorkflowService` | High-level loader and runner for both workflow kinds |
+| `WorkflowService` | High-level loader and runner for all three workflow kinds |
 | `StateMachineDriver` | Direct state-machine execution |
 | `TransitionFlowDriver` | Direct transition-flow execution |
+| `DagDriver` | Direct static dependency-DAG execution |
 | `WorkflowEngineHost` | Capability registry for action runners and guard runners |
 | `createDefaultWorkflowEngineHost()` | Creates a host with built-in `note`, `shell`, `event.emit`, `always`, `never`, and `action-ok` capabilities |
 
@@ -49,7 +51,7 @@ The package exposes:
 |--------|---------|
 | `loadWorkflowDef()` / `loadWorkflowDefFromText()` | YAML/JSON workflow loading and validation |
 | `validateWorkflowDef()` | Semantic invariant checking beyond Zod schema |
-| `StateMachineWorkflowDefSchema` / `TransitionFlowWorkflowDefSchema` / `WorkflowDefSchema` / `WorkflowExtensionsSchema` | Zod schemas for workflow definition validation |
+| `StateMachineWorkflowDefSchema` / `TransitionFlowWorkflowDefSchema` / `DagWorkflowDefSchema` / `WorkflowDefSchema` / `WorkflowExtensionsSchema` | Zod schemas for workflow definition validation |
 | `ActionDefSchema` / `GuardDefSchema` | Zod schemas for action and guard definitions |
 
 ### Extensions
@@ -779,7 +781,7 @@ const workflow = StateMachineWorkflowDefSchema.parse(rawObject);
 const def = WorkflowDefSchema.parse(rawObject);
 ```
 
-`WorkflowDefSchema` is a `z.union` of `StateMachineWorkflowDefSchema` and `TransitionFlowWorkflowDefSchema`. `ActionDefSchema` and `GuardDefSchema` validate individual action/guard definitions.
+`WorkflowDefSchema` is a `z.union` of `StateMachineWorkflowDefSchema`, `TransitionFlowWorkflowDefSchema`, and `DagWorkflowDefSchema` (`kind: 'dag'`). `ActionDefSchema` and `GuardDefSchema` validate individual action/guard definitions.
 
 ## Variable Utilities
 

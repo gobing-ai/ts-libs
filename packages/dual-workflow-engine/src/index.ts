@@ -1,4 +1,5 @@
 export { loadWorkflowDef, loadWorkflowDefFromText, validateWorkflowDef } from './config';
+export { DagDriver, type DagDriverOptions } from './dag';
 export { FSMError, RunCollisionError, WorkflowResumeError, WorkflowValidationError } from './errors';
 export type { WorkflowEngineEvents } from './events';
 export {
@@ -33,6 +34,8 @@ export {
 } from './run-lifecycle';
 export {
     ActionDefSchema,
+    DagNodeDefSchema,
+    DagWorkflowDefSchema,
     GuardDefSchema,
     StateMachineWorkflowDefSchema,
     TransitionFlowWorkflowDefSchema,
@@ -50,6 +53,9 @@ export type {
     ActionRunContext,
     ActionRunner,
     ActionRunRecord,
+    DagNodeDef,
+    DagWorkflowDef,
+    DependencyPolicy,
     Env,
     FlowEdgeDef,
     FlowNodeDef,

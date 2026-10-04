@@ -65,7 +65,7 @@ Feature: Static dependency DAG workflow execution mode
 | WBS | Task | Status |
 | --- | ---- | ------ |
 | 0099 | Static dependency DAG workflow definition schema, acyclic validation, and ADR specification | done |
-| 0100 | Dependency-driven ready-queue scheduler, conditional skip propagation, and durable DAG execution | todo |
+| 0100 | Dependency-driven ready-queue scheduler, conditional skip propagation, and durable DAG execution | done |
 <!-- END AUTO-GENERATED -->
 
 ## Notes
