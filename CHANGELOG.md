@@ -8,6 +8,24 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.13] - 2026-10-03
+
+### Added
+
+- **New package `@gobing-ai/ts-ai-decision` — declarative decision catalogs, maker registry, and fallback-guaranteed decision hub (feature N).** `packages/ai-decision/package.json:2` adds the package to the workspace with one-way dependencies on ts-ai-runner / ts-decision-fm / ts-laya-mlx / ts-runtime. YAML catalogs load into typed decision definitions (`packages/ai-decision/src/catalog.ts`) validated by the shipped JSON Schema plus its zod mirror (`packages/ai-decision/schemas/decision-catalog.schema.json`); parameters resolve declared defaults and reject unknown, missing or mistyped input (`packages/ai-decision/src/params.ts`); `DecisionMakerRegistry` registers built-in (`typesafe`, `fm-local`, `laya-local`) and consumer makers by name (`packages/ai-decision/src/registry.ts:28`, built-ins at `:38`). `DecisionHub` (`packages/ai-decision/src/hub.ts`) serves discovery (`list` `:226`, `describe` `:236`) and a `decide` (`:261`) that always returns a typed answer — model when confident, the declared fallback on backend error, timeout or low confidence — while caller mistakes throw before reaching a backend. Covers tasks 0089, 0090, 0091. (`a8e52ec4`)
+- **Resolvable schema specifiers in `@gobing-ai/ts-rule-engine`.** `packages/rule-engine/package.json:32` adds `./schemas/*` and `./package.json` export entries so the documented `$schema` package specifier resolves through standard resolvers — editors and Node `require.resolve` — not only Bun's `package.json` sideload (`packages/rule-engine/tests/config/loader.test.ts:181`). Reproduced locally: Node 26.10.0 raises `ERR_PACKAGE_PATH_NOT_EXPORTED` for an unexported `./package.json`, while Bun 1.3.14 resolves it. (`f1befec7`)
+- **Planning corpus for feature N.** ADR-033 amendment, `docs/design/ai-decision-catalog.md`, the feature satellite and three decomposed tasks (0089 catalog load + package scaffold, 0090 hub with fallback-guaranteed decide, 0091 registry by name). (`43583453`)
+
+### Fixed
+
+- **Capability parser edge cases in `@gobing-ai/ts-llm-jsonl-importer`.** `parseLiteralReadTargets` now collects only `SKILL.md` paths in the `-n` print form (`packages/llm-jsonl-importer/src/capability.ts:286`), and `extractNestedExecCommandLiterals` matches a statement boundary before optional trailing whitespace instead of swallowing the whitespace inside the boundary itself (`packages/llm-jsonl-importer/src/capability.ts:345`). The add-capability migration is documented and the validate/match/parse surface is covered by a dedicated test file. (`d2417fd0`)
+- **Feature-verification receipts register at their durable evidence path.** The run artifact row records `.spur/memory/evidence/<runId>-feature-verification.json` (`.spur/scripts/feature-verify.mjs:171`) instead of the legacy `.spur/run/` scratch location, so the completion check no longer rejects every feature advance with `receipt ... is not registered as an artifact`. (`0356072d`)
+
+### Changed
+
+- **Feature-N task records refreshed after verification**, with the verified checkboxes, solution references and evidence links settled back into the task corpus. (`9dde0cb8`)
+- **Feature N lifecycle closed to done and derived docs synced** — `docs/05_FEATURES.md` and `docs/features/INDEX.md` now carry the shipped satellite. (`facf9edc`)
+
 ## [0.5.12] - 2026-10-03
 
 ### Added
