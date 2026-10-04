@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Fork-join workflow definition schema, validation rules, and unhandled parallel rejection
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.268Z
-updated_at: "2026-10-04T21:28:11.712Z"
+updated_at: "2026-10-04T21:46:58.517Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -14,6 +14,8 @@ tags:
   - schema
 estimate_hours: 4
 
+done_forced: "false"
+done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs/.spur/run/0093-verdict.json
 ---
 
 ## 0093. Fork-join workflow definition schema, validation rules, and unhandled parallel rejection
@@ -28,14 +30,14 @@ This task establishes the definition schema, typing, and validation rules for st
 
 ### Requirements
 
-- [ ] R1. TransitionFlowWorkflowDefSchema and types.ts accept parallel node properties: branches array, join target node ID, joinPolicy ('all'), and failurePolicy ('collect' | 'fail-fast').
-- [ ] R2. validateTransitionFlow in src/config.ts enforces that parallel nodes declare non-empty branches, valid branch startNodes, an existing join target, and acyclic subgraphs within branches.
-- [ ] R3. Schema and semantic validation reject nested parallel regions within a branch and unhandled parallel configurations with explicit WorkflowValidationError messages.
-- [ ] R4. Out of scope: StateMachineWorkflowDef (FSM) is unchanged; general static dependency DAG execution is deferred to Feature C3.
+- [x] R1. TransitionFlowWorkflowDefSchema and types.ts accept parallel node properties: branches array, join target node ID, joinPolicy ('all'), and failurePolicy ('collect' | 'fail-fast').
+- [x] R2. validateTransitionFlow in src/config.ts enforces that parallel nodes declare non-empty branches, valid branch startNodes, an existing join target, and acyclic subgraphs within branches.
+- [x] R3. Schema and semantic validation reject nested parallel regions within a branch and unhandled parallel configurations with explicit WorkflowValidationError messages.
+- [x] R4. Out of scope: StateMachineWorkflowDef (FSM) is unchanged; general static dependency DAG execution is deferred to Feature C3.
 
 ### Acceptance Criteria
 
-- [ ] AC1 — Validation accepts structured fork-join and rejects invalid parallel definitions (req: R1; req: R2; req: R3)
+- [x] AC1 — Validation accepts structured fork-join and rejects invalid parallel definitions (req: R1; req: R2; req: R3)
 
 ### Q&A
 
@@ -99,15 +101,31 @@ Provides verified `FlowParallelNodeDef` and invariant checks to task 0094 (persi
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+- `packages/dual-workflow-engine/src/types.ts:121`: added `JoinPolicy`, `FailurePolicy`, `FlowParallelBranchDef`, parallel properties on `FlowNodeDef`, and exported `FlowParallelNodeDef`.
+- `packages/dual-workflow-engine/src/schema.ts:120`: added `FlowParallelBranchDefSchema`, `FlowNodeDefSchema` with `.superRefine` enforcing that `type: parallel` declares non-empty branches and join, while non-parallel nodes forbid branches and join.
+- `packages/dual-workflow-engine/src/config.ts:155`: `validateTransitionFlow` added parallel region semantic validation (>= 2 branches, duplicate branch ID rejection, declared startNode/join verification, no self-join, no startNode=join, nested parallel rejection, branch cycle detection before join, and exempted parallel fork nodes from sequential unconditional-edge-last rule).
+- `packages/dual-workflow-engine/tests/schema.test.ts:223`: added schema validation tests for valid parallel nodes and malformed/invalid inputs.
+- `packages/dual-workflow-engine/tests/config.test.ts:348`: added semantic validation tests for valid fork-join workflows, nested parallel rejection, branch cycles, and invalid endpoints.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+- `bun test packages/dual-workflow-engine/tests/schema.test.ts packages/dual-workflow-engine/tests/config.test.ts`: PASS (97 passed, 0 failed).
+- `bun test packages/dual-workflow-engine/tests/`: PASS (471 passed, 0 failed).
+- `bun run spur-check`: PASS (2,760 passed, 0 failed across 230 files, 99.25% line coverage, all 58 pre-check and 2 post-check rules green).
+- `bun run build`: PASS (all 12 workspace packages built cleanly).
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+Review of the 0093 patch:
+
+| Priority | Finding | File:Line | Disposition |
+| --- | --- | --- | --- |
+| P2 | Parallel fork nodes must not trigger sequential unconditional-edge-last rule | `packages/dual-workflow-engine/src/config.ts:183` | FIXED — exempted parallel nodes from sequential unconditional-edge check since fork edges are concurrent |
+| P2 | JSON schema hand-maintained in schemas/transition-flow-workflow.schema.json | `packages/dual-workflow-engine/schemas/transition-flow-workflow.schema.json:44` | FIXED — updated packaged schema and added regression test in schema.test.ts |
+| P3 | Non-parallel nodes must not declare branches or join | `packages/dual-workflow-engine/src/schema.ts:153` | FIXED — enforced via FlowNodeDefSchema.superRefine |
+| P4 | Error messages should clearly identify branch and parallel node | `packages/dual-workflow-engine/src/config.ts:200` | FIXED — formatted as 'Parallel node "..."' and 'Branch "..." in parallel node "..."' |
+
+Residual risk: None. All requirements covered with 100% test pass rate across the full workspace suite.
 
 ### References
 
@@ -116,3 +134,8 @@ Provides verified `FlowParallelNodeDef` and invariant checks to task 0094 (persi
 - ADR-010 (extension registry), ADR-013 (RunLifecycle), ADR-020 (atomic commit)
 
 ### History
+
+- 2026-10-04T21:40:43.322Z todo → wip (system)
+- 2026-10-04T21:46:00.921Z wip → testing (system)
+- 2026-10-04T21:46:58.483Z testing → done (system)
+

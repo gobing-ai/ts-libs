@@ -212,6 +212,122 @@ describe('TransitionFlowWorkflowDefSchema', () => {
         expect(result.success).toBe(true);
         expect(result.data?.defaultOnError).toBe('continue');
     });
+
+    describe('structured fork-join parallel node schema', () => {
+        test('accepts valid parallel node with branches, join, and policies', () => {
+            const result = TransitionFlowWorkflowDefSchema.safeParse({
+                ...minimal,
+                nodes: [
+                    {
+                        id: 'fork',
+                        type: 'parallel',
+                        branches: [
+                            { id: 'b1', startNode: 'n1', description: 'branch 1' },
+                            { id: 'b2', startNode: 'n2' },
+                        ],
+                        join: 'join-node',
+                        joinPolicy: 'all',
+                        failurePolicy: 'collect',
+                        concurrencyLimit: 4,
+                    },
+                    { id: 'n1' },
+                    { id: 'n2' },
+                    { id: 'join-node' },
+                ],
+                edges: [
+                    { from: 'fork', to: 'n1' },
+                    { from: 'fork', to: 'n2' },
+                    { from: 'n1', to: 'join-node' },
+                    { from: 'n2', to: 'join-node' },
+                ],
+            });
+            expect(result.success).toBe(true);
+        });
+
+        test('rejects parallel node missing branches array', () => {
+            const result = TransitionFlowWorkflowDefSchema.safeParse({
+                ...minimal,
+                nodes: [{ id: 'fork', type: 'parallel', join: 'join-node' }],
+            });
+            expect(result.success).toBe(false);
+        });
+
+        test('rejects parallel node missing join target', () => {
+            const result = TransitionFlowWorkflowDefSchema.safeParse({
+                ...minimal,
+                nodes: [
+                    {
+                        id: 'fork',
+                        type: 'parallel',
+                        branches: [{ id: 'b1', startNode: 'n1' }],
+                    },
+                ],
+            });
+            expect(result.success).toBe(false);
+        });
+
+        test('rejects parallel node with invalid joinPolicy', () => {
+            const result = TransitionFlowWorkflowDefSchema.safeParse({
+                ...minimal,
+                nodes: [
+                    {
+                        id: 'fork',
+                        type: 'parallel',
+                        branches: [{ id: 'b1', startNode: 'n1' }],
+                        join: 'join-node',
+                        joinPolicy: 'invalid',
+                    },
+                ],
+            });
+            expect(result.success).toBe(false);
+        });
+
+        test('rejects parallel node with invalid failurePolicy', () => {
+            const result = TransitionFlowWorkflowDefSchema.safeParse({
+                ...minimal,
+                nodes: [
+                    {
+                        id: 'fork',
+                        type: 'parallel',
+                        branches: [{ id: 'b1', startNode: 'n1' }],
+                        join: 'join-node',
+                        failurePolicy: 'invalid',
+                    },
+                ],
+            });
+            expect(result.success).toBe(false);
+        });
+
+        test('rejects non-positive concurrencyLimit', () => {
+            const result = TransitionFlowWorkflowDefSchema.safeParse({
+                ...minimal,
+                nodes: [
+                    {
+                        id: 'fork',
+                        type: 'parallel',
+                        branches: [{ id: 'b1', startNode: 'n1' }],
+                        join: 'join-node',
+                        concurrencyLimit: 0,
+                    },
+                ],
+            });
+            expect(result.success).toBe(false);
+        });
+
+        test('rejects non-parallel node declaring branches or join', () => {
+            const result = TransitionFlowWorkflowDefSchema.safeParse({
+                ...minimal,
+                nodes: [
+                    {
+                        id: 'act',
+                        type: 'action',
+                        branches: [{ id: 'b1', startNode: 'n1' }],
+                    },
+                ],
+            });
+            expect(result.success).toBe(false);
+        });
+    });
 });
 
 describe('WorkflowDefSchema', () => {
@@ -330,6 +446,18 @@ describe('packaged JSON schemas declare extensions', () => {
         expect(json.$defs.relativeExtensionPath).toBeDefined();
         expect(json.$defs.extensions.properties.actions.items.$ref).toBe('#/$defs/relativeExtensionPath');
         expect(json.$defs.extensions.additionalProperties).toBe(false);
+    });
+
+    test('transition-flow-workflow packaged schema defines parallel properties on nodes', async () => {
+        const json = JSON.parse(
+            await readFile(join(import.meta.dir, '..', 'schemas', 'transition-flow-workflow.schema.json'), 'utf8'),
+        );
+        const nodeProps = json.properties.nodes.items.properties;
+        expect(nodeProps.branches).toBeDefined();
+        expect(nodeProps.join).toBeDefined();
+        expect(nodeProps.joinPolicy).toBeDefined();
+        expect(nodeProps.failurePolicy).toBeDefined();
+        expect(nodeProps.concurrencyLimit).toBeDefined();
     });
 });
 

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadWorkflowDef, loadWorkflowDefFromText } from '../src/config';
+import { loadWorkflowDef, loadWorkflowDefFromText, validateWorkflowDef } from '../src/config';
 import { WorkflowValidationError } from '../src/errors';
 import type { StateMachineWorkflowDef } from '../src/types';
 
@@ -310,5 +310,233 @@ transitions:
             },
         };
         await expect(loadWorkflowDef(workflowPath, rejecting)).rejects.toThrow('failed JSON schema validation');
+    });
+});
+
+describe('validateWorkflowDef — structured fork-join in transition-flow', () => {
+    const validForkJoin = {
+        kind: 'transition-flow' as const,
+        name: 'valid-fork-join',
+        initialNode: 'fork',
+        terminalNodes: ['done'],
+        nodes: [
+            {
+                id: 'fork',
+                type: 'parallel' as const,
+                branches: [
+                    { id: 'b1', startNode: 'n1' },
+                    { id: 'b2', startNode: 'n2' },
+                ],
+                join: 'join-node',
+                joinPolicy: 'all' as const,
+                failurePolicy: 'collect' as const,
+            },
+            { id: 'n1' },
+            { id: 'n2' },
+            { id: 'join-node' },
+            { id: 'done' },
+        ],
+        edges: [
+            { from: 'fork', to: 'n1' },
+            { from: 'fork', to: 'n2' },
+            { from: 'n1', to: 'join-node' },
+            { from: 'n2', to: 'join-node' },
+            { from: 'join-node', to: 'done' },
+        ],
+    };
+
+    test('accepts valid structured fork-join workflow', () => {
+        expect(() => validateWorkflowDef(validForkJoin)).not.toThrow();
+    });
+
+    test('fails when parallel node declares fewer than 2 branches', () => {
+        const wf = {
+            ...validForkJoin,
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel' as const,
+                    branches: [{ id: 'b1', startNode: 'n1' }],
+                    join: 'join-node',
+                },
+                { id: 'n1' },
+                { id: 'join-node' },
+                { id: 'done' },
+            ],
+        };
+        expect(() => validateWorkflowDef(wf)).toThrow(/Parallel node "fork" must declare at least 2 branches/);
+    });
+
+    test('fails when parallel node declares duplicate branch IDs', () => {
+        const wf = {
+            ...validForkJoin,
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel' as const,
+                    branches: [
+                        { id: 'b1', startNode: 'n1' },
+                        { id: 'b1', startNode: 'n2' },
+                    ],
+                    join: 'join-node',
+                },
+                { id: 'n1' },
+                { id: 'n2' },
+                { id: 'join-node' },
+                { id: 'done' },
+            ],
+        };
+        expect(() => validateWorkflowDef(wf)).toThrow(/Parallel node "fork" declares duplicate branch id "b1"/);
+    });
+
+    test('fails when branch startNode is not declared in nodes', () => {
+        const wf = {
+            ...validForkJoin,
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel' as const,
+                    branches: [
+                        { id: 'b1', startNode: 'missing-node' },
+                        { id: 'b2', startNode: 'n2' },
+                    ],
+                    join: 'join-node',
+                },
+                { id: 'n2' },
+                { id: 'join-node' },
+                { id: 'done' },
+            ],
+        };
+        expect(() => validateWorkflowDef(wf)).toThrow(
+            /Branch "b1" in parallel node "fork" references undeclared startNode "missing-node"/,
+        );
+    });
+
+    test('fails when parallel node join is not declared in nodes', () => {
+        const wf = {
+            ...validForkJoin,
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel' as const,
+                    branches: [
+                        { id: 'b1', startNode: 'n1' },
+                        { id: 'b2', startNode: 'n2' },
+                    ],
+                    join: 'missing-join',
+                },
+                { id: 'n1' },
+                { id: 'n2' },
+                { id: 'done' },
+            ],
+        };
+        expect(() => validateWorkflowDef(wf)).toThrow(
+            /Parallel node "fork" references undeclared join node "missing-join"/,
+        );
+    });
+
+    test('fails when parallel node join is the parallel node itself', () => {
+        const wf = {
+            ...validForkJoin,
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel' as const,
+                    branches: [
+                        { id: 'b1', startNode: 'n1' },
+                        { id: 'b2', startNode: 'n2' },
+                    ],
+                    join: 'fork',
+                },
+                { id: 'n1' },
+                { id: 'n2' },
+                { id: 'done' },
+            ],
+        };
+        expect(() => validateWorkflowDef(wf)).toThrow(/Parallel node "fork" cannot have join set to itself/);
+    });
+
+    test('fails when branch startNode is the join node directly', () => {
+        const wf = {
+            ...validForkJoin,
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel' as const,
+                    branches: [
+                        { id: 'b1', startNode: 'join-node' },
+                        { id: 'b2', startNode: 'n2' },
+                    ],
+                    join: 'join-node',
+                },
+                { id: 'n2' },
+                { id: 'join-node' },
+                { id: 'done' },
+            ],
+        };
+        expect(() => validateWorkflowDef(wf)).toThrow(
+            /Branch "b1" in parallel node "fork" has startNode equal to join node "join-node"/,
+        );
+    });
+
+    test('fails when nested parallel nodes are declared within a branch', () => {
+        const wf = {
+            ...validForkJoin,
+            nodes: [
+                {
+                    id: 'fork',
+                    type: 'parallel' as const,
+                    branches: [
+                        { id: 'b1', startNode: 'inner-fork' },
+                        { id: 'b2', startNode: 'n2' },
+                    ],
+                    join: 'join-node',
+                },
+                {
+                    id: 'inner-fork',
+                    type: 'parallel' as const,
+                    branches: [
+                        { id: 'ib1', startNode: 'in1' },
+                        { id: 'ib2', startNode: 'in2' },
+                    ],
+                    join: 'join-node',
+                },
+                { id: 'in1' },
+                { id: 'in2' },
+                { id: 'n2' },
+                { id: 'join-node' },
+                { id: 'done' },
+            ],
+            edges: [
+                { from: 'fork', to: 'inner-fork' },
+                { from: 'fork', to: 'n2' },
+                { from: 'inner-fork', to: 'in1' },
+                { from: 'inner-fork', to: 'in2' },
+                { from: 'in1', to: 'join-node' },
+                { from: 'in2', to: 'join-node' },
+                { from: 'n2', to: 'join-node' },
+                { from: 'join-node', to: 'done' },
+            ],
+        };
+        expect(() => validateWorkflowDef(wf)).toThrow(
+            /Parallel node "inner-fork" is nested inside parallel node "fork" \(nested parallel regions are forbidden\)/,
+        );
+    });
+
+    test('fails when there is a cycle inside a parallel branch before reaching join', () => {
+        const wf = {
+            ...validForkJoin,
+            edges: [
+                { from: 'fork', to: 'n1' },
+                { from: 'fork', to: 'n2' },
+                { from: 'n1', to: 'loop1' },
+                { from: 'loop1', to: 'n1' },
+                { from: 'n1', to: 'join-node' },
+                { from: 'n2', to: 'join-node' },
+                { from: 'join-node', to: 'done' },
+            ],
+            nodes: [...validForkJoin.nodes, { id: 'loop1' }],
+        };
+        expect(() => validateWorkflowDef(wf)).toThrow(/Parallel branch "b1" in node "fork" contains a cycle/);
     });
 });

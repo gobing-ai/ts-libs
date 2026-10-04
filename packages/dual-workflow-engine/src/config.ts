@@ -180,10 +180,92 @@ function validateTransitionFlow(workflow: Extract<WorkflowDef, { kind: 'transiti
         }
     }
     for (const node of workflow.nodes) {
+        if (node.type === 'parallel') continue;
         const outbound = workflow.edges.filter((edge) => edge.from === node.id);
         const unconditional = outbound.findIndex((edge) => edge.condition === undefined);
         if (unconditional !== -1 && unconditional < outbound.length - 1) {
             errors.push(`Node "${node.id}" has an unconditional edge that is not last; later edges are unreachable`);
+        }
+    }
+
+    // Parallel fork-join validation
+    const nodeMap = new Map(workflow.nodes.map((n) => [n.id, n]));
+    const outboundByFrom = new Map<string, string[]>();
+    for (const edge of workflow.edges) {
+        const list = outboundByFrom.get(edge.from) ?? [];
+        list.push(edge.to);
+        outboundByFrom.set(edge.from, list);
+    }
+
+    for (const node of workflow.nodes) {
+        if (node.type === 'parallel') {
+            if (!node.branches || node.branches.length < 2) {
+                errors.push(`Parallel node "${node.id}" must declare at least 2 branches`);
+            }
+            if (node.branches) {
+                for (const dupe of duplicates(node.branches.map((b) => b.id))) {
+                    errors.push(`Parallel node "${node.id}" declares duplicate branch id "${dupe}"`);
+                }
+            }
+            if (node.join !== undefined) {
+                if (!nodes.has(node.join)) {
+                    errors.push(`Parallel node "${node.id}" references undeclared join node "${node.join}"`);
+                } else if (node.join === node.id) {
+                    errors.push(`Parallel node "${node.id}" cannot have join set to itself`);
+                }
+            }
+
+            if (node.branches && node.join && nodes.has(node.join) && node.join !== node.id) {
+                for (const branch of node.branches) {
+                    if (!nodes.has(branch.startNode)) {
+                        errors.push(
+                            `Branch "${branch.id}" in parallel node "${node.id}" references undeclared startNode "${branch.startNode}"`,
+                        );
+                        continue;
+                    }
+                    if (branch.startNode === node.join) {
+                        errors.push(
+                            `Branch "${branch.id}" in parallel node "${node.id}" has startNode equal to join node "${node.join}"`,
+                        );
+                        continue;
+                    }
+
+                    // Check for nested parallel nodes and cycles within branch before reaching join
+                    const visiting = new Set<string>();
+                    const visited = new Set<string>();
+                    let hasCycle = false;
+
+                    const walk = (currentId: string) => {
+                        if (currentId === node.join) return;
+                        if (visiting.has(currentId)) {
+                            hasCycle = true;
+                            return;
+                        }
+                        if (visited.has(currentId)) return;
+
+                        const currentNode = nodeMap.get(currentId);
+                        if (currentNode && currentNode.id !== node.id && currentNode.type === 'parallel') {
+                            errors.push(
+                                `Parallel node "${currentNode.id}" is nested inside parallel node "${node.id}" (nested parallel regions are forbidden)`,
+                            );
+                        }
+
+                        visiting.add(currentId);
+                        const nextIds = outboundByFrom.get(currentId) ?? [];
+                        for (const nextId of nextIds) {
+                            walk(nextId);
+                        }
+                        visiting.delete(currentId);
+                        visited.add(currentId);
+                    };
+
+                    walk(branch.startNode);
+
+                    if (hasCycle) {
+                        errors.push(`Parallel branch "${branch.id}" in node "${node.id}" contains a cycle`);
+                    }
+                }
+            }
         }
     }
 

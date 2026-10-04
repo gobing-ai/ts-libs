@@ -40,6 +40,40 @@
                     "pause": {
                         "type": "boolean",
                         "description": "When true, the engine pauses the run at this node instead of auto-advancing."
+                    },
+                    "resumeRerun": {
+                        "type": "boolean",
+                        "description": "Author declaration that re-running this node's action after an interruption is safe."
+                    },
+                    "branches": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["id", "startNode"],
+                            "properties": {
+                                "id": { "type": "string", "minLength": 1 },
+                                "startNode": { "type": "string", "minLength": 1 },
+                                "description": { "type": "string" }
+                            }
+                        }
+                    },
+                    "join": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Target join node ID where branches converge for parallel fork nodes."
+                    },
+                    "joinPolicy": {
+                        "type": "string",
+                        "enum": ["all"]
+                    },
+                    "failurePolicy": {
+                        "type": "string",
+                        "enum": ["collect", "fail-fast"]
+                    },
+                    "concurrencyLimit": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
                     }
                 }
             }

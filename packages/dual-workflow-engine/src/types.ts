@@ -117,6 +117,19 @@ export interface StateMachineWorkflowDef {
     readonly extensions?: WorkflowExtensions;
 }
 
+/** Join synchronization policy for parallel nodes. */
+export type JoinPolicy = 'all';
+
+/** Failure handling policy across parallel branches. */
+export type FailurePolicy = 'collect' | 'fail-fast';
+
+/** One branch in a structured parallel fork node. */
+export interface FlowParallelBranchDef {
+    readonly id: string;
+    readonly startNode: string;
+    readonly description?: string;
+}
+
 /** Transition-flow node definition. */
 export interface FlowNodeDef {
     readonly id: string;
@@ -128,6 +141,26 @@ export interface FlowNodeDef {
     readonly pause?: boolean;
     /** Author declaration that this node's action is safe to re-run after an interruption. See StateDef.resumeRerun. */
     readonly resumeRerun?: boolean;
+    /** Declared branches for parallel fork nodes (type: 'parallel'). */
+    readonly branches?: readonly FlowParallelBranchDef[];
+    /** Target join node ID where branches converge for parallel fork nodes. */
+    readonly join?: string;
+    /** Join synchronization policy for parallel nodes. Defaults to 'all'. */
+    readonly joinPolicy?: JoinPolicy;
+    /** Failure handling policy across parallel branches. Defaults to 'collect'. */
+    readonly failurePolicy?: FailurePolicy;
+    /** Maximum number of branches executed concurrently. Defaults to 4. */
+    readonly concurrencyLimit?: number;
+}
+
+/** Transition-flow parallel fork node definition. */
+export interface FlowParallelNodeDef extends FlowNodeDef {
+    readonly type: 'parallel';
+    readonly branches: readonly FlowParallelBranchDef[];
+    readonly join: string;
+    readonly joinPolicy?: JoinPolicy;
+    readonly failurePolicy?: FailurePolicy;
+    readonly concurrencyLimit?: number;
 }
 
 /** Transition-flow edge definition. */
