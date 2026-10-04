@@ -2,11 +2,11 @@
 schema_version: 1
 id: "C3"
 name: "Static dependency DAG workflow execution mode"
-status: backlog
+status: done
 priority: P2
 tags: []
 created_at: "2026-10-04T21:08:32.350Z"
-updated_at: "2026-10-04T21:09:07.544Z"
+updated_at: "2026-10-04T23:18:55.080Z"
 ---
 
 # C3: Static dependency DAG workflow execution mode
@@ -73,3 +73,8 @@ Feature: Static dependency DAG workflow execution mode
 Phase 2 enhancement expanding the dual-workflow engine from structured fork-join into general static dependency DAG execution.
 
 ## History
+
+- 2026-10-04T23:17:17.852Z backlog → active (system)
+- 2026-10-04T23:18:53.751Z active → verifying (system)
+- 2026-10-04T23:18:55.080Z verifying → done (system)
+

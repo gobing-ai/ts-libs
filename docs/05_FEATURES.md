@@ -27,7 +27,7 @@ Feature satellites are owned by `spur feature`. The generated, authoritative ros
 | C | ts-dual-workflow-engine | ⏳ planned | [`C_ts-dual-workflow-engine.md`](features/C_ts-dual-workflow-engine.md) |
 | C1 | ↳ Workflow YAML rule-style extensions | ✅ done | [`C1_workflow-yaml-rule-style-extensions.md`](features/C1_workflow-yaml-rule-style-extensions.md) |
 | C2 | ↳ Durable structured fork-join parallel execution | ✅ done | [`C2_durable-structured-fork-join-parallel-execution.md`](features/C2_durable-structured-fork-join-parallel-execution.md) |
-| C3 | ↳ Static dependency DAG workflow execution mode | ⏳ planned | [`C3_static-dependency-dag-workflow-execution-mode.md`](features/C3_static-dependency-dag-workflow-execution-mode.md) |
+| C3 | ↳ Static dependency DAG workflow execution mode | ✅ done | [`C3_static-dependency-dag-workflow-execution-mode.md`](features/C3_static-dependency-dag-workflow-execution-mode.md) |
 | D | ts-infra | ⏳ planned | [`D_ts-infra.md`](features/D_ts-infra.md) |
 | D1 | ↳ Restore System Events observability coverage | ✅ done | [`D1_restore-system-events-observability-coverage.md`](features/D1_restore-system-events-observability-coverage.md) |
 | E | ts-llm-jsonl-importer | 🔶 partial | [`E_ts-llm-jsonl-importer.md`](features/E_ts-llm-jsonl-importer.md) |
