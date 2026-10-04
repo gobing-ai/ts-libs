@@ -4,7 +4,7 @@ name: Static dependency DAG workflow definition schema, acyclic validation, and 
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.283Z
-updated_at: "2026-10-04T22:40:23.003Z"
+updated_at: "2026-10-04T23:31:24.576Z"
 feature_id: C3
 priority: P2
 tags:
@@ -114,10 +114,22 @@ Provides validated `DagWorkflowDef` and topological sorting helpers to task 0100
 
 ### Testing
 
-- `bun test packages/dual-workflow-engine/tests/dag-schema.test.ts`: PASS (12 passed, 0 failed).
-- `bun test packages/dual-workflow-engine/tests/`: PASS (497 passed, 0 failed).
-- `bun run spur-check`: PASS (2,786 passed, 0 failed across 233 files, 99.26% line coverage, all 58 pre-check and 2 post-check rules green).
-- `bun run build`: PASS (all 12 workspace packages built cleanly).
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `docs/00_ADR.md:664` — ADR-034: Static Dependency DAG Workflow Mode |
+| R2 | MET | `packages/dual-workflow-engine/src/types.ts:199` — DagNodeDef with dependsOn; JSON schema at `packages/dual-workflow-engine/schemas/dag-workflow.schema.json:4` |
+| R3 | MET | `packages/dual-workflow-engine/src/config.ts:283` — validateDagWorkflowDef rejects cycles, self-edges, undeclared deps |
+| R4 | MET | Out-of-scope row (scheduler loop owned by 0100); boundary confirmed in commit 42ab26e2 |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| R1 — Acyclic graph validation and dependency resolution | MET | test | `packages/dual-workflow-engine/tests/dag-schema.test.ts:6` — describe block covering cycle/self-edge/undeclared rejection (tests at :91, :102, :111, :123); fresh run: bun test tests/dag.test.ts tests/dag-schema.test.ts 18 pass / 0 fail |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 

@@ -156,23 +156,18 @@ erDiagram
 
 ## Architecture
 
+`WorkflowService` loads a `WorkflowDef` and dispatches on `workflow.kind` to one of three drivers:
+
+| `kind` | Driver | Execution model |
+|--------|--------|-----------------|
+| `state-machine` | `StateMachineDriver` | One current state; ordered transition guards choose the next state |
+| `transition-flow` | `TransitionFlowDriver` | Single-cursor node/edge walk; declared fork/join regions run branches concurrently |
+| `dag` | `DagDriver` | Nodes dispatch as their `dependsOn` prerequisites settle; acyclic only (ADR-034) |
+
+All three delegate run identity, persistence sequencing, and observability to `RunLifecycle`:
+
 ```
-┌──────────────────────────────────────────────────────┐
-│                   WorkflowService                     │
-│  load(path) → WorkflowDef                            │
-│  run(WorkflowDef, options) → WorkflowRunResult       │
-│  listRuns() → WorkflowRunRecord[]                    │
-└──────────────┬───────────────────────┬───────────────┘
-               │ dispatches on          │
-               │ workflow.kind          │
-       ┌───────▼───────┐       ┌───────▼───────┐
-       │ StateMachine  │       │ TransitionFlow│
-       │   Driver      │       │   Driver      │
-       └───────┬───────┘       └───────┬───────┘
-               │                       │
-               │  both delegate to     │
-               │                       │
-       ┌───────▼───────────────────────▼───────┐
+       ┌───────────────────────────────────────┐
        │           RunLifecycle                 │
        │  • run identity (runId)                │
        │  • persistence (createRun, savePhase,  │
@@ -916,7 +911,7 @@ When no `events` option is provided, the engine incurs zero observability overhe
 
 ## RunLifecycle
 
-`RunLifecycle` is the shared bookkeeping layer both drivers delegate to. It manages:
+`RunLifecycle` is the shared bookkeeping layer all three drivers delegate to. It manages:
 
 - **Run identity** — generates a `runId` (or honors caller-provided), timestamps, and run record
 - **Persistence sequencing** — `createRun` → per-step atomic `commitHop` (transition + state + phase in one batch) → `finalizeRun` at the end (ADR-020)

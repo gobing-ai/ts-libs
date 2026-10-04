@@ -4,7 +4,7 @@ name: Dependency-driven ready-queue scheduler, conditional skip propagation, and
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.284Z
-updated_at: "2026-10-04T23:16:50.380Z"
+updated_at: "2026-10-04T23:31:27.284Z"
 feature_id: C3
 priority: P2
 tags:
@@ -100,10 +100,24 @@ export class DagDriver {
 
 ### Testing
 
-- `bun test packages/dual-workflow-engine/tests/dag.test.ts`: PASS (6 passed, 0 failed; `dag.ts` at 100% function and line coverage).
-- `bun test packages/dual-workflow-engine/tests/`: PASS (506 passed, 0 failed).
-- `bun run spur-check`: PASS (2,792 passed, 0 failed across 234 files, 99.45% functions / 99.26% lines, all 58 pre-check and 2 post-check rules green).
-- `bun run build`: PASS (all 12 workspace packages built cleanly).
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/dual-workflow-engine/src/dag.ts:29` — DagDriver ready-queue scheduler; dispatch loop at :61 |
+| R2 | MET | `packages/dual-workflow-engine/src/dag.ts:91` — checkDependenciesSatisfied; skip propagation at :110-114 |
+| R3 | MET | `packages/dual-workflow-engine/src/dag.ts:44` — resume via RunLifecycle without replaying done nodes; durable recovery proof at `packages/dual-workflow-engine/tests/dag.test.ts:120` |
+| R4 | MET | Out-of-scope row (dynamic graph expansion); DAG kind dispatch at `packages/dual-workflow-engine/src/service.ts:70`, boundary confirmed in commit 8a5b276a |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| R2 — Dependency ready-queue scheduling | MET | test | `packages/dual-workflow-engine/tests/dag.test.ts:8` — 'executes diamond DAG with dependency ordering and concurrency' |
+| R3 — Conditional branch skip propagation | MET | test | `packages/dual-workflow-engine/tests/dag.test.ts:57` — 'propagates skips when upstream condition fails without deadlocking join' (anchor corrected from in-body :75) |
+| R4 — Durable DAG recovery | MET | test | `packages/dual-workflow-engine/tests/dag.test.ts:120` — 'pauses at node with pause: true and resumes cleanly' (anchor corrected from in-body :126) |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 

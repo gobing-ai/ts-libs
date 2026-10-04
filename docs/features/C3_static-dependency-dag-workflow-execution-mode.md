@@ -2,11 +2,11 @@
 schema_version: 1
 id: "C3"
 name: "Static dependency DAG workflow execution mode"
-status: done
+status: active
 priority: P2
 tags: []
 created_at: "2026-10-04T21:08:32.350Z"
-updated_at: "2026-10-04T23:18:55.080Z"
+updated_at: "2026-10-04T23:30:53.346Z"
 ---
 
 # C3: Static dependency DAG workflow execution mode
@@ -66,6 +66,7 @@ Feature: Static dependency DAG workflow execution mode
 | --- | ---- | ------ |
 | 0099 | Static dependency DAG workflow definition schema, acyclic validation, and ADR specification | done |
 | 0100 | Dependency-driven ready-queue scheduler, conditional skip propagation, and durable DAG execution | done |
+| 0101 | DAG resume must not re-execute completed nodes | todo |
 <!-- END AUTO-GENERATED -->
 
 ## Notes
@@ -77,4 +78,5 @@ Phase 2 enhancement expanding the dual-workflow engine from structured fork-join
 - 2026-10-04T23:17:17.852Z backlog → active (system)
 - 2026-10-04T23:18:53.751Z active → verifying (system)
 - 2026-10-04T23:18:55.080Z verifying → done (system)
+- 2026-10-04T23:30:53.346Z done → active (system)
 

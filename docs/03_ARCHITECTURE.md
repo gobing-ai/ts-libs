@@ -54,8 +54,7 @@ with schema construction and migrations isolated behind explicit subpaths.
 
 ## dual-workflow-engine
 
-`@gobing-ai/ts-dual-workflow-engine` combines state-machine transitions with action-flow execution,
-persistence seams, lifecycle events, and resumable run state.
+`@gobing-ai/ts-dual-workflow-engine` combines state-machine transitions, transition-flow action graphs, and static dependency-DAG scheduling with persistence seams, lifecycle events, and resumable run state.
 
 HITL actions, automatic-mode policy, evidence gathering, and DecisionMaker responder wiring belong
 in consuming applications such as Spur (ADR-026). The engine exposes the neutral `HitlResponder`
