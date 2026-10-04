@@ -192,8 +192,37 @@ export interface TransitionFlowWorkflowDef {
     readonly extensions?: WorkflowExtensions;
 }
 
+/** Dependency synchronization policy for DAG nodes. */
+export type DependencyPolicy = 'all' | 'any';
+
+/** Single node in a static dependency DAG workflow. */
+export interface DagNodeDef {
+    readonly id: string;
+    readonly description?: string;
+    readonly action?: ActionDef;
+    readonly dependsOn?: readonly string[];
+    readonly dependencyPolicy?: DependencyPolicy;
+    readonly condition?: GuardDef;
+    readonly pause?: boolean;
+    readonly resumeRerun?: boolean;
+}
+
+/** Static dependency DAG workflow definition. */
+export interface DagWorkflowDef {
+    readonly kind: 'dag';
+    readonly name: string;
+    readonly version?: string;
+    readonly description?: string;
+    readonly iterationBound?: number;
+    readonly defaultOnError?: OnErrorPolicy;
+    readonly vars?: Vars;
+    readonly env?: Env;
+    readonly nodes: readonly DagNodeDef[];
+    readonly extensions?: WorkflowExtensions;
+}
+
 /** Discriminated workflow definition union. */
-export type WorkflowDef = StateMachineWorkflowDef | TransitionFlowWorkflowDef;
+export type WorkflowDef = StateMachineWorkflowDef | TransitionFlowWorkflowDef | DagWorkflowDef;
 
 /** Action execution context passed to action runners. */
 export interface ActionRunContext {

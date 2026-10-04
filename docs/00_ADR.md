@@ -658,3 +658,19 @@ should route any decision to any maker, built-in or the consumer's own.
 
 **Detail:** `docs/03_ARCHITECTURE.md` § ai-decision; `docs/design/ai-decision-catalog.md`;
 feature N.
+
+---
+
+## ADR-034: Static Dependency DAG Workflow Mode
+
+**Status:** Accepted · **Date:** 2026-10-04 · **Targets:** `@gobing-ai/ts-dual-workflow-engine`
+
+**Decision.** A third declarative workflow mode (`kind: 'dag'`) is introduced alongside `state-machine`
+and `transition-flow`. Nodes declare prerequisite dependencies via `dependsOn: string[]` and optional
+`dependencyPolicy: 'all' | 'any'`. The graph is strictly validated to be acyclic at load time using
+topological cycle detection. Legal cycles remain exclusively supported in FSM and transition-flow modes.
+
+**Why.** Dataflow pipelines, build graphs, and multi-stage dependency workflows require prerequisite-driven
+readiness rather than single-cursor state hops, while cycle freedom ensures dependency schedulers cannot deadlock.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § dual-workflow-engine; `schemas/dag-workflow.schema.json`.

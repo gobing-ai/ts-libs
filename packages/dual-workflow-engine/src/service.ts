@@ -66,10 +66,16 @@ export class WorkflowService {
                 events,
             });
         }
-        return await new StateMachineDriver({ host: this.host, persistence: this.persistence }).run(workflow, {
-            ...options,
-            events,
-        });
+        if (workflow.kind === 'dag') {
+            throw new FSMError('DAG driver not implemented (task 0100)');
+        }
+        return await new StateMachineDriver({ host: this.host, persistence: this.persistence }).run(
+            workflow as StateMachineWorkflowDef,
+            {
+                ...options,
+                events,
+            },
+        );
     }
 
     /** Load and run a workflow file. */
@@ -131,10 +137,11 @@ export class WorkflowService {
 
     /** Reject a reseed target the workflow definition does not allow (state-machine states only). */
     private assertReseedTargetDeclared(workflow: WorkflowDef, runId: string, newState: string): void {
-        if (workflow.kind === 'transition-flow') {
+        if (workflow.kind !== 'state-machine' && workflow.kind !== undefined) {
             throw new FSMError('reseedRun only supports state-machine workflows');
         }
-        if (!workflow.states.some((state) => state.id === newState)) {
+        const sm = workflow as StateMachineWorkflowDef;
+        if (!sm.states.some((state) => state.id === newState)) {
             throw new FSMError(`Cannot reseed run "${runId}" to undeclared state "${newState}"`);
         }
     }
@@ -214,6 +221,9 @@ export class WorkflowService {
                 persistence: this.persistence,
             }).resume(workflow, runId, currentState, extKey, mergedOptions);
         }
+        if (workflow.kind === 'dag') {
+            throw new FSMError('DAG resume not implemented (task 0100)');
+        }
         return await new StateMachineDriver({
             host: this.host,
             persistence: this.persistence,
@@ -248,7 +258,7 @@ export class WorkflowService {
     ): void {
         if (resumeMode !== 'rerun-enter') return;
         const node =
-            workflow.kind === 'transition-flow'
+            workflow.kind === 'transition-flow' || workflow.kind === 'dag'
                 ? workflow.nodes.find((candidate) => candidate.id === currentState)
                 : (workflow as StateMachineWorkflowDef).states.find((candidate) => candidate.id === currentState);
         if (node !== undefined && node.resumeRerun !== true) {

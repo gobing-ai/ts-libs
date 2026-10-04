@@ -1,8 +1,8 @@
 import { loadStructuredConfig, parseYamlObject, type StructuredConfigLoadOptions } from '@gobing-ai/ts-runtime';
 import { WorkflowValidationError } from './errors';
 import { RUNTIME_BUILTIN_KEYS } from './run-lifecycle';
-import { StateMachineWorkflowDefSchema, TransitionFlowWorkflowDefSchema } from './schema';
-import type { WorkflowDef } from './types';
+import { DagWorkflowDefSchema, StateMachineWorkflowDefSchema, TransitionFlowWorkflowDefSchema } from './schema';
+import type { DagWorkflowDef, WorkflowDef } from './types';
 
 /** Loading options for {@link loadWorkflowDef}. */
 export interface WorkflowLoadOptions {
@@ -41,6 +41,8 @@ export async function loadWorkflowDef(path: string, options: WorkflowLoadOptions
 export function validateWorkflowDef(workflow: WorkflowDef): void {
     if (workflow.kind === 'transition-flow') {
         validateTransitionFlow(workflow);
+    } else if (workflow.kind === 'dag') {
+        validateDagWorkflowDef(workflow);
     } else {
         validateStateMachine(workflow);
     }
@@ -132,10 +134,13 @@ function parseWorkflowDef(parsed: unknown, source: string): WorkflowDef {
 /** Pick the dialect schema by the shape of the input so diagnostics are field-precise. */
 function selectWorkflowSchema(
     parsed: unknown,
-): typeof StateMachineWorkflowDefSchema | typeof TransitionFlowWorkflowDefSchema {
+): typeof StateMachineWorkflowDefSchema | typeof TransitionFlowWorkflowDefSchema | typeof DagWorkflowDefSchema {
     if (parsed !== null && typeof parsed === 'object') {
         const value = parsed as Record<string, unknown>;
-        if (value.kind === 'transition-flow' || 'nodes' in value || 'edges' in value || 'initialNode' in value) {
+        if (value.kind === 'dag') {
+            return DagWorkflowDefSchema;
+        }
+        if (value.kind === 'transition-flow' || 'edges' in value || 'initialNode' in value) {
             return TransitionFlowWorkflowDefSchema;
         }
     }
@@ -275,6 +280,64 @@ function validateTransitionFlow(workflow: Extract<WorkflowDef, { kind: 'transiti
     throwIfErrors(workflow, errors);
 }
 
+function validateDagWorkflowDef(workflow: DagWorkflowDef): void {
+    const errors: string[] = [];
+    const ids = workflow.nodes.map((node) => node.id);
+    const nodes = new Set(ids);
+
+    // Duplicate node IDs
+    for (const id of duplicates(ids)) {
+        errors.push(`Node "${id}" is declared more than once`);
+    }
+
+    // Validate dependsOn references and self-dependencies
+    for (const node of workflow.nodes) {
+        for (const dep of node.dependsOn ?? []) {
+            if (dep === node.id) {
+                errors.push(`Node "${node.id}" cannot depend on itself`);
+            } else if (!nodes.has(dep)) {
+                errors.push(`Node "${node.id}" references undeclared dependency "${dep}"`);
+            }
+        }
+    }
+
+    // Cycle detection via Kahn's algorithm (topological sort)
+    const inDegree = new Map<string, number>();
+    const adjList = new Map<string, string[]>();
+    for (const id of ids) {
+        inDegree.set(id, 0);
+        adjList.set(id, []);
+    }
+    for (const node of workflow.nodes) {
+        for (const dep of node.dependsOn ?? []) {
+            if (nodes.has(dep) && dep !== node.id) {
+                adjList.get(dep)?.push(node.id);
+                inDegree.set(node.id, (inDegree.get(node.id) ?? 0) + 1);
+            }
+        }
+    }
+    const queue = ids.filter((id) => (inDegree.get(id) ?? 0) === 0);
+    let visitedCount = 0;
+    while (queue.length > 0) {
+        const curr = queue.shift();
+        if (curr === undefined) break;
+        visitedCount++;
+        for (const neighbor of adjList.get(curr) ?? []) {
+            const newDeg = (inDegree.get(neighbor) ?? 1) - 1;
+            inDegree.set(neighbor, newDeg);
+            if (newDeg === 0) queue.push(neighbor);
+        }
+    }
+    if (visitedCount < ids.length && errors.length === 0) {
+        errors.push('Cycle detected in DAG dependencies');
+    }
+
+    // Variable template references in actions
+    errors.push(...checkVariableReferences(collectActionOptions(workflow), workflow.vars, workflow.env));
+
+    throwIfErrors(workflow, errors);
+}
+
 /** Return the ids that appear more than once, in first-seen order. */
 function duplicates(ids: readonly string[]): string[] {
     const seen = new Set<string>();
@@ -292,7 +355,9 @@ function collectActionOptions(workflow: WorkflowDef): Record<string, unknown>[] 
     const actions =
         workflow.kind === 'transition-flow'
             ? workflow.nodes.flatMap((node) => (node.action ? [node.action] : []))
-            : workflow.states.flatMap((state) => [...(state.onEnter ?? []), ...(state.onExit ?? [])]);
+            : workflow.kind === 'dag'
+              ? workflow.nodes.flatMap((node) => (node.action ? [node.action] : []))
+              : workflow.states.flatMap((state) => [...(state.onEnter ?? []), ...(state.onExit ?? [])]);
     for (const action of actions) {
         if (action.options) optionSets.push(action.options);
     }

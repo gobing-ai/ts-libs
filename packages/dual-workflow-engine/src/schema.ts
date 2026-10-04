@@ -212,5 +212,40 @@ export const TransitionFlowWorkflowDefSchema = z
     })
     .strict();
 
-/** Zod schema for either supported workflow definition shape. */
-export const WorkflowDefSchema = z.union([StateMachineWorkflowDefSchema, TransitionFlowWorkflowDefSchema]);
+/** Zod schema for static dependency DAG node definitions. */
+export const DagNodeDefSchema = z
+    .object({
+        id: z.string().min(1),
+        description: z.string().optional(),
+        action: ActionDefSchema.optional(),
+        dependsOn: z.array(z.string().min(1)).optional(),
+        dependencyPolicy: z.enum(['all', 'any']).optional(),
+        condition: GuardDefSchema.optional(),
+        pause: z.boolean().optional(),
+        resumeRerun: z.boolean().optional(),
+    })
+    .strict();
+
+/** Zod schema for static dependency DAG workflow definitions. */
+export const DagWorkflowDefSchema = z
+    .object({
+        $schema: z.string().optional(),
+        kind: z.literal('dag'),
+        name: z.string().min(1),
+        version: z.string().optional(),
+        description: z.string().optional(),
+        iterationBound: z.number().int().positive().optional(),
+        defaultOnError: z.enum(['fail', 'continue']).optional(),
+        vars: VarsSchema.optional(),
+        env: EnvSchema.optional(),
+        nodes: z.array(DagNodeDefSchema),
+        extensions: WorkflowExtensionsSchema.optional(),
+    })
+    .strict();
+
+/** Zod schema for supported workflow definition shapes. */
+export const WorkflowDefSchema = z.union([
+    StateMachineWorkflowDefSchema,
+    TransitionFlowWorkflowDefSchema,
+    DagWorkflowDefSchema,
+]);

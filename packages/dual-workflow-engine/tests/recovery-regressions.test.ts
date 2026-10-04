@@ -4,7 +4,7 @@ import { validateWorkflowDef } from '../src/config';
 import { createDefaultWorkflowEngineHost } from '../src/host';
 import { DbWorkflowPersistenceAdapter, MemoryWorkflowPersistenceAdapter } from '../src/persistence';
 import { WorkflowService } from '../src/service';
-import type { WorkflowDef } from '../src/types';
+import type { StateMachineWorkflowDef, TransitionFlowWorkflowDef, WorkflowDef } from '../src/types';
 
 for (const kind of ['state-machine', 'transition-flow'] as const) {
     function workflow(pause = false): WorkflowDef {
@@ -70,10 +70,10 @@ for (const kind of ['state-machine', 'transition-flow'] as const) {
         });
         const service = new WorkflowService(host, store);
         const base = workflow(true);
-        const wf: WorkflowDef =
+        const wf =
             base.kind === 'transition-flow'
-                ? { ...base, iterationBound: 1, edges: [{ from: 'a', to: 'a' }] }
-                : { ...base, iterationBound: 1, transitions: [{ from: 'a', to: 'a' }] };
+                ? ({ ...base, iterationBound: 1, edges: [{ from: 'a', to: 'a' }] } as TransitionFlowWorkflowDef)
+                : ({ ...base, iterationBound: 1, transitions: [{ from: 'a', to: 'a' }] } as StateMachineWorkflowDef);
         const initial = await service.run(wf);
         expect((await service.resumeRun(wf, initial.runId)).transitionsTaken).toBe(1);
         const failed = await service.resumeRun(wf, initial.runId);
