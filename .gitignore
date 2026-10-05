@@ -105,4 +105,5 @@ vendors/
 /.spur/run
 /.spur/context
 /.spur/memory/
+/.spur/server-owner.lock/
 /docs/dogfood/
