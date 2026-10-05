@@ -78,6 +78,13 @@ export interface StateDef {
      * before any action executes (task 0902 R1/R2).
      */
     readonly resumeRerun?: boolean;
+    /**
+     * Author opt-in for a FRESH run to begin at this state via
+     * `WorkflowRunOptions.startState`. There is no workflow-level allow and no
+     * caller override: a run started mid-graph on a state that assumed earlier
+     * artifacts must fail loud rather than silently skip them (task 0102 R2).
+     */
+    readonly startable?: boolean;
 }
 
 /** One transition in a state-machine workflow. */
@@ -141,6 +148,8 @@ export interface FlowNodeDef {
     readonly pause?: boolean;
     /** Author declaration that this node's action is safe to re-run after an interruption. See StateDef.resumeRerun. */
     readonly resumeRerun?: boolean;
+    /** Author opt-in for a FRESH run to begin at this node via `WorkflowRunOptions.startState`. See StateDef.startable. */
+    readonly startable?: boolean;
     /** Declared branches for parallel fork nodes (type: 'parallel'). */
     readonly branches?: readonly FlowParallelBranchDef[];
     /** Target join node ID where branches converge for parallel fork nodes. */
@@ -305,6 +314,16 @@ export interface WorkflowRunOptions {
     readonly dryRun?: boolean;
     /** Optional caller-supplied external key, unique per workflow definition. */
     readonly externalKey?: string;
+    /**
+     * Fresh-run start point: begin this run at the named state (state-machine) or
+     * node (transition-flow) instead of the definition's `initialState` /
+     * `initialNode`. Fresh-run semantics, NOT resume semantics — no snapshot is
+     * loaded, `resumeMode` is never set, and the start state's on-enter/node action
+     * EXECUTES. The target must be declared, non-terminal, non-failure, and marked
+     * `startable: true`; anything else is refused with `FSMError` before the run row
+     * is created. Unsupported for `kind: 'dag'` (task 0102 R1/R3).
+     */
+    readonly startState?: string;
     /**
      * Resume semantics override (task 0902). Only meaningful on driver/service
      * resume paths; fresh runs ignore it. Defaults derive from run status:

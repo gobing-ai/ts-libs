@@ -61,6 +61,11 @@ export class WorkflowService {
     /** Run an already-loaded workflow definition. */
     async run(workflow: WorkflowDef, options: WorkflowRunOptions = {}): Promise<WorkflowRunResult> {
         const events = this.resolveEvents(options.events);
+        // Refuse an illegal start point BEFORE any driver dispatch, i.e. before
+        // `RunLifecycle.run` creates the run row (task 0102 R3).
+        if (options.startState !== undefined) {
+            this.assertStartStateAllowed(workflow, options.startState);
+        }
         if (workflow.kind === 'transition-flow') {
             return await new TransitionFlowDriver({ host: this.host, persistence: this.persistence }).run(workflow, {
                 ...options,
@@ -147,6 +152,49 @@ export class WorkflowService {
         const sm = workflow as StateMachineWorkflowDef;
         if (!sm.states.some((state) => state.id === newState)) {
             throw new FSMError(`Cannot reseed run "${runId}" to undeclared state "${newState}"`);
+        }
+    }
+
+    /**
+     * Refuse an illegal `startState` before any run row exists (task 0102 R3). The
+     * target must be declared, non-terminal, non-failure, and opted in by the author
+     * with `startable: true`; `kind: 'dag'` is unsupported. This guard is the point of
+     * the feature — a mid-graph start on a state that assumed earlier artifacts must
+     * fail loud, never silently skip the work it expected.
+     */
+    private assertStartStateAllowed(workflow: WorkflowDef, startState: string): void {
+        if (workflow.kind === 'dag') {
+            throw new FSMError(
+                `Cannot start at "${startState}": startState is not supported for kind: "dag" workflows`,
+            );
+        }
+        const nodes: readonly { readonly id: string; readonly startable?: boolean }[] =
+            workflow.kind === 'transition-flow' ? workflow.nodes : workflow.states;
+        const terminal: readonly string[] =
+            workflow.kind === 'transition-flow' ? (workflow.terminalNodes ?? []) : (workflow.terminalStates ?? []);
+        const failure: readonly string[] = workflow.kind === 'transition-flow' ? [] : (workflow.failureStates ?? []);
+
+        const declared = nodes.find((node) => node.id === startState);
+        if (declared === undefined) {
+            const startable = nodes.filter((node) => node.startable === true).map((node) => node.id);
+            throw new FSMError(
+                `Cannot start at "${startState}": it is not declared. ` +
+                    (startable.length > 0
+                        ? `Startable ids: ${startable.join(', ')}`
+                        : 'No state or node declares startable: true'),
+            );
+        }
+        if (failure.includes(startState)) {
+            throw new FSMError(`Cannot start at "${startState}": it is declared as a failure state`);
+        }
+        if (terminal.includes(startState)) {
+            throw new FSMError(`Cannot start at "${startState}": it is declared as a terminal state`);
+        }
+        if (declared.startable !== true) {
+            throw new FSMError(
+                `Cannot start at "${startState}": not marked startable: true. ` +
+                    'Opt in from the definition — there is no caller override.',
+            );
         }
     }
 

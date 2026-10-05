@@ -96,6 +96,8 @@ export const StateMachineWorkflowDefSchema = z
                     pause: z.boolean().optional(),
                     /** Author declaration that re-running this state's on-enter actions after an interruption is safe. */
                     resumeRerun: z.boolean().optional(),
+                    /** Author opt-in for a fresh run to begin at this state (task 0102 R2). */
+                    startable: z.boolean().optional(),
                 })
                 .strict(),
         ),
@@ -136,6 +138,8 @@ export const FlowNodeDefSchema = z
         pause: z.boolean().optional(),
         /** Author declaration that re-running this node's action after an interruption is safe. */
         resumeRerun: z.boolean().optional(),
+        /** Author opt-in for a fresh run to begin at this node (task 0102 R2). */
+        startable: z.boolean().optional(),
         /** Declared branches for parallel fork nodes (type: 'parallel'). */
         branches: z.array(FlowParallelBranchDefSchema).optional(),
         /** Target join node ID where branches converge for parallel fork nodes. */

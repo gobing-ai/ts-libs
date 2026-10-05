@@ -588,6 +588,36 @@ const result = await service.run(workflow, {
 
 `validateWorkflowDef()` is available when the caller already has an object and only needs validation.
 
+## Fresh-run Start State
+
+A fresh run can begin at a declared state/node instead of the definition's `initialState` / `initialNode`
+by marking that state `startable: true` and passing `startState`. This is **not** resume semantics: no
+snapshot is loaded, `resumeMode` is never set, and the start state's on-enter/node action executes.
+
+```yaml
+states:
+  - id: fetch          # normal entry
+    onEnter:
+      - kind: note
+        options: { message: fetching }
+  - id: publish        # opt in to being a start point
+    startable: true
+    onEnter:
+      - kind: note
+        options: { message: publishing }
+```
+
+```ts
+await service.run(workflow, { startState: 'publish', vars: { publish_enabled: 'true' } });
+```
+
+`WorkflowService.run` refuses — before any run row is created, with `FSMError` — an undeclared state, a
+terminal state, a failure state, a state not marked `startable`, and any `kind: 'dag'` workflow (DAG
+resumes at node level instead). The marker is per-state by design: there is no workflow-level allow and no
+caller override flag, because a mid-graph start on a state that assumed earlier artifacts must fail loud
+rather than silently skip them. Resume semantics (`skip-enter` / `rerun-enter`, `resumeRerun`) are a
+separate, unchanged path. See ADR-035.
+
 ## Variables and Environment
 
 Actions receive resolved template values. The engine supports:

@@ -674,3 +674,35 @@ topological cycle detection. Legal cycles remain exclusively supported in FSM an
 readiness rather than single-cursor state hops, while cycle freedom ensures dependency schedulers cannot deadlock.
 
 **Detail:** `docs/03_ARCHITECTURE.md` § dual-workflow-engine; `schemas/dag-workflow.schema.json`.
+
+---
+
+## ADR-035: Fresh-Run Start State (`startState` + per-state `startable`)
+
+**Status:** Accepted · **Date:** 2026-10-05 · **Targets:** `@gobing-ai/ts-dual-workflow-engine`
+
+**Decision.** `WorkflowRunOptions` gains `startState?: string`; `StateDef` and `FlowNodeDef` gain
+`startable?: boolean`. With `startState` set, the driver begins at that state/node with **fresh-run**
+semantics — no snapshot is loaded, `resumeMode` stays undefined, `transitionsTaken` starts at 0, and the
+start state's on-enter/node action executes. `WorkflowService.run` validates before the run row is created
+and refuses with `FSMError` when the target is undeclared, terminal, a failure state, not marked
+`startable: true`, or when the workflow is `kind: 'dag'`. Absent `startState`, the code path is unchanged.
+
+**Why.** A run that finished without doing all the work the consumer wanted had no engine entry point to
+continue it: `resume()` targets the same run, loads its snapshot and defaults to `skip-enter`, and
+`resumeRun` accepts only `paused`/`interrupted`. A consumer re-driving a tail — re-publishing after fixing a
+credential — therefore had to re-execute every earlier node or leave the engine. The marker is per-state
+because a mid-graph start on a state that assumed earlier artifacts must fail loud; there is deliberately no
+workflow-level allow and no caller override flag.
+
+**Alternatives considered.** Composing existing `reseedRun` + `resumeRun({ resumeMode: 'rerun-enter' })` was
+rejected as the primary path: it needs an existing run row (so validation happens *after* the row exists,
+losing the no-side-effects-on-refusal property), splits refusals across three call sites and two error types,
+emits `workflow.run.reseeded` at `severity: 'warning'` on every use, and reuses `resumeRerun` — declared for
+interruption safety — for a different meaning. Overloading the drivers' private `resumeFromState` /
+`resumeFromNode` parameter was rejected: that branch loads a snapshot and defaults `resumeMode` to
+`skip-enter`, which would silently skip the start state's action — the exact failure this feature prevents.
+DAG start states are out of scope; DAG already resumes at node level.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § dual-workflow-engine; `packages/dual-workflow-engine/README.md`
+§ Fresh-run Start State; feature C (task 0102).

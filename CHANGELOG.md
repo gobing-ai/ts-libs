@@ -8,6 +8,12 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.16] - 2026-10-05
+
+### Added
+
+- **Fresh-run start state in `@gobing-ai/ts-dual-workflow-engine` (feature C, task 0102).** `WorkflowRunOptions.startState` begins a **fresh** run at a declared state/node — no snapshot load, `resumeMode` unset, `transitionsTaken` 0, and the start state's on-enter/node action executes — instead of the definition's `initialState` / `initialNode` (`packages/dual-workflow-engine/src/types.ts`). Per-state opt-in `startable: boolean` joins `StateDef` / `FlowNodeDef` and their `.strict()` schemas (`packages/dual-workflow-engine/src/schema.ts`). `WorkflowService.run` validates before the run row is created and refuses an undeclared, terminal, failure, non-`startable` or `kind: 'dag'` target with `FSMError` (`packages/dual-workflow-engine/src/service.ts`). Both drivers thread the start point through a parameter distinct from `resumeFromState` / `resumeFromNode`, so `skip-enter` / `rerun-enter` resume semantics are untouched and omitting `startState` is unchanged behavior. ADR-035.
+
 ## [0.5.13] - 2026-10-03
 
 ### Added

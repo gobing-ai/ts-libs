@@ -31,7 +31,7 @@ export class TransitionFlowDriver {
             'transition-flow',
             { persistence: this.options.persistence, events: options.events },
             options,
-            (lifecycle) => this.loop(workflow, options, lifecycle),
+            (lifecycle) => this.loop(workflow, options, lifecycle, undefined, options.startState),
         );
     }
 
@@ -59,13 +59,18 @@ export class TransitionFlowDriver {
         options: WorkflowRunOptions,
         lifecycle: RunLifecycle,
         resumeFromNode?: string,
+        startAtNode?: string,
     ): Promise<WorkflowRunResult> {
         const runId = lifecycle.runId;
         const nodes = new Map(workflow.nodes.map((node) => [node.id, node]));
         const terminal = new Set(workflow.terminalNodes ?? []);
         let vars = mergeVars(workflow.vars, options.vars);
         const env = allowedEnv(workflow.env?.allow ?? [], options.env);
-        let current = resumeFromNode !== undefined ? nodes.get(resumeFromNode) : nodes.get(workflow.initialNode);
+        // `startAtNode` is a FRESH-run start point, so it deliberately does not enter the
+        // resume branch below: no snapshot load, no `resumeMode`, the node action executes
+        // (task 0102 R1).
+        const entryNode = resumeFromNode ?? startAtNode;
+        let current = entryNode !== undefined ? nodes.get(entryNode) : nodes.get(workflow.initialNode);
         const snapshot =
             resumeFromNode === undefined ? undefined : await this.options.persistence.loadLatestStateSnapshot(runId);
         let transitionsTaken = snapshotTransitions(snapshot?.data);
@@ -79,7 +84,7 @@ export class TransitionFlowDriver {
         let persistedViaHop = false;
 
         if (current === undefined) {
-            const label = resumeFromNode ?? workflow.initialNode;
+            const label = entryNode ?? workflow.initialNode;
             throw new FSMError(`Node "${label}" is not declared`);
         }
 

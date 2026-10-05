@@ -28,7 +28,7 @@ export class StateMachineDriver {
             'state-machine',
             { persistence: this.options.persistence, events: options.events },
             options,
-            (lifecycle) => this.loop(workflow, options, lifecycle),
+            (lifecycle) => this.loop(workflow, options, lifecycle, undefined, options.startState),
         );
     }
 
@@ -56,6 +56,7 @@ export class StateMachineDriver {
         options: WorkflowRunOptions,
         lifecycle: RunLifecycle,
         resumeFromState?: string,
+        startAtState?: string,
     ): Promise<WorkflowRunResult> {
         const runId = lifecycle.runId;
         const states = new Map(workflow.states.map((state) => [state.id, state]));
@@ -63,7 +64,11 @@ export class StateMachineDriver {
         const failure = new Set(workflow.failureStates ?? []);
         let vars = mergeVars(workflow.vars, options.vars);
         const env = allowedEnv(workflow.env?.allow ?? [], options.env);
-        let current = resumeFromState !== undefined ? states.get(resumeFromState) : states.get(workflow.initialState);
+        // `startAtState` is a FRESH-run start point, so it deliberately does not enter the
+        // resume branch below: no snapshot load, no `resumeMode`, `transitionsTaken` stays 0,
+        // and the start state's on-enter actions execute (task 0102 R1).
+        const entryState = resumeFromState ?? startAtState;
+        let current = entryState !== undefined ? states.get(entryState) : states.get(workflow.initialState);
         const snapshot =
             resumeFromState === undefined ? undefined : await this.options.persistence.loadLatestStateSnapshot(runId);
         let transitionsTaken = snapshotTransitions(snapshot?.data);
@@ -81,7 +86,7 @@ export class StateMachineDriver {
         let declaredTerminalReason: string | undefined;
 
         if (current === undefined) {
-            const label = resumeFromState ?? workflow.initialState;
+            const label = entryState ?? workflow.initialState;
             throw new FSMError(`State "${label}" is not declared`);
         }
 
