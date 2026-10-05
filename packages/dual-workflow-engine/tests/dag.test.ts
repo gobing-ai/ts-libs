@@ -148,6 +148,60 @@ describe('DagDriver — ready-queue scheduling and execution (task 0100)', () =>
         expect(afterPauseRan).toBe(true);
     });
 
+    test('does not re-execute completed nodes on resume (task 0101)', async () => {
+        const executions: Record<string, number> = {};
+        const host = createDefaultWorkflowEngineHost().registerAction({
+            kind: 'counted',
+            async execute(options) {
+                const id = String(options.id);
+                executions[id] = (executions[id] ?? 0) + 1;
+                return { ok: true };
+            },
+        });
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const service = new WorkflowService(host, persistence);
+
+        const wf: DagWorkflowDef = {
+            kind: 'dag',
+            name: 'resume-no-replay',
+            nodes: [
+                { id: 'a', action: { kind: 'counted', options: { id: 'a' } } },
+                { id: 'gate', dependsOn: ['a'], pause: true },
+                { id: 'b', dependsOn: ['gate'], action: { kind: 'counted', options: { id: 'b' } } },
+            ],
+        };
+
+        const initial = await service.run(wf, { runId: 'dag-replay-1' });
+        expect(initial.status).toBe('paused');
+        expect(executions.a).toBe(1);
+
+        const resumed = await service.resumeRun(wf, 'dag-replay-1');
+        expect(resumed.status).toBe('done');
+        expect(executions).toEqual({ a: 1, b: 1 });
+    });
+
+    test('fails loudly when a resumed definition leaves a node unreachable (task 0101)', async () => {
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const service = new WorkflowService(createDefaultWorkflowEngineHost(), persistence);
+
+        const wf: DagWorkflowDef = {
+            kind: 'dag',
+            name: 'unreachable-on-resume',
+            nodes: [{ id: 'a' }, { id: 'gate', dependsOn: ['a'], pause: true }, { id: 'b', dependsOn: ['gate'] }],
+        };
+        const initial = await service.run(wf, { runId: 'dag-unreach-1' });
+        expect(initial.status).toBe('paused');
+
+        // Definition drift between pause and resume: b's dependency no longer exists.
+        const drifted: DagWorkflowDef = {
+            ...wf,
+            nodes: [{ id: 'a' }, { id: 'gate', dependsOn: ['a'], pause: true }, { id: 'b', dependsOn: ['ghost'] }],
+        };
+        const resumed = await service.resumeRun(drifted, 'dag-unreach-1');
+        expect(resumed.status).toBe('failed');
+        expect(resumed.reason).toBe('dag-unreachable-nodes: b');
+    });
+
     test('dependencyPolicy any dispatches on the first completed prerequisite', async () => {
         const events: string[] = [];
         const host = createDefaultWorkflowEngineHost().registerAction({
