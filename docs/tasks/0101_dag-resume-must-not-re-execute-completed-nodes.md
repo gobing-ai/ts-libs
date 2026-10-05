@@ -1,14 +1,16 @@
 ---
 schema_version: 1
 name: DAG resume must not re-execute completed nodes
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-04T23:31:01.049Z
-updated_at: "2026-10-04T23:32:26.168Z"
+updated_at: "2026-10-04T23:46:13.626Z"
 feature_id: C3
 
 priority: P1
 estimate_hours: 6
+done_forced: "false"
+done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs/.spur/memory/evidence/0101-verdict.json
 ---
 
 ## 0101. DAG resume must not re-execute completed nodes
@@ -36,15 +38,15 @@ Node `a` executed **twice**. Confirms replay rather than inference.
 
 ### Requirements
 
-- [ ] R1. DAG run state records which nodes have completed, durably, so a resumed run does not re-dispatch them.
-- [ ] R2. `WorkflowService.resumeRun` on a paused or interrupted DAG re-executes only nodes that had not completed.
-- [ ] R3. `DagDriver` refuses to report a run `done` while any node is still `pending` (unreachable node = loud failure, never a silent no-op).
-- [ ] R4. FSM and transition-flow resume semantics are unchanged; no new required adapter method is added to `WorkflowPersistenceAdapter`.
-- [ ] R5. Out of scope: per-node retry policy, dynamic graph expansion, and `dependencyPolicy: 'any'` sibling-completion semantics (documented residual risk of task 0100).
+- [x] R1. DAG run state records which nodes have completed, durably, so a resumed run does not re-dispatch them.
+- [x] R2. `WorkflowService.resumeRun` on a paused or interrupted DAG re-executes only nodes that had not completed.
+- [x] R3. `DagDriver` refuses to report a run `done` while any node is still `pending` (unreachable node = loud failure, never a silent no-op).
+- [x] R4. FSM and transition-flow resume semantics are unchanged; no new required adapter method is added to `WorkflowPersistenceAdapter`.
+- [x] R5. Out of scope: per-node retry policy, dynamic graph expansion, and `dependencyPolicy: 'any'` sibling-completion semantics (documented residual risk of task 0100).
 
 ### Acceptance Criteria
 
-- [ ] AC1 — Durable DAG recovery (req: R1; req: R2)
+- [x] AC1 — Durable DAG recovery (req: R1; req: R2)
 
 Task-only checks (not feature scenarios): (a) a node whose action ran before the pause must not run again on resume — assert an execution counter, not just final status; (b) a DAG with an unreachable node must fail with a named reason instead of returning `done`; (c) the existing FSM/transition-flow resume tests stay green.
 
@@ -109,15 +111,47 @@ On loop start, seed `nodeStatuses` from `prior`: `done` rows → `done`; `paused
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Change map (all in `packages/dual-workflow-engine`):
+
+- `packages/dual-workflow-engine/src/dag.ts:24` — `DAG_LEDGER_NAMESPACE = '__dag__'`: reuses the 0094 branch ledger for per-node DAG execution records; no adapter or schema change (R4 invariant kept).
+- `packages/dual-workflow-engine/src/dag.ts:88` — resume seeds `nodeStatuses` from `listRunBranches(runId, '__dag__')`: `done`→done, `cancelled`→skipped, `failed`→failed; `paused`/`running`/`pending` rows fall through to the existing dependsOn rule so interrupted nodes re-run.
+- `packages/dual-workflow-engine/src/dag.ts:174` + per-outcome finalizes — every node dispatch is bracketed by `saveBranchStart`/`saveBranchFinalize` (done/failed/paused, and `cancelled` for condition-skips since `BranchStatus` has no `skipped` — documented deviation from the Design wording "finalize as skipped"). Writes are per-node, never batched with run finalization; skipped entirely under `dryRun`.
+- `packages/dual-workflow-engine/src/dag.ts:290` — finalization guard: any node still `pending` at loop exit fails the run with named reason `dag-unreachable-nodes: <ids>` instead of silently reporting done. Verified trigger: resume with a drifted definition whose dependency no longer exists (resumeRun does not re-validate).
+- `packages/dual-workflow-engine/tests/dag.test.ts:151` — counter regression: pre-pause node action must execute exactly once across pause+resume (failed before the fix with `executions={"a":2,"b":1}`).
+- `packages/dual-workflow-engine/tests/dag.test.ts:183` — unreachable-node regression: drifted resume definition fails with `dag-unreachable-nodes: b`.
+
+Rationale: root cause was resume seeding `nodeStatuses` purely from `dependsOn` with only the paused node restored — completed pre-pause nodes reset to ready and re-dispatched. The ledger channel already existed (0094), is per-run queryable, and required no shared-path change to FSM/transition-flow.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `packages/dual-workflow-engine/src/dag.ts:174` — per-node saveBranchStart/Finalize into the `__dag__` ledger namespace (`packages/dual-workflow-engine/src/dag.ts:24`) |
+| R2 | MET | `packages/dual-workflow-engine/src/dag.ts:88` — resume seeds nodeStatuses from listRunBranches; replay probe reproduced `executions={"a":2,"b":1}` pre-fix, regression test proves a==1 post-fix |
+| R3 | MET | `packages/dual-workflow-engine/src/dag.ts:292` — guard fails run with named reason dag-unreachable-nodes; trigger verified: resume with drifted definition |
+| R4 | MET | git diff scope limited to src/dag.ts + tests/dag.test.ts; no adapter method added; FSM/transition-flow resume tests green in the 505-test package run |
+| R5 | MET | Out-of-scope row (retry policy, dynamic expansion); not touched |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| R4 — Durable DAG recovery | MET | test | `packages/dual-workflow-engine/tests/dag.test.ts:151` — counter assertion a==1 across pause+resume; :183 unreachable-node named failure; fresh run: bun test (packages/dual-workflow-engine) 505 pass / 0 fail |
+| AC1 — Durable DAG recovery | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:151 — counter assertion a==1 across pause+resume |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+<!-- spur:record-review -->
+
+**SECU findings** (pipeline verify step — verdict: PASS)
+
+| Priority | Dimension | Location | Finding |
+|----------|-----------|----------|----------|
+| P4 | — | — | No findings (verify verdict PASS) |
 
 ### References
 
@@ -126,4 +160,7 @@ On loop start, seed `nodeStatuses` from `prior`: `done` rows → `done`; `paused
 ### History
 
 - 2026-10-04T23:32:26.168Z backlog → todo (system)
+- 2026-10-04T23:34:07.404Z todo → wip (system)
+- 2026-10-04T23:45:55.571Z wip → testing (system)
+- 2026-10-04T23:46:13.578Z testing → done (system)
 
