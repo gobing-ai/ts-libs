@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { type ExecutionContext, resolveExecutionTimeoutMs, runWithExecutionDeadline } from '../src/execution-policy';
 
 /**
@@ -30,6 +30,27 @@ describe('resolveExecutionTimeoutMs', () => {
 });
 
 describe('runWithExecutionDeadline', () => {
+    test('removes caller abort listeners after successful and failed work', async () => {
+        const caller = new AbortController();
+        const add = spyOn(caller.signal, 'addEventListener');
+        const remove = spyOn(caller.signal, 'removeEventListener');
+        try {
+            for (const fail of [false, true]) {
+                await runWithExecutionDeadline(
+                    async () => {
+                        if (fail) throw new Error('boom');
+                    },
+                    { signal: caller.signal },
+                );
+            }
+            expect(add).toHaveBeenCalledTimes(2);
+            expect(remove.mock.calls).toEqual(add.mock.calls.map(([event, listener]) => [event, listener]));
+        } finally {
+            add.mockRestore();
+            remove.mockRestore();
+        }
+    });
+
     test('completes without arming a timer for unlimited policy', async () => {
         let observed: ExecutionContext | undefined;
         const result = await runWithExecutionDeadline(

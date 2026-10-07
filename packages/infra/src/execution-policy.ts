@@ -114,15 +114,15 @@ export async function runWithExecutionDeadline<T>(
         },
     };
 
+    const abortFromCaller = (): void => {
+        if (cancellation.reason === undefined) cancellation.reason = 'cancelled';
+        controller.abort();
+    };
     if (options.signal !== undefined) {
         if (options.signal.aborted) {
             cancellation.reason = 'cancelled';
             controller.abort();
         } else {
-            const abortFromCaller = (): void => {
-                if (cancellation.reason === undefined) cancellation.reason = 'cancelled';
-                controller.abort();
-            };
             options.signal.addEventListener('abort', abortFromCaller, { once: true });
         }
     }
@@ -146,6 +146,7 @@ export async function runWithExecutionDeadline<T>(
         failed = true;
     } finally {
         if (timer !== undefined) clearTimeout(timer);
+        options.signal?.removeEventListener('abort', abortFromCaller);
     }
 
     const elapsedMs = performance.now() - startMs;
