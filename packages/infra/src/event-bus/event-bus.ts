@@ -51,7 +51,7 @@ export class EventBus<TEvents extends EventMap> {
     once<K extends keyof TEvents>(event: K, handler: TEvents[K], opts?: SubscribeOptions): void {
         const wrapped = ((...args: Parameters<TEvents[K]>) => {
             this.off(event, wrapped as TEvents[K]);
-            handler(...args);
+            return handler(...args);
         }) as TEvents[K];
 
         this.on(event, wrapped, opts);
@@ -207,13 +207,6 @@ export class EventBus<TEvents extends EventMap> {
     }
 
     private registerAsync<K extends keyof TEvents>(event: K, handler: TEvents[K], name?: string): void {
-        let set = this.asyncHandlers.get(event);
-        if (!set) {
-            set = new Set();
-            this.asyncHandlers.set(event, set);
-        }
-        set.add(handler);
-
         if (!this.asyncHandlerIds.has(handler)) {
             const id = name ?? `handler-${++this.nextAsyncHandlerId}`;
             if (this.asyncHandlersById.has(id)) {
@@ -222,6 +215,12 @@ export class EventBus<TEvents extends EventMap> {
             this.asyncHandlerIds.set(handler, id);
             this.asyncHandlersById.set(id, handler);
         }
+        let set = this.asyncHandlers.get(event);
+        if (!set) {
+            set = new Set();
+            this.asyncHandlers.set(event, set);
+        }
+        set.add(handler);
     }
 
     private getAsyncHandlerId(handler: TEvents[keyof TEvents]): string {

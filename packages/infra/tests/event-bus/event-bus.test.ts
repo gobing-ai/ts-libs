@@ -273,6 +273,33 @@ describe('EventBus', () => {
         expect(count).toBe(1);
     });
 
+    test('awaits and handles rejected async once handlers', async () => {
+        const lifecycle = new EventBus<BusLifecycleEvents>();
+        const errors: string[] = [];
+        lifecycle.on('bus.handler.error', (detail) => errors.push(detail.error));
+        const bus = new EventBus<TestEvents>({ lifecycleBus: lifecycle });
+        const gate = Promise.withResolvers<void>();
+        let settled = false;
+        bus.once(
+            'user.deleted',
+            async () => {
+                await gate.promise;
+                throw new Error('once failed');
+            },
+            { async: true },
+        );
+        const emitting = bus.emit('user.deleted', 'u1').then(() => {
+            settled = true;
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(settled).toBeFalse();
+        gate.resolve();
+        await emitting;
+        expect(errors).toEqual(['once failed']);
+        expect(bus.listenerCount('user.deleted')).toBe(0);
+    });
+
     test('emit dispatches async handlers without JobQueue', async () => {
         const bus = new EventBus<TestEvents>();
         let fired = false;
@@ -360,6 +387,8 @@ describe('EventBus', () => {
         expect(() => bus.on('user.deleted', handler2, { async: true, name: 'dup' })).toThrow(
             'Duplicate async handler name: "dup"',
         );
+        expect(bus.listenerCount('user.deleted')).toBe(0);
+        expect(bus.eventNames()).toEqual(['user.created']);
     });
 
     test('createJobHandler dispatches async payload to the matching handler', async () => {
