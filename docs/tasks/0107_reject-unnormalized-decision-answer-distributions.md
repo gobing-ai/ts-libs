@@ -4,7 +4,7 @@ name: Reject unnormalized decision answer distributions
 status: done
 template: feature-impl
 created_at: 2026-10-07T18:46:46.478Z
-updated_at: "2026-10-07T20:05:34.916Z"
+updated_at: "2026-10-07T20:45:31.829Z"
 feature_id: A
 
 priority: P2
@@ -114,19 +114,11 @@ Environment: before implementation run bun install --frozen-lockfile to align in
 
 ### Solution
 
-Change-map (auto-generated — implement step did not record a Solution).
-Each entry cites the first changed line per file (`file:line`).
+The shared response validator retains all existing shape, own-key, finite-entry, label, legend and noul checks. Choice/score probability entries are summed after those checks and rejected through the existing named DecisionBackendError when the raw absolute error exceeds the private 1e-6 tolerance. Both the facade and direct TypeSafe driver still call this boundary; no public API or production backend/hub mapping changed.
 
-| Change (`file:line`) |
-|----------------------|
-| `packages/ai-decision/tests/hub.test.ts:695` |
-| `packages/ai-decision/tests/output/hub-e2e-transcript.json:217` |
-| `packages/ai-runner/src/decision/validation.ts:102` |
-| `packages/ai-runner/src/decision/validation.ts:4` |
-| `packages/ai-runner/tests/decision/validation.test.ts:119` |
-| `packages/laya-mlx/tests/fixtures/stub_laya.py:121` |
-| `packages/laya-mlx/tests/fixtures/stub_laya.py:132` |
-| `packages/laya-mlx/tests/fixtures/stub_laya.py:34` |
+Verification repaired the missing evidence: both kinds now exercise masses 0, 0.5, 2, both outside-tolerance sides, ask and sugar methods, rejection of a mixed valid/invalid answer map, accepted under/over rounding with frozen original identity and fractional scores, and direct plus facade-wrapped TypeSafe wire mapping. Hub integration now verifies invalid score mass as well as choice mass, each selecting the declared fallback after one request.
+
+Design adjustment: the committed test-only Laya stub normalizes its four-decimal canned distributions so valid backend compatibility tests remain valid under the new boundary (packages/laya-mlx/tests/fixtures/stub_laya.py:34,121,132). This changes fixture data only, not production mapping or validator normalization. Installed zod is aligned to the existing lock at 4.4.3; no dependency or manifest edits are needed.
 
 ### Testing
 
@@ -137,26 +129,51 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | Mass guard rejects |
-| R2 | MET | Inclusive boundary accepted: 1+1e-6 exact, 0.9999995+0.0000005, 0.5+0.5 (validation.test.ts:155-176); validator never mutates answers; per-entry finite/[0,1]/key/legend checks preserved with precedence (guard after per-entry checks); noul branch has no mass check (validation.ts:99-108 loop scope only) |
-| R3 | MET | Hub e2e: multi-question ask with one malformed mass resolves declared fallback source:default reason:error confidence:null (packages/ai-decision/tests/hub.test.ts badMass block in 'invalid and mismatched answers'); transcript regenerated |
+| R1 | MET | packages/ai-runner/src/decision/validation.ts:102-108 sums only validated entries and rejects raw absolute mass error above 1e-6 using the existing question-name error at line 75. Both callers remain at packages/ai-runner/src/decision/decision-maker.ts:187 and packages/ai-runner/src/decision/typesafe-driver.ts:91. packages/ai-runner/tests/decision/validation.test.ts:124-155 covers both kinds, masses 0/0.5/2 and both outside-tolerance sides, ask/sugar and whole mixed-response rejection; direct/wrapped wire checks at line 211. Fresh full gate: 2837 pass, 0 fail. |
+| R2 | MET | packages/ai-runner/src/decision/validation.ts:79-100 preserves noul, finite/range, own keys, labels and legend checks before mass validation. packages/ai-runner/tests/decision/validation.test.ts:161-207 proves both kinds accept normalized and under/over-tolerance mass, fractional 0.8, frozen original map/answer/probability identity and noul 0/0.5/1; malformed cases at lines 51 and 80 and own-property wire keys at line 286 remain covered; fresh full gate: 2837 pass, 0 fail. |
+| R3 | MET | packages/ai-decision/tests/hub.test.ts:70 registers real facade makers; lines 696-736 assert invalid choice and score use declared fallback, source default, reason error, null confidence and exactly one request. Normalized fractional score remains accepted at line 459. packages/ai-decision/src/hub.ts:328 retains existing error fallback; fresh full gate: 2837 pass, 0 fail. |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 — Invalid mass fails both choice and score validation (req: R1) | MET | test | Rejection probes both kinds both sides of one (validation.test.ts:119-153); multi-question whole-response rejection via hub badMass ask |
-| AC2 — Valid rounding and fractional scores remain accepted (req: R2) | MET | test | Accepts at/inside 1e-6 (validation.test.ts:155-176); fractional score 0.5/0.5 accepted; own-key/noul suites unchanged and green; malformed-key/confidence/entry suites still fail (existing tests, 2818 pass) |
-| AC3 — Invalid mass selects the catalog fallback (req: R3) | MET | test | hub.test.ts badMass → fallback asserted; normalized fractional-score response still accepted (hub suite); full repo verification green (bun run spur-check: 2818 pass, 58+2 rules) |
-| AC4 — Direct TypeSafe responses share mass validation (req: R1; R2) | MET | test | createTypesafeDriver injected-fetch unnormalized choice → DecisionBackendError (validation.test.ts:178-193); normalized wire mapping suites unchanged |
+| Scenario: AC1 — Invalid mass fails both choice and score validation (req: R1) | MET | test | packages/ai-runner/tests/decision/validation.test.ts:124-155 rejects masses 0/0.5/2 and 1 +/- 2e-6 for both kinds through ask and sugar; mixed response with a valid first question rejects as a whole with a named backend error. |
+| Scenario: AC2 — Valid rounding and fractional scores remain accepted (req: R2) | MET | test | packages/ai-runner/tests/decision/validation.test.ts:161-207 accepts both rounding sides, upper boundary and closest lower representable inside value, rejects decimal 0.999999 outside raw bound, preserves frozen identity and fractional 0.8, accepts noul 0/0.5/1. Existing validation at lines 51-120 and __proto__ at line 286 remain intact. |
+| Scenario: AC3 — Invalid mass selects the catalog fallback (req: R3) | MET | test | packages/ai-decision/tests/hub.test.ts:696-736 uses actual facade/registry integration for both kinds and asserts fallback, source, reason, confidence and one request; fractional accepted score at line 459. |
+| Scenario: AC4 — Direct TypeSafe responses share mass validation (req: R1; R2) | MET | test | packages/ai-runner/tests/decision/validation.test.ts:211-247 injects successful JSON wire responses for both kinds, tests invalid mass and normalized/rounded valid responses through direct driver and facade-wrapped driver; mapping suite packages/ai-runner/tests/decision/typesafe-driver.test.ts:189 verifies all three answer kinds. |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-#### Findings
+#### Review Report — 0107
 
-| Priority | Location | Finding | Recommendation |
-| --- | --- | --- | --- |
-| P3 | docs/tasks/0107 task file AC table | Cell "mass 1.0000001 rejected" contradicts R1's inclusive <=1e-6 contract (1.0000001 is 1e-7 off = inside); R1 + Q&A freeze are authoritative | Fix the AC-table cell in a docs-only follow-up (or at wrap) |
-| P3 | packages/ai-runner/tests/decision/validation.test.ts | Under-side inclusive boundary (sum = 1-1e-6 as computed number) not directly probed; decimal 0.999999 is 1 ulp outside the raw bound and serves as the under-side rejection probe | Optional extra probe case if the tolerance algorithm ever changes |
+**Scope:** working tree (no exact (0107)-tagged implementation commits), restricted to the task's two changed test files, with the committed validator, both immediate callers, real registry/hub integration and compatibility fixture reread as context.
+**Dimensions:** functional, security, efficiency, correctness, usability, architecture.
+**Verdict:** PASS
+
+##### Findings (ranked)
+
+| # | Priority | Dimension | Finding | Location | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| 1 | P3 | correctness | Historical Testing claim that mass 1.0000001 is rejected contradicted the inclusive raw tolerance. Fresh evidence records accepted values inside the bound; no such rejection assertion remains. | packages/ai-runner/tests/decision/validation.test.ts:166 | RESOLVED |
+| 2 | P3 | correctness | Historical lower-bound probe gap. Adjacent computed totals 0.9999990000000001 and 0.999999 now test inside acceptance and outside rejection for both kinds, alongside under/over rounding. | packages/ai-runner/tests/decision/validation.test.ts:166 | RESOLVED |
+| 3 | P4 | all | No open P1-P3 findings across the shared boundary and task tests; both callers use the same nonmutating linear guard, private tolerance and named error, with real facade/driver/hub evidence. | packages/ai-runner/src/decision/validation.ts:73-108 | ACCEPTED |
+
+##### Functional Traceability
+
+| Req | Status | Evidence |
+| --- | --- | --- |
+| R1 | MET | packages/ai-runner/tests/decision/validation.test.ts:124-155 rejects all specified masses through ask/sugar and whole mixed responses; direct and wrapped wire paths at line 211. |
+| R2 | MET | packages/ai-runner/tests/decision/validation.test.ts:161-207 covers rounding, frozen answer identity, fractional 0.8 and noul extremes; existing malformed and own-key cases remain. |
+| R3 | MET | packages/ai-decision/tests/hub.test.ts:70,696-736 uses real registry/facade makers, both fallbacks and one-request assertions; normalized fractional success at line 459. |
+
+##### SECUA Quality
+
+The shared guard only sums entries after finite/range/key checks; response errors identify the question without raw probability diagnostics. Valid answers remain unchanged. It adds one linear traversal without a public flag, alternate boundary or dependency. All mass cases keep individual entries within range so failures exercise the mass invariant itself.
+
+##### Architectural Depth
+
+No candidates: validation remains in the neutral ai-runner boundary, shared by facade and direct TypeSafe entry points, consistent with ADR-026. Hub error fallback remains in the existing ADR-033 seam. Injected drivers/fetch provide a testable surface without new interfaces or helpers. The committed Laya normalization is test-only compatibility data.
+
+**Validation:** bun run spur-check exit 0: 2837 pass / 0 fail, all package typechecks, Biome, 58 pre/2 post rules passed; bun run build exit 0 for every package. Receipts: .spur/run/0107-spur-check.log and .spur/run/0107-build.log.
 
 ### References
 
