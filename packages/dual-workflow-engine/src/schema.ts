@@ -69,6 +69,20 @@ export const GuardDefSchema = z.object({
     options: z.record(z.string(), z.unknown()).optional(),
 });
 
+/**
+ * Zod schema for per-state presentation metadata (task 1103). Accepted and
+ * preserved by the engine, never read at run time; `.strict()` so author
+ * typos fail loud instead of silently disappearing.
+ */
+export const StateDisplaySchema = z
+    .object({
+        phase: z.string().min(1),
+        phaseTitle: z.string().min(1).optional(),
+        title: z.string().min(1).optional(),
+        show: z.enum(['plan', 'on-entry']).optional(),
+    })
+    .strict();
+
 /** Zod schema for state-machine workflow definitions. */
 export const StateMachineWorkflowDefSchema = z
     .object({
@@ -98,6 +112,8 @@ export const StateMachineWorkflowDefSchema = z
                     resumeRerun: z.boolean().optional(),
                     /** Author opt-in for a fresh run to begin at this state (task 0102 R2). */
                     startable: z.boolean().optional(),
+                    /** Presentation-only display metadata; the engine never reads it (task 1103). */
+                    display: StateDisplaySchema.optional(),
                 })
                 .strict(),
         ),

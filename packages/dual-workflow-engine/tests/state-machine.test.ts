@@ -2,11 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setLoggerMuted } from '@gobing-ai/ts-infra';
+import { EventBus, setLoggerMuted } from '@gobing-ai/ts-infra';
+import { loadWorkflowDefFromText } from '../src/config';
+import type { WorkflowEngineEvents } from '../src/events';
 import { createDefaultWorkflowEngineHost, WorkflowEngineHost } from '../src/host';
 import { MemoryWorkflowPersistenceAdapter } from '../src/persistence';
 import { StateMachineDriver } from '../src/state-machine';
-import type { ActionResult, StateMachineWorkflowDef } from '../src/types';
+import type { ActionResult, StateMachineWorkflowDef, WorkflowRunResult } from '../src/types';
 
 // Workflow runs emit structured run-lifecycle logs by design; mute them in tests.
 setLoggerMuted(true);
@@ -831,5 +833,113 @@ describe('declared transition terminalReason (task 0937)', () => {
         );
         expect(result.reason).toBe('no-passing-transition');
         expect((await persistence.loadRun('r-dead'))?.terminal_reason).toBe('no-passing-transition');
+    });
+});
+
+describe('state display metadata is run-inert (task 1103 AC3)', () => {
+    /** The same workflow twice: without display annotations and with them on every state. */
+    const PLAIN_YAML = `
+name: display-inert
+initialState: build
+terminalStates:
+  - done
+states:
+  - id: build
+    onEnter:
+      - kind: note
+        options:
+          message: building
+  - id: verify
+    onEnter:
+      - kind: note
+        options:
+          message: verifying
+  - id: done
+transitions:
+  - from: build
+    to: verify
+  - from: verify
+    to: done
+`;
+
+    const ANNOTATED_YAML = `
+name: display-inert
+initialState: build
+terminalStates:
+  - done
+states:
+  - id: build
+    display:
+      phase: build
+      phaseTitle: Build
+      title: Compile sources
+      show: plan
+    onEnter:
+      - kind: note
+        options:
+          message: building
+  - id: verify
+    display:
+      phase: verify
+      show: on-entry
+    onEnter:
+      - kind: note
+        options:
+          message: verifying
+  - id: done
+    display:
+      phase: finish
+transitions:
+  - from: build
+    to: verify
+  - from: verify
+    to: done
+`;
+
+    /** Project an event onto a runId- and timing-free trace line so two runs compare equal. */
+    function traceLine(name: string, data: Record<string, unknown>): string {
+        const { runId: _runId, durationMs: _durationMs, ...rest } = data;
+        return `${name}:${JSON.stringify(rest)}`;
+    }
+
+    async function runToCompletion(
+        def: StateMachineWorkflowDef,
+        runId: string,
+    ): Promise<{ result: WorkflowRunResult; trace: string[] }> {
+        const events = new EventBus<WorkflowEngineEvents>();
+        const trace: string[] = [];
+        void events.on('workflow.run.started', (data) => trace.push(traceLine('run.started', data)));
+        void events.on('workflow.node.enter', (data) => trace.push(traceLine('node.enter', data)));
+        void events.on('workflow.node.transition', (data) => trace.push(traceLine('node.transition', data)));
+        void events.on('workflow.action.start', (data) => trace.push(traceLine('action.start', data)));
+        void events.on('workflow.action.done', (data) => trace.push(traceLine('action.done', data)));
+        void events.on('workflow.hitl.note', (data) => trace.push(traceLine('note', data)));
+        void events.on('workflow.run.done', (data) => trace.push(traceLine('run.done', data)));
+
+        const driver = new StateMachineDriver({
+            host: createDefaultWorkflowEngineHost(),
+            persistence: new MemoryWorkflowPersistenceAdapter(),
+        });
+        const result = await driver.run(def, { runId, events });
+        return { result, trace };
+    }
+
+    test('the same workflow with and without display visits identical states and emits identical events', async () => {
+        const plain = loadWorkflowDefFromText(PLAIN_YAML) as StateMachineWorkflowDef;
+        const annotated = loadWorkflowDefFromText(ANNOTATED_YAML) as StateMachineWorkflowDef;
+
+        // The annotated copy must genuinely carry display on every state; otherwise the
+        // equivalence assertions below would hold vacuously.
+        expect(annotated.states.map((state) => state.display?.phase)).toEqual(['build', 'verify', 'finish']);
+        expect(plain.states.every((state) => state.display === undefined)).toBe(true);
+
+        const plainRun = await runToCompletion(plain, 'run-plain');
+        const annotatedRun = await runToCompletion(annotated, 'run-display');
+
+        expect(plainRun.result.status).toBe('done');
+        expect(annotatedRun.result.status).toBe('done');
+        expect(annotatedRun.result.finalState).toBe(plainRun.result.finalState);
+        expect(annotatedRun.result.transitionsTaken).toBe(plainRun.result.transitionsTaken);
+        expect(annotatedRun.trace).toEqual(plainRun.trace);
     });
 });

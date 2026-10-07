@@ -62,6 +62,22 @@ export interface WorkflowExtensions {
     readonly guards?: readonly string[];
 }
 
+/**
+ * Author-declared presentation metadata for a single state (task 1103). Consumed by
+ * plan/UI generators reading the workflow definition; the engine never reads it at
+ * run time — it is accepted, preserved and otherwise inert.
+ */
+export interface StateDisplay {
+    /** Stable phase label this state belongs to (e.g. 'build', 'verify'). */
+    readonly phase: string;
+    /** Optional human title for the phase group this state belongs to. */
+    readonly phaseTitle?: string;
+    /** Optional human title for the state in plan/UI views. */
+    readonly title?: string;
+    /** Optional visibility hint for plan generators. Defaults to 'plan' when absent (interpreted by consumers, not the engine). */
+    readonly show?: 'plan' | 'on-entry';
+}
+
 /** One state in a state-machine workflow. */
 export interface StateDef {
     readonly id: string;
@@ -85,6 +101,8 @@ export interface StateDef {
      * artifacts must fail loud rather than silently skip them (task 0102 R2).
      */
     readonly startable?: boolean;
+    /** Presentation-only display metadata; the engine never reads it (task 1103). */
+    readonly display?: StateDisplay;
 }
 
 /** One transition in a state-machine workflow. */

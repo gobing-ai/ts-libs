@@ -45,6 +45,18 @@
                     "pause": {
                         "type": "boolean",
                         "description": "When true, the engine pauses the run at this state instead of auto-advancing."
+                    },
+                    "display": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "description": "Presentation-only metadata for plan/UI generators; the engine never reads it at run time.",
+                        "required": ["phase"],
+                        "properties": {
+                            "phase": { "type": "string", "minLength": 1 },
+                            "phaseTitle": { "type": "string", "minLength": 1 },
+                            "title": { "type": "string", "minLength": 1 },
+                            "show": { "enum": ["plan", "on-entry"] }
+                        }
                     }
                 }
             }

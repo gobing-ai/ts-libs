@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { loadWorkflowDefFromText } from '../src/config';
+import { WorkflowValidationError } from '../src/errors';
 import {
     ActionDefSchema,
     GuardDefSchema,
@@ -9,6 +11,7 @@ import {
     WorkflowDefSchema,
     WorkflowExtensionsSchema,
 } from '../src/schema';
+import type { StateMachineWorkflowDef } from '../src/types';
 
 describe('ActionDefSchema', () => {
     test('accepts minimal action with kind only', () => {
@@ -458,6 +461,150 @@ describe('packaged JSON schemas declare extensions', () => {
         expect(nodeProps.joinPolicy).toBeDefined();
         expect(nodeProps.failurePolicy).toBeDefined();
         expect(nodeProps.concurrencyLimit).toBeDefined();
+    });
+});
+
+describe('StateMachineWorkflowDefSchema state display metadata (task 1103)', () => {
+    const withDisplay = {
+        name: 'wf',
+        initialState: 'start',
+        terminalStates: ['done'],
+        states: [
+            {
+                id: 'start',
+                display: { phase: 'build', phaseTitle: 'Build', title: 'Compile sources', show: 'plan' },
+            },
+            { id: 'done' },
+        ],
+        transitions: [{ from: 'start', to: 'done' }],
+    };
+
+    test('AC1: accepts a full display object and preserves it on the parsed state', () => {
+        const result = StateMachineWorkflowDefSchema.safeParse(withDisplay);
+        expect(result.success).toBe(true);
+        expect(result.data?.states[0]?.display).toEqual({
+            phase: 'build',
+            phaseTitle: 'Build',
+            title: 'Compile sources',
+            show: 'plan',
+        });
+    });
+
+    test('AC1: loadWorkflowDefFromText preserves display on the parsed state', () => {
+        const def = loadWorkflowDefFromText(`
+name: display-wf
+initialState: start
+terminalStates:
+  - done
+states:
+  - id: start
+    display:
+      phase: build
+      phaseTitle: Build
+      title: Compile sources
+      show: plan
+  - id: done
+transitions:
+  - from: start
+    to: done
+`) as StateMachineWorkflowDef;
+        expect(def.states[0]?.display).toEqual({
+            phase: 'build',
+            phaseTitle: 'Build',
+            title: 'Compile sources',
+            show: 'plan',
+        });
+        expect(def.states[1]?.display).toBeUndefined();
+    });
+
+    test('AC1: accepts show "on-entry" and partial display objects', () => {
+        const result = StateMachineWorkflowDefSchema.safeParse({
+            ...withDisplay,
+            states: [
+                { id: 'start', display: { phase: 'build' } },
+                { id: 'done', display: { phase: 'finish', show: 'on-entry' } },
+            ],
+        });
+        expect(result.success).toBe(true);
+        expect(result.data?.states[0]?.display).toEqual({ phase: 'build' });
+        expect(result.data?.states[1]?.display).toEqual({ phase: 'finish', show: 'on-entry' });
+    });
+
+    test('AC2: rejects an unknown display sub-key with a WorkflowValidationError naming display', () => {
+        const source = `
+name: bad-display
+initialState: start
+states:
+  - id: start
+    display:
+      phase: build
+      colour: red
+  - id: done
+transitions:
+  - from: start
+    to: done
+`;
+        expect(() => loadWorkflowDefFromText(source)).toThrow(WorkflowValidationError);
+        try {
+            loadWorkflowDefFromText(source);
+            throw new Error('expected WorkflowValidationError');
+        } catch (error) {
+            expect(error).toBeInstanceOf(WorkflowValidationError);
+            expect((error as Error).message).toContain('display');
+        }
+    });
+
+    test('AC2: rejects show "always" with a WorkflowValidationError naming display', () => {
+        const source = `
+name: bad-show
+initialState: start
+states:
+  - id: start
+    display:
+      phase: build
+      show: always
+  - id: done
+transitions:
+  - from: start
+    to: done
+`;
+        expect(() => loadWorkflowDefFromText(source)).toThrow(WorkflowValidationError);
+        try {
+            loadWorkflowDefFromText(source);
+            throw new Error('expected WorkflowValidationError');
+        } catch (error) {
+            expect(error).toBeInstanceOf(WorkflowValidationError);
+            expect((error as Error).message).toContain('display');
+        }
+    });
+
+    test('AC2: rejects an empty display phase', () => {
+        const result = StateMachineWorkflowDefSchema.safeParse({
+            ...withDisplay,
+            states: [{ id: 'start', display: { phase: '' } }, { id: 'done' }],
+        });
+        expect(result.success).toBe(false);
+    });
+
+    test('R3: a state without display parses to an identical object with no display key', () => {
+        const result = StateMachineWorkflowDefSchema.safeParse({
+            name: 'wf',
+            initialState: 'start',
+            states: [{ id: 'start' }, { id: 'done' }],
+            transitions: [{ from: 'start', to: 'done' }],
+        });
+        expect(result.success).toBe(true);
+        expect(result.data?.states[0]).toEqual({ id: 'start' });
+    });
+
+    test('packaged state-machine JSON schema declares display on state items', async () => {
+        const json = JSON.parse(
+            await readFile(join(import.meta.dir, '..', 'schemas', 'state-machine-workflow.schema.json'), 'utf8'),
+        );
+        const display = json.properties.states.items.properties.display;
+        expect(display).toBeDefined();
+        expect(display.additionalProperties).toBe(false);
+        expect(Object.keys(display.properties).sort()).toEqual(['phase', 'phaseTitle', 'show', 'title']);
     });
 });
 

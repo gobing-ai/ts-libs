@@ -618,6 +618,31 @@ caller override flag, because a mid-graph start on a state that assumed earlier 
 rather than silently skip them. Resume semantics (`skip-enter` / `rerun-enter`, `resumeRerun`) are a
 separate, unchanged path. See ADR-035.
 
+## State Display Metadata
+
+A state-machine state may declare presentation-only `display` metadata for plan/UI generators that read
+the workflow definition. The engine accepts and preserves it but never reads it at run time — a
+workflow with and without `display` runs identically.
+
+```yaml
+states:
+  - id: fetch
+    display:
+      phase: fetch            # required: the phase group this state belongs to
+      phaseTitle: Fetch       # optional: human title of the phase group
+      title: Pull sources     # optional: human title of the state in plan/UI views
+      show: plan              # optional: 'plan' (default) or 'on-entry'
+    onEnter:
+      - kind: note
+        options: { message: fetching }
+```
+
+`display` is validated, not interpreted: `phase` is required and non-empty, the other keys are optional,
+unknown sub-keys are rejected (the schema is strict), and `show` accepts only `'plan'` or `'on-entry'`.
+Malformed metadata fails `loadWorkflowDef` / `loadWorkflowDefFromText` with a `WorkflowValidationError`
+naming the state's `display` field. The default for absent `show` is `plan`, interpreted by consumers —
+never by this engine. See ADR-036.
+
 ## Variables and Environment
 
 Actions receive resolved template values. The engine supports:

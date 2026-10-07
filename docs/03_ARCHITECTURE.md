@@ -6,7 +6,7 @@ authority: derived
 version: 1.5.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-10-05
+updated_at: 2026-10-07
 read_before: cross-package, seam, or schema work
 edit_rules: 99 §6.4
 sync: [T1]
@@ -66,6 +66,10 @@ A run may also begin at a declared state/node instead of the definition's entry 
 state's action executes — opt-in per state via `startable: true`, with every other target refused by
 `WorkflowService.run` before the run row exists (ADR-035). Resume semantics stay owned by `resumeRun`
 and `resumeRerun`; the two paths are deliberately independent.
+
+States may also carry presentation-only `display` metadata (`phase`, optional `phaseTitle`, `title`,
+`show: 'plan' | 'on-entry'`): accepted and preserved by the strict definition schemas, never read at
+run time — plan/UI generators are the consumers (ADR-036).
 
 ## infra
 

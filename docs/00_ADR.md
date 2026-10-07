@@ -706,3 +706,31 @@ DAG start states are out of scope; DAG already resumes at node level.
 
 **Detail:** `docs/03_ARCHITECTURE.md` § dual-workflow-engine; `packages/dual-workflow-engine/README.md`
 § Fresh-run Start State; feature C (task 0102).
+
+---
+
+## ADR-036: Per-State Display Metadata (`StateDef.display`)
+
+**Status:** Accepted · **Date:** 2026-10-07 · **Targets:** `@gobing-ai/ts-dual-workflow-engine`
+
+**Decision.** `StateDef` gains `display?: StateDisplay` — `{ phase: string; phaseTitle?: string; title?:
+string; show?: 'plan' | 'on-entry' }`. The nested object joins the state object's `.strict()` zod schema
+as `StateDisplaySchema` and the packaged state-machine JSON schema with the same shape
+(`additionalProperties: false`), so unknown display sub-keys, empty labels and invalid `show` values fail
+definition load with the offending `display` path. The field is presentation-only: drivers, services and
+persistence never read it, a definition without `display` parses to the identical object as before, and
+runs with and without annotations visit the same states and emit the same events.
+
+**Why.** Consuming plan generators need per-state phase metadata authored in the workflow YAML itself;
+the engine's strict state schema rejected any unknown state key, forcing consumers to either strip keys
+at load (hiding author intent) or fork the schema. One nested `display` object keeps presentation keys
+out of the state's execution namespace and gives presentation fields a single strict place to grow.
+
+**Alternatives considered.** Flat `phase` / `title` keys on `StateDef` were rejected: they widen the
+state's execution namespace and leave the presentation surface unbounded as fields accumulate. Extending
+`FlowNodeDef` / DAG nodes was deferred (YAGNI): only state-machine dev pipelines currently need plan
+phases; add `display` to `FlowNodeDef` when a transition-flow workflow first needs a plan. The packaged
+JSON schema's pre-existing drift on `resumeRerun` / `startable` remains recorded and out of scope.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § dual-workflow-engine; `packages/dual-workflow-engine/README.md`
+§ State Display Metadata; task 1103 (feature I13).

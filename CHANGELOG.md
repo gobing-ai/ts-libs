@@ -8,6 +8,12 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.17] - 2026-10-07
+
+### Added
+
+- **Per-state display metadata in `@gobing-ai/ts-dual-workflow-engine` (task 1103).** State-machine states accept an optional, behavior-free `display` object — `{ phase, phaseTitle?, title?, show?: 'plan' | 'on-entry' }` — for plan/UI generators reading the workflow definition (`packages/dual-workflow-engine/src/types.ts`). `StateDisplaySchema` (`.strict()`) joins the state object, so unknown display sub-keys, empty labels and invalid `show` values fail definition load with a `WorkflowValidationError` naming the state's `display` field (`packages/dual-workflow-engine/src/schema.ts`); the packaged `schemas/state-machine-workflow.schema.json` declares the same shape with `additionalProperties: false`. The engine never branches on `display` at run time — a definition without it parses to the identical object as before, and runs with and without annotations visit the same states and emit the same events. ADR-036.
+
 ## [0.5.16] - 2026-10-05
 
 ### Added
