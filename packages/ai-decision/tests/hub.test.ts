@@ -715,6 +715,25 @@ decisions:
             reason: 'error',
             maker: 'typesafe',
         });
+        expect(typesafe.requests).toHaveLength(1);
+    });
+
+    test('unnormalized score mass selects the declared fallback after one request', async () => {
+        const { hub, laya } = await examplesHub();
+        const malformed = scoreAnswer('bug_severity', 1.5, 0.9, 3);
+        const value = malformed.bug_severity;
+        if (value?.kind !== 'score') throw new Error('expected score answer');
+        value.probabilities = { 0: 0.2, 1: 0.2, 2: 0.1 };
+        laya.respond = () => malformed;
+        expect(await hub.decide('bug_severity', { component: 'api' })).toMatchObject({
+            type: 'score',
+            value: 1,
+            confidence: null,
+            source: 'default',
+            reason: 'error',
+            maker: 'laya-local',
+        });
+        expect(laya.requests).toHaveLength(1);
     });
 
     test('templates are always substituted and empty caller instructions render as empty text', async () => {

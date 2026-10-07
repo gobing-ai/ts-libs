@@ -6,7 +6,12 @@ import { q } from '../../src/decision/types';
 import { createTypesafeDriver } from '../../src/decision/typesafe-driver';
 
 const choice = q.choice('route?', { accept: null, repair: null });
-const answer = { kind: 'choice', label: 'accept', confidence: 0.8, probabilities: { accept: 0.8, repair: 0.2 } };
+const answer = {
+    kind: 'choice' as const,
+    label: 'accept',
+    confidence: 0.8,
+    probabilities: { accept: 0.8, repair: 0.2 },
+};
 
 describe('decision boundary validation', () => {
     test('rejects malformed caller questions before contacting any driver', async () => {
@@ -116,88 +121,130 @@ describe('decision boundary validation', () => {
         }
     });
 
-    test('rejects unnormalized choice and score probability mass beyond 1e-6', async () => {
-        const score = {
-            kind: 'score',
-            score: 0,
-            confidence: 0.9,
-            legend: { 0: 'low', 1: 'high' },
-            probabilities: { 0: 0.5, 1: 0.5 } as Record<string, number>,
-        };
-        const dmWith = (answer: unknown) =>
-            createDecisionMaker({
-                driver: {
-                    name: 'fake',
-                    async ask() {
-                        return { x: answer } as Record<string, Answer>;
+    test('choice and score reject invalid mass through ask and sugar, including a mixed response', async () => {
+        for (const kind of ['choice', 'score'] as const) {
+            const question = kind === 'choice' ? choice : q.score(null, ['low', 'high']);
+            const keys = kind === 'choice' ? ['accept', 'repair'] : ['0', '1'];
+            for (const mass of [0, 0.5, 2, 1 - 2e-6, 1 + 2e-6]) {
+                const value = {
+                    ...(kind === 'choice'
+                        ? answer
+                        : { kind, score: 0.8, confidence: 0.9, legend: { 0: 'low', 1: 'high' } }),
+                    probabilities: Object.fromEntries(keys.map((key) => [key, mass / 2])),
+                } as Answer;
+                const dm = createDecisionMaker({
+                    driver: {
+                        name: 'fake',
+                        async ask({ questions }) {
+                            return Object.fromEntries(
+                                Object.keys(questions).map((name) => [name, name === 'valid' ? answer : value]),
+                            );
+                        },
                     },
-                },
-            });
-        for (const probabilities of [
-            { accept: 0.8, repair: 0.1 },
-            { accept: 1, repair: 0.000002 },
-            { accept: 1, repair: 1 },
-            // under-side outside probe: computed total 0.9999989 sits 1.1e-6 below one
-            { accept: 0.5, repair: 0.4999989 },
-        ]) {
-            await expect(
-                dmWith({ ...answer, probabilities }).ask({ state: null, questions: { x: choice } }),
-            ).rejects.toBeInstanceOf(DecisionBackendError);
-        }
-        for (const probabilities of [
-            { 0: 1, 1: 1 },
-            { 0: 0.9, 1: 0 },
-        ]) {
-            const questions = { x: q.score(null, ['low', 'high']) };
-            await expect(dmWith({ ...score, probabilities }).ask({ state: null, questions })).rejects.toBeInstanceOf(
-                DecisionBackendError,
-            );
+                });
+                for (const invoke of [
+                    () => dm.ask({ state: null, questions: { x: question } }),
+                    () =>
+                        kind === 'choice'
+                            ? dm.choice(null, null, choice.labels)
+                            : dm.score(null, null, ['low', 'high']),
+                    () => dm.ask({ state: null, questions: { valid: choice, x: question } }),
+                ]) {
+                    const request = invoke();
+                    await expect(request).rejects.toBeInstanceOf(DecisionBackendError);
+                    await expect(request).rejects.toThrow(/Invalid decision response: (x|question)$/);
+                }
+            }
         }
     });
 
-    test('accepts mass at or inside the 1e-6 tolerance and fractional scores', async () => {
-        for (const probabilities of [
-            // 1e-6 literal is inside the raw |total - 1| <= 1e-6 bound; the decimal 0.999999 is not
-            // (1 ulp outside) — see ADR note in the task record.
-            { accept: 1, repair: 0.000001 },
-            { accept: 0.9999995, repair: 0.0000005 },
-            { accept: 0.5, repair: 0.5 },
-            // under-side inclusive-boundary probe: computed total 0.9999994999999999 sits
-            // ~5e-7 below one, directly inside the raw bound (not via near-one double steps)
-            { accept: 0.5, repair: 0.4999995 },
-        ]) {
+    test('accepts raw tolerance on both sides without changing answers or fractional scores', async () => {
+        for (const kind of ['choice', 'score'] as const) {
+            const question = kind === 'choice' ? choice : q.score(null, ['low', 'high']);
+            const keys = kind === 'choice' ? ['accept', 'repair'] : ['0', '1'];
+            // These adjacent representable totals straddle the lower bound without a second epsilon.
+            for (const mass of [1, 1 - 0.5e-6, 1 + 0.5e-6, 1 + 1e-6, 0.9999990000000001, 0.999999]) {
+                const probabilities = Object.freeze(Object.fromEntries(keys.map((key) => [key, mass / 2])));
+                const value = Object.freeze({
+                    ...(kind === 'choice'
+                        ? answer
+                        : { kind, score: 0.8, confidence: 0.9, legend: { 0: 'low', 1: 'high' } }),
+                    probabilities,
+                }) as Answer;
+                const answers = Object.freeze({ question: value });
+                const dm = createDecisionMaker({
+                    driver: {
+                        name: 'fake',
+                        async ask() {
+                            return answers;
+                        },
+                    },
+                });
+                const request = dm.ask({ state: null, questions: { question } });
+                if (Math.abs(mass - 1) > 1e-6) {
+                    await expect(request).rejects.toBeInstanceOf(DecisionBackendError);
+                    continue;
+                }
+                expect((await request) === answers).toBe(true);
+                const result =
+                    kind === 'choice'
+                        ? await dm.choice(null, null, choice.labels)
+                        : await dm.score(null, null, ['low', 'high']);
+                expect(result === value).toBe(true);
+                expect(result.probabilities).toBe(probabilities);
+            }
+        }
+        for (const probability of [0, 0.5, 1]) {
+            const value = { kind: 'noul', probability } as const;
             const dm = createDecisionMaker({
                 driver: {
                     name: 'fake',
                     async ask() {
-                        return { x: { ...answer, probabilities } } as Record<string, Answer>;
+                        return { question: value };
                     },
                 },
             });
-            const answers = await dm.ask({ state: null, questions: { x: choice } });
-            expect(answers.x.label).toBe('accept');
+            expect(await dm.noul(null, null)).toBe(value);
         }
     });
 
-    test('direct TypeSafe driver rejects unnormalized mass on the wire', async () => {
-        const driver = createTypesafeDriver({
-            apiKey: 'test',
-            maxRetries: 0,
-            fetch: (async (_input: Parameters<typeof fetch>[0]) =>
-                Response.json({
-                    answers: {
-                        x: {
-                            type: 'choice',
-                            choice: 'accept',
-                            confidence: 0.8,
-                            probabilities: { accept: 0.8, repair: 0.1 },
-                        },
-                    },
-                })) as typeof fetch,
-        });
-        await expect(driver.ask({ state: null, questions: { x: choice } })).rejects.toBeInstanceOf(
-            DecisionBackendError,
-        );
+    test('direct and facade-wrapped TypeSafe choice and score validate wire mass', async () => {
+        for (const kind of ['choice', 'score'] as const) {
+            const question = kind === 'choice' ? choice : q.score(null, ['low', 'high']);
+            const keys = kind === 'choice' ? ['accept', 'repair'] : ['0', '1'];
+            for (const mass of [0, 0.5, 2, 1 - 2e-6, 1 + 2e-6, 1, 1 - 0.5e-6, 1 + 0.5e-6]) {
+                const wireAnswer = {
+                    type: kind,
+                    ...(kind === 'choice' ? { choice: 'accept' } : { score: 0.8, legend: { 0: 'low', 1: 'high' } }),
+                    confidence: 0.8,
+                    probabilities: Object.fromEntries(keys.map((key) => [key, mass / 2])),
+                };
+                const driver = createTypesafeDriver({
+                    apiKey: 'test',
+                    maxRetries: 0,
+                    fetch: (async (_input: Parameters<typeof fetch>[0]) =>
+                        Response.json({ answers: { x: wireAnswer } })) as typeof fetch,
+                });
+                for (const maker of [driver, createDecisionMaker({ driver })]) {
+                    const request = maker.ask({ state: null, questions: { x: question } });
+                    if (Math.abs(mass - 1) > 1e-6) {
+                        await expect(request).rejects.toBeInstanceOf(DecisionBackendError);
+                        await expect(request).rejects.toThrow('Invalid decision response: x');
+                    } else {
+                        expect(await request).toEqual({
+                            x: {
+                                kind,
+                                ...(kind === 'choice'
+                                    ? { label: 'accept' }
+                                    : { score: 0.8, legend: { 0: 'low', 1: 'high' } }),
+                                confidence: 0.8,
+                                probabilities: wireAnswer.probabilities,
+                            } as Answer,
+                        });
+                    }
+                }
+            }
+        }
     });
 
     test('default driver rejects malformed successful wire responses', async () => {
