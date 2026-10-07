@@ -90,6 +90,11 @@ export class RunLifecycle {
     /** Owner attempt recorded on the run row; undefined for lifecycles that never claimed a run (external transitions, direct construction). Gates the finalize fence (task 0086 AC11). */
     private ownerAttempt: string | undefined;
 
+    /** Owner fence for branch ledger writes and join commits. */
+    get ownerAttemptId(): string | undefined {
+        return this.ownerAttempt;
+    }
+
     private constructor(
         runId: string,
         private readonly workflowName: string,

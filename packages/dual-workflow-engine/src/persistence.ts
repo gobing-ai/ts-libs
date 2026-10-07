@@ -1,5 +1,5 @@
 import type { DbAdapter, DbBatchOp } from '@gobing-ai/ts-db';
-import { RunCollisionError } from './errors';
+import { RunCollisionError, WorkflowResumeError } from './errors';
 import { WORKFLOW_ENGINE_MIGRATIONS_SQL, WORKFLOW_ENGINE_SCHEMA_SQL } from './schema-sql';
 import type {
     ActionRedactor,
@@ -413,15 +413,24 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
     }
 
     /** Record the start of a branch execution in a parallel region. */
-    async saveBranchStart(runId: string, parallelNode: string, branchId: string, startNode: string): Promise<string> {
+    async saveBranchStart(
+        runId: string,
+        parallelNode: string,
+        branchId: string,
+        startNode: string,
+        ownerAttempt?: string,
+    ): Promise<string> {
+        await this.assertBranchOwner(runId, ownerAttempt);
         await this.ensureSchema();
         const id = crypto.randomUUID();
         const now = Date.now();
         await this.db.run(
             `INSERT INTO workflow_branches (id, run_id, parallel_node, branch_id, status, node, started_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+             WHERE (? IS NULL OR EXISTS (SELECT 1 FROM runs WHERE id = ? AND owner_attempt = ? AND status = 'running'))
              ON CONFLICT(run_id, parallel_node, branch_id) DO UPDATE SET
-               status = 'running', node = excluded.node, started_at = excluded.started_at, completed_at = NULL, error = NULL, updated_at = excluded.updated_at`,
+               status = 'running', node = excluded.node, started_at = excluded.started_at, completed_at = NULL, error = NULL, updated_at = excluded.updated_at
+             WHERE (? IS NULL OR EXISTS (SELECT 1 FROM runs WHERE id = ? AND owner_attempt = ? AND status = 'running'))`,
             id,
             runId,
             parallelNode,
@@ -431,8 +440,16 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
             new Date(now).toISOString(),
             now,
             now,
+            ownerAttempt ?? null,
+            runId,
+            ownerAttempt ?? null,
+            ownerAttempt ?? null,
+            runId,
+            ownerAttempt ?? null,
         );
-        return id;
+        await this.assertBranchOwner(runId, ownerAttempt);
+        const branches = await this.listRunBranches(runId, parallelNode);
+        return branches.find((branch) => branch.branch_id === branchId)?.id ?? id;
     }
 
     /** Finalize a branch execution with terminal status, duration, output variables, and optional error. */
@@ -443,22 +460,32 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         durationMs: number,
         outputVars?: Vars,
         error?: string,
+        checkpoint?: { readonly parallelNode: string; readonly node: string; readonly ownerAttempt?: string },
     ): Promise<void> {
+        await this.assertBranchOwner(runId, checkpoint?.ownerAttempt);
         await this.ensureSchema();
         const now = Date.now();
         await this.db.run(
             `UPDATE workflow_branches
-             SET status = ?, duration_ms = ?, output_vars_json = ?, error = ?, completed_at = ?, updated_at = ?
-             WHERE run_id = ? AND branch_id = ?`,
+             SET status = ?, duration_ms = ?, output_vars_json = ?, error = ?, completed_at = ?, updated_at = ?, node = COALESCE(?, node)
+             WHERE run_id = ? AND branch_id = ? AND (? IS NULL OR parallel_node = ?)
+               AND (? IS NULL OR EXISTS (SELECT 1 FROM runs WHERE id = ? AND owner_attempt = ? AND status = 'running'))`,
             status,
             durationMs,
             outputVars !== undefined ? JSON.stringify(outputVars) : null,
             error ?? null,
-            new Date(now).toISOString(),
+            status === 'running' ? null : new Date(now).toISOString(),
             now,
+            checkpoint?.node ?? null,
             runId,
             branchId,
+            checkpoint?.parallelNode ?? null,
+            checkpoint?.parallelNode ?? null,
+            checkpoint?.ownerAttempt ?? null,
+            runId,
+            checkpoint?.ownerAttempt ?? null,
         );
+        await this.assertBranchOwner(runId, checkpoint?.ownerAttempt);
     }
 
     /** List all branch records for a run, optionally filtered by parallel node ID. */
@@ -484,11 +511,58 @@ export class DbWorkflowPersistenceAdapter implements WorkflowPersistenceAdapter 
         joinNode: string,
         mergedVars?: Vars,
         phase?: { phase: string; status: WorkflowStatus },
+        ownerAttempt?: string,
+        transitionsTaken?: number,
+        collectedFailure?: string,
     ): Promise<void> {
-        await this.ensureSchema();
-        const data: Record<string, unknown> = {};
+        await this.assertBranchOwner(runId, ownerAttempt);
+        const data: Record<string, unknown> = { transitionsTaken };
+        if (collectedFailure !== undefined) data.collectedFailure = collectedFailure;
         if (mergedVars !== undefined) data.effectiveVars = mergedVars;
-        await this.commitTransition(runId, parallelNode, joinNode, '__join__', joinNode, data, phase);
+        const now = Date.now();
+        const branches = await this.listRunBranches(runId, parallelNode);
+        const ops: DbBatchOp[] = branches.map((branch) => ({
+            sql: `UPDATE workflow_branches SET status = ?, node = ?, output_vars_json = ?, error = ?, duration_ms = ?, completed_at = ?, updated_at = ? WHERE id = ?`,
+            params: [
+                branch.status,
+                branch.node,
+                branch.output_vars_json,
+                branch.error,
+                branch.duration_ms,
+                branch.completed_at,
+                now,
+                branch.id,
+            ],
+        }));
+        ops.push(
+            this.transitionRow(runId, parallelNode, joinNode, '__join__', now),
+            this.stateRow(runId, joinNode, data, now),
+        );
+        if (phase) ops.push(this.phaseRow(runId, phase.phase, phase.status, now));
+        // Each mutation carries the fence inside the transaction; a stale owner cannot
+        // rewrite ledger outcomes or activate a join after another attempt claims the run.
+        const fenced =
+            ownerAttempt === undefined
+                ? ops
+                : ops.map((op) => ({
+                      sql: op.sql.startsWith('INSERT')
+                          ? op.sql.replace(
+                                /VALUES \(([^)]*)\)/,
+                                "SELECT $1 WHERE EXISTS (SELECT 1 FROM runs WHERE id = ? AND owner_attempt = ? AND status = 'running')",
+                            )
+                          : `${op.sql} AND EXISTS (SELECT 1 FROM runs WHERE id = ? AND owner_attempt = ? AND status = 'running')`,
+                      params: [...op.params, runId, ownerAttempt],
+                  }));
+        await this.db.batch(fenced);
+        await this.assertBranchOwner(runId, ownerAttempt);
+    }
+
+    private async assertBranchOwner(runId: string, ownerAttempt?: string): Promise<void> {
+        if (ownerAttempt === undefined) return;
+        const run = await this.loadRun(runId);
+        if (run?.status !== 'running' || run.owner_attempt !== ownerAttempt) {
+            throw new WorkflowResumeError(`Stale branch owner "${ownerAttempt}" for run "${runId}"`);
+        }
     }
 }
 
@@ -720,7 +794,14 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
     readonly branches = new Map<string, WorkflowBranchRecord>();
 
     /** Record the start of a branch execution in a parallel region. */
-    async saveBranchStart(runId: string, parallelNode: string, branchId: string, startNode: string): Promise<string> {
+    async saveBranchStart(
+        runId: string,
+        parallelNode: string,
+        branchId: string,
+        startNode: string,
+        ownerAttempt?: string,
+    ): Promise<string> {
+        this.assertBranchOwner(runId, ownerAttempt);
         const id = crypto.randomUUID();
         const now = Date.now();
         const key = `${runId}:${parallelNode}:${branchId}`;
@@ -749,15 +830,22 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
         durationMs: number,
         outputVars?: Vars,
         error?: string,
+        checkpoint?: { readonly parallelNode: string; readonly node: string; readonly ownerAttempt?: string },
     ): Promise<void> {
+        this.assertBranchOwner(runId, checkpoint?.ownerAttempt);
         const now = Date.now();
         for (const [key, b] of this.branches.entries()) {
-            if (b.run_id === runId && b.branch_id === branchId) {
+            if (
+                b.run_id === runId &&
+                b.branch_id === branchId &&
+                (checkpoint === undefined || b.parallel_node === checkpoint.parallelNode)
+            ) {
                 this.branches.set(key, {
                     ...b,
+                    node: checkpoint?.node ?? b.node,
                     status,
                     duration_ms: durationMs,
-                    completed_at: new Date(now).toISOString(),
+                    completed_at: status === 'running' ? null : new Date(now).toISOString(),
                     output_vars_json: outputVars !== undefined ? JSON.stringify(outputVars) : null,
                     error: error ?? null,
                 });
@@ -784,9 +872,25 @@ export class MemoryWorkflowPersistenceAdapter implements WorkflowPersistenceAdap
         joinNode: string,
         mergedVars?: Vars,
         phase?: { phase: string; status: WorkflowStatus },
+        ownerAttempt?: string,
+        transitionsTaken?: number,
+        collectedFailure?: string,
     ): Promise<void> {
-        const data: Record<string, unknown> = {};
+        const run = this.runs.get(runId);
+        if (ownerAttempt !== undefined && (run?.status !== 'running' || run.owner_attempt !== ownerAttempt)) {
+            throw new WorkflowResumeError(`Stale branch owner "${ownerAttempt}" for run "${runId}"`);
+        }
+        const data: Record<string, unknown> = { transitionsTaken };
+        if (collectedFailure !== undefined) data.collectedFailure = collectedFailure;
         if (mergedVars !== undefined) data.effectiveVars = mergedVars;
         await this.commitTransition(runId, parallelNode, joinNode, '__join__', joinNode, data, phase);
+    }
+
+    private assertBranchOwner(runId: string, ownerAttempt?: string): void {
+        if (ownerAttempt === undefined) return;
+        const run = this.runs.get(runId);
+        if (run?.status !== 'running' || run.owner_attempt !== ownerAttempt) {
+            throw new WorkflowResumeError(`Stale branch owner "${ownerAttempt}" for run "${runId}"`);
+        }
     }
 }

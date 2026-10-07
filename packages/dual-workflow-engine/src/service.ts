@@ -233,6 +233,16 @@ export class WorkflowService {
         const resumeMode: WorkflowResumeMode =
             options?.resumeMode ?? (run.status === 'interrupted' ? 'rerun-enter' : 'skip-enter');
         this.assertResumeRerunAllowed(workflow, currentState, resumeMode);
+        if (workflow.kind === 'transition-flow' && resumeMode === 'rerun-enter') {
+            const parallel = workflow.nodes.find((node) => node.id === currentState && node.type === 'parallel');
+            if (parallel) {
+                const branches = await this.persistence.listRunBranches(runId, parallel.id);
+                for (const branch of branches) {
+                    if (branch.status === 'done') continue;
+                    this.assertResumeRerunAllowed(workflow, branch.node, resumeMode);
+                }
+            }
+        }
 
         // Restore effectiveVars persisted in the last state snapshot so resume
         // continues with the same runtime variables (e.g. `__hitlAnswer`). Caller

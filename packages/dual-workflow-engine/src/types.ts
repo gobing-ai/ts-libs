@@ -560,7 +560,13 @@ export interface WorkflowPersistenceAdapter {
      */
     interruptRun(runId: string, reason: string): Promise<WorkflowRunRecord | undefined>;
     /** Record the start of a branch execution in a parallel region. */
-    saveBranchStart(runId: string, parallelNode: string, branchId: string, startNode: string): Promise<string>;
+    saveBranchStart(
+        runId: string,
+        parallelNode: string,
+        branchId: string,
+        startNode: string,
+        ownerAttempt?: string,
+    ): Promise<string>;
     /** Finalize a branch execution with terminal status, duration, output variables, and optional error. */
     saveBranchFinalize(
         runId: string,
@@ -569,6 +575,7 @@ export interface WorkflowPersistenceAdapter {
         durationMs: number,
         outputVars?: Vars,
         error?: string,
+        checkpoint?: { readonly parallelNode: string; readonly node: string; readonly ownerAttempt?: string },
     ): Promise<void>;
     /** List all branch records for a run, optionally filtered by parallel node ID. */
     listRunBranches(runId: string, parallelNode?: string): Promise<readonly WorkflowBranchRecord[]>;
@@ -579,5 +586,8 @@ export interface WorkflowPersistenceAdapter {
         joinNode: string,
         mergedVars?: Vars,
         phase?: { phase: string; status: WorkflowStatus },
+        ownerAttempt?: string,
+        transitionsTaken?: number,
+        collectedFailure?: string,
     ): Promise<void>;
 }

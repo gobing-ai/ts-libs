@@ -249,7 +249,7 @@ function validateTransitionFlow(workflow: Extract<WorkflowDef, { kind: 'transiti
                         if (visited.has(currentId)) return;
 
                         const currentNode = nodeMap.get(currentId);
-                        if (currentNode && currentNode.id !== node.id && currentNode.type === 'parallel') {
+                        if (currentNode && currentNode.type === 'parallel') {
                             errors.push(
                                 `Parallel node "${currentNode.id}" is nested inside parallel node "${node.id}" (nested parallel regions are forbidden)`,
                             );

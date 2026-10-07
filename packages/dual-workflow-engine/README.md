@@ -164,6 +164,14 @@ erDiagram
 | `transition-flow` | `TransitionFlowDriver` | Single-cursor node/edge walk; declared fork/join regions run branches concurrently |
 | `dag` | `DagDriver` | Nodes dispatch as their `dependsOn` prerequisites settle; acyclic only (ADR-034) |
 
+Structured parallel nodes declare `branches` and a `join` target. Branches keep isolated variable
+deltas; paused branches resume from their saved node without replaying completed siblings. With
+`failurePolicy: 'collect'`, the join action runs with merged outputs before aggregate failure is
+recorded; `fail-fast` cancels active siblings. Branch checkpoints and join commits use the run's
+owner-attempt fence. `saveBranchFinalize` accepts an optional checkpoint with `parallelNode`, `node`,
+and `ownerAttempt`; `commitJoin` accepts optional owner-attempt, transition-count and collected-failure
+arguments. Collected failure is preserved across restart at the join.
+
 All three delegate run identity, persistence sequencing, and observability to `RunLifecycle`:
 
 ```

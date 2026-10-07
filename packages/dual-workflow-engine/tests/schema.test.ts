@@ -6,6 +6,7 @@ import { WorkflowValidationError } from '../src/errors';
 import {
     ActionDefSchema,
     GuardDefSchema,
+    StateDisplaySchema,
     StateMachineWorkflowDefSchema,
     TransitionFlowWorkflowDefSchema,
     WorkflowDefSchema,
@@ -605,6 +606,12 @@ transitions:
         expect(display).toBeDefined();
         expect(display.additionalProperties).toBe(false);
         expect(Object.keys(display.properties).sort()).toEqual(['phase', 'phaseTitle', 'show', 'title']);
+        // Constraint parity with StateDisplaySchema, not just key presence.
+        expect(display.required).toEqual(['phase']);
+        for (const key of ['phase', 'phaseTitle', 'title']) {
+            expect(display.properties[key]).toEqual({ type: 'string', minLength: 1 });
+        }
+        expect(display.properties.show.enum).toEqual(StateDisplaySchema.shape.show.unwrap().options);
     });
 });
 
