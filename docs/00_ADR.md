@@ -5,7 +5,7 @@ owns: WHY — which cross-cutting decision was made, and the one-line reason
 authority: authoritative
 version: 1.4.0
 owner: Robin Min
-updated_at: 2026-10-03
+updated_at: 2026-10-07
 read_before: any structural change
 edit_rules: 99 §6.1
 sync: [T1, T2]

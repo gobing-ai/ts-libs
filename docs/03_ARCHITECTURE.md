@@ -3,7 +3,7 @@ name: Architecture
 doc: 03_ARCHITECTURE
 owns: HOW — module boundaries, data flow, runtime model, invariants, rationale-in-depth
 authority: derived
-version: 1.5.0
+version: 1.6.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
 updated_at: 2026-10-07
@@ -55,6 +55,27 @@ with schema construction and migrations isolated behind explicit subpaths.
 ## dual-workflow-engine
 
 `@gobing-ai/ts-dual-workflow-engine` combines state-machine transitions, transition-flow action graphs, and static dependency-DAG scheduling with persistence seams, lifecycle events, and resumable run state.
+
+The DAG driver (ADR-034) admits completion-driven, not wave-based: each node is reserved `running`
+synchronously exactly once, and its full execution chain — condition/guard, action, awaited audit,
+terminal `__dag__` branch write — settles before dependents are admitted, while unrelated in-flight
+nodes keep running. A thrown guard/persistence exception, fail-policy result, or pause result latches
+stop-admission immediately; every admitted node drains before `RunLifecycle` finalizes the run.
+Exactly one rejection reason is rethrown with its original identity; multiple reasons throw an
+`AggregateError(errors, 'DAG node execution failed')` in node declaration order (`undefined`
+retained); a coordinator failure appends its reason last. Exceptions outrank fail results, which
+outrank pauses; readiness/skip propagation runs to a fixed point, and unresolved pending nodes still
+fail as `dag-unreachable-nodes`.
+
+DAG recovery is ledger-based: fresh runs checkpoint an initial anchor before node work, and each
+done/paused node's accepted variable delta is durable in the `__dag__` ledger namespace. Resume
+restores statuses, variables (workflow defaults → snapshot baseline → topologically merged ledger
+deltas → caller `options.vars`; malformed stored deltas fail loudly), and distinct-node
+`transitionsTaken` without replaying completed actions — interrupted runs need no prior pause. A
+pause node's action, audit, and branch record complete before the run pauses; each resume
+acknowledges exactly one paused node (`skip-enter`) or re-executes a marked node once
+(`rerun-enter`), and every previously unfinished action node requires its own `resumeRerun: true`
+(ADR-025 modes, enforced before ownership claim and in direct-driver resume).
 
 HITL actions, automatic-mode policy, evidence gathering, and DecisionMaker responder wiring belong
 in consuming applications such as Spur (ADR-026). The engine exposes the neutral `HitlResponder`

@@ -6,7 +6,7 @@ authority: derived
 version: 1.5.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-10-02
+updated_at: 2026-10-07
 read_before: changing a public export, config key, schema, or DTO
 edit_rules: 99 §6.5
 sync: [T3, T9]
