@@ -8,6 +8,33 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.18] - 2026-10-07
+
+### Added
+
+- feat(dual-workflow-engine): completion-driven DAG admission, wave-drain finalization, and persisted recovery state (fb917c23)
+- feat(ai-runner): reject unnormalized decision answer distributions (553bcc75)
+
+### Fixed
+
+- fix(dual-workflow-engine): harden fork-join ownership, fail-fast and branch resume (9d56aa83)
+- fix(utils): normalize invalid dates to null in toMs (0a0a3ae3)
+- fix(infra): remove caller abort listeners after execution settles (75ef708a)
+- fix(infra): settle async once handlers and gate duplicate registration (97bb07f6)
+
+### Other
+
+- chore(corpus): mark feature C3 done; record wrap learnings and metrics (d7dac7e7)
+- docs: sync dual-workflow-engine docs for completion-driven DAG admission and ledger-based recovery (feature C3) (e5db5d82)
+- docs(tasks): record 0107 solution map for unnormalized distribution rejection (3072d79b)
+- test(decision): pin unnormalized score-mass fallback across validator, runner and hub (d88a13e8)
+- docs(tasks): record fork-join re-audit for tasks 0092-0098 (8e8e3d4d)
+- test(ai-runner): probe under-side mass tolerance boundary; drop follow-up 0108 (b285374e)
+- docs(tasks): add C3 DAG tasks 0103-0105 with ready refinement (22af2df9)
+- docs(reviews): record packages review with fixes and filed tasks (8456acea)
+
+<!-- verification: 6/6 API claims cited; confidence HIGH — fb917c23→packages/dual-workflow-engine/src/dag.ts:476 (admit), 9d56aa83→packages/dual-workflow-engine/src/persistence.ts:508 (commitJoin), 553bcc75→packages/ai-runner/src/decision/validation.ts:5 (1e-6 tolerance), 0a0a3ae3→packages/utils/src/date.ts:7 (toMs), 75ef708a→packages/infra/src/execution-policy.ts:149 (removeEventListener), 97bb07f6→packages/infra/src/event-bus/event-bus.ts:51 (once) -->
+
 ## [0.5.17] - 2026-10-07
 
 ### Added
