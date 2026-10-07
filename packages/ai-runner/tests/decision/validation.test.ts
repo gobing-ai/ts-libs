@@ -116,6 +116,85 @@ describe('decision boundary validation', () => {
         }
     });
 
+    test('rejects unnormalized choice and score probability mass beyond 1e-6', async () => {
+        const score = {
+            kind: 'score',
+            score: 0,
+            confidence: 0.9,
+            legend: { 0: 'low', 1: 'high' },
+            probabilities: { 0: 0.5, 1: 0.5 } as Record<string, number>,
+        };
+        const dmWith = (answer: unknown) =>
+            createDecisionMaker({
+                driver: {
+                    name: 'fake',
+                    async ask() {
+                        return { x: answer } as Record<string, Answer>;
+                    },
+                },
+            });
+        for (const probabilities of [
+            { accept: 0.8, repair: 0.1 },
+            { accept: 1, repair: 0.000002 },
+            { accept: 1, repair: 1 },
+        ]) {
+            await expect(
+                dmWith({ ...answer, probabilities }).ask({ state: null, questions: { x: choice } }),
+            ).rejects.toBeInstanceOf(DecisionBackendError);
+        }
+        for (const probabilities of [
+            { 0: 1, 1: 1 },
+            { 0: 0.9, 1: 0 },
+        ]) {
+            const questions = { x: q.score(null, ['low', 'high']) };
+            await expect(dmWith({ ...score, probabilities }).ask({ state: null, questions })).rejects.toBeInstanceOf(
+                DecisionBackendError,
+            );
+        }
+    });
+
+    test('accepts mass at or inside the 1e-6 tolerance and fractional scores', async () => {
+        for (const probabilities of [
+            // 1e-6 literal is inside the raw |total - 1| <= 1e-6 bound; the decimal 0.999999 is not
+            // (1 ulp outside) — see ADR note in the task record.
+            { accept: 1, repair: 0.000001 },
+            { accept: 0.9999995, repair: 0.0000005 },
+            { accept: 0.5, repair: 0.5 },
+        ]) {
+            const dm = createDecisionMaker({
+                driver: {
+                    name: 'fake',
+                    async ask() {
+                        return { x: { ...answer, probabilities } } as Record<string, Answer>;
+                    },
+                },
+            });
+            const answers = await dm.ask({ state: null, questions: { x: choice } });
+            expect(answers.x.label).toBe('accept');
+        }
+    });
+
+    test('direct TypeSafe driver rejects unnormalized mass on the wire', async () => {
+        const driver = createTypesafeDriver({
+            apiKey: 'test',
+            maxRetries: 0,
+            fetch: (async (_input: Parameters<typeof fetch>[0]) =>
+                Response.json({
+                    answers: {
+                        x: {
+                            type: 'choice',
+                            choice: 'accept',
+                            confidence: 0.8,
+                            probabilities: { accept: 0.8, repair: 0.1 },
+                        },
+                    },
+                })) as typeof fetch,
+        });
+        await expect(driver.ask({ state: null, questions: { x: choice } })).rejects.toBeInstanceOf(
+            DecisionBackendError,
+        );
+    });
+
     test('default driver rejects malformed successful wire responses', async () => {
         for (const payload of [
             null,

@@ -692,6 +692,29 @@ decisions:
             instructions: 'x',
         });
         expect(wrongKind).toMatchObject({ type: 'choice', value: 'account', confidence: null, reason: 'error' });
+
+        typesafe.requests.length = 0;
+        const malformed = choiceAnswer('category', 'billing', 0.9, [
+            'bug_report',
+            'billing',
+            'feature_request',
+            'account',
+        ]);
+        const malformedAnswer = malformed.category;
+        if (malformedAnswer?.kind !== 'choice') throw new Error('expected a choice answer');
+        malformedAnswer.probabilities.bug_report = 0.5; // probability mass no longer sums to 1
+        typesafe.respond = () => malformed;
+        const badMass = await decideAndRecord('error: unnormalized answer mass', hub, 'category', {
+            instructions: 'x',
+        });
+        expect(badMass).toMatchObject({
+            type: 'choice',
+            value: 'account',
+            confidence: null,
+            source: 'default',
+            reason: 'error',
+            maker: 'typesafe',
+        });
     });
 
     test('templates are always substituted and empty caller instructions render as empty text', async () => {

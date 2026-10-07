@@ -31,6 +31,16 @@ def _delay(definition):
     return float(raw) if not isinstance(raw, bool) else 30.0
 
 
+def _normalized(probs):
+    """Keep rounded probabilities a valid distribution: the last key absorbs 4dp rounding drift."""
+    if not probs:
+        return probs
+    drift = round(1.0 - sum(probs.values()), 4)
+    last = next(reversed(probs))
+    probs[last] = round(probs[last] + drift, 4)
+    return probs
+
+
 class Agent:
     def __init__(
         self,
@@ -108,7 +118,7 @@ class Agent:
                     raw_labels = definition.get("labels", definition.get("criteria", {}))
                     labels = list(raw_labels.keys()) if isinstance(raw_labels, dict) else list(raw_labels)
                     first_label = labels[0] if labels else "choice"
-                    probs = {l: round(1.0 / len(labels), 4) for l in labels} if labels else {first_label: 1.0}
+                    probs = _normalized({l: round(1.0 / len(labels), 4) for l in labels}) if labels else {first_label: 1.0}
                     answers[qid] = {
                         "type": "choice",
                         "choice": first_label,
@@ -119,7 +129,7 @@ class Agent:
                 elif kind == "score":
                     rubric = definition.get("rubric", definition.get("criteria", ["0", "1"]))
                     count = len(rubric) if isinstance(rubric, (list, tuple)) else len(rubric.keys())
-                    probs = {i: round(1.0 / count, 4) for i in range(count)}
+                    probs = _normalized({i: round(1.0 / count, 4) for i in range(count)})
                     legend = {i: f"level {i}" for i in range(count)}
                     answers[qid] = {
                         "type": "score",

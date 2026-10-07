@@ -1,6 +1,9 @@
 import { DecisionBackendError, DecisionRequestError } from './errors';
 import type { Question } from './types';
 
+/** Probability-mass tolerance: |total - 1| at or below this counts as a normalized distribution. */
+const DISTRIBUTION_MASS_TOLERANCE = 1e-6;
+
 function record(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -96,5 +99,12 @@ export function validateAnswers(questions: Record<string, Question>, answers: un
         ) {
             fail(name);
         }
+        // Placed after the per-entry checks so their errors keep precedence; every entry is a
+        // bounded number here. Inclusive at exactly 1e-6.
+        const total = Object.values(answer.probabilities as Record<string, unknown>).reduce<number>(
+            (sum, p) => sum + (p as number),
+            0,
+        );
+        if (Math.abs(total - 1) > DISTRIBUTION_MASS_TOLERANCE) fail(name);
     }
 }

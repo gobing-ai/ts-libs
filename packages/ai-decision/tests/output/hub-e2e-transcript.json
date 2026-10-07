@@ -215,6 +215,17 @@
       "value": "account"
     },
     {
+      "case": "error: unnormalized answer mass",
+      "id": "category",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
+    },
+    {
       "case": "empty instructions",
       "id": "category",
       "confidence": 0.9,

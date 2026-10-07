@@ -1,16 +1,18 @@
 ---
 schema_version: 1
 name: Reject unnormalized decision answer distributions
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-07T18:46:46.478Z
-updated_at: "2026-10-07T19:20:11.018Z"
+updated_at: "2026-10-07T20:05:34.916Z"
 feature_id: A
 
 priority: P2
 ac_numbering: task-local
 ac_altitude: task-local
 estimate_hours: 2
+done_forced: "false"
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0107-verdict.json
 ---
 
 ## 0107. Reject unnormalized decision answer distributions
@@ -33,9 +35,9 @@ No DAG task or unrelated infra/utils review fix changes this validation seam. Th
 
 ### Requirements
 
-- [ ] R1. Reject choice and score answers when the sum of already-valid probabilities has absolute distance from one greater than 1e-6, using the existing DecisionBackendError path at validateAnswers. Cover facade ask/choice/score and direct TypeSafe-driver calls.
-- [ ] R2. Accept mass error at most 1e-6 without changing answer data or object identity; preserve finite/range/key/legend validation, fractional expected scores within rubric bounds, special own-property keys, and noul's single [0,1] probability contract.
-- [ ] R3. Through an actual facade-wrapped driver registered with DecisionHub, malformed choice/score mass produces the declared fallback with source: default, reason: error, and confidence: null; normalized responses and existing backend suites remain compatible.
+- [x] R1. Reject choice and score answers when the sum of already-valid probabilities has absolute distance from one greater than 1e-6, using the existing DecisionBackendError path at validateAnswers. Cover facade ask/choice/score and direct TypeSafe-driver calls.
+- [x] R2. Accept mass error at most 1e-6 without changing answer data or object identity; preserve finite/range/key/legend validation, fractional expected scores within rubric bounds, special own-property keys, and noul's single [0,1] probability contract.
+- [x] R3. Through an actual facade-wrapped driver registered with DecisionHub, malformed choice/score mass produces the declared fallback with source: default, reason: error, and confidence: null; normalized responses and existing backend suites remain compatible.
 
 Out of scope: integer-score restrictions, rounding/renormalization, score-expectation or argmax consistency, confidence calibration, validation of arbitrary custom makers bypassing the facade, new dependencies/public types/flags, backend-specific mapping changes, and unrelated package fixes.
 
@@ -104,23 +106,57 @@ Environment: before implementation run bun install --frozen-lockfile to align in
 
 ### Plan
 
-- [ ] 0. Align dependencies with bun install --frozen-lockfile; confirm Bun 1.3.14 / zod 4.4.3 and no same-file concurrent work, preserving existing staged changes.
-- [ ] 1. Add fake-driver choice/score mass regressions through ask and sugar methods, plus batched-answer and direct TypeSafe-fetch cases; demonstrate rejection assertions fail before the fix (R1).
-- [ ] 2. Add the private 1e-6 constant and one post-validation numeric mass guard in validateAnswers, using existing fail(name) (R1, R2).
-- [ ] 3. Test accepted under/over tolerance, original object identity, fractional score, __proto__ keys, noul and existing malformed answers; add real-hub invalid-mass fallbacks for choice/score (R2, R3).
-- [ ] 4. Verify existing ai-runner decision, decision-fm, laya-mlx, and hub tests. Run bun run spur-check and bun run build, then inspect the final surgical diff; partial-suite coverage exits do not certify the full gate (R3).
+- [x] 0. Align dependencies with bun install --frozen-lockfile; confirm Bun 1.3.14 / zod 4.4.3 and no same-file concurrent work, preserving existing staged changes.
+- [x] 1. Add fake-driver choice/score mass regressions through ask and sugar methods, plus batched-answer and direct TypeSafe-fetch cases; demonstrate rejection assertions fail before the fix (R1).
+- [x] 2. Add the private 1e-6 constant and one post-validation numeric mass guard in validateAnswers, using existing fail(name) (R1, R2).
+- [x] 3. Test accepted under/over tolerance, original object identity, fractional score, __proto__ keys, noul and existing malformed answers; add real-hub invalid-mass fallbacks for choice/score (R2, R3).
+- [x] 4. Verify existing ai-runner decision, decision-fm, laya-mlx, and hub tests. Run bun run spur-check and bun run build, then inspect the final surgical diff; partial-suite coverage exits do not certify the full gate (R3).
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Change-map (auto-generated — implement step did not record a Solution).
+Each entry cites the first changed line per file (`file:line`).
+
+| Change (`file:line`) |
+|----------------------|
+| `packages/ai-decision/tests/hub.test.ts:695` |
+| `packages/ai-decision/tests/output/hub-e2e-transcript.json:217` |
+| `packages/ai-runner/src/decision/validation.ts:102` |
+| `packages/ai-runner/src/decision/validation.ts:4` |
+| `packages/ai-runner/tests/decision/validation.test.ts:119` |
+| `packages/laya-mlx/tests/fixtures/stub_laya.py:121` |
+| `packages/laya-mlx/tests/fixtures/stub_laya.py:132` |
+| `packages/laya-mlx/tests/fixtures/stub_laya.py:34` |
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | Mass guard rejects |
+| R2 | MET | Inclusive boundary accepted: 1+1e-6 exact, 0.9999995+0.0000005, 0.5+0.5 (validation.test.ts:155-176); validator never mutates answers; per-entry finite/[0,1]/key/legend checks preserved with precedence (guard after per-entry checks); noul branch has no mass check (validation.ts:99-108 loop scope only) |
+| R3 | MET | Hub e2e: multi-question ask with one malformed mass resolves declared fallback source:default reason:error confidence:null (packages/ai-decision/tests/hub.test.ts badMass block in 'invalid and mismatched answers'); transcript regenerated |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC1 — Invalid mass fails both choice and score validation (req: R1) | MET | test | Rejection probes both kinds both sides of one (validation.test.ts:119-153); multi-question whole-response rejection via hub badMass ask |
+| AC2 — Valid rounding and fractional scores remain accepted (req: R2) | MET | test | Accepts at/inside 1e-6 (validation.test.ts:155-176); fractional score 0.5/0.5 accepted; own-key/noul suites unchanged and green; malformed-key/confidence/entry suites still fail (existing tests, 2818 pass) |
+| AC3 — Invalid mass selects the catalog fallback (req: R3) | MET | test | hub.test.ts badMass → fallback asserted; normalized fractional-score response still accepted (hub suite); full repo verification green (bun run spur-check: 2818 pass, 58+2 rules) |
+| AC4 — Direct TypeSafe responses share mass validation (req: R1; R2) | MET | test | createTypesafeDriver injected-fetch unnormalized choice → DecisionBackendError (validation.test.ts:178-193); normalized wire mapping suites unchanged |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+#### Findings
+
+| Priority | Location | Finding | Recommendation |
+| --- | --- | --- | --- |
+| P3 | docs/tasks/0107 task file AC table | Cell "mass 1.0000001 rejected" contradicts R1's inclusive <=1e-6 contract (1.0000001 is 1e-7 off = inside); R1 + Q&A freeze are authoritative | Fix the AC-table cell in a docs-only follow-up (or at wrap) |
+| P3 | packages/ai-runner/tests/decision/validation.test.ts | Under-side inclusive boundary (sum = 1-1e-6 as computed number) not directly probed; decimal 0.999999 is 1 ulp outside the raw bound and serves as the under-side rejection probe | Optional extra probe case if the tolerance algorithm ever changes |
 
 ### References
 
@@ -138,4 +174,7 @@ Environment: before implementation run bun install --frozen-lockfile to align in
 ### History
 
 - 2026-10-07T18:47:01.885Z backlog → todo (system)
+- 2026-10-07T19:41:56.863Z todo → wip (system)
+- 2026-10-07T19:59:11.480Z wip → testing (system)
+- 2026-10-07T20:05:34.908Z testing → done (system)
 
