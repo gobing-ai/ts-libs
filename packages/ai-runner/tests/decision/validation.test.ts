@@ -137,6 +137,8 @@ describe('decision boundary validation', () => {
             { accept: 0.8, repair: 0.1 },
             { accept: 1, repair: 0.000002 },
             { accept: 1, repair: 1 },
+            // under-side outside probe: computed total 0.9999989 sits 1.1e-6 below one
+            { accept: 0.5, repair: 0.4999989 },
         ]) {
             await expect(
                 dmWith({ ...answer, probabilities }).ask({ state: null, questions: { x: choice } }),
@@ -160,6 +162,9 @@ describe('decision boundary validation', () => {
             { accept: 1, repair: 0.000001 },
             { accept: 0.9999995, repair: 0.0000005 },
             { accept: 0.5, repair: 0.5 },
+            // under-side inclusive-boundary probe: computed total 0.9999994999999999 sits
+            // ~5e-7 below one, directly inside the raw bound (not via near-one double steps)
+            { accept: 0.5, repair: 0.4999995 },
         ]) {
             const dm = createDecisionMaker({
                 driver: {
