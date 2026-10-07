@@ -4,7 +4,7 @@ name: ActionRunContext AbortSignal propagation and fail-fast process-group cance
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.280Z
-updated_at: "2026-10-04T22:38:00.687Z"
+updated_at: "2026-10-07T20:21:41.509Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -99,6 +99,12 @@ Provides safe termination for fail-fast workflows and run-level abort to task 00
 - `packages/dual-workflow-engine/src/transition-flow.ts:162`: implemented `abortSiblings` for `fail-fast` parallel policies and finalized aborted branches as `'cancelled'`.
 - `packages/dual-workflow-engine/tests/cancellation.test.ts:7`: added test suite for `AbortSignal` propagation, sibling cancellation, and subprocess termination.
 
+Re-audit 2026-10-07: branch signals use the native AbortSignal.any composition, avoiding retained caller abort listeners; fail-fast selects the original branch failure ahead of sibling cancellation. A shell integration regression verifies active subprocess cancellation and persisted failed/cancelled outcomes.
+
+Thrown branch guards are now recorded as branch failures and apply the same fail-fast cancellation as action failures. Fatal worker errors abort sibling signals and drain every worker before propagating the exception.
+
+Follow-up completion audit: action failure and post-action cancellation now pass both the parallel-node scope and owner fence into branch finalization. SQLite and Memory regressions cover reused branch IDs and active shell cancellation across fork regions.
+
 ### Testing
 
 **Pipeline verify results**
@@ -108,14 +114,14 @@ Provides safe termination for fail-fast workflows and run-level abort to task 00
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/dual-workflow-engine/src/types.ts:211` — ActionRunContext.signal?: AbortSignal |
-| R2 | MET | `packages/dual-workflow-engine/src/host.ts:166` — ShellActionRunner forwards signal to ProcessExecutor.run |
-| R3 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:165` — fail-fast abortSiblings aborts all active sibling AbortControllers (anchor corrected from brace line :162) |
-| R4 | MET | Out-of-scope row (process-group management owned by ts-runtime); boundary confirmed in commit 70f43421 |
+| R1 | MET | `packages/dual-workflow-engine/src/types.ts:267`; `packages/dual-workflow-engine/src/types.ts:287`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:136`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). Re-authored .spur/run/0096-verify-answer.txt:9 and .spur/run/0096-verdict.json:9 (follow-up verification artifacts). |
+| R2 | MET | `packages/dual-workflow-engine/src/host.ts:162`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:136`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R3 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:171`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:308`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:350`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R4 | MET | Boundary: shell execution continues through the existing ProcessExecutor adapter seam.; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:136`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R3 — Fail-fast cancels active siblings with process-group cleanup | MET | test | `packages/dual-workflow-engine/tests/cancellation.test.ts:41` ('fail-fast aborts active sibling branches') — anchor corrected from :7; signal exposure proof at :7; subprocess termination at :112 |
+| R3 — Fail-fast cancels active siblings with process-group cleanup | MET | test | `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:136`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:350`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

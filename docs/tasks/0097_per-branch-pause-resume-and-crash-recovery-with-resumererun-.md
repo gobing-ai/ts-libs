@@ -4,7 +4,7 @@ name: Per-branch pause, resume, and crash recovery with resumeRerun checks
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.281Z
-updated_at: "2026-10-04T22:38:02.138Z"
+updated_at: "2026-10-07T20:21:42.842Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -92,6 +92,10 @@ Extend `BranchCoordinator` and `TransitionFlowDriver.resume` to handle partial b
 - `packages/dual-workflow-engine/src/transition-flow.ts:277`: detected branch nodes with `pause: true` and saved their current position in `workflow_branches`.
 - `packages/dual-workflow-engine/tests/pause-resume.test.ts:446`: added test suite verifying that pausing in one branch allows siblings to finish, and resuming does not re-execute completed sibling branches.
 
+Re-audit 2026-10-07: every active branch node is checkpointed before action execution; paused branches persist the actual pause node and their output delta. Resume restores only that branch delta over the fork snapshot, and rerun-enter checks each incomplete branch node before ownership is claimed. Regression tests cover a pause after the branch start and refusal of unsafe interrupted branch recovery.
+
+Follow-up completion audit: restart at the join restores collectedFailure from the snapshot, including skip-enter recovery, so the original aggregate failure is retained.
+
 ### Testing
 
 **Pipeline verify results**
@@ -101,14 +105,14 @@ Extend `BranchCoordinator` and `TransitionFlowDriver.resume` to handle partial b
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:283` — branch pause barrier finalizes branch as 'paused' while siblings finish (anchor corrected from brace line :281) |
-| R2 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:177` — resume skips branches with ledger status 'done' |
-| R3 | MET | `packages/dual-workflow-engine/src/service.ts:254` — rerun-resume refused loudly unless node.resumeRerun === true (anchor corrected from :245) |
-| R4 | MET | Out-of-scope row (StateMachineDriver pause/resume pre-exists); boundary confirmed in commit e0578d15 |
+| R1 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:329`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:41`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). Re-authored .spur/run/0097-verify-answer.txt:9 and .spur/run/0097-verdict.json:9 (follow-up verification artifacts). |
+| R2 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:184`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:179`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:403`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R3 | MET | `packages/dual-workflow-engine/src/service.ts:236`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:66`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R4 | MET | Boundary: StateMachineDriver pause/resume remains unchanged.; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:41`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R7 — Per-branch pause and resume preserves completed siblings | MET | test | `packages/dual-workflow-engine/tests/pause-resume.test.ts:432` ('pauses within a branch while allowing sibling branches to finish') and :488 ('resumes paused branch without re-executing completed siblings') — anchor corrected from in-body :446 |
+| R7 — Per-branch pause and resume preserves completed siblings | MET | test | `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:41`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

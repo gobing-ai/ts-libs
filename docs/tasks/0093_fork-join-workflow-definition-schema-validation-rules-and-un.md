@@ -4,7 +4,7 @@ name: Fork-join workflow definition schema, validation rules, and unhandled para
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.268Z
-updated_at: "2026-10-04T22:36:19.823Z"
+updated_at: "2026-10-07T20:21:36.939Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -107,6 +107,8 @@ Provides verified `FlowParallelNodeDef` and invariant checks to task 0094 (persi
 - `packages/dual-workflow-engine/tests/schema.test.ts:223`: added schema validation tests for valid parallel nodes and malformed/invalid inputs.
 - `packages/dual-workflow-engine/tests/config.test.ts:348`: added semantic validation tests for valid fork-join workflows, nested parallel rejection, branch cycles, and invalid endpoints.
 
+Follow-up completion audit: reject parallel nodes encountered inside their own branch as well as nested sibling forks. A regression proves an own-fork branch start is rejected loudly.
+
 ### Testing
 
 **Pipeline verify results**
@@ -116,14 +118,14 @@ Provides verified `FlowParallelNodeDef` and invariant checks to task 0094 (persi
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/dual-workflow-engine/src/types.ts:121` — JoinPolicy and parallel node props; branch def schema at `packages/dual-workflow-engine/src/schema.ts:120` |
-| R2 | MET | `packages/dual-workflow-engine/src/config.ts:155` — validateTransitionFlow enforces branches/join/acyclic rules |
-| R3 | MET | `packages/dual-workflow-engine/src/schema.ts:120` — FlowParallelBranchDefSchema; nested parallel rejected with WorkflowValidationError |
-| R4 | MET | `packages/dual-workflow-engine/src/schema.ts:119` — parallel schema isolated from FSM defs; state-machine untouched (scope: commit dac4db66) |
+| R1 | MET | `packages/dual-workflow-engine/src/types.ts:146`; `packages/dual-workflow-engine/src/schema.ts:138`; `packages/dual-workflow-engine/tests/schema.test.ts:221`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). Re-authored .spur/run/0093-verify-answer.txt:9 and .spur/run/0093-verdict.json:9 (follow-up verification artifacts). |
+| R2 | MET | `packages/dual-workflow-engine/src/config.ts:160`; `packages/dual-workflow-engine/tests/config.test.ts:348`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R3 | MET | `packages/dual-workflow-engine/src/config.ts:160`; `packages/dual-workflow-engine/tests/config.test.ts:348`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:473`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R4 | MET | Boundary: unchanged StateMachineWorkflowDef; dependency DAG remains feature C3.; `packages/dual-workflow-engine/tests/config.test.ts:348`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R1 — Validation accepts structured fork-join and rejects invalid parallel definitions | MET | test | `packages/dual-workflow-engine/tests/config.test.ts:348` — 'accepts valid structured fork-join workflow'; fresh run: bun test (packages/dual-workflow-engine) 485 pass / 0 fail |
+| R1 — Validation accepts structured fork-join and rejects invalid parallel definitions | MET | test | `packages/dual-workflow-engine/tests/config.test.ts:348`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:473`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

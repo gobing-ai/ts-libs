@@ -4,7 +4,7 @@ name: TransitionFlowDriver parallel region scheduler, concurrency bounding, and 
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.278Z
-updated_at: "2026-10-04T22:37:59.233Z"
+updated_at: "2026-10-07T20:21:40.047Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -109,6 +109,10 @@ Provides parallel execution backbone to task 0096 (cancellation), 0097 (pause/re
 - `packages/dual-workflow-engine/src/transition-flow.ts:352`: implemented `runWithConcurrencyLimit` worker pool bounding concurrent branch execution without third-party dependencies.
 - `packages/dual-workflow-engine/tests/transition-flow.test.ts:430`: added test suite verifying overlapping concurrent execution, variable isolation, concurrency limits, and collect failure policy.
 
+Re-audit 2026-10-07: collect failure policy now drains siblings, merges their output deltas in declaration order, executes the join action, then records aggregate failure. Fork-time variables remain unchanged while any branch is paused. The bounded worker pool remains integrated in TransitionFlowDriver rather than adding a separate BranchCoordinator class; it implements the same coordinator behavior without another abstraction.
+
+Follow-up completion audit: parallel-to-parallel join hops enforce the same iteration bound as sequential hops; a dry-run regression verifies loop termination.
+
 ### Testing
 
 **Pipeline verify results**
@@ -118,17 +122,17 @@ Provides parallel execution backbone to task 0096 (cancellation), 0097 (pause/re
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:150` — concurrencyLimit ?? 4 bounding active branches |
-| R2 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:245` — per-branch isolated branchVars/branchSetVars accumulation via mergeSetVars |
-| R3 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:246` — collect policy merges deltas deterministically; test proof at `packages/dual-workflow-engine/tests/transition-flow.test.ts:608` |
-| R4 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:246` — declaration-order mergeSetVars join; collision rule per merge order |
-| R5 | MET | Out-of-scope row (SIGTERM escalation → 0096, pause/resume → 0097); boundary confirmed in commit 29f83335 |
+| R1 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:161`; `packages/dual-workflow-engine/tests/transition-flow.test.ts:549`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:439`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). Re-authored .spur/run/0095-verify-answer.txt:9 and .spur/run/0095-verdict.json:9 (follow-up verification artifacts). |
+| R2 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:225`; `packages/dual-workflow-engine/tests/transition-flow.test.ts:478`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R3 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:151`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:158`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:403`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R4 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:225`; `packages/dual-workflow-engine/tests/transition-flow.test.ts:478`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R5 | MET | Boundary: process-group cleanup is delegated through ts-runtime (0096); pause/resume remains 0097.; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:136`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R2 — Concurrent branch execution overlaps under bounded concurrency | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:414` ('runs parallel branches concurrently') and :549 ('enforces concurrencyLimit') — anchors corrected from in-body :430 |
-| R4 — Collect failure policy allows all branches to complete before recording aggregate failure | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:608` — anchor corrected from :580 (wrong test body) |
-| R5 — Branch variable isolation and deterministic join merge | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:478` — anchor corrected from in-body :480 |
+| R2 — Concurrent branch execution overlaps under bounded concurrency | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:414`; `packages/dual-workflow-engine/tests/transition-flow.test.ts:549`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:439`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R4 — Collect failure policy allows all branches to complete before recording aggregate failure | MET | test | `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:158`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:403`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R5 — Branch variable isolation and deterministic join merge | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:478`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

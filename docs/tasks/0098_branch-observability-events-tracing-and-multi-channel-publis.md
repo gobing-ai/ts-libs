@@ -4,7 +4,7 @@ name: Branch observability events, tracing, and multi-channel publish E2E integr
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.282Z
-updated_at: "2026-10-04T22:38:03.548Z"
+updated_at: "2026-10-07T20:21:44.214Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -120,16 +120,16 @@ Add branch event signatures in `src/events.ts`. Add emission hooks in `src/run-l
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/dual-workflow-engine/src/events.ts:149` — workflow.branch.started/done/failed/paused event keys |
-| R2 | MET | `packages/dual-workflow-engine/src/run-lifecycle.ts:487` — branchStarted emission with OTel span events |
-| R3 | MET | `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10` — 3-channel publish E2E (podcast, xhs, wechat) asserting true concurrency |
-| R4 | MET | bun run spur-check: 2774 pass / 0 fail across 232 files, exit 0 (fresh this run) — zero regressions on serial/FSM fixtures |
+| R1 | MET | `packages/dual-workflow-engine/src/events.ts:149`; `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). Re-authored .spur/run/0098-verify-answer.txt:9 and .spur/run/0098-verdict.json:9 (follow-up verification artifacts). |
+| R2 | MET | `packages/dual-workflow-engine/src/run-lifecycle.ts:495`; `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R3 | MET | `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:158`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R4 | MET | Serial and FSM regression suites run in the full project gate.; `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R8 — Existing serial workflows and FSM runs remain unchanged | MET | test | bun run spur-check: 2774 pass / 0 fail across 232 files, exit 0 (fresh this run) |
-| R2 — Concurrent branch execution overlaps under bounded concurrency | MET | test | `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10` |
-| R4 — Collect failure policy allows all branches to complete before recording aggregate failure | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:608` |
+| R8 — Existing serial workflows and FSM runs remain unchanged | MET | test | `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R2 — Concurrent branch execution overlaps under bounded concurrency | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:414`; `packages/dual-workflow-engine/tests/transition-flow.test.ts:549`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:439`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R4 — Collect failure policy allows all branches to complete before recording aggregate failure | MET | test | `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:158`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:403`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

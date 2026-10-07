@@ -4,7 +4,7 @@ name: Durable branch execution ledger schema, persistence adapter methods, and a
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.276Z
-updated_at: "2026-10-04T22:37:57.601Z"
+updated_at: "2026-10-07T20:21:38.608Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -124,6 +124,10 @@ Supplies durable branch operations and atomic join commit to task 0095 (schedule
 - `packages/dual-workflow-engine/src/persistence.ts:66`: `DbWorkflowPersistenceAdapter` and `MemoryWorkflowPersistenceAdapter` implemented branch methods with upsert on conflict and in-memory branch records.
 - `packages/dual-workflow-engine/tests/persistence.test.ts:875`: added comprehensive test suite for branch ledger operations, query filtering, and atomic join commit.
 
+Re-audit 2026-10-07: branch finalization now accepts an optional checkpoint containing the parallel-region ID and current branch node. Both persistence adapters update only that region and persist the current node and output delta for recovery. The re-audit also adds ownership fences to branch start/checkpoint/finalize and join writes. SQLite/D1 commitJoin batches branch outcome records with the join transition, snapshot, and phase under the same owner fence; a stale attempt cannot mutate either the ledger or join. Join snapshots retain transitionsTaken for recovery. Both adapters reject stale owners. Regression coverage includes ownership loss between pre-check and transaction dispatch.
+
+Follow-up completion audit: commitJoin now persists the optional collectedFailure value in its atomic snapshot. SQLite and Memory restart tests verify that aggregate failure cannot turn into success after recovering at the join.
+
 ### Testing
 
 **Pipeline verify results**
@@ -133,14 +137,14 @@ Supplies durable branch operations and atomic join commit to task 0095 (schedule
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/dual-workflow-engine/src/schema-sql.ts:74` — CREATE TABLE IF NOT EXISTS workflow_branches with run_id/parallel_node/branch_id/status/node/output_vars_json/error |
-| R2 | MET | `packages/dual-workflow-engine/src/types.ts:497` — saveBranchStart/saveBranchFinalize/listRunBranches adapter contract (anchor corrected from stale :359); Db + Memory impls at `packages/dual-workflow-engine/src/persistence.ts:66` |
-| R3 | MET | `packages/dual-workflow-engine/src/persistence.ts:66` — atomic commitJoin batch transaction (ADR-020) |
-| R4 | MET | Out-of-scope row (in-process scheduling owned by 0095); scope boundary confirmed in commit 54b61ccb |
+| R1 | MET | `packages/dual-workflow-engine/src/schema-sql.ts:74`; `packages/dual-workflow-engine/tests/persistence.test.ts:876`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). Re-authored .spur/run/0094-verify-answer.txt:9 and .spur/run/0094-verdict.json:9 (follow-up verification artifacts). |
+| R2 | MET | `packages/dual-workflow-engine/src/persistence.ts:456`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:216`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:350`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R3 | MET | `packages/dual-workflow-engine/src/persistence.ts:508`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:254`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:403`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R4 | MET | Boundary: in-process scheduling remains in TransitionFlowDriver (0095).; `packages/dual-workflow-engine/tests/transition-flow.test.ts:549`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R6 — Persisted branch execution ledger and idempotent join activation | MET | test | `packages/dual-workflow-engine/tests/persistence.test.ts:875` — 'Branch ledger persistence (task 0094)'; fresh run: bun test (packages/dual-workflow-engine) 485 pass / 0 fail |
+| R6 — Persisted branch execution ledger and idempotent join activation | MET | test | `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:179`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:254`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:403`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

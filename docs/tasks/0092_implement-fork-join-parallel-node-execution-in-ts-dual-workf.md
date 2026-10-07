@@ -4,7 +4,7 @@ name: Implement fork/join parallel node execution in ts-dual-workflow-engine
 status: done
 template: feature-impl
 created_at: 2026-10-04T06:57:19.806Z
-updated_at: "2026-10-04T22:37:55.397Z"
+updated_at: "2026-10-07T20:21:45.817Z"
 feature_id: C2
 
 dependencies: ["0093", "0094", "0095", "0096", "0097", "0098"]
@@ -115,6 +115,10 @@ Umbrella delivery covering Feature C2 via 6 cohesive child tasks:
 - Task 0097: `packages/dual-workflow-engine/src/transition-flow.ts:288` implemented branch-level pause persistence (`saveBranchFinalize` as `'paused'`) and selective resumption of paused branches without repeating completed siblings.
 - Task 0098: `packages/dual-workflow-engine/src/events.ts:149` added branch lifecycle events and OTel span events, and created comprehensive E2E multi-channel publish integration fixture in `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10`.
 
+Re-audit 2026-10-07: corrected branch checkpoint/resume position and delta restoration, collect-policy join entry, original fail-fast failure selection, thrown-guard cancellation and worker draining, and ownership-fenced branch/join persistence. Db commitJoin now includes branch outcomes, transition, snapshot, phase and transition count in one atomic batch. Added dedicated regression coverage in packages/dual-workflow-engine/tests/parallel-regressions.test.ts. The coordinator remains integrated in TransitionFlowDriver, preserving the designed bounded scheduler without a separate class.
+
+Follow-up completion audit: action-failure and cancellation ledger writes now carry the parallel-region and owner checkpoint on every path. Collected failure survives a crash at the join snapshot, parallel join hops enforce iterationBound, and validation rejects a fork used recursively as its own branch start.
+
 ### Testing
 
 **Pipeline verify results**
@@ -124,24 +128,24 @@ Umbrella delivery covering Feature C2 via 6 cohesive child tasks:
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/dual-workflow-engine/src/config.ts:155` — validateTransitionFlow; branch schema at `packages/dual-workflow-engine/src/schema.ts:120` |
-| R2 | MET | `packages/dual-workflow-engine/src/persistence.ts:66` — DbWorkflowPersistenceAdapter; ledger table at `packages/dual-workflow-engine/src/schema-sql.ts:74` |
-| R3 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:150` — concurrencyLimit ?? 4 bounded scheduler in TransitionFlowDriver |
-| R4 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:165` — fail-fast abortSiblings; signal threading at `packages/dual-workflow-engine/src/host.ts:166` |
-| R5 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:246` — isolated branchSetVars deltas merged via mergeSetVars in declaration order |
-| R6 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:283` — branch pause barrier; ledger status 'paused' at :288 |
-| R7 | MET | `packages/dual-workflow-engine/src/events.ts:149` — workflow.branch.started event family; emission at `packages/dual-workflow-engine/src/run-lifecycle.ts:487` |
+| R1 | MET | `packages/dual-workflow-engine/src/config.ts:160`; `packages/dual-workflow-engine/tests/config.test.ts:348`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:473`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). Re-authored .spur/run/0092-verify-answer.txt:9 and .spur/run/0092-verdict.json:9 (follow-up verification artifacts). |
+| R2 | MET | `packages/dual-workflow-engine/src/persistence.ts:508`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:254`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:350`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:403`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R3 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:161`; `packages/dual-workflow-engine/tests/transition-flow.test.ts:549`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:439`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R4 | MET | `packages/dual-workflow-engine/src/host.ts:162`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:136`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:350`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R5 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:225`; `packages/dual-workflow-engine/tests/transition-flow.test.ts:478`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R6 | MET | `packages/dual-workflow-engine/src/transition-flow.ts:329`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:41`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R7 | MET | `packages/dual-workflow-engine/src/events.ts:149`; `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R1 — Validation accepts structured fork-join and rejects invalid parallel definitions | MET | test | `packages/dual-workflow-engine/tests/config.test.ts:348` |
-| R2 — Concurrent branch execution overlaps under bounded concurrency | MET | test | `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10`; unit proof at `packages/dual-workflow-engine/tests/transition-flow.test.ts:414` |
-| R3 — Fail-fast cancels active siblings with process-group cleanup | MET | test | `packages/dual-workflow-engine/tests/cancellation.test.ts:41` |
-| R4 — Collect failure policy allows all branches to complete before recording aggregate failure | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:608` |
-| R5 — Branch variable isolation and deterministic join merge | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:478` |
-| R6 — Persisted branch execution ledger and idempotent join activation | MET | test | `packages/dual-workflow-engine/tests/persistence.test.ts:875` |
-| R7 — Per-branch pause and resume preserves completed siblings | MET | test | `packages/dual-workflow-engine/tests/pause-resume.test.ts:432` and :488 |
-| R8 — Existing serial workflows and FSM runs remain unchanged | MET | test | bun run spur-check: 2774 pass / 0 fail across 232 files, exit 0 (fresh this run); bun test (packages/dual-workflow-engine): 485 pass / 0 fail |
+| R1 — Validation accepts structured fork-join and rejects invalid parallel definitions | MET | test | `packages/dual-workflow-engine/tests/config.test.ts:348`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:473`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R2 — Concurrent branch execution overlaps under bounded concurrency | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:414`; `packages/dual-workflow-engine/tests/transition-flow.test.ts:549`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:439`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R3 — Fail-fast cancels active siblings with process-group cleanup | MET | test | `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:136`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:350`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R4 — Collect failure policy allows all branches to complete before recording aggregate failure | MET | test | `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:158`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:403`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R5 — Branch variable isolation and deterministic join merge | MET | test | `packages/dual-workflow-engine/tests/transition-flow.test.ts:478`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R6 — Persisted branch execution ledger and idempotent join activation | MET | test | `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:179`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:254`; `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:403`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R7 — Per-branch pause and resume preserves completed siblings | MET | test | `packages/dual-workflow-engine/tests/parallel-regressions.test.ts:41`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
+| R8 — Existing serial workflows and FSM runs remain unchanged | MET | test | `packages/dual-workflow-engine/tests/e2e-parallel.test.ts:10`; bun run spur-check: 2836 pass / 0 fail; Biome, all package typechecks, 58 pre-check rules and 2 post-check rules pass; exit 0 (fresh this run). |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
