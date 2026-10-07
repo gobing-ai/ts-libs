@@ -31,6 +31,7 @@ describe('toMs', () => {
 
     test('returns null for invalid or nullish input', () => {
         expect(toMs('not-a-date')).toBeNull();
+        expect(toMs(new Date(Number.NaN))).toBeNull();
         expect(toMs(null)).toBeNull();
         expect(toMs(undefined)).toBeNull();
     });

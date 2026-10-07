@@ -6,7 +6,7 @@ export function nowMs(): number {
 /** Normalize a date/time input to milliseconds since the Unix epoch. Returns `null` for unparseable or invalid values. */
 export function toMs(input: Date | number | string | null | undefined): number | null {
     if (input === null || input === undefined) return null;
-    if (input instanceof Date) return input.getTime();
+    if (input instanceof Date) return toMs(input.getTime());
     if (typeof input === 'string') {
         const parsed = new Date(input).getTime();
         return Number.isNaN(parsed) ? null : parsed;
