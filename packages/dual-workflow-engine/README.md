@@ -172,6 +172,16 @@ owner-attempt fence. `saveBranchFinalize` accepts an optional checkpoint with `p
 and `ownerAttempt`; `commitJoin` accepts optional owner-attempt, transition-count and collected-failure
 arguments. Collected failure is preserved across restart at the join.
 
+DAG nodes publish completion and string variable deltas only after their action audit and terminal
+ledger write settle. Recovery uses the `__dag__` ledger: completed actions stay completed, and
+`transitionsTaken` counts distinct done/paused nodes without counting acknowledgements or replays twice.
+Recovered variables merge in this order: workflow defaults, snapshot baseline, completed-node deltas
+in stable topological order (declaration order breaks ties), then caller overrides. Live sibling
+collisions follow durable completion order. A pause action completes before acknowledgement;
+`skip-enter` acknowledges it once, while `rerun-enter` requires that node's `resumeRerun: true` marker.
+Every previously unfinished action needs its own marker for replay. Recovery is at least once for
+action effects not yet durably recorded; stop or reconcile the previous owner before resuming.
+
 All three delegate run identity, persistence sequencing, and observability to `RunLifecycle`:
 
 ```

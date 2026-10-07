@@ -779,6 +779,89 @@ describe('DagDriver — completion-driven admission (task 0105)', () => {
         expect(persistence.finalizeEvents).toContain('fast-root:done');
     });
 
+    test('AC1: unrelated completion cannot publish a producer whose terminal write is held', async () => {
+        const persistence = new RecordingPersistence();
+        const held = makeGate();
+        const producerWriting = makeGate();
+        const unrelatedStarted = makeGate();
+        const releaseUnrelated = makeGate();
+        const unrelatedChild = makeGate();
+        const starts: string[] = [];
+        const original = persistence.saveBranchFinalize.bind(persistence);
+        persistence.saveBranchFinalize = async (...args) => {
+            if (args[1] === 'producer') producerWriting.resolve();
+            return original(...args);
+        };
+        persistence.holds.set('producer', held.promise);
+        const host = createDefaultWorkflowEngineHost().registerAction({
+            kind: 'probe',
+            async execute(options) {
+                const id = String(options.id);
+                starts.push(id);
+                if (id === 'unrelated') {
+                    unrelatedStarted.resolve();
+                    await releaseUnrelated.promise;
+                }
+                if (id === 'unrelated-child') unrelatedChild.resolve();
+                return { ok: true };
+            },
+        });
+        const run = new WorkflowService(host, persistence).run({
+            kind: 'dag',
+            name: 'held-producer-wakeup',
+            nodes: [
+                { id: 'producer', action: { kind: 'probe', options: { id: 'producer' } } },
+                { id: 'unrelated', action: { kind: 'probe', options: { id: 'unrelated' } } },
+                { id: 'child', dependsOn: ['producer'], action: { kind: 'probe', options: { id: 'child' } } },
+                {
+                    id: 'unrelated-child',
+                    dependsOn: ['unrelated'],
+                    action: { kind: 'probe', options: { id: 'unrelated-child' } },
+                },
+            ],
+        });
+        try {
+            await Promise.all([producerWriting.promise, unrelatedStarted.promise]);
+            releaseUnrelated.resolve();
+            await unrelatedChild.promise;
+            expect(starts).not.toContain('child');
+        } finally {
+            held.resolve();
+            releaseUnrelated.resolve();
+            expect((await run).status).toBe('done');
+        }
+        expect(starts.filter((id) => id === 'child')).toHaveLength(1);
+    });
+
+    test('AC5: a coordinator-only exception retains its original identity after draining', async () => {
+        const reason = new Error('coordinator scan failed');
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        let calls = 0;
+        const host = createDefaultWorkflowEngineHost().registerAction({
+            kind: 'probe',
+            async execute() {
+                calls++;
+                return { ok: true };
+            },
+        });
+        const workflow: DagWorkflowDef = {
+            kind: 'dag',
+            name: 'coordinator-error',
+            nodes: [{ id: 'root', action: { kind: 'probe' } }],
+        };
+        Object.defineProperty(workflow.nodes, 'entries', {
+            value: function* () {
+                yield [0, workflow.nodes[0]];
+                throw reason;
+            },
+        });
+        await expect(new WorkflowService(host, persistence).run(workflow)).rejects.toBe(reason);
+        expect(calls).toBe(1);
+        const run = (await persistence.listRuns())[0];
+        expect(run?.status).toBe('failed');
+        expect((await persistence.listRunBranches(run?.id ?? '', '__dag__'))[0]?.status).toBe('done');
+    });
+
     test('AC2: policy=any admits on first satisfied parent; policy=all waits for every parent', async () => {
         const { host, starts, gate, release } = makeGatedHost();
         const service = new WorkflowService(host, new MemoryWorkflowPersistenceAdapter());

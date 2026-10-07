@@ -425,6 +425,45 @@ describe('recovery regressions (task 0104)', () => {
         expect(calls.get('gate')).toBe(1);
     });
 
+    test('AC3: rerun admission checks the snapshot pause target before claiming ownership', async () => {
+        const { host, calls } = makeHost();
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        const svc = new WorkflowService(host, persistence);
+        const wf: DagWorkflowDef = {
+            kind: 'dag',
+            name: 'snapshot-pause-target',
+            nodes: [
+                { id: 'first', pause: true, resumeRerun: true, action: { kind: 'probe', options: { id: 'first' } } },
+                { id: 'second', pause: true, action: { kind: 'probe', options: { id: 'second' } } },
+            ],
+        };
+        const paused = await svc.run(wf);
+        await persistence.saveWorkflowState(paused.runId, 'second', {});
+        const before = await persistence.loadRun(paused.runId);
+        await expect(svc.resumeRun(wf, paused.runId, { resumeMode: 'rerun-enter' })).rejects.toThrow('second');
+        expect(await persistence.loadRun(paused.runId)).toEqual(before);
+        expect(calls.get('first')).toBe(1);
+        expect(calls.get('second')).toBe(1);
+    });
+
+    test('AC1: a run with neither recovery anchor nor ledger is refused before ownership claim', async () => {
+        const { host, calls } = makeHost();
+        const persistence = new MemoryWorkflowPersistenceAdapter();
+        await seedRunRecord(persistence, 'no-progress', 'empty-progress');
+        await persistence.interruptRun('empty-progress', 'dead owner');
+        const before = await persistence.loadRun('empty-progress');
+        const wf: DagWorkflowDef = {
+            kind: 'dag',
+            name: 'no-progress',
+            nodes: [{ id: 'action', action: { kind: 'probe', options: { id: 'action' } } }],
+        };
+        await expect(new WorkflowService(host, persistence).resumeRun(wf, 'empty-progress')).rejects.toBeInstanceOf(
+            WorkflowResumeError,
+        );
+        expect(await persistence.loadRun('empty-progress')).toEqual(before);
+        expect(calls.size).toBe(0);
+    });
+
     test('Design 6: direct DagDriver.resume honors the same admission contract (happy path)', async () => {
         const { host, calls } = makeHost();
         const persistence = new MemoryWorkflowPersistenceAdapter();

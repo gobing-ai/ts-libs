@@ -139,7 +139,15 @@ export async function assertDagResumeAllowed(
         }
     }
 
-    const pausedTarget = workflow.nodes.find((node) => statusByNode.get(node.id) === 'paused')?.id;
+    const snapshot = await persistence.loadLatestStateSnapshot(runId);
+    const snapshotState = snapshot?.state;
+    if (snapshot === undefined && rows.length === 0) {
+        throw new WorkflowResumeError(`Run "${runId}" has no persisted DAG progress to resume from`);
+    }
+    const pausedTarget =
+        snapshotState !== undefined && statusByNode.get(snapshotState) === 'paused'
+            ? snapshotState
+            : workflow.nodes.find((node) => statusByNode.get(node.id) === 'paused')?.id;
     if (pausedTarget !== undefined && resumeMode === 'rerun-enter') {
         const target = workflow.nodes.find((node) => node.id === pausedTarget);
         if (target?.resumeRerun !== true) {
@@ -150,8 +158,6 @@ export async function assertDagResumeAllowed(
         }
     }
 
-    const snapshot = await persistence.loadLatestStateSnapshot(runId);
-    const snapshotState = snapshot?.state;
     const anchor =
         (snapshotState !== undefined && statusByNode.has(snapshotState) ? snapshotState : undefined) ??
         deriveDagResumeAnchor(workflow.nodes, statusByNode);
@@ -394,7 +400,6 @@ export class DagDriver {
                     workdir: options.workdir,
                 });
                 if (!passed) {
-                    nodeStatuses.set(node.id, 'skipped');
                     // BranchStatus has no 'skipped'; 'cancelled' marks settled-without-running.
                     if (!options.dryRun) {
                         await this.options.persistence.saveBranchFinalize(
@@ -431,7 +436,6 @@ export class DagDriver {
                     defaultOnError,
                 });
                 if (step.outcome === 'fail') {
-                    nodeStatuses.set(node.id, 'failed');
                     if (!options.dryRun) {
                         await this.options.persistence.saveBranchFinalize(
                             runId,
@@ -445,7 +449,6 @@ export class DagDriver {
                     return { id: node.id, status: 'failed' as const, error: step.result?.error ?? 'failed' };
                 }
                 if (step.result?.setVars) {
-                    vars = mergeSetVars(vars, step.result.setVars);
                     acceptedDelta = pickStringEntries(step.result.setVars);
                 }
             }
@@ -453,10 +456,6 @@ export class DagDriver {
             // Task 0104 R1: persist the accepted string setVars delta through
             // outputVars so dependent resumes recover produced variables even
             // without a snapshot. No-action nodes store an empty delta.
-            nodeStatuses.set(node.id, 'done');
-            // A node re-executed after pause/rerun admission was already
-            // counted from its ledger row — never count it twice.
-            if (!nodeDeltas.has(node.id)) transitionsTaken++;
             if (!options.dryRun) {
                 await this.options.persistence.saveBranchFinalize(
                     runId,
@@ -466,8 +465,10 @@ export class DagDriver {
                     acceptedDelta,
                 );
             }
+            // Publish output/count only after the terminal ledger write succeeds.
+            vars = mergeSetVars(vars, acceptedDelta ?? {});
+            if (!nodeDeltas.has(node.id)) transitionsTaken++;
             if (isPauseNode) {
-                nodeStatuses.set(node.id, 'paused');
                 return { id: node.id, status: 'paused' as const };
             }
             return { id: node.id, status: 'done' as const };
@@ -478,6 +479,7 @@ export class DagDriver {
             nodeStatuses.set(node.id, 'running');
             const tracking = executeNode(node).then(
                 (result) => {
+                    nodeStatuses.set(node.id, result.status);
                     settlements.push({ kind: 'fulfilled', id: node.id, index, result });
                     if (result.status === 'failed' || result.status === 'paused') stopAdmission = true;
                 },
@@ -568,6 +570,7 @@ export class DagDriver {
         if (nodeReasons.length === 1 && !coordinatorCaught) {
             throw nodeReasons[0];
         }
+        if (nodeReasons.length === 0 && coordinatorCaught) throw coordinatorError;
         if (nodeReasons.length > 0 || coordinatorCaught) {
             const reasons = [...nodeReasons];
             if (coordinatorCaught) reasons.push(coordinatorError);
