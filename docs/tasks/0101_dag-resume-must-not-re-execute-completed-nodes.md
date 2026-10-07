@@ -4,7 +4,7 @@ name: DAG resume must not re-execute completed nodes
 status: done
 template: feature-impl
 created_at: 2026-10-04T23:31:01.049Z
-updated_at: "2026-10-04T23:46:13.626Z"
+updated_at: "2026-10-07T21:52:28.544Z"
 feature_id: C3
 
 priority: P1
@@ -111,16 +111,7 @@ On loop start, seed `nodeStatuses` from `prior`: `done` rows → `done`; `paused
 
 ### Solution
 
-Change map (all in `packages/dual-workflow-engine`):
-
-- `packages/dual-workflow-engine/src/dag.ts:24` — `DAG_LEDGER_NAMESPACE = '__dag__'`: reuses the 0094 branch ledger for per-node DAG execution records; no adapter or schema change (R4 invariant kept).
-- `packages/dual-workflow-engine/src/dag.ts:88` — resume seeds `nodeStatuses` from `listRunBranches(runId, '__dag__')`: `done`→done, `cancelled`→skipped, `failed`→failed; `paused`/`running`/`pending` rows fall through to the existing dependsOn rule so interrupted nodes re-run.
-- `packages/dual-workflow-engine/src/dag.ts:174` + per-outcome finalizes — every node dispatch is bracketed by `saveBranchStart`/`saveBranchFinalize` (done/failed/paused, and `cancelled` for condition-skips since `BranchStatus` has no `skipped` — documented deviation from the Design wording "finalize as skipped"). Writes are per-node, never batched with run finalization; skipped entirely under `dryRun`.
-- `packages/dual-workflow-engine/src/dag.ts:290` — finalization guard: any node still `pending` at loop exit fails the run with named reason `dag-unreachable-nodes: <ids>` instead of silently reporting done. Verified trigger: resume with a drifted definition whose dependency no longer exists (resumeRun does not re-validate).
-- `packages/dual-workflow-engine/tests/dag.test.ts:151` — counter regression: pre-pause node action must execute exactly once across pause+resume (failed before the fix with `executions={"a":2,"b":1}`).
-- `packages/dual-workflow-engine/tests/dag.test.ts:183` — unreachable-node regression: drifted resume definition fails with `dag-unreachable-nodes: b`.
-
-Rationale: root cause was resume seeding `nodeStatuses` purely from `dependsOn` with only the paused node restored — completed pre-pause nodes reset to ready and re-dispatched. The ledger channel already existed (0094), is per-run queryable, and required no shared-path change to FSM/transition-flow.
+DAG completion uses the existing __dag__ branch ledger at packages/dual-workflow-engine/src/dag.ts:226-258,460-470 and an unreachable-node finalization guard at line 595. No new adapter method was introduced. Tasks 0104/0105 intentionally replace the historical snapshot-as-done shortcut and wave loop: pause acknowledgement now uses actual paused ledger rows and nodes publish readiness only after durable settlement. packages/dual-workflow-engine/tests/dag.test.ts:151 pins counters and line 183 pins loud failure; packages/dual-workflow-engine/tests/recovery-regressions.test.ts:161 verifies interruption without pause.
 
 ### Testing
 
@@ -131,27 +122,50 @@ Rationale: root cause was resume seeding `nodeStatuses` purely from `dependsOn` 
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/dual-workflow-engine/src/dag.ts:174` — per-node saveBranchStart/Finalize into the `__dag__` ledger namespace (`packages/dual-workflow-engine/src/dag.ts:24`) |
-| R2 | MET | `packages/dual-workflow-engine/src/dag.ts:88` — resume seeds nodeStatuses from listRunBranches; replay probe reproduced `executions={"a":2,"b":1}` pre-fix, regression test proves a==1 post-fix |
-| R3 | MET | `packages/dual-workflow-engine/src/dag.ts:292` — guard fails run with named reason dag-unreachable-nodes; trigger verified: resume with drifted definition |
-| R4 | MET | git diff scope limited to src/dag.ts + tests/dag.test.ts; no adapter method added; FSM/transition-flow resume tests green in the 505-test package run |
-| R5 | MET | Out-of-scope row (retry policy, dynamic expansion); not touched |
+| R1 | MET | packages/dual-workflow-engine/src/dag.ts:227-258 seeds done/paused statuses and counts from the existing ledger; packages/dual-workflow-engine/tests/dag.test.ts:151 proves execution counters do not replay completed actions. Fresh full gate: 2861 pass, 0 fail. |
+| R2 | MET | packages/dual-workflow-engine/src/dag.ts:189-204 and packages/dual-workflow-engine/src/service.ts:222-286 apply service/direct admission and ownership before recovery. packages/dual-workflow-engine/tests/recovery-regressions.test.ts:161,191,449 covers interruption/no-progress refusal; packages/dual-workflow-engine/tests/dag.test.ts:151 covers pause resume. Fresh full gate: 2861 pass, 0 fail. |
+| R3 | MET | packages/dual-workflow-engine/src/dag.ts:595-597 rejects stranded pending nodes with named dag-unreachable-nodes; packages/dual-workflow-engine/tests/dag.test.ts:183 regression observes failed result instead of done. Fresh full gate: 2861 pass, 0 fail. |
+| R4 | MET | packages/dual-workflow-engine/src/types.ts:563-581 retains the existing branch adapter methods; only DAG production code changed in this pass. Fresh full gate includes FSM and transition-flow resume suites. Fresh full gate: 2861 pass, 0 fail. |
+| R5 | MET | packages/dual-workflow-engine/src/dag.ts:328-359 retains all/any policy; dynamic graph expansion and per-node retry policy remain excluded. Fresh full gate: 2861 pass, 0 fail. |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R4 — Durable DAG recovery | MET | test | `packages/dual-workflow-engine/tests/dag.test.ts:151` — counter assertion a==1 across pause+resume; :183 unreachable-node named failure; fresh run: bun test (packages/dual-workflow-engine) 505 pass / 0 fail |
-| AC1 — Durable DAG recovery | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:151 — counter assertion a==1 across pause+resume |
+| Scenario: R4 — Durable DAG recovery | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:151 proves execution counters; line 183 checks unreachable failure. packages/dual-workflow-engine/tests/recovery-regressions.test.ts:161,428,449 checks interruption and refusal before ownership. Fresh full gate: 2861 pass, 0 fail. |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- spur:record-review -->
+#### Review Report — 0101
 
-**SECU findings** (pipeline verify step — verdict: PASS)
+**Scope:** working tree fallback (no exact task subject tag), restricted to this task's declared source/tests plus immediate callers; source and anchors reread this run.
+**Dimensions:** functional, security, efficiency, correctness, usability, architecture.
+**Verdict:** PASS
 
-| Priority | Dimension | Location | Finding |
-|----------|-----------|----------|----------|
-| P4 | — | — | No findings (verify verdict PASS) |
+##### Findings
+
+| Priority | Dimension | Location | Finding | Disposition |
+| --- | --- | --- | --- | --- |
+| P4 | all | packages/dual-workflow-engine/src/dag.ts:121-600 | No open P1-P3 findings: task requirements/AC trace to real-driver tests and the fresh full gate. | ACCEPTED |
+
+##### Functional Traceability
+
+| Req | Status | Evidence |
+| --- | --- | --- |
+| R1 | MET | packages/dual-workflow-engine/src/dag.ts:227-258 seeds done/paused statuses and counts from the existing ledger; packages/dual-workflow-engine/tests/dag.test.ts:151 proves execution counters do not replay completed actions. |
+| R2 | MET | packages/dual-workflow-engine/src/dag.ts:189-204 and packages/dual-workflow-engine/src/service.ts:222-286 apply service/direct admission and ownership before recovery. packages/dual-workflow-engine/tests/recovery-regressions.test.ts:161,191,449 covers interruption/no-progress refusal; packages/dual-workflow-engine/tests/dag.test.ts:151 covers pause resume. |
+| R3 | MET | packages/dual-workflow-engine/src/dag.ts:595-597 rejects stranded pending nodes with named dag-unreachable-nodes; packages/dual-workflow-engine/tests/dag.test.ts:183 regression observes failed result instead of done. |
+| R4 | MET | packages/dual-workflow-engine/src/types.ts:563-581 retains the existing branch adapter methods; only DAG production code changed in this pass. Fresh full gate includes FSM and transition-flow resume suites. |
+| R5 | MET | packages/dual-workflow-engine/src/dag.ts:328-359 retains all/any policy; dynamic graph expansion and per-node retry policy remain excluded. |
+
+##### SECUA Quality
+
+Replay admission remains before ownership claim; both entry points share the same helper. Nodes reserve admission once, publish only durable completion, and drained errors keep their reasons. No secrets, unbounded new buffers, new dependencies, suppressions or skipped tests were introduced. Existing fail/continue and lifecycle error composition remain intact. Historical accepted observations are maintained by the design: no timeout for nonsettling work, action failures use fail-policy results, and variable collisions follow durable live completion / stable topological recovery ordering.
+
+##### Architectural Depth
+
+No candidates: DAG validation, scheduling, ledger recovery and lifecycle finalization retain their existing seams. No production FSM/transition-flow or adapter-contract changes; ADR-034 remains satisfied. Historical wave and snapshot-shortcut descriptions are superseded explicitly in Solution by tasks 0104/0105. Driver dryRun suppression retains the shared terminal-pause write contract; ledger writes remain separate from action effects with marked at-least-once replay, as documented in README.
+
+**Validation:** bun run spur-check exit 0, 2861 pass / 0 fail, 58 pre / 2 post rules; all package builds exit 0. Receipts .spur/run/c3-verifyall/spur-check.log and build.log.
 
 ### References
 

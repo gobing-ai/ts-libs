@@ -4,7 +4,7 @@ name: Dispatch ready DAG dependents without waiting for unrelated nodes
 status: done
 template: feature-impl
 created_at: 2026-10-07T18:45:38.827Z
-updated_at: "2026-10-07T20:49:02.888Z"
+updated_at: "2026-10-07T21:52:34.625Z"
 feature_id: C3
 
 priority: P2
@@ -127,32 +127,63 @@ Implementation step 0 aligns installed zod 4.2.1 to locked 4.4.3 with bun instal
 
 ### Solution
 
-- `packages/dual-workflow-engine/src/dag.ts:367` — completion-driven admission replaces wave dispatch: loop-local loop-local `inFlight`/tracking map, tagged settlement queue, declaration-indexed outcomes, and `stopAdmission` latch (dag.ts:359-375).
-- `packages/dual-workflow-engine/src/dag.ts:376` — `executeNode` keeps the per-node chain intact (ledger start → guard/condition → action+audit → pause-after-evidence → terminal branch finalize); readiness publishes only when the whole node promise settles (AC1b: a held terminal write blocks child dispatch).
-- `packages/dual-workflow-engine/src/dag.ts:476` — `admit()` synchronously reserves `running` (exactly-once; also admits ledger-restored `ready` nodes) and attaches fulfilled+rejected observers that never reject; reject/fail/pause latches stop-admission immediately.
-- `packages/dual-workflow-engine/src/dag.ts:548` — settlements consumed into the declaration-indexed outcomes array; readiness + skip propagation scan runs to a fixed point in declaration order (backward-declared all-skipped chains settle); `Promise.race` over tracking promises is notification-only.
-- `packages/dual-workflow-engine/src/dag.ts:506` — stop latch triggers a `Promise.allSettled` drain barrier so every admitted action/audit/branch write lands before finalization; coordinator exceptions drain and retain outcomes instead of discarding them.
-- `packages/dual-workflow-engine/src/dag.ts:558` — unified 0103 routing on the new scheduler: single node exception rethrown unchanged, multiple reasons (plus any coordinator reason, appended last) aggregated via `AggregateError('DAG node execution failed')` in declaration order (undefined retained); fail results keep declaration-order last-failure; pauses surface through the existing next-pause barrier.
+The completion-driven coordinator uses loop-local in-flight tracking, tagged settlements, synchronous reservation, stop-admission and terminal drain (packages/dual-workflow-engine/src/dag.ts:476-577). This re-audit moves done/skipped/failed status publication to the fulfilled observer, after the whole node chain, and output/count publication after terminal persistence. The unrelated-completion/held-producer-write regression failed before correction and passes after (packages/dual-workflow-engine/tests/dag.test.ts:782). A coordinator-only exception now escapes unchanged after admitted work drains (packages/dual-workflow-engine/src/dag.ts:573; regression packages/dual-workflow-engine/tests/dag.test.ts:836). Fail/exception/pause precedence and declaration-order aggregates remain unchanged. No concurrency flag, cancellation, retry, new public type or scheduler abstraction was added.
 
 ### Testing
 
-- New suite `DagDriver — completion-driven admission (task 0105)` in `packages/dual-workflow-engine/tests/dag.test.ts` (9 tests): AC1 deferred independent root (child dispatches while slow root gated), AC1b held terminal branch write blocks child, AC2 any/all join policies, AC2b mixed done/skipped all-join, AC2c backward-declared all-skipped fixed point, AC3 latch+drain with guard exception vs fail result, AC3b declaration-order AggregateError incl. undefined reason, AC3c fail-policy last-error routing, AC4 pause latch without child dispatch. All pass.
-- Package: `bun test` — 544 pass / 0 fail / 31 files (includes 0103 wave-drain suite and 0104 recovery regressions: anchor, ledger restore, ack exactly-once, rerun-enter, CAS race, SQLite parity).
-- Falsification (R2 non-vacuous): `git stash push -- packages/dual-workflow-engine/src/dag.ts` → dag suite fails pre-fix (1 fail / 1 error, module surface absent); popped cleanly, all green post-fix.
-- `bunx tsc --noEmit` clean; `bun run spur-check` EXIT=0 (4 Biome `noTemplateCurlyInString` findings in recovery-regressions.test.ts fixed as escaped backtick literals — no suppressions); `bun run build` EXIT=0.
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | packages/dual-workflow-engine/src/dag.ts:460-550 publishes only durably settled status/output and admits without a layer barrier; packages/dual-workflow-engine/tests/dag.test.ts:731,755,782,865,894,921 covers independent wakeup, held write, all/any and fixed-point skips. Fresh full gate: 2861 pass, 0 fail. |
+| R2 | MET | packages/dual-workflow-engine/src/dag.ts:476-577 reserves admission, latches stop, drains all admitted work, retains all causes, and rethrows a coordinator-only cause unchanged; packages/dual-workflow-engine/tests/dag.test.ts:836,942,977,1002,1017 proves coordinator identity, fatal drain, ordered errors and pause. Fresh full gate: 2861 pass, 0 fail. |
+| R3 | MET | packages/dual-workflow-engine/tests/dag.test.ts:151,183,283,514 and packages/dual-workflow-engine/tests/recovery-regressions.test.ts:103-607 retain no replay, unreachable failure, dryRun, resume draining, variables, counts and ownership. No new scheduler class, flags, dependency or public API. Fresh full gate: 2861 pass, 0 fail. |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| Scenario: AC1 — Ready children start while an unrelated root is blocked (req: R1) | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:731,755,782 asserts early child dispatch with unrelated work held, and no child while producer terminal write is held during an unrelated wakeup. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC2 — Any and all readiness use declared prerequisites (req: R1) | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:865,894,921 exercises any/all, mixed skipped/done joins and reverse-declared skip fixed point. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC3 — Ready-queue termination drains and does not double dispatch (req: R2) | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:942,977,1017 plus packages/dual-workflow-engine/src/dag.ts:476-557 proves reservation, stop/drain and no dependent admission after terminal latch. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC4 — Existing modes and gates pass (req: R3) | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:8-660 and packages/dual-workflow-engine/tests/recovery-regressions.test.ts:103-607 retains all previous mode/recovery/drain/output/count/pause/dryRun contracts; full gate and build passed. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC5 — Terminal races preserve all errors (req: R2; R3) | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:836,977,1002,1017 plus packages/dual-workflow-engine/src/dag.ts:564-600 proves coordinator identity, ordered exceptions including undefined, fail-before-pause and unreachable failure. Fresh full gate: 2861 pass, 0 fail. |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-| Severity | Finding | Disposition |
-|----------|---------|-------------|
-| P1 | None. | — |
-| P2 | None. | — |
-| P3 | Action exceptions never reject the node promise — `runActionStep` converts them to fail-policy results (`packages/dual-workflow-engine/src/action-step.ts:112`); "node exceptions" per 0103 are guard/persistence/lifecycle rejections. | Documented; tests cover both surfaces (AC3 guard throw, AC3c fail results). Pre-existing engine contract, unchanged. |
-| P3 | Live `vars` merge across concurrently admitted siblings is completion-order (not declaration-order-within-wave). | Accepted per Design: no variable conflict-policy change; child admission still observes parent's merged vars because readiness publishes only after the parent settles. |
-| P4 | `Promise.race` is notification-only; routing re-checks settlement queue and stop latch at the loop top, so simultaneous fatal outcomes cannot be bypassed by a success. | Verified by AC3/AC3b. |
-| P4 | `dag-unreachable-nodes` failure and stuck detection unchanged (post-loop status scan). | Covered by existing dag tests. |
+#### Review Report — 0105
 
-Residual risk: none known. Final disposition: PASS — implementation matches the frozen design; all gates green.
+**Scope:** working tree fallback (no exact task subject tag), restricted to this task's declared source/tests plus immediate callers; source and anchors reread this run.
+**Dimensions:** functional, security, efficiency, correctness, usability, architecture.
+**Verdict:** PASS
+
+##### Findings
+
+| Priority | Dimension | Location | Finding | Disposition |
+| --- | --- | --- | --- | --- |
+| P4 | all | packages/dual-workflow-engine/src/dag.ts:121-600 | No open P1-P3 findings: task requirements/AC trace to real-driver tests and the fresh full gate. | ACCEPTED |
+| P2 | correctness | packages/dual-workflow-engine/src/dag.ts:460-482 | A held terminal write previously published readiness early; unrelated completions could admit a child. Publication now follows durable settlement; regression packages/dual-workflow-engine/tests/dag.test.ts:782 failed before correction and passes afterward. | RESOLVED |
+| P2 | correctness | packages/dual-workflow-engine/src/dag.ts:573 | A coordinator-only error was wrapped; the original reason now escapes unchanged after drainage. Regression packages/dual-workflow-engine/tests/dag.test.ts:836 failed before correction and passes afterward. | RESOLVED |
+
+##### Functional Traceability
+
+| Req | Status | Evidence |
+| --- | --- | --- |
+| R1 | MET | packages/dual-workflow-engine/src/dag.ts:460-550 publishes only durably settled status/output and admits without a layer barrier; packages/dual-workflow-engine/tests/dag.test.ts:731,755,782,865,894,921 covers independent wakeup, held write, all/any and fixed-point skips. |
+| R2 | MET | packages/dual-workflow-engine/src/dag.ts:476-577 reserves admission, latches stop, drains all admitted work, retains all causes, and rethrows a coordinator-only cause unchanged; packages/dual-workflow-engine/tests/dag.test.ts:836,942,977,1002,1017 proves coordinator identity, fatal drain, ordered errors and pause. |
+| R3 | MET | packages/dual-workflow-engine/tests/dag.test.ts:151,183,283,514 and packages/dual-workflow-engine/tests/recovery-regressions.test.ts:103-607 retain no replay, unreachable failure, dryRun, resume draining, variables, counts and ownership. No new scheduler class, flags, dependency or public API. |
+
+##### SECUA Quality
+
+Replay admission remains before ownership claim; both entry points share the same helper. Nodes reserve admission once, publish only durable completion, and drained errors keep their reasons. No secrets, unbounded new buffers, new dependencies, suppressions or skipped tests were introduced. Existing fail/continue and lifecycle error composition remain intact. Historical accepted observations are maintained by the design: no timeout for nonsettling work, action failures use fail-policy results, and variable collisions follow durable live completion / stable topological recovery ordering.
+
+##### Architectural Depth
+
+No candidates: DAG validation, scheduling, ledger recovery and lifecycle finalization retain their existing seams. No production FSM/transition-flow or adapter-contract changes; ADR-034 remains satisfied. Historical wave and snapshot-shortcut descriptions are superseded explicitly in Solution by tasks 0104/0105. Driver dryRun suppression retains the shared terminal-pause write contract; ledger writes remain separate from action effects with marked at-least-once replay, as documented in README.
+
+**Validation:** bun run spur-check exit 0, 2861 pass / 0 fail, 58 pre / 2 post rules; all package builds exit 0. Receipts .spur/run/c3-verifyall/spur-check.log and build.log.
 
 ### References
 

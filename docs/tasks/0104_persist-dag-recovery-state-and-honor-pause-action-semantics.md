@@ -4,7 +4,7 @@ name: Persist DAG recovery state and honor pause action semantics
 status: done
 template: feature-impl
 created_at: 2026-10-07T18:45:34.968Z
-updated_at: "2026-10-07T20:26:10.398Z"
+updated_at: "2026-10-07T21:52:32.548Z"
 feature_id: C3
 
 priority: P1
@@ -133,38 +133,65 @@ Prerequisites: completed 0101 supplies the __dag__ no-replay baseline; no re-own
 
 ### Solution
 
-Implementation lives in `packages/dual-workflow-engine`:
-
-- **`src/dag.ts`** — recovery primitives exported for `service.ts` (module-level, not in index.ts):
-  - `dagTopoOrder` (`packages/dual-workflow-engine/src/dag.ts:35`): stable Kahn ordering — among simultaneously ready nodes, declaration order wins; leftover cycle nodes fall back to declaration order so counts/anchors remain defined.
-  - `deriveDagResumeAnchor` (`packages/dual-workflow-engine/src/dag.ts:91`): first paused row in declaration order → first running/pending row → `nodes[0]`; used when a legacy interrupted run has no persisted snapshot.
-  - `assertDagResumeAllowed` (`packages/dual-workflow-engine/src/dag.ts:121`) + `DagResumeAdmission` (`packages/dual-workflow-engine/src/dag.ts:106`): read-only admission that (a) refuses any running/pending row of a node with an action lacking `resumeRerun: true` unless `resumeMode` is `rerun-enter`, and (b) refuses `rerun-enter` into a paused target without its own marker. Returns `{ anchor, pausedTarget }` so the service never duplicates this logic.
-  - Loop restore: ledger rows under `DAG_LEDGER_NAMESPACE = '__dag__'` (`packages/dual-workflow-engine/src/dag.ts:27`) rebuild `rowByNode`/`nodeDeltas`; done → done (+delta+count), paused → paused (+delta+count), cancelled → skipped, failed → failed, running/pending/no-row → deps rule. Pause-acknowledgement: the paused row named by the snapshot (or first paused row) is finalized `done` under skip-enter (evidence already durable), or re-queued `ready` with a one-shot `rerunPauseBypass` (`packages/dual-workflow-engine/src/dag.ts:296-306`) under `rerun-enter`.
-  - Pause moved after evidence (`packages/dual-workflow-engine/src/dag.ts:430-483`): action → failure policy → `mergeSetVars` → accepted string delta → `saveBranchFinalize(..., 'paused'|'done', ...)` → only then `return` paused. Condition-skip and action-fail still finalize `cancelled`/`failed` and outrank pause.
-  - Anchor persistence (`packages/dual-workflow-engine/src/dag.ts:279`): fresh runs checkpoint `nodes[0]` + `{effectiveVars, transitionsTaken}` before the first `saveBranchStart`; legacy interrupted runs derive the anchor post-CAS. `transitionsTaken` counts distinct done/paused ledger rows; live increments are guarded against re-count on rerun.
-  - Var precedence on resume: workflow defaults → snapshot `effectiveVars` baseline → topologically merged ledger deltas → caller `options.vars`.
-- **`src/service.ts`** — `resumeRun` resolves the absent `resumeMode` from run status (`interrupted` → `rerun-enter`, else `skip-enter`), then runs `assertDagResumeAllowed` before the ownership CAS (`packages/dual-workflow-engine/src/service.ts:238-239`) and passes caller vars un-merged for DAG (`packages/dual-workflow-engine/src/service.ts:255-258`) so the driver owns precedence. FSM/transition-flow paths keep `assertResumeRerunAllowed` unchanged.
-
-Deviations: none from the approved Design. Accepted observations recorded in Review.
+Recovery uses existing ledger/status/output and a valid checkpoint at packages/dual-workflow-engine/src/dag.ts:226-325, with stable topological delta restoration, caller precedence and distinct done/paused counting. Every unfinished action requires its own replay marker. This re-audit fixes admission to check the snapshot's actual paused target before service ownership CAS and refuse runs with neither snapshot nor ledger (packages/dual-workflow-engine/src/dag.ts:142-166); regressions are at packages/dual-workflow-engine/tests/recovery-regressions.test.ts:428,449. Terminal outputs/counts now publish after successful branch persistence at packages/dual-workflow-engine/src/dag.ts:460-470. README recovery semantics are documented at packages/dual-workflow-engine/README.md:177. Existing lifecycle terminal pause writes under dryRun remain unchanged: suppression applies to driver-owned checkpoint/ledger writes, as approved and tested at packages/dual-workflow-engine/tests/recovery-regressions.test.ts:510.
 
 ### Testing
 
-New `tests/recovery-regressions.test.ts` — 18 tests / 83 assertions covering: anchor-before-wave ordering (OrderAdapter), pause-after-evidence + skip-enter ack + delta survival, dead-owner interrupted-without-snapshot recovery (producer never replays, dependent gets `${vars.produced}`, anchor persisted post-CAS), unsafe replay refusal on service and direct-driver paths (FSMError before CAS: status stays `interrupted`, owner null, zero action calls), topological delta collision (topo-later producer wins), caller-var override, null legacy delta, malformed stored delta (`WorkflowResumeError` pre-execution), distinct `transitionsTaken` across a pause boundary, multi-pause barrier sequencing, marked rerun-enter (exactly one replay, no double-count), CAS competition (one claim wins), dryRun (no ledger starts, no driver anchor write), Bun-SQLite parity, and admission shape (`anchor`/`pausedTarget`).
+**Pipeline verify results**
 
-Falsification: `git stash push -- src/dag.ts src/service.ts` against the new suite fails at module load (exports absent pre-fix), proving the regressions bind to the new contract; during development the caller-override and dryRun tests each failed against intermediate implementations and pass after the fix (non-vacuous).
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
 
-Gates (all EXIT=0 from the worktree root): package `bun test` 535 pass / 0 fail / 31 files (all pre-existing dag/service/FSM/transition-flow suites green); `bunx tsc --noEmit` clean; `bun run spur-check` (Biome + per-package typecheck + recommended-pre/post rule presets + full test suite, `--fail-on warning`); `bun run build` all packages.
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | packages/dual-workflow-engine/src/dag.ts:226-287 restores statuses, topologically ordered deltas and distinct counts and anchors before node work; packages/dual-workflow-engine/tests/recovery-regressions.test.ts:103,161,219,247,268,297,321 covers anchor/output/recovery/corruption/precedence/counts. Fresh full gate: 2861 pass, 0 fail. |
+| R2 | MET | packages/dual-workflow-engine/src/dag.ts:293-325 acknowledges paused rows; lines 421-472 execute/audit/persist pause action first. packages/dual-workflow-engine/tests/recovery-regressions.test.ts:132,343,369 proves no replay, distinct pauses and marked rerun. Fresh full gate: 2861 pass, 0 fail. |
+| R3 | MET | packages/dual-workflow-engine/src/dag.ts:121-166 checks every unfinished action and the actual snapshot pause target before service CAS at packages/dual-workflow-engine/src/service.ts:237,270; packages/dual-workflow-engine/tests/recovery-regressions.test.ts:191,397,428,449 covers unsafe replay, target selection and empty-progress refusal. Fresh full gate: 2861 pass, 0 fail. |
+| R4 | MET | packages/dual-workflow-engine/tests/recovery-regressions.test.ts:488,510,531 tests real CAS competition, driver dryRun suppression and SQLite parity. Existing lifecycle terminal-pause persistence is retained; packages/dual-workflow-engine/README.md:177 documents recovery ordering and replay limits. Fresh full gate: 2861 pass, 0 fail. |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| Scenario: AC1 — Interruption without pause restores DAG progress (req: R1) | MET | test | packages/dual-workflow-engine/tests/recovery-regressions.test.ts:161,219,247,321 and packages/dual-workflow-engine/src/dag.ts:226-287 covers ledger recovery without a previous pause, topological restoration/caller precedence and distinct counts. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC2 — Pause actions execute before acknowledgement (req: R2) | MET | test | packages/dual-workflow-engine/tests/recovery-regressions.test.ts:103,132,369 and packages/dual-workflow-engine/src/dag.ts:421-472 plus packages/dual-workflow-engine/src/action-step.ts:118 proves action/audit/paused ledger before pause, acknowledgement once and marked rerun. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC3 — Multiple pauses and unsafe interrupted nodes are handled (req: R3) | MET | test | packages/dual-workflow-engine/tests/recovery-regressions.test.ts:191,343,397,428,449 proves unsafe action refusal before CAS, multiple pauses, correct snapshot target and empty-progress refusal; direct admission shares packages/dual-workflow-engine/src/dag.ts:121. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC4 — Recovery remains adapter-consistent (req: R4) | MET | test | packages/dual-workflow-engine/tests/recovery-regressions.test.ts:488,510,531 proves ownership competition, driver-owned dryRun suppression and real SQLite/memory consistency; full gates cover all modes. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC5 — Recovery delta ordering and legacy rows are explicit (req: R1; R4) | MET | test | packages/dual-workflow-engine/tests/recovery-regressions.test.ts:219,247,268,297 pins topological delta ordering, caller precedence, null legacy data and malformed data refusal without replay. Fresh full gate: 2861 pass, 0 fail. |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-| Severity | Finding | Disposition |
-| --- | --- | --- |
-| P3 | `RunLifecycle.pause` persists its terminal state snapshot even under dryRun, so a dry-run DAG pause leaves one `workflow_state` row (pre-existing cross-driver behavior owned by 0100) | Accepted (documented) — task scope is driver-owned ledger/checkpoint writes; the new anchor is correctly suppressed in dryRun and the regression test asserts only lifecycle-terminal writes remain (`tests/recovery-regressions.test.ts` AC4 case). Changing `RunLifecycle.pause` would alter FSM/transition-flow pause contracts and belongs to a follow-up task if ever desired |
-| P3 | AC5 collision semantics resolve by topological order, not declaration order — when two paused producers set the same var, the topo-later one wins | Accepted (by Design) — matches wave execution order for the equivalent live path (later same-wave `setVars` wins); documented in Solution and pinned by a regression test |
-| P4 | `rerun-enter` rerun of a paused marked node is one-shot; a second consecutive `rerun-enter` resume of the same target re-runs it again (each resume is a fresh bypass) | By Design — each resume is an explicit operator intent; the marker requirement (R3) is the safety fence, not a once-per-latch counter |
-| P4 | Malformed stored delta surfaced via `listRunBranches` override in tests rather than a raw storage fixture | Test-harness choice — the loop's parse-and-throw path is the unit under test; DB-level corruption injection would test the adapter, not the contract |
+#### Review Report — 0104
 
-SECUA review of the final diff (src/dag.ts + src/service.ts + tests/recovery-regressions.test.ts): no P1/P2 findings. No suppression comments, no skipped tests, no drive-by refactors; `assertDagResumeAllowed` stays DAG-internal (not re-exported from index.ts). Residual risk: a legacy interrupted run whose ledger has malformed JSON fails the whole resume loudly instead of best-effort skipping — intentional (R4: fail loudly over silent recovery). Disposition: PASS — review findings are advisory/documented; gate evidence is fresh.
+**Scope:** working tree fallback (no exact task subject tag), restricted to this task's declared source/tests plus immediate callers; source and anchors reread this run.
+**Dimensions:** functional, security, efficiency, correctness, usability, architecture.
+**Verdict:** PASS
+
+##### Findings
+
+| Priority | Dimension | Location | Finding | Disposition |
+| --- | --- | --- | --- | --- |
+| P4 | all | packages/dual-workflow-engine/src/dag.ts:121-600 | No open P1-P3 findings: task requirements/AC trace to real-driver tests and the fresh full gate. | ACCEPTED |
+| P2 | correctness | packages/dual-workflow-engine/src/dag.ts:460-482 | A held terminal write previously published readiness early; unrelated completions could admit a child. Publication now follows durable settlement; regression packages/dual-workflow-engine/tests/dag.test.ts:782 failed before correction and passes afterward. | RESOLVED |
+| P2 | correctness | packages/dual-workflow-engine/src/dag.ts:142-166 | Resume checked the first declared paused row instead of the snapshot target and accepted missing progress. Both checks now reject before CAS; regressions packages/dual-workflow-engine/tests/recovery-regressions.test.ts:428,449 failed before correction and pass afterward. | RESOLVED |
+
+##### Functional Traceability
+
+| Req | Status | Evidence |
+| --- | --- | --- |
+| R1 | MET | packages/dual-workflow-engine/src/dag.ts:226-287 restores statuses, topologically ordered deltas and distinct counts and anchors before node work; packages/dual-workflow-engine/tests/recovery-regressions.test.ts:103,161,219,247,268,297,321 covers anchor/output/recovery/corruption/precedence/counts. |
+| R2 | MET | packages/dual-workflow-engine/src/dag.ts:293-325 acknowledges paused rows; lines 421-472 execute/audit/persist pause action first. packages/dual-workflow-engine/tests/recovery-regressions.test.ts:132,343,369 proves no replay, distinct pauses and marked rerun. |
+| R3 | MET | packages/dual-workflow-engine/src/dag.ts:121-166 checks every unfinished action and the actual snapshot pause target before service CAS at packages/dual-workflow-engine/src/service.ts:237,270; packages/dual-workflow-engine/tests/recovery-regressions.test.ts:191,397,428,449 covers unsafe replay, target selection and empty-progress refusal. |
+| R4 | MET | packages/dual-workflow-engine/tests/recovery-regressions.test.ts:488,510,531 tests real CAS competition, driver dryRun suppression and SQLite parity. Existing lifecycle terminal-pause persistence is retained; packages/dual-workflow-engine/README.md:177 documents recovery ordering and replay limits. |
+
+##### SECUA Quality
+
+Replay admission remains before ownership claim; both entry points share the same helper. Nodes reserve admission once, publish only durable completion, and drained errors keep their reasons. No secrets, unbounded new buffers, new dependencies, suppressions or skipped tests were introduced. Existing fail/continue and lifecycle error composition remain intact. Historical accepted observations are maintained by the design: no timeout for nonsettling work, action failures use fail-policy results, and variable collisions follow durable live completion / stable topological recovery ordering.
+
+##### Architectural Depth
+
+No candidates: DAG validation, scheduling, ledger recovery and lifecycle finalization retain their existing seams. No production FSM/transition-flow or adapter-contract changes; ADR-034 remains satisfied. Historical wave and snapshot-shortcut descriptions are superseded explicitly in Solution by tasks 0104/0105. Driver dryRun suppression retains the shared terminal-pause write contract; ledger writes remain separate from action effects with marked at-least-once replay, as documented in README.
+
+**Validation:** bun run spur-check exit 0, 2861 pass / 0 fail, 58 pre / 2 post rules; all package builds exit 0. Receipts .spur/run/c3-verifyall/spur-check.log and build.log.
 
 ### References
 

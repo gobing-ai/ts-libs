@@ -66,7 +66,10 @@ Feature: Static dependency DAG workflow execution mode
 | --- | ---- | ------ |
 | 0099 | Static dependency DAG workflow definition schema, acyclic validation, and ADR specification | done |
 | 0100 | Dependency-driven ready-queue scheduler, conditional skip propagation, and durable DAG execution | done |
-| 0101 | DAG resume must not re-execute completed nodes | todo |
+| 0101 | DAG resume must not re-execute completed nodes | done |
+| 0103 | Drain DAG siblings before finalizing a failed run | done |
+| 0104 | Persist DAG recovery state and honor pause action semantics | done |
+| 0105 | Dispatch ready DAG dependents without waiting for unrelated nodes | done |
 <!-- END AUTO-GENERATED -->
 
 ## Notes

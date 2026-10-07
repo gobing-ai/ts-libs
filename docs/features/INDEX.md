@@ -8,7 +8,7 @@
 [backlog] **C**: ts-dual-workflow-engine ([C_ts-dual-workflow-engine.md](./C_ts-dual-workflow-engine.md))
     ├── [done] **C1**: Workflow YAML rule-style extensions ([C1_workflow-yaml-rule-style-extensions.md](./C1_workflow-yaml-rule-style-extensions.md))
     ├── [done] **C2**: Durable structured fork-join parallel execution ([C2_durable-structured-fork-join-parallel-execution.md](./C2_durable-structured-fork-join-parallel-execution.md))
-    └── [active] **C3**: Static dependency DAG workflow execution mode ([C3_static-dependency-dag-workflow-execution-mode.md](./C3_static-dependency-dag-workflow-execution-mode.md))
+    └── [done] **C3**: Static dependency DAG workflow execution mode ([C3_static-dependency-dag-workflow-execution-mode.md](./C3_static-dependency-dag-workflow-execution-mode.md))
 [backlog] **D**: ts-infra ([D_ts-infra.md](./D_ts-infra.md))
     └── [done] **D1**: Restore System Events observability coverage ([D1_restore-system-events-observability-coverage.md](./D1_restore-system-events-observability-coverage.md))
 [active] **E**: ts-llm-jsonl-importer ([E_ts-llm-jsonl-importer.md](./E_ts-llm-jsonl-importer.md))

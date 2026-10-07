@@ -4,7 +4,7 @@ name: Static dependency DAG workflow definition schema, acyclic validation, and 
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.283Z
-updated_at: "2026-10-04T23:31:24.576Z"
+updated_at: "2026-10-07T21:52:24.549Z"
 feature_id: C3
 priority: P2
 tags:
@@ -105,12 +105,7 @@ Provides validated `DagWorkflowDef` and topological sorting helpers to task 0100
 
 ### Solution
 
-- `docs/00_ADR.md:664`: added `ADR-034: Static Dependency DAG Workflow Mode` specifying `kind: 'dag'`, `dependsOn: string[]`, and cycle rejection.
-- `packages/dual-workflow-engine/src/types.ts:199`: added `DependencyPolicy`, `DagNodeDef`, `DagWorkflowDef`, and widened `WorkflowDef` union.
-- `packages/dual-workflow-engine/src/schema.ts:230`: added `DagNodeDefSchema`, `DagWorkflowDefSchema`, and updated `WorkflowDefSchema`.
-- `packages/dual-workflow-engine/schemas/dag-workflow.schema.json:4`: created packaged JSON schema for static DAG workflows.
-- `packages/dual-workflow-engine/src/config.ts:283`: implemented `validateDagWorkflowDef` with Kahn's algorithm cycle rejection and variable checking.
-- `packages/dual-workflow-engine/tests/dag-schema.test.ts:6`: added test suite for DAG schema parsing, dependency validation, and cycle detection.
+The static DAG dialect remains defined by ADR-034 (docs/00_ADR.md:664), node/workflow types (packages/dual-workflow-engine/src/types.ts:226,238), Zod schemas (packages/dual-workflow-engine/src/schema.ts:236,250), and packaged JSON schema (packages/dual-workflow-engine/schemas/dag-workflow.schema.json:6). Validation at packages/dual-workflow-engine/src/config.ts:283 rejects duplicates, self/unknown dependencies and cycles without changing legal FSM/flow cycles. Fresh schema regressions at packages/dual-workflow-engine/tests/dag-schema.test.ts:16-145 verify this boundary. No schema production changes were needed in this re-audit.
 
 ### Testing
 
@@ -121,28 +116,48 @@ Provides validated `DagWorkflowDef` and topological sorting helpers to task 0100
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `docs/00_ADR.md:664` — ADR-034: Static Dependency DAG Workflow Mode |
-| R2 | MET | `packages/dual-workflow-engine/src/types.ts:199` — DagNodeDef with dependsOn; JSON schema at `packages/dual-workflow-engine/schemas/dag-workflow.schema.json:4` |
-| R3 | MET | `packages/dual-workflow-engine/src/config.ts:283` — validateDagWorkflowDef rejects cycles, self-edges, undeclared deps |
-| R4 | MET | Out-of-scope row (scheduler loop owned by 0100); boundary confirmed in commit 42ab26e2 |
+| R1 | MET | docs/00_ADR.md:664 specifies static DAG mode, dependency policy and cycle freedom. Fresh full gate: 2861 pass, 0 fail. |
+| R2 | MET | packages/dual-workflow-engine/src/types.ts:226,238 and packages/dual-workflow-engine/src/schema.ts:236,250 declare node/workflow shapes; packages/dual-workflow-engine/schemas/dag-workflow.schema.json:6-45 requires kind/name/nodes and string dependency arrays. packages/dual-workflow-engine/tests/dag-schema.test.ts:16,22 tests minimal/full accepted inputs. Fresh full gate: 2861 pass, 0 fail. |
+| R3 | MET | packages/dual-workflow-engine/src/config.ts:283-336 rejects duplicate/self/undeclared dependencies and cycles; packages/dual-workflow-engine/tests/dag-schema.test.ts:91-136 tests all error cases. Fresh full gate: 2861 pass, 0 fail. |
+| R4 | MET | packages/dual-workflow-engine/src/config.ts:283 owns validation only; the scheduler lives separately at packages/dual-workflow-engine/src/dag.ts:513. Out-of-scope scheduler row satisfied by maintained boundary. Fresh full gate: 2861 pass, 0 fail. |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R1 — Acyclic graph validation and dependency resolution | MET | test | `packages/dual-workflow-engine/tests/dag-schema.test.ts:6` — describe block covering cycle/self-edge/undeclared rejection (tests at :91, :102, :111, :123); fresh run: bun test tests/dag.test.ts tests/dag-schema.test.ts 18 pass / 0 fail |
+| Scenario: R1 — Acyclic graph validation and dependency resolution | MET | test | packages/dual-workflow-engine/tests/dag-schema.test.ts:16-145 covers accepted schema, load, duplicate/self/undeclared dependencies and direct/indirect cycles; docs/00_ADR.md:664 freezes the dialect. Fresh full gate: 2861 pass, 0 fail. |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-Review of the 0099 patch:
+#### Review Report — 0099
 
-| Priority | Finding | File:Line | Disposition |
-| --- | --- | --- | --- |
-| P2 | Strict cycle rejection at definition load time | `packages/dual-workflow-engine/src/config.ts:283` | FIXED — Kahn's topological sort detects any cycle or self-reference and throws `WorkflowValidationError` |
-| P2 | Schema discrimination for kind: 'dag' | `packages/dual-workflow-engine/src/config.ts:145` | FIXED — `selectWorkflowSchema` checks `parsed.kind === 'dag'` and returns `DagWorkflowDefSchema` |
-| P3 | Reseed and resume guards for DAG workflows | `packages/dual-workflow-engine/src/service.ts:69` | FIXED — `assertReseedTargetDeclared` and `resumeRun` explicitly handle `kind: 'dag'` |
-| P4 | JSON schema parity | `packages/dual-workflow-engine/schemas/dag-workflow.schema.json:1` | FIXED — JSON schema packaged with `$defs.action`, `$defs.guard`, and `$defs.extensions` |
+**Scope:** working tree fallback (no exact task subject tag), restricted to this task's declared source/tests plus immediate callers; source and anchors reread this run.
+**Dimensions:** functional, security, efficiency, correctness, usability, architecture.
+**Verdict:** PASS
 
-Residual risk: None. FSM and transition-flow validation remains 100% backward-compatible.
+##### Findings
+
+| Priority | Dimension | Location | Finding | Disposition |
+| --- | --- | --- | --- | --- |
+| P4 | all | packages/dual-workflow-engine/src/dag.ts:121-600 | No open P1-P3 findings: task requirements/AC trace to real-driver tests and the fresh full gate. | ACCEPTED |
+
+##### Functional Traceability
+
+| Req | Status | Evidence |
+| --- | --- | --- |
+| R1 | MET | docs/00_ADR.md:664 specifies static DAG mode, dependency policy and cycle freedom. |
+| R2 | MET | packages/dual-workflow-engine/src/types.ts:226,238 and packages/dual-workflow-engine/src/schema.ts:236,250 declare node/workflow shapes; packages/dual-workflow-engine/schemas/dag-workflow.schema.json:6-45 requires kind/name/nodes and string dependency arrays. packages/dual-workflow-engine/tests/dag-schema.test.ts:16,22 tests minimal/full accepted inputs. |
+| R3 | MET | packages/dual-workflow-engine/src/config.ts:283-336 rejects duplicate/self/undeclared dependencies and cycles; packages/dual-workflow-engine/tests/dag-schema.test.ts:91-136 tests all error cases. |
+| R4 | MET | packages/dual-workflow-engine/src/config.ts:283 owns validation only; the scheduler lives separately at packages/dual-workflow-engine/src/dag.ts:513. Out-of-scope scheduler row satisfied by maintained boundary. |
+
+##### SECUA Quality
+
+Replay admission remains before ownership claim; both entry points share the same helper. Nodes reserve admission once, publish only durable completion, and drained errors keep their reasons. No secrets, unbounded new buffers, new dependencies, suppressions or skipped tests were introduced. Existing fail/continue and lifecycle error composition remain intact. Historical accepted observations are maintained by the design: no timeout for nonsettling work, action failures use fail-policy results, and variable collisions follow durable live completion / stable topological recovery ordering.
+
+##### Architectural Depth
+
+No candidates: DAG validation, scheduling, ledger recovery and lifecycle finalization retain their existing seams. No production FSM/transition-flow or adapter-contract changes; ADR-034 remains satisfied. Historical wave and snapshot-shortcut descriptions are superseded explicitly in Solution by tasks 0104/0105. Driver dryRun suppression retains the shared terminal-pause write contract; ledger writes remain separate from action effects with marked at-least-once replay, as documented in README.
+
+**Validation:** bun run spur-check exit 0, 2861 pass / 0 fail, 58 pre / 2 post rules; all package builds exit 0. Receipts .spur/run/c3-verifyall/spur-check.log and build.log.
 
 ### References
 

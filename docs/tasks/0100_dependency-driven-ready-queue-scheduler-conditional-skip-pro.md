@@ -4,7 +4,7 @@ name: Dependency-driven ready-queue scheduler, conditional skip propagation, and
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.284Z
-updated_at: "2026-10-04T23:46:41.866Z"
+updated_at: "2026-10-07T21:52:26.542Z"
 feature_id: C3
 priority: P2
 tags:
@@ -89,14 +89,7 @@ export class DagDriver {
 
 ### Solution
 
-- `packages/dual-workflow-engine/src/dag.ts:29`: implemented `DagDriver` with a wave-based ready queue that dispatches every dependency-satisfied node concurrently.
-- `packages/dual-workflow-engine/src/dag.ts:91`: implemented `checkDependenciesSatisfied` honoring `dependencyPolicy` `all` (all prerequisites done, or done+skipped partial join) and `any` (first completed prerequisite), plus skip propagation when every prerequisite is skipped.
-- `packages/dual-workflow-engine/src/dag.ts:61`: implemented the DAG control loop with durable node snapshots, pause persistence, resume restoration, and terminal failure reporting.
-- `packages/dual-workflow-engine/src/service.ts:70`: wired `DagDriver` into `WorkflowService.run` and `resumeRun`.
-- `packages/dual-workflow-engine/src/types.ts:352`: widened `WorkflowRunResult.mode` to include `'dag'`.
-- `packages/dual-workflow-engine/src/run-lifecycle.ts:165`: reports the persisted `dag` mode when a run is attached by external key.
-- `packages/dual-workflow-engine/src/index.ts:2`: exported `DagDriver`, `DagDriverOptions`, and the DAG schema symbols.
-- `packages/dual-workflow-engine/tests/dag.test.ts:8`: added tests for diamond-DAG concurrency and ordering, skip propagation without join deadlock, pause/resume, `any` vs `all` dispatch timing, failure hold-back, and dryRun.
+The current scheduler at packages/dual-workflow-engine/src/dag.ts:476-550 is completion-driven: dependents become ready only after their complete node promise durably settles, independently of unrelated roots. The original wave implementation and frozen illustrative resume signature were superseded by tasks 0101,0104,0105: the shipped resume accepts external key and options while retaining the existing lifecycle contract. Skip policy/fixed point is at lines 328-359,525-542; durable restoration/anchor at lines 226-287. The re-audit fixes premature status/output/count publication and proves the held-write/unrelated-wakeup race at packages/dual-workflow-engine/tests/dag.test.ts:782.
 
 ### Testing
 
@@ -107,31 +100,51 @@ export class DagDriver {
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/dual-workflow-engine/src/dag.ts:29` — DagDriver ready-queue scheduler; dispatch loop at :61 |
-| R2 | MET | `packages/dual-workflow-engine/src/dag.ts:91` — checkDependenciesSatisfied; skip propagation at :110-114 |
-| R3 | MET | `packages/dual-workflow-engine/src/dag.ts:88` — resume seeds nodeStatuses from the durable per-node ledger (completed in task 0101 after a re-audit reproduced replay); regression at `packages/dual-workflow-engine/tests/dag.test.ts:151` |
-| R4 | MET | Out-of-scope row (dynamic graph expansion); DAG kind dispatch at `packages/dual-workflow-engine/src/service.ts:70`, boundary confirmed in commit 8a5b276a |
+| R1 | MET | packages/dual-workflow-engine/src/dag.ts:476-550 admits ready nodes on complete node settlement; packages/dual-workflow-engine/tests/dag.test.ts:8,731,782 proves diamond ordering, independent-child dispatch and durable write barrier. Fresh full gate: 2861 pass, 0 fail. |
+| R2 | MET | packages/dual-workflow-engine/src/dag.ts:328-359,525-542 implements all/any and fixed-point skip propagation; packages/dual-workflow-engine/tests/dag.test.ts:57,865,894,921 verifies conditional, mixed and reverse-declared skips. Fresh full gate: 2861 pass, 0 fail. |
+| R3 | MET | packages/dual-workflow-engine/src/dag.ts:226-287 restores ledger statuses/output/count, and lines 460-470 commit before publication; packages/dual-workflow-engine/tests/recovery-regressions.test.ts:161,219,247,321,531 verifies interruption, variable precedence, counting and SQLite. Fresh full gate: 2861 pass, 0 fail. |
+| R4 | MET | packages/dual-workflow-engine/src/dag.ts:528 iterates only statically declared workflow nodes; dynamic expansion remains out of scope. Fresh full gate: 2861 pass, 0 fail. |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R2 — Dependency ready-queue scheduling | MET | test | `packages/dual-workflow-engine/tests/dag.test.ts:8` — 'executes diamond DAG with dependency ordering and concurrency' |
-| R3 — Conditional branch skip propagation | MET | test | `packages/dual-workflow-engine/tests/dag.test.ts:57` — 'propagates skips when upstream condition fails without deadlocking join' |
-| R4 — Durable DAG recovery | MET | test | `packages/dual-workflow-engine/tests/dag.test.ts:151` — execution-counter no-replay regression (task 0101); pause/resume at :120 |
+| Scenario: R2 — Dependency ready-queue scheduling | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:8,731,782,865 tests prerequisites, immediate child admission, durable settlement and all/any. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: R3 — Conditional branch skip propagation | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:57,894,921 checks skipped branches, mixed joins and reverse-declared fixed-point propagation. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: R4 — Durable DAG recovery | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:151 and packages/dual-workflow-engine/tests/recovery-regressions.test.ts:161,219,247,321,531 tests no replay, persisted variables/counts and SQLite recovery. Fresh full gate: 2861 pass, 0 fail. |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-Review of the 0100 patch:
+#### Review Report — 0100
 
-| Priority | Finding | File:Line | Disposition |
-| --- | --- | --- | --- |
-| P2 | Join barrier must not deadlock when a conditional branch is skipped | `packages/dual-workflow-engine/src/dag.ts:91` | FIXED — skip propagates transitively, and a done+skipped prerequisite set dispatches the join with completed branches |
-| P2 | Resume must not replay completed nodes | `packages/dual-workflow-engine/src/dag.ts:74` | FIXED — the paused node is restored as `done` from the persisted snapshot and its dependents become ready |
-| P3 | `WorkflowRunResult.mode` narrowed the DAG dialect | `packages/dual-workflow-engine/src/types.ts:352` | FIXED — union widened to include `'dag'`; the attach path in `run-lifecycle.ts:165` reports the persisted mode |
-| P3 | Sequential topological batching would serialize independent nodes | `packages/dual-workflow-engine/src/dag.ts:145` | FIXED — each wave dispatches all dependency-satisfied nodes via `Promise.all` |
-| P4 | Exported symbols lacked TSDoc | `packages/dual-workflow-engine/src/dag.ts:13` | FIXED — `every-export-has-tsdoc` satisfied for `DagDriverOptions` and `DagNodeStatus` |
+**Scope:** working tree fallback (no exact task subject tag), restricted to this task's declared source/tests plus immediate callers; source and anchors reread this run.
+**Dimensions:** functional, security, efficiency, correctness, usability, architecture.
+**Verdict:** PASS
 
-Residual risk: low. `dependencyPolicy: 'any'` dispatches as soon as one prerequisite completes, so a consumer can observe a sibling's output as still pending; declaration order is not a synchronization point. DAG runs never execute a cyclic graph (rejected at load time by ADR-034 validation). FSM and transition-flow execution are unchanged.
+##### Findings
+
+| Priority | Dimension | Location | Finding | Disposition |
+| --- | --- | --- | --- | --- |
+| P4 | all | packages/dual-workflow-engine/src/dag.ts:121-600 | No open P1-P3 findings: task requirements/AC trace to real-driver tests and the fresh full gate. | ACCEPTED |
+| P2 | correctness | packages/dual-workflow-engine/src/dag.ts:460-482 | A held terminal write previously published readiness early; unrelated completions could admit a child. Publication now follows durable settlement; regression packages/dual-workflow-engine/tests/dag.test.ts:782 failed before correction and passes afterward. | RESOLVED |
+
+##### Functional Traceability
+
+| Req | Status | Evidence |
+| --- | --- | --- |
+| R1 | MET | packages/dual-workflow-engine/src/dag.ts:476-550 admits ready nodes on complete node settlement; packages/dual-workflow-engine/tests/dag.test.ts:8,731,782 proves diamond ordering, independent-child dispatch and durable write barrier. |
+| R2 | MET | packages/dual-workflow-engine/src/dag.ts:328-359,525-542 implements all/any and fixed-point skip propagation; packages/dual-workflow-engine/tests/dag.test.ts:57,865,894,921 verifies conditional, mixed and reverse-declared skips. |
+| R3 | MET | packages/dual-workflow-engine/src/dag.ts:226-287 restores ledger statuses/output/count, and lines 460-470 commit before publication; packages/dual-workflow-engine/tests/recovery-regressions.test.ts:161,219,247,321,531 verifies interruption, variable precedence, counting and SQLite. |
+| R4 | MET | packages/dual-workflow-engine/src/dag.ts:528 iterates only statically declared workflow nodes; dynamic expansion remains out of scope. |
+
+##### SECUA Quality
+
+Replay admission remains before ownership claim; both entry points share the same helper. Nodes reserve admission once, publish only durable completion, and drained errors keep their reasons. No secrets, unbounded new buffers, new dependencies, suppressions or skipped tests were introduced. Existing fail/continue and lifecycle error composition remain intact. Historical accepted observations are maintained by the design: no timeout for nonsettling work, action failures use fail-policy results, and variable collisions follow durable live completion / stable topological recovery ordering.
+
+##### Architectural Depth
+
+No candidates: DAG validation, scheduling, ledger recovery and lifecycle finalization retain their existing seams. No production FSM/transition-flow or adapter-contract changes; ADR-034 remains satisfied. Historical wave and snapshot-shortcut descriptions are superseded explicitly in Solution by tasks 0104/0105. Driver dryRun suppression retains the shared terminal-pause write contract; ledger writes remain separate from action effects with marked at-least-once replay, as documented in README.
+
+**Validation:** bun run spur-check exit 0, 2861 pass / 0 fail, 58 pre / 2 post rules; all package builds exit 0. Receipts .spur/run/c3-verifyall/spur-check.log and build.log.
 
 ### References
 

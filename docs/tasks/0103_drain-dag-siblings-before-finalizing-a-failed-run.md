@@ -4,7 +4,7 @@ name: Drain DAG siblings before finalizing a failed run
 status: done
 template: feature-impl
 created_at: 2026-10-07T18:44:08.760Z
-updated_at: "2026-10-07T19:56:29.875Z"
+updated_at: "2026-10-07T21:52:30.523Z"
 feature_id: C3
 
 priority: P1
@@ -125,29 +125,61 @@ Prerequisites/handoff: no incomplete prerequisite. 0093 is historical schema con
 
 ### Solution
 
-`packages/dual-workflow-engine/src/dag.ts` — the ready-wave dispatch barrier at the former `Promise.all` seam is now `Promise.allSettled` over the unchanged per-node callback (dag.ts:171). After the whole wave settles, fulfilled values and rejection reasons are separated in a single pass that preserves ready-node declaration order (dag.ts:232). Exceptions take precedence over result routing: exactly one rejection is rethrown with its original identity (any JS value, including `undefined`); multiple rejections throw `new AggregateError(reasons, 'DAG node execution failed')` (dag.ts:240). Throwing before the fulfilled-result loop also guarantees no subsequent wave is dispatched; zero rejections flows into the unchanged failed/paused/done routing. RunLifecycle (run-lifecycle.ts:267) remains the sole finalization owner and its combined-error tree is untouched. Both DagDriver.run and DagDriver.resume share the loop, so the barrier covers both entry paths with no extra code.
-
-`packages/dual-workflow-engine/tests/dag.test.ts` — new `RecordingAdapter` (call-order recorder + injected finalize rejections/holds + refused failed-finalization) over the real `MemoryWorkflowPersistenceAdapter`; six barrier tests: deferred-guard drain with pre-finalize settle ordering, persistence-hook rejection with held sibling write (run pending while held, exact reason identity, no next wave), seeded-paused resume drain, declaration-order `AggregateError`, single non-Error/`undefined` reason identity, and refused failed-finalization staying combined by the existing `AggregateError([executionError, finalizeError])` contract. Falsification: reverting only dag.ts to `Promise.all` fails 4 of the new tests (drain, persistence-reject pendingness, resume drain, aggregation); restored, 14/14 pass.
-
-Documented deviation: the collected `results` array uses a widened literal (`status` union + optional `error`) instead of the callback's discriminated union; behavior is identical and `res.error` stays reachable after the `failed` check.
+The entire node promise (guard/action/audit/branch writes) is observed and drained at packages/dual-workflow-engine/src/dag.ts:381-557. Task 0105 intentionally superseded this task's original wave barrier with completion-driven admission; Promise.allSettled remains the terminal drain barrier. Error routing at lines 564-577 preserves single cause identity, declaration-order multi-causes including undefined, and RunLifecycle's existing execution/finalization composition. packages/dual-workflow-engine/tests/dag.test.ts:365-660 tests the original drain contract; line 836 additionally pins coordinator-only error identity. No timeout/cancellation/retry policy was added.
 
 ### Testing
 
-- `cd packages/dual-workflow-engine && bun test` — 530 pass / 0 fail (includes the 6 new barrier tests and the untouched 0100/0101 suites).
-- `bun x tsc --noEmit` (dual-workflow-engine) — clean.
-- `bun run spur-check` (worktree root, final change) — exit 0: Biome clean, per-package typecheck clean, all package tests green, `recommended-pre-check` + `recommended-post-check` rule presets pass (`--fail-on warning`).
-- `bun run build` — exit 0, every package builds.
-- Falsification probe: `git stash push -- src/dag.ts` (pre-fix `Promise.all`) → 4 new tests fail as designed; `git stash pop` → 14/14 dag tests pass. Pre-fix failure modes match the defect: `finalizeRun:failed` recorded while a started sibling's branch finalize was still held, and no `AggregateError` for multi-rejection waves.
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | packages/dual-workflow-engine/src/dag.ts:381-473 wraps the entire guard/action/audit/branch chain; lines 506-520 and 552-557 drain admitted promises before lifecycle routing. packages/dual-workflow-engine/tests/dag.test.ts:365,444,514 checks guard/persistence failure and resume drainage. Fresh full gate: 2861 pass, 0 fail. |
+| R2 | MET | packages/dual-workflow-engine/src/dag.ts:564-577 retains reason discriminators, single reason identity and declaration-order aggregates; packages/dual-workflow-engine/tests/dag.test.ts:577,602,637,977 covers finalization composition, multiple failures and undefined causes. Fresh full gate: 2861 pass, 0 fail. |
+| R3 | MET | packages/dual-workflow-engine/tests/dag.test.ts:8,57,120,249,283,1002,1017 exercises success/skip/pause/fail/dryRun; packages/dual-workflow-engine/src/action-step.ts:118 awaits audit. The completion-driven design from 0105 supersedes waves while preserving the drain/error contract. Fresh full gate: 2861 pass, 0 fail. |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| Scenario: AC1 — A deferred sibling is drained after a throwing guard (req: R1) | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:365 plus packages/dual-workflow-engine/src/dag.ts:506-520 verifies every admitted guard/action/audit/branch chain drains before failure. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC2 — Persistence failure drains started work and preserves errors (req: R1; R2) | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:444 plus packages/dual-workflow-engine/src/dag.ts:381-473,506-520 puts every invoked persistence operation inside the observed/drained node promise; held sibling finalize lands before run finalize and preserves exact rejection. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC3 — Existing driver semantics stay intact (req: R3) | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:8,57,120,249,283,1002,1017 preserves success, skip, pause, dryRun and fail routing; full gate includes sibling dialects. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC4 — Run and resume share drain behavior (req: R1; R3) | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:514 verifies resume uses the same drain barrier as fresh run. Fresh full gate: 2861 pass, 0 fail. |
+| Scenario: AC5 — Multiple failures retain every cause (req: R2; R3) | MET | test | packages/dual-workflow-engine/tests/dag.test.ts:577,602,637,977 and packages/dual-workflow-engine/src/dag.ts:564-577 retains multiple causes, undefined and existing nested finalization-error composition. Fresh full gate: 2861 pass, 0 fail. |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-| Severity | Finding | Disposition |
-| --- | --- | --- |
-| P3 | Post-barrier `results` array uses a widened literal union instead of the callback's four-member discriminated union, so `res.status === 'failed'` no longer narrows via discriminants | Accepted — behavior identical; `res.error` read stays guarded by the same status check; recorded as a documented deviation in Solution |
-| P4 | A node callback rejection leaves its own `__dag__` ledger `saveBranchStart` row unsettled | Pre-existing, out of scope — Design excludes storage recovery and post-rejection ledger repair; 0104 owns recovery semantics |
-| P4 | Multiple `step.outcome === 'fail'` nodes in one wave keep last-in-order `failureError` semantics | Pre-existing, by design — fulfilled-result routing preserved (R3) |
+#### Review Report — 0103
 
-SECUA review of the final diff (src/dag.ts + tests/dag.test.ts): no P1/P2 findings. No suppression comments, no skipped tests, no drive-by refactors; the format pass touched only the new test file. Residual risk: a sibling action that never settles still blocks run completion exactly as a never-settling successful wave would (unchanged from the approved Design; timeout policy remains out of scope). Disposition: PASS — review findings are advisory/pre-existing; gate evidence is fresh.
+**Scope:** working tree fallback (no exact task subject tag), restricted to this task's declared source/tests plus immediate callers; source and anchors reread this run.
+**Dimensions:** functional, security, efficiency, correctness, usability, architecture.
+**Verdict:** PASS
+
+##### Findings
+
+| Priority | Dimension | Location | Finding | Disposition |
+| --- | --- | --- | --- | --- |
+| P4 | all | packages/dual-workflow-engine/src/dag.ts:121-600 | No open P1-P3 findings: task requirements/AC trace to real-driver tests and the fresh full gate. | ACCEPTED |
+
+##### Functional Traceability
+
+| Req | Status | Evidence |
+| --- | --- | --- |
+| R1 | MET | packages/dual-workflow-engine/src/dag.ts:381-473 wraps the entire guard/action/audit/branch chain; lines 506-520 and 552-557 drain admitted promises before lifecycle routing. packages/dual-workflow-engine/tests/dag.test.ts:365,444,514 checks guard/persistence failure and resume drainage. |
+| R2 | MET | packages/dual-workflow-engine/src/dag.ts:564-577 retains reason discriminators, single reason identity and declaration-order aggregates; packages/dual-workflow-engine/tests/dag.test.ts:577,602,637,977 covers finalization composition, multiple failures and undefined causes. |
+| R3 | MET | packages/dual-workflow-engine/tests/dag.test.ts:8,57,120,249,283,1002,1017 exercises success/skip/pause/fail/dryRun; packages/dual-workflow-engine/src/action-step.ts:118 awaits audit. The completion-driven design from 0105 supersedes waves while preserving the drain/error contract. |
+
+##### SECUA Quality
+
+Replay admission remains before ownership claim; both entry points share the same helper. Nodes reserve admission once, publish only durable completion, and drained errors keep their reasons. No secrets, unbounded new buffers, new dependencies, suppressions or skipped tests were introduced. Existing fail/continue and lifecycle error composition remain intact. Historical accepted observations are maintained by the design: no timeout for nonsettling work, action failures use fail-policy results, and variable collisions follow durable live completion / stable topological recovery ordering.
+
+##### Architectural Depth
+
+No candidates: DAG validation, scheduling, ledger recovery and lifecycle finalization retain their existing seams. No production FSM/transition-flow or adapter-contract changes; ADR-034 remains satisfied. Historical wave and snapshot-shortcut descriptions are superseded explicitly in Solution by tasks 0104/0105. Driver dryRun suppression retains the shared terminal-pause write contract; ledger writes remain separate from action effects with marked at-least-once replay, as documented in README.
+
+**Validation:** bun run spur-check exit 0, 2861 pass / 0 fail, 58 pre / 2 post rules; all package builds exit 0. Receipts .spur/run/c3-verifyall/spur-check.log and build.log.
 
 ### References
 
