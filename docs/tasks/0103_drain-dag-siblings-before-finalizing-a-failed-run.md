@@ -1,16 +1,18 @@
 ---
 schema_version: 1
 name: Drain DAG siblings before finalizing a failed run
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-07T18:44:08.760Z
-updated_at: "2026-10-07T19:00:46.422Z"
+updated_at: "2026-10-07T19:56:29.875Z"
 feature_id: C3
 
 priority: P1
 ac_numbering: task-local
 ac_altitude: task-local
 estimate_hours: 2
+done_forced: "false"
+done_reason: unforced close; PASS artifact at .spur/run/0103-verdict.json
 ---
 
 ## 0103. Drain DAG siblings before finalizing a failed run
@@ -34,9 +36,9 @@ Concurrency audit: one worktree on main; no wip tasks. Existing uncommitted infr
 
 ### Requirements
 
-- [ ] R1. On DAG run and resume, await settlement of every node admitted to the current wave, including all persistence operations invoked by those nodes, before propagating any guard, template-resolution, branch-start/finalize, or action-audit exception to RunLifecycle.
-- [ ] R2. After draining, rethrow a single node rejection reason unchanged; throw AggregateError containing every rejection reason in ready-node declaration order when multiple nodes reject. Do not dispatch a subsequent wave after any rejection. Infrastructure/guard exceptions remain fatal independently of action onError policy.
-- [ ] R3. Preserve successful runs, fulfilled node-result failure/continue routing, conditional skips, pause results, dryRun semantics, and RunLifecycle's existing composition of execution and failed-finalization errors. Change only dag.ts and its regression tests; no public API, dependency, schema, FSM, or transition-flow changes.
+- [x] R1. On DAG run and resume, await settlement of every node admitted to the current wave, including all persistence operations invoked by those nodes, before propagating any guard, template-resolution, branch-start/finalize, or action-audit exception to RunLifecycle.
+- [x] R2. After draining, rethrow a single node rejection reason unchanged; throw AggregateError containing every rejection reason in ready-node declaration order when multiple nodes reject. Do not dispatch a subsequent wave after any rejection. Infrastructure/guard exceptions remain fatal independently of action onError policy.
+- [x] R3. Preserve successful runs, fulfilled node-result failure/continue routing, conditional skips, pause results, dryRun semantics, and RunLifecycle's existing composition of execution and failed-finalization errors. Change only dag.ts and its regression tests; no public API, dependency, schema, FSM, or transition-flow changes.
 
 Out of scope: cancellation or retries of admitted work; repairing a persistence operation that rejected; guaranteeing final branch rows after persistence failure; adding timeouts to uncooperative siblings; completion-driven scheduling (0105); durable recovery/pause fixes (0104).
 
@@ -114,24 +116,38 @@ Prerequisites/handoff: no incomplete prerequisite. 0093 is historical schema con
 
 ### Plan
 
-- [ ] 0. Run bun install --frozen-lockfile and confirm Bun 1.3.14 / installed zod 4.4.3. Preserve unrelated edits and confirm no new same-file wip work; do not hand-edit dependency versions.
-- [ ] 1. In tests/dag.test.ts, add a deferred guard/action regression through WorkflowService and record action, audit, branch-write, run-finalization, and promise-settlement order; demonstrate the pre-fix failure (R1).
-- [ ] 2. Replace Promise.all with Promise.allSettled at the existing DAG wave seam; rethrow one reason by identity or multiple via ordered AggregateError before existing fulfilled-result handling (R1, R2).
-- [ ] 3. Extend the regression with injected branch-start, branch-finalize, and action-finalize failures; hold a sibling write pending and assert no next-wave action or post-settlement writes (R1, R2).
-- [ ] 4. Add reverse-completion-order multi-error, undefined-reason, run-finalization failure, and seeded-resume cases; retain fail/continue, skip, pause, dryRun, and success routing (R1–R3).
-- [ ] 5. Verify with the repository's bun run spur-check and bun run build. Use targeted assertion results during development; the global coverage configuration can fail partial-suite exits, so only the full gate certifies completion (R3).
+- [x] 0. Run bun install --frozen-lockfile and confirm Bun 1.3.14 / installed zod 4.4.3. Preserve unrelated edits and confirm no new same-file wip work; do not hand-edit dependency versions.
+- [x] 1. In tests/dag.test.ts, add a deferred guard/action regression through WorkflowService and record action, audit, branch-write, run-finalization, and promise-settlement order; demonstrate the pre-fix failure (R1).
+- [x] 2. Replace Promise.all with Promise.allSettled at the existing DAG wave seam; rethrow one reason by identity or multiple via ordered AggregateError before existing fulfilled-result handling (R1, R2).
+- [x] 3. Extend the regression with injected branch-start, branch-finalize, and action-finalize failures; hold a sibling write pending and assert no next-wave action or post-settlement writes (R1, R2).
+- [x] 4. Add reverse-completion-order multi-error, undefined-reason, run-finalization failure, and seeded-resume cases; retain fail/continue, skip, pause, dryRun, and success routing (R1–R3).
+- [x] 5. Verify with the repository's bun run spur-check and bun run build. Use targeted assertion results during development; the global coverage configuration can fail partial-suite exits, so only the full gate certifies completion (R3).
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+`packages/dual-workflow-engine/src/dag.ts` — the ready-wave dispatch barrier at the former `Promise.all` seam is now `Promise.allSettled` over the unchanged per-node callback (dag.ts:171). After the whole wave settles, fulfilled values and rejection reasons are separated in a single pass that preserves ready-node declaration order (dag.ts:232). Exceptions take precedence over result routing: exactly one rejection is rethrown with its original identity (any JS value, including `undefined`); multiple rejections throw `new AggregateError(reasons, 'DAG node execution failed')` (dag.ts:240). Throwing before the fulfilled-result loop also guarantees no subsequent wave is dispatched; zero rejections flows into the unchanged failed/paused/done routing. RunLifecycle (run-lifecycle.ts:267) remains the sole finalization owner and its combined-error tree is untouched. Both DagDriver.run and DagDriver.resume share the loop, so the barrier covers both entry paths with no extra code.
+
+`packages/dual-workflow-engine/tests/dag.test.ts` — new `RecordingAdapter` (call-order recorder + injected finalize rejections/holds + refused failed-finalization) over the real `MemoryWorkflowPersistenceAdapter`; six barrier tests: deferred-guard drain with pre-finalize settle ordering, persistence-hook rejection with held sibling write (run pending while held, exact reason identity, no next wave), seeded-paused resume drain, declaration-order `AggregateError`, single non-Error/`undefined` reason identity, and refused failed-finalization staying combined by the existing `AggregateError([executionError, finalizeError])` contract. Falsification: reverting only dag.ts to `Promise.all` fails 4 of the new tests (drain, persistence-reject pendingness, resume drain, aggregation); restored, 14/14 pass.
+
+Documented deviation: the collected `results` array uses a widened literal (`status` union + optional `error`) instead of the callback's discriminated union; behavior is identical and `res.error` stays reachable after the `failed` check.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+- `cd packages/dual-workflow-engine && bun test` — 530 pass / 0 fail (includes the 6 new barrier tests and the untouched 0100/0101 suites).
+- `bun x tsc --noEmit` (dual-workflow-engine) — clean.
+- `bun run spur-check` (worktree root, final change) — exit 0: Biome clean, per-package typecheck clean, all package tests green, `recommended-pre-check` + `recommended-post-check` rule presets pass (`--fail-on warning`).
+- `bun run build` — exit 0, every package builds.
+- Falsification probe: `git stash push -- src/dag.ts` (pre-fix `Promise.all`) → 4 new tests fail as designed; `git stash pop` → 14/14 dag tests pass. Pre-fix failure modes match the defect: `finalizeRun:failed` recorded while a started sibling's branch finalize was still held, and no `AggregateError` for multi-rejection waves.
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+| Severity | Finding | Disposition |
+| --- | --- | --- |
+| P3 | Post-barrier `results` array uses a widened literal union instead of the callback's four-member discriminated union, so `res.status === 'failed'` no longer narrows via discriminants | Accepted — behavior identical; `res.error` read stays guarded by the same status check; recorded as a documented deviation in Solution |
+| P4 | A node callback rejection leaves its own `__dag__` ledger `saveBranchStart` row unsettled | Pre-existing, out of scope — Design excludes storage recovery and post-rejection ledger repair; 0104 owns recovery semantics |
+| P4 | Multiple `step.outcome === 'fail'` nodes in one wave keep last-in-order `failureError` semantics | Pre-existing, by design — fulfilled-result routing preserved (R3) |
+
+SECUA review of the final diff (src/dag.ts + tests/dag.test.ts): no P1/P2 findings. No suppression comments, no skipped tests, no drive-by refactors; the format pass touched only the new test file. Residual risk: a sibling action that never settles still blocks run completion exactly as a never-settling successful wave would (unchanged from the approved Design; timeout policy remains out of scope). Disposition: PASS — review findings are advisory/pre-existing; gate evidence is fresh.
 
 ### References
 
@@ -151,4 +167,7 @@ Prerequisites/handoff: no incomplete prerequisite. 0093 is historical schema con
 ### History
 
 - 2026-10-07T18:46:59.660Z backlog → todo (system)
+- 2026-10-07T19:31:20.379Z todo → wip (system)
+- 2026-10-07T19:55:10.395Z wip → testing (system)
+- 2026-10-07T19:56:29.864Z testing → done (system)
 

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Persist DAG recovery state and honor pause action semantics
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-07T18:45:34.968Z
-updated_at: "2026-10-07T19:15:47.619Z"
+updated_at: "2026-10-07T20:26:10.398Z"
 feature_id: C3
 
 priority: P1
@@ -12,6 +12,8 @@ ac_numbering: task-local
 ac_altitude: task-local
 dependencies: ["0101"]
 estimate_hours: 8
+done_forced: "false"
+done_reason: unforced close; PASS artifact at .spur/run/0104-verdict.json
 ---
 
 ## 0104. Persist DAG recovery state and honor pause action semantics
@@ -36,12 +38,10 @@ Environment: Bun 1.3.14; installed zod 4.2.1 versus locked 4.4.3. Concurrency: o
 
 ### Requirements
 
-- [ ] R1. Fresh non-dry DAG execution saves a valid node anchor before node work. Resume restores done/paused node output deltas from the __dag__ ledger without replaying completed actions, and restores distinct completed-node transitionsTaken without requiring a prior pause.
-- [ ] R2. A pause node's successful or continue-policy action, setVars, action audit, and paused branch record finish before run pause. Default skip-enter acknowledges the current paused node once; marked rerun-enter executes that node once more and continues past its pause.
-- [ ] R3. Every previously unfinished action replay requires its own resumeRerun: true and rerun-enter mode. Unsafe service admission fails before claiming ownership or invoking actions. Multiple paused nodes are acknowledged individually without alternating or replaying unrelated done nodes.
-- [ ] R4. Preserve ownership CAS/finalization fences, conditional skips, failure policy, DAG dry-run suppression of node-ledger/checkpoint writes, and FSM/transition-flow behavior. Use existing adapter methods and test real memory and SQLite persistence.
-
-Out of scope: exactly-once external effects, live-owner cancellation, fencing all ledger writes, atomic action-plus-ledger transactions, reconstructing outputs never persisted by old releases, dynamic graphs, scheduler redesign (0105), failure drain redesign (0103), new APIs/dependencies/schema migrations.
+- [x] R1. Fresh non-dry DAG execution saves a valid node anchor before node work. Resume restores done/paused node output deltas from the __dag__ ledger without replaying completed actions, and restores distinct completed-node transitionsTaken without requiring a prior pause.
+- [x] R2. A pause node's successful or continue-policy action, setVars, action audit, and paused branch record finish before run pause. Default skip-enter acknowledges the current paused node once; marked rerun-enter executes that node once more and continues past its pause.
+- [x] R3. Every previously unfinished action replay requires its own resumeRerun: true and rerun-enter mode. Unsafe service admission fails before claiming ownership or invoking actions. Multiple paused nodes are acknowledged individually without alternating or replaying unrelated done nodes.
+- [x] R4. Preserve ownership CAS/finalization fences, conditional skips, failure policy, DAG dry-run suppression of node-ledger/checkpoint writes, and FSM/transition-flow behavior. Use existing adapter methods and test real memory and SQLite persistence.
 
 ### Acceptance Criteria
 
@@ -123,25 +123,48 @@ Prerequisites: completed 0101 supplies the __dag__ no-replay baseline; no re-own
 
 ### Plan
 
-- [ ] 0. Run bun install --frozen-lockfile; confirm Bun 1.3.14 / zod 4.4.3, unchanged manifests/lockfile, and no new same-file work.
-- [ ] 1. Add real-service action-plus-pause and dead-owner no-prior-pause recovery regressions; assert node counters and actual ledger/snapshot state (R1, R2).
-- [ ] 2. Persist an initial anchor and terminal node deltas, and admit legacy no-snapshot interrupted runs from existing ledger rows; restore statuses, stable topological delta precedence, caller overrides, and distinct-node counts (R1).
-- [ ] 3. Add shared DAG-only admission before service CAS and direct-driver dispatch; test unsafe non-anchor nodes, skip-enter refusal for unfinished actions, and marked reruns (R3).
-- [ ] 4. Move pause after evidence, implement one-node acknowledgement and one-shot permitted rerun, and test independent/multi-stage pauses without repeat acknowledgement (R2, R3).
-- [ ] 5. Exercise recovery and failure windows with real memory/SQLite adapters, legacy/corrupt output, CAS competition, dryRun, and unchanged FSM/transition-flow behavior; document collision/count semantics (R1–R4).
-- [ ] 6. Run bun run spur-check and bun run build; preserve unrelated edits and check the final diff (R4).
+- [x] 0. Run bun install --frozen-lockfile; confirm Bun 1.3.14 / zod 4.4.3, unchanged manifests/lockfile, and no new same-file work.
+- [x] 1. Add real-service action-plus-pause and dead-owner no-prior-pause recovery regressions; assert node counters and actual ledger/snapshot state (R1, R2).
+- [x] 2. Persist an initial anchor and terminal node deltas, and admit legacy no-snapshot interrupted runs from existing ledger rows; restore statuses, stable topological delta precedence, caller overrides, and distinct-node counts (R1).
+- [x] 3. Add shared DAG-only admission before service CAS and direct-driver dispatch; test unsafe non-anchor nodes, skip-enter refusal for unfinished actions, and marked reruns (R3).
+- [x] 4. Move pause after evidence, implement one-node acknowledgement and one-shot permitted rerun, and test independent/multi-stage pauses without repeat acknowledgement (R2, R3).
+- [x] 5. Exercise recovery and failure windows with real memory/SQLite adapters, legacy/corrupt output, CAS competition, dryRun, and unchanged FSM/transition-flow behavior; document collision/count semantics (R1–R4).
+- [x] 6. Run bun run spur-check and bun run build; preserve unrelated edits and check the final diff (R4).
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Implementation lives in `packages/dual-workflow-engine`:
+
+- **`src/dag.ts`** — recovery primitives exported for `service.ts` (module-level, not in index.ts):
+  - `dagTopoOrder` (`packages/dual-workflow-engine/src/dag.ts:35`): stable Kahn ordering — among simultaneously ready nodes, declaration order wins; leftover cycle nodes fall back to declaration order so counts/anchors remain defined.
+  - `deriveDagResumeAnchor` (`packages/dual-workflow-engine/src/dag.ts:91`): first paused row in declaration order → first running/pending row → `nodes[0]`; used when a legacy interrupted run has no persisted snapshot.
+  - `assertDagResumeAllowed` (`packages/dual-workflow-engine/src/dag.ts:121`) + `DagResumeAdmission` (`packages/dual-workflow-engine/src/dag.ts:106`): read-only admission that (a) refuses any running/pending row of a node with an action lacking `resumeRerun: true` unless `resumeMode` is `rerun-enter`, and (b) refuses `rerun-enter` into a paused target without its own marker. Returns `{ anchor, pausedTarget }` so the service never duplicates this logic.
+  - Loop restore: ledger rows under `DAG_LEDGER_NAMESPACE = '__dag__'` (`packages/dual-workflow-engine/src/dag.ts:27`) rebuild `rowByNode`/`nodeDeltas`; done → done (+delta+count), paused → paused (+delta+count), cancelled → skipped, failed → failed, running/pending/no-row → deps rule. Pause-acknowledgement: the paused row named by the snapshot (or first paused row) is finalized `done` under skip-enter (evidence already durable), or re-queued `ready` with a one-shot `rerunPauseBypass` (`packages/dual-workflow-engine/src/dag.ts:296-306`) under `rerun-enter`.
+  - Pause moved after evidence (`packages/dual-workflow-engine/src/dag.ts:430-483`): action → failure policy → `mergeSetVars` → accepted string delta → `saveBranchFinalize(..., 'paused'|'done', ...)` → only then `return` paused. Condition-skip and action-fail still finalize `cancelled`/`failed` and outrank pause.
+  - Anchor persistence (`packages/dual-workflow-engine/src/dag.ts:279`): fresh runs checkpoint `nodes[0]` + `{effectiveVars, transitionsTaken}` before the first `saveBranchStart`; legacy interrupted runs derive the anchor post-CAS. `transitionsTaken` counts distinct done/paused ledger rows; live increments are guarded against re-count on rerun.
+  - Var precedence on resume: workflow defaults → snapshot `effectiveVars` baseline → topologically merged ledger deltas → caller `options.vars`.
+- **`src/service.ts`** — `resumeRun` resolves the absent `resumeMode` from run status (`interrupted` → `rerun-enter`, else `skip-enter`), then runs `assertDagResumeAllowed` before the ownership CAS (`packages/dual-workflow-engine/src/service.ts:238-239`) and passes caller vars un-merged for DAG (`packages/dual-workflow-engine/src/service.ts:255-258`) so the driver owns precedence. FSM/transition-flow paths keep `assertResumeRerunAllowed` unchanged.
+
+Deviations: none from the approved Design. Accepted observations recorded in Review.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+New `tests/recovery-regressions.test.ts` — 18 tests / 83 assertions covering: anchor-before-wave ordering (OrderAdapter), pause-after-evidence + skip-enter ack + delta survival, dead-owner interrupted-without-snapshot recovery (producer never replays, dependent gets `${vars.produced}`, anchor persisted post-CAS), unsafe replay refusal on service and direct-driver paths (FSMError before CAS: status stays `interrupted`, owner null, zero action calls), topological delta collision (topo-later producer wins), caller-var override, null legacy delta, malformed stored delta (`WorkflowResumeError` pre-execution), distinct `transitionsTaken` across a pause boundary, multi-pause barrier sequencing, marked rerun-enter (exactly one replay, no double-count), CAS competition (one claim wins), dryRun (no ledger starts, no driver anchor write), Bun-SQLite parity, and admission shape (`anchor`/`pausedTarget`).
+
+Falsification: `git stash push -- src/dag.ts src/service.ts` against the new suite fails at module load (exports absent pre-fix), proving the regressions bind to the new contract; during development the caller-override and dryRun tests each failed against intermediate implementations and pass after the fix (non-vacuous).
+
+Gates (all EXIT=0 from the worktree root): package `bun test` 535 pass / 0 fail / 31 files (all pre-existing dag/service/FSM/transition-flow suites green); `bunx tsc --noEmit` clean; `bun run spur-check` (Biome + per-package typecheck + recommended-pre/post rule presets + full test suite, `--fail-on warning`); `bun run build` all packages.
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+| Severity | Finding | Disposition |
+| --- | --- | --- |
+| P3 | `RunLifecycle.pause` persists its terminal state snapshot even under dryRun, so a dry-run DAG pause leaves one `workflow_state` row (pre-existing cross-driver behavior owned by 0100) | Accepted (documented) — task scope is driver-owned ledger/checkpoint writes; the new anchor is correctly suppressed in dryRun and the regression test asserts only lifecycle-terminal writes remain (`tests/recovery-regressions.test.ts` AC4 case). Changing `RunLifecycle.pause` would alter FSM/transition-flow pause contracts and belongs to a follow-up task if ever desired |
+| P3 | AC5 collision semantics resolve by topological order, not declaration order — when two paused producers set the same var, the topo-later one wins | Accepted (by Design) — matches wave execution order for the equivalent live path (later same-wave `setVars` wins); documented in Solution and pinned by a regression test |
+| P4 | `rerun-enter` rerun of a paused marked node is one-shot; a second consecutive `rerun-enter` resume of the same target re-runs it again (each resume is a fresh bypass) | By Design — each resume is an explicit operator intent; the marker requirement (R3) is the safety fence, not a once-per-latch counter |
+| P4 | Malformed stored delta surfaced via `listRunBranches` override in tests rather than a raw storage fixture | Test-harness choice — the loop's parse-and-throw path is the unit under test; DB-level corruption injection would test the adapter, not the contract |
+
+SECUA review of the final diff (src/dag.ts + src/service.ts + tests/recovery-regressions.test.ts): no P1/P2 findings. No suppression comments, no skipped tests, no drive-by refactors; `assertDagResumeAllowed` stays DAG-internal (not re-exported from index.ts). Residual risk: a legacy interrupted run whose ledger has malformed JSON fails the whole resume loudly instead of best-effort skipping — intentional (R4: fail loudly over silent recovery). Disposition: PASS — review findings are advisory/documented; gate evidence is fresh.
 
 ### References
 
@@ -159,4 +182,7 @@ Prerequisites: completed 0101 supplies the __dag__ no-replay baseline; no re-own
 ### History
 
 - 2026-10-07T18:47:00.885Z backlog → todo (system)
+- 2026-10-07T20:00:27.617Z todo → wip (system)
+- 2026-10-07T20:26:09.909Z wip → testing (system)
+- 2026-10-07T20:26:10.391Z testing → done (system)
 

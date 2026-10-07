@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Dispatch ready DAG dependents without waiting for unrelated nodes
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-07T18:45:38.827Z
-updated_at: "2026-10-07T19:16:22.305Z"
+updated_at: "2026-10-07T20:49:02.888Z"
 feature_id: C3
 
 priority: P2
@@ -12,6 +12,8 @@ ac_numbering: task-local
 ac_altitude: task-local
 dependencies: ["0103", "0104"]
 estimate_hours: 6
+done_forced: "false"
+done_reason: unforced close; PASS artifact at .spur/run/0105-verdict.json
 ---
 
 ## 0105. Dispatch ready DAG dependents without waiting for unrelated nodes
@@ -35,11 +37,9 @@ Environment/concurrency audit 2026-10-07: Bun 1.3.14, installed zod 4.2.1 vs loc
 
 ### Requirements
 
-- [ ] R1. On run and resume, admit each newly eligible DAG child immediately after its required node execution promises settle durably, without waiting for unrelated in-flight nodes. Preserve all/any and mixed done/skipped/all-skipped dependency semantics.
-- [ ] R2. Admit each node at most once per invocation. Once a thrown node exception, fail-policy result, or pause result is observed, stop admitting new nodes and drain all already-admitted node action/audit/branch writes before run finalization or public settlement.
-- [ ] R3. Preserve 0103's exact single-reason and declaration-ordered multi-reason error contract, including RunLifecycle finalization-error composition, and 0104's ledger restoration, variables, counts, pause acknowledgement, and replay safety. Keep skip propagation, continue policy, dryRun, FSM, and transition-flow behavior intact.
-
-Out of scope: new concurrency configuration/limits, scheduler framework, cancellation/retries/timeouts, distributed scheduling, dynamic graphs, schema or adapter changes, recovery redesign, deterministic live variable collision ordering.
+- [x] R1. On run and resume, admit each newly eligible DAG child immediately after its required node execution promises settle durably, without waiting for unrelated in-flight nodes. Preserve all/any and mixed done/skipped/all-skipped dependency semantics.
+- [x] R2. Admit each node at most once per invocation. Once a thrown node exception, fail-policy result, or pause result is observed, stop admitting new nodes and drain all already-admitted node action/audit/branch writes before run finalization or public settlement.
+- [x] R3. Preserve 0103's exact single-reason and declaration-ordered multi-reason error contract, including RunLifecycle finalization-error composition, and 0104's ledger restoration, variables, counts, pause acknowledgement, and replay safety. Keep skip propagation, continue policy, dryRun, FSM, and transition-flow behavior intact.
 
 ### Acceptance Criteria
 
@@ -118,24 +118,41 @@ Implementation step 0 aligns installed zod 4.2.1 to locked 4.4.3 with bun instal
 
 ### Plan
 
-- [ ] 0. Confirm 0103 and 0104 are done; run bun install --frozen-lockfile, check Bun 1.3.14 / zod 4.4.3 and same-file ownership, and preserve unrelated edits.
-- [ ] 1. Add deferred independent-root, producer-write, and all/any tests that expose the wave barrier without sleeps (R1).
-- [ ] 2. Keep the node execution chain intact while replacing waves with a loop-local in-flight map, tagged observers/queue, synchronous admission reservation, and completion-triggered readiness (R1, R2).
-- [ ] 3. Add stop-admission/drain behavior and declaration-ordered error retention; test simultaneous fatal/success outcomes and coordinator failure cleanup (R2, R3).
-- [ ] 4. Test fixed-point skip propagation, no duplicate admission, fail/continue, pauses, restored ledger nodes and counts, undefined/multiple reasons, dryRun, and no post-finalization writes (R1–R3).
-- [ ] 5. Run upstream 0103/0104 regressions and all existing driver tests, then bun run spur-check and bun run build; inspect the surgical diff (R3).
+- [x] 0. Confirm 0103 and 0104 are done; run bun install --frozen-lockfile, check Bun 1.3.14 / zod 4.4.3 and same-file ownership, and preserve unrelated edits.
+- [x] 1. Add deferred independent-root, producer-write, and all/any tests that expose the wave barrier without sleeps (R1).
+- [x] 2. Keep the node execution chain intact while replacing waves with a loop-local in-flight map, tagged observers/queue, synchronous admission reservation, and completion-triggered readiness (R1, R2).
+- [x] 3. Add stop-admission/drain behavior and declaration-ordered error retention; test simultaneous fatal/success outcomes and coordinator failure cleanup (R2, R3).
+- [x] 4. Test fixed-point skip propagation, no duplicate admission, fail/continue, pauses, restored ledger nodes and counts, undefined/multiple reasons, dryRun, and no post-finalization writes (R1–R3).
+- [x] 5. Run upstream 0103/0104 regressions and all existing driver tests, then bun run spur-check and bun run build; inspect the surgical diff (R3).
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+- `packages/dual-workflow-engine/src/dag.ts:367` — completion-driven admission replaces wave dispatch: loop-local loop-local `inFlight`/tracking map, tagged settlement queue, declaration-indexed outcomes, and `stopAdmission` latch (dag.ts:359-375).
+- `packages/dual-workflow-engine/src/dag.ts:376` — `executeNode` keeps the per-node chain intact (ledger start → guard/condition → action+audit → pause-after-evidence → terminal branch finalize); readiness publishes only when the whole node promise settles (AC1b: a held terminal write blocks child dispatch).
+- `packages/dual-workflow-engine/src/dag.ts:476` — `admit()` synchronously reserves `running` (exactly-once; also admits ledger-restored `ready` nodes) and attaches fulfilled+rejected observers that never reject; reject/fail/pause latches stop-admission immediately.
+- `packages/dual-workflow-engine/src/dag.ts:548` — settlements consumed into the declaration-indexed outcomes array; readiness + skip propagation scan runs to a fixed point in declaration order (backward-declared all-skipped chains settle); `Promise.race` over tracking promises is notification-only.
+- `packages/dual-workflow-engine/src/dag.ts:506` — stop latch triggers a `Promise.allSettled` drain barrier so every admitted action/audit/branch write lands before finalization; coordinator exceptions drain and retain outcomes instead of discarding them.
+- `packages/dual-workflow-engine/src/dag.ts:558` — unified 0103 routing on the new scheduler: single node exception rethrown unchanged, multiple reasons (plus any coordinator reason, appended last) aggregated via `AggregateError('DAG node execution failed')` in declaration order (undefined retained); fail results keep declaration-order last-failure; pauses surface through the existing next-pause barrier.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+- New suite `DagDriver — completion-driven admission (task 0105)` in `packages/dual-workflow-engine/tests/dag.test.ts` (9 tests): AC1 deferred independent root (child dispatches while slow root gated), AC1b held terminal branch write blocks child, AC2 any/all join policies, AC2b mixed done/skipped all-join, AC2c backward-declared all-skipped fixed point, AC3 latch+drain with guard exception vs fail result, AC3b declaration-order AggregateError incl. undefined reason, AC3c fail-policy last-error routing, AC4 pause latch without child dispatch. All pass.
+- Package: `bun test` — 544 pass / 0 fail / 31 files (includes 0103 wave-drain suite and 0104 recovery regressions: anchor, ledger restore, ack exactly-once, rerun-enter, CAS race, SQLite parity).
+- Falsification (R2 non-vacuous): `git stash push -- packages/dual-workflow-engine/src/dag.ts` → dag suite fails pre-fix (1 fail / 1 error, module surface absent); popped cleanly, all green post-fix.
+- `bunx tsc --noEmit` clean; `bun run spur-check` EXIT=0 (4 Biome `noTemplateCurlyInString` findings in recovery-regressions.test.ts fixed as escaped backtick literals — no suppressions); `bun run build` EXIT=0.
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+| Severity | Finding | Disposition |
+|----------|---------|-------------|
+| P1 | None. | — |
+| P2 | None. | — |
+| P3 | Action exceptions never reject the node promise — `runActionStep` converts them to fail-policy results (`packages/dual-workflow-engine/src/action-step.ts:112`); "node exceptions" per 0103 are guard/persistence/lifecycle rejections. | Documented; tests cover both surfaces (AC3 guard throw, AC3c fail results). Pre-existing engine contract, unchanged. |
+| P3 | Live `vars` merge across concurrently admitted siblings is completion-order (not declaration-order-within-wave). | Accepted per Design: no variable conflict-policy change; child admission still observes parent's merged vars because readiness publishes only after the parent settles. |
+| P4 | `Promise.race` is notification-only; routing re-checks settlement queue and stop latch at the loop top, so simultaneous fatal outcomes cannot be bypassed by a success. | Verified by AC3/AC3b. |
+| P4 | `dag-unreachable-nodes` failure and stuck detection unchanged (post-loop status scan). | Covered by existing dag tests. |
+
+Residual risk: none known. Final disposition: PASS — implementation matches the frozen design; all gates green.
 
 ### References
 
@@ -151,4 +168,7 @@ Implementation step 0 aligns installed zod 4.2.1 to locked 4.4.3 with bun instal
 ### History
 
 - 2026-10-07T19:14:49.671Z backlog → todo (system)
+- 2026-10-07T20:26:31.873Z todo → wip (system)
+- 2026-10-07T20:48:48.924Z wip → testing (system)
+- 2026-10-07T20:49:02.877Z testing → done (system)
 

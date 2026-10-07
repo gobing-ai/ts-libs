@@ -1,6 +1,6 @@
 import { type BusLifecycleEvents, EventBus } from '@gobing-ai/ts-infra';
 import { loadWorkflowDef } from './config';
-import { DagDriver } from './dag';
+import { assertDagResumeAllowed, DagDriver } from './dag';
 import { FSMError, WorkflowResumeError } from './errors';
 import type { WorkflowEngineEvents } from './events';
 import type { WorkflowEngineHost } from './host';
@@ -221,10 +221,8 @@ export class WorkflowService {
         if (run.status !== 'paused' && run.status !== 'interrupted') {
             throw new WorkflowResumeError(`Run "${runId}" is not resumable (status: ${run.status})`);
         }
-        const currentState = await this.persistence.loadCurrentState(runId);
-        if (currentState === undefined) {
-            throw new WorkflowResumeError(`Run "${runId}" has no persisted state to resume from`);
-        }
+        const snapshotState = await this.persistence.loadCurrentState(runId);
+        let currentState: string;
 
         // Resolve recovery semantics (task 0902): interrupted runs default to re-running
         // the current state's actions (they may have half-completed at the interruption);
@@ -232,14 +230,28 @@ export class WorkflowService {
         // An explicit `resumeMode` option overrides either default.
         const resumeMode: WorkflowResumeMode =
             options?.resumeMode ?? (run.status === 'interrupted' ? 'rerun-enter' : 'skip-enter');
-        this.assertResumeRerunAllowed(workflow, currentState, resumeMode);
-        if (workflow.kind === 'transition-flow' && resumeMode === 'rerun-enter') {
-            const parallel = workflow.nodes.find((node) => node.id === currentState && node.type === 'parallel');
-            if (parallel) {
-                const branches = await this.persistence.listRunBranches(runId, parallel.id);
-                for (const branch of branches) {
-                    if (branch.status === 'done') continue;
-                    this.assertResumeRerunAllowed(workflow, branch.node, resumeMode);
+        if (workflow.kind === 'dag') {
+            // Task 0104 Design 6: DAG runs admit via the per-node ledger — the
+            // recovery source for interrupted runs without a snapshot — so the
+            // generic no-snapshot refusal and anchor-only rerun check do not apply.
+            const admission = await assertDagResumeAllowed(workflow, runId, this.persistence, resumeMode);
+            currentState = snapshotState ?? admission.anchor;
+        } else {
+            if (snapshotState === undefined) {
+                throw new WorkflowResumeError(`Run "${runId}" has no persisted state to resume from`);
+            }
+            currentState = snapshotState;
+            this.assertResumeRerunAllowed(workflow, currentState, resumeMode);
+            // 9d56aa83: a rerun-enter resume of a fork-join parallel node must
+            // also clear the rerun guard for each not-yet-done branch's start node.
+            if (workflow.kind === 'transition-flow' && resumeMode === 'rerun-enter') {
+                const parallel = workflow.nodes.find((node) => node.id === currentState && node.type === 'parallel');
+                if (parallel) {
+                    const branches = await this.persistence.listRunBranches(runId, parallel.id);
+                    for (const branch of branches) {
+                        if (branch.status === 'done') continue;
+                        this.assertResumeRerunAllowed(workflow, branch.node, resumeMode);
+                    }
                 }
             }
         }
@@ -247,9 +259,11 @@ export class WorkflowService {
         // Restore effectiveVars persisted in the last state snapshot so resume
         // continues with the same runtime variables (e.g. `__hitlAnswer`). Caller
         // overrides in `options.vars` win over the persisted snapshot (R3 of 0366).
+        // Task 0104 Design 8: DAG runs pass caller vars through un-merged — the
+        // DAG driver owns the snapshot → ledger-delta → caller precedence.
         const snapshot = await this.persistence.loadLatestStateSnapshot(runId);
         const persistedVars = extractEffectiveVars(snapshot?.data);
-        const restoredVars = mergeVars(persistedVars, options?.vars);
+        const restoredVars = workflow.kind === 'dag' ? options?.vars : mergeVars(persistedVars, options?.vars);
         const owner: ResumeOwnership = options?.resumeOwner ?? { attemptId: crypto.randomUUID() };
         const mergedOptions: WorkflowRunOptions = { ...options, vars: restoredVars, resumeMode, resumeOwner: owner };
 
