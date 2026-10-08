@@ -8,6 +8,14 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.19] - 2026-10-08
+
+### Fixed
+
+- fix(llm-jsonl-importer): hash full tool-call args and attach pi tool durations (2cc0b158)
+
+<!-- verification: 2/2 claims cited; confidence HIGH — 2cc0b158→packages/llm-jsonl-importer/src/redaction.ts:55 (applyRules substring pass over string leaves; >80-char and [A-Za-z0-9_-]{20,} collapses removed from mappers redactArgs), 2cc0b158→packages/llm-jsonl-importer/src/importer.ts:535 (omp||pi result timing; wallTimeMs chain in mappers.ts:1657; native bounds persisted importer.ts:185-194) -->
+
 ## [0.5.18] - 2026-10-07
 
 ### Added
