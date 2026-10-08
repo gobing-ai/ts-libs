@@ -51,10 +51,15 @@ export const DEFAULT_REDACTION_RULES: readonly RedactionRule[] = [
 const SECRET_KEY =
     /^(?:api[_-]?key|apikey|api[_-]?secret|token|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|secret[_-]?key|client[_-]?secret|private[_-]?key|session[_-]?token|password|passwd|authorization)$/i;
 
+/** Apply the rules' substring replacement to a single string leaf. */
+export function applyRules(value: string, rules: readonly RedactionRule[] = DEFAULT_REDACTION_RULES): string {
+    return rules.reduce((current, rule) => current.replace(rule.pattern, rule.replacement), value);
+}
+
 /** Redact supported scalar and composite JSON values recursively. */
 export function redactValue(value: unknown, rules: readonly RedactionRule[] = DEFAULT_REDACTION_RULES): unknown {
     if (typeof value === 'string') {
-        return rules.reduce((current, rule) => current.replace(rule.pattern, rule.replacement), value);
+        return applyRules(value, rules);
     }
     if (Array.isArray(value)) {
         return value.map((entry) => redactValue(entry, rules));

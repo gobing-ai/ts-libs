@@ -1745,3 +1745,67 @@ describe('runJsonlImport codex usage attribution (0678 R3)', () => {
         expect(meta?.input_tokens ?? null).toBeNull();
     });
 });
+
+// -------------------------------------------------------------------------
+// Task 1131 R2 — pi tool-call durations survive import.
+//
+// pi toolResult entries normalize to role `user` (piRole), so the omp-era
+// `role === 'toolresult'` match never found them and the attach branch never
+// ran for pi. The contract: native timing wins — message.durationMs (or
+// details.wallTimeMs / details.toolMetadata.durationMs) as duration, with
+// details.toolMetadata.{startedAt,completedAt} persisted as bounds.
+// -------------------------------------------------------------------------
+
+describe('runJsonlImport pi tool durations (1131 R2)', () => {
+    test('toolResult durationMs + toolMetadata bounds persist onto history_tool_call', async () => {
+        const file = await namedFixtureFile('r2-pi-durations', [
+            JSON.stringify({
+                type: 'message',
+                id: 'evt-1',
+                timestamp: '2026-08-14T05:11:13.990Z',
+                message: {
+                    role: 'assistant',
+                    model: 'claude-x',
+                    content: [{ type: 'toolCall', id: 'call-pi', name: 'Bash', arguments: { command: 'echo pi' } }],
+                },
+            }),
+            JSON.stringify({
+                type: 'message',
+                id: 'evt-2',
+                timestamp: '2026-08-14T05:11:16.490Z',
+                message: {
+                    role: 'toolResult',
+                    toolCallId: 'call-pi',
+                    toolName: 'bash',
+                    content: [{ type: 'text', text: 'ok' }],
+                    durationMs: 1234,
+                    details: {
+                        toolMetadata: {
+                            startedAt: '2026-08-14T05:11:15.256Z',
+                            completedAt: '2026-08-14T05:11:16.490Z',
+                        },
+                    },
+                    isError: false,
+                },
+            }),
+        ]);
+
+        const result = await runJsonlImport('pi', { db, files: [file], mode: 'force-file', now: fixedNow });
+        expect(result.importedRecords).toBe(3); // 2 messages + 1 tool call
+
+        const rows = await db.queryAll<{
+            call_id: string | null;
+            duration_ms: number | null;
+            started_at: string | null;
+            completed_at: string | null;
+        }>('SELECT call_id, duration_ms, started_at, completed_at FROM history_tool_call');
+        expect(rows).toEqual([
+            {
+                call_id: 'call-pi',
+                duration_ms: 1234,
+                started_at: '2026-08-14T05:11:15.256Z',
+                completed_at: '2026-08-14T05:11:16.490Z',
+            },
+        ]);
+    });
+});

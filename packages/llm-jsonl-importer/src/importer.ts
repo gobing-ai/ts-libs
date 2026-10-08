@@ -181,8 +181,14 @@ function attachableDuration(
     messageTsMs: number | undefined,
 ): { startedAt: string | null; completedAt: string | null; durationMs: number } | null {
     if (timing.wallTimeMs !== undefined) {
-        // The tool's own measurement — no clamping, no sanity check.
-        return { startedAt: null, completedAt: null, durationMs: Math.round(timing.wallTimeMs) };
+        // The tool's own measurement — no clamping, no sanity check. pi carries
+        // native bounds in details.toolMetadata (task 1131 R2); persist them when
+        // present so native and fallback durations stay distinguishable.
+        return {
+            startedAt: timing.startedAtMs !== undefined ? new Date(timing.startedAtMs).toISOString() : null,
+            completedAt: timing.completedAtMs !== undefined ? new Date(timing.completedAtMs).toISOString() : null,
+            durationMs: Math.round(timing.wallTimeMs),
+        };
     }
     if (timing.timestampMs === undefined || messageTsMs === undefined) return null;
     const delta = timing.timestampMs - messageTsMs;
@@ -526,12 +532,16 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                 // an implausible fallback delta stays NULL (unmeasured). The UPDATEs ride
                 // this line's batch — idempotent, so re-imports and post-resume tail
                 // reprocessing write the same values.
-                if (definition.source === 'omp') {
+                if (definition.source === 'omp' || definition.source === 'pi') {
                     const timing = ompToolResultTiming(raw);
                     if (timing !== null) {
+                        // pi normalizes toolResult envelopes to role `user` (piRole), so the
+                        // role match must accept both shapes (task 1131 R2).
                         const resultEntry = prepared.find(
                             (entry) =>
-                                entry.split.targetTable === 'history_message' && entry.normalized.role === 'toolresult',
+                                entry.split.targetTable === 'history_message' &&
+                                (entry.normalized.role === 'toolresult' ||
+                                    (definition.source === 'pi' && entry.normalized.role === 'user')),
                         );
                         const sessionId = resultEntry?.normalized.session_id;
                         if (typeof sessionId === 'string') {

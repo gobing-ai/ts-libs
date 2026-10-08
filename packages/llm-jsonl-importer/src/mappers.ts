@@ -7,6 +7,7 @@ import {
     parseLiteralReadTargets,
 } from './capability';
 import { sha256, sha256Text } from './hash';
+import { applyRules } from './redaction';
 import type { JsonObject, SkillCallSplitRecord, SplitEntry, TransformContext } from './types';
 
 // ---------------------------------------------------------------------------
@@ -1047,12 +1048,15 @@ export function argsDigest(args: unknown): string {
 /** Redacted tool args: JSON shape preserved, string leaves possibly elided. */
 type RedactedValue = string | number | boolean | null | RedactedValue[] | { [key: string]: RedactedValue };
 
-/** Redact tool arguments for digest: replace string values > 80 chars or containing secrets. */
+/**
+ * Redact tool arguments for digest: every string leaf gets the same secret
+ * replacement the persistence layer applies (task 1131 R1) — no length-based
+ * collapse, so two distinct long commands keep distinct digests and a token the
+ * shape rules catch never leaks into the digest input.
+ */
 function redactArgs(args: unknown): RedactedValue {
     if (typeof args === 'string') {
-        if (args.length > 80) return '[REDACTED:long]';
-        if (/[A-Za-z0-9+/]{40,}=*|[A-Za-z0-9_-]{20,}/.test(args)) return '[REDACTED:secret]';
-        return args;
+        return applyRules(args);
     }
     if (Array.isArray(args)) return args.map(redactArgs);
     if (args !== null && typeof args === 'object') {
@@ -1610,6 +1614,10 @@ export interface OmpToolResultTiming {
     wallTimeMs: number | undefined;
     /** Message timestamp as epoch millis, when parseable. */
     timestampMs: number | undefined;
+    /** Native start bound from pi `details.toolMetadata.startedAt` (task 1131 R2). */
+    startedAtMs: number | undefined;
+    /** Native completion bound from pi `details.toolMetadata.completedAt` (task 1131 R2). */
+    completedAtMs: number | undefined;
 }
 
 /** Parse a message timestamp (epoch-millis number, numeric string, or ISO) to epoch millis. */
@@ -1625,12 +1633,14 @@ export function timestampToEpochMs(value: unknown): number | undefined {
 }
 
 /**
- * Extract toolResult timing signals from a raw OMP record (task 0564 R1), or null
- * when the record is not a toolResult message or carries no toolCallId. Live OMP
- * emits `role: "toolResult"` message envelopes with `{toolCallId, toolName,
- * content, details, isError, timestamp}`; `details.wallTimeMs` is the tool's own
- * measured wall time (48% of results in the sampled session) and `toolCallId`
- * joins the originating `toolCall.id` exactly.
+ * Extract toolResult timing signals from a raw OMP or pi record (task 0564 R1,
+ * generalized for pi in task 1131 R2), or null when the record is not a
+ * toolResult message or carries no toolCallId. Both sources emit
+ * `role: "toolResult"` message envelopes with `{toolCallId, toolName, content,
+ * details, isError, timestamp}`; the tool's own wall time resolves from
+ * `details.wallTimeMs`, falling back to pi's `message.durationMs` and
+ * `details.toolMetadata.durationMs`, and `toolCallId` joins the originating
+ * `toolCall.id` exactly.
  */
 export function ompToolResultTiming(raw: Record<string, unknown>): OmpToolResultTiming | null {
     const msg = o(raw.message);
@@ -1638,13 +1648,16 @@ export function ompToolResultTiming(raw: Record<string, unknown>): OmpToolResult
     const toolCallId = s(msg.toolCallId);
     if (toolCallId === undefined) return null;
     const details = o(msg.details);
-    const wallTimeMs =
-        typeof details.wallTimeMs === 'number' && Number.isFinite(details.wallTimeMs) ? details.wallTimeMs : undefined;
+    const toolMetadata = o(details.toolMetadata);
+    const finite = (value: unknown): number | undefined =>
+        typeof value === 'number' && Number.isFinite(value) ? value : undefined;
     return {
         toolCallId,
         isError: msg.isError === true,
-        wallTimeMs,
+        wallTimeMs: finite(details.wallTimeMs) ?? finite(msg.durationMs) ?? finite(toolMetadata.durationMs),
         timestampMs: timestampToEpochMs(raw.timestamp ?? msg.timestamp),
+        startedAtMs: timestampToEpochMs(toolMetadata.startedAt),
+        completedAtMs: timestampToEpochMs(toolMetadata.completedAt),
     };
 }
 

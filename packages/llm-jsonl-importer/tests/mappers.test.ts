@@ -2136,3 +2136,17 @@ describe('codexSplit & agySplit session identity resolution (0638 R4)', () => {
         expect(entries[0]?.record.session_id).toBe('conv-explicit-uuid');
     });
 });
+
+describe('1131 R1 — argsDigest fidelity', () => {
+    test('two long bash commands differing in one path segment produce different digests', () => {
+        // Both commands exceed the old 80-char collapse; only the path segment differs.
+        const a = {
+            command: `bash /opt/workspace/alpha/checkout-long-tree/scripts/build-all.sh --target full --verbose`,
+        };
+        const b = {
+            command: `bash /opt/workspace/beta/checkout-long-tree/scripts/build-all.sh --target full --verbose`,
+        };
+        expect(a.command.length).toBeGreaterThan(80);
+        expect(argsDigest(a)).not.toBe(argsDigest(b));
+    });
+});

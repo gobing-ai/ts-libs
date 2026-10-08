@@ -19,4 +19,12 @@ describe('hash and redaction utilities', () => {
         });
         expect(redactValue(false)).toBe(false);
     });
+
+    test('1131 R1 — argsDigest equal when args differ only by a vendor token', async () => {
+        const { argsDigest } = await import('../src/mappers');
+        // sk-XXXXXXXXXXXXXXXX is 19 chars — the old digest redactor missed it entirely.
+        const a = { input: 'auth sk-AAAAAAAAAAAAAAAA done' };
+        const b = { input: 'auth sk-BBBBBBBBBBBBBBBB done' };
+        expect(argsDigest(a)).toBe(argsDigest(b));
+    });
 });
