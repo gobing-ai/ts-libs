@@ -222,20 +222,27 @@ export function npmViewPackage(name: string, spawn?: Spawn): boolean {
     return result.ok && result.stdout !== '';
 }
 
-export function npmPublish(dir: string, spawn?: Spawn): { ok: boolean; output: string } {
+export function npmPublish(
+    dir: string,
+    spawn?: Spawn,
+    interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY),
+): { ok: boolean; output: string } {
     const result = runCommand(
         'npm',
         ['publish', '--access', 'public'],
         {
             cwd: dir,
-            stdio: ['ignore', 'pipe', 'pipe'],
+            // npm requires terminal stdin and stdout to complete browser/OTP authentication.
+            stdio: interactive ? 'inherit' : ['ignore', 'pipe', 'pipe'],
         },
         spawn,
     );
 
     return {
         ok: result.ok,
-        output: [result.stdout, result.stderr].filter(Boolean).join('\n').trim(),
+        output:
+            [result.stdout, result.stderr].filter(Boolean).join('\n').trim() ||
+            (result.ok ? '' : `npm publish failed (exit ${result.status}); see npm output above`),
     };
 }
 

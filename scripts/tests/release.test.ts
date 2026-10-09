@@ -177,10 +177,22 @@ describe('npm publish helpers', () => {
             stderr: 'cannot publish over the previously published versions',
         })) as typeof spawnSync;
 
-        expect(npmPublish('packages/cache', okSpawn)).toEqual({ ok: true, output: 'published' });
-        expect(npmPublish('packages/cache', failedSpawn)).toEqual({
+        expect(npmPublish('packages/cache', okSpawn, false)).toEqual({ ok: true, output: 'published' });
+        expect(npmPublish('packages/cache', failedSpawn, false)).toEqual({
             ok: false,
             output: 'notice\ncannot publish over the previously published versions',
+        });
+    });
+
+    test('connects interactive npm authentication to the terminal and reports failed exits', () => {
+        const spawn = ((_command, _args, options) => {
+            expect(options.stdio).toBe('inherit');
+            return { status: 1, stdout: null, stderr: null };
+        }) as typeof spawnSync;
+
+        expect(npmPublish('packages/cache', spawn, true)).toEqual({
+            ok: false,
+            output: 'npm publish failed (exit 1); see npm output above',
         });
     });
 
