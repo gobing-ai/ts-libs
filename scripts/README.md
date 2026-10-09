@@ -7,6 +7,7 @@
 ```bash
 bun scripts/builder.ts bump-version <version> [--push]
 bun scripts/builder.ts drop-tags <version> [--remote]
+bun scripts/builder.ts verify-publish <aggregate-tag> [--dispatch]
 bun scripts/builder.ts build
 bun scripts/builder.ts typecheck
 bun scripts/builder.ts fix-dist-esm-extensions <dist-dir> [...dist-dir]
@@ -26,6 +27,12 @@ release goes through the Publish workflow. See `docs/PACKAGE_RELEASE.md`.
 
 `bump-version --push` creates per-package tags for traceability and one aggregate trigger tag,
 `@gobing-ai/ts-libs-v<version>`, which starts a single Publish workflow run for the whole lockstep release.
+
+`verify-publish <aggregate-tag>` checks that a Publish workflow run exists for the aggregate release
+tag and prints its id and URL, exiting 1 when none exists. It is the post-push check for a
+local-mode release (`bump-version` without `--push`). With `--dispatch` it first performs the same
+bounded lookup and, only when no run exists, dispatches `publish.yml` once at the tag ref — the
+safe recovery for a missed push event, never a tag delete or re-push.
 
 Root `package.json` keeps short aliases for the release commands:
 

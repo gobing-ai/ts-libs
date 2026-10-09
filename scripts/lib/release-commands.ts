@@ -267,7 +267,7 @@ export async function bumpVersion(
 
     if (!options.push) {
         log('\nDone (local). Review, then push to release:');
-        log(`  git push origin ${branch}`);
+        log(`  git push --no-follow-tags origin ${branch}`);
         log('GitHub creates no workflow runs when more than three tags are pushed at once — push tags individually:');
         for (const tag of packageTags) {
             log(`  git push origin refs/tags/${tag}:refs/tags/${tag}`);
@@ -297,17 +297,8 @@ export async function bumpVersion(
 }
 
 /**
- * Verify that a Publish workflow run exists for the aggregate release tag before
- * returning (R4, task 0510). Performs at most `PUBLISH_RUN_LOOKUP_ATTEMPTS`
- * `gh run list` lookups at a fixed `PUBLISH_RUN_LOOKUP_INTERVAL_MS` interval,
- * matching `headBranch === aggregateTag` with event `push` or `workflow_dispatch`.
- * If no matching push run appears, dispatches `publish.yml` exactly once at the
- * aggregate tag ref through its existing `workflow_dispatch` trigger, then performs
- * one final lookup for the dispatched run. Returns the run's database ID and URL;
- * throws when `gh` fails, output is malformed, or no run appears on either path.
- * Never deletes, moves, or re-pushes a tag — the workflow is idempotent and the
- * release tag is immutable, so recovery is a dispatch, not a tag mutation.
- * `spawn` / `sleep` are injectable so tests can script deterministic command results.
+ * One `gh run list` lookup for a Publish run matching `aggregateTag` (task 1143 R3).
+ * Throws when `gh` fails or its output is malformed; returns `undefined` when no run matches.
  */
 function queryPublishRun(aggregateTag: string, spawn: Spawn): PublishRunInfo | undefined {
     const result = runCommand(

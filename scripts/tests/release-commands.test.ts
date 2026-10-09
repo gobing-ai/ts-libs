@@ -501,7 +501,8 @@ describe('bumpVersion', () => {
 
         const output = logs.join('\n');
         expect(output).not.toContain('git push origin --tags');
-        expect(output).toContain('git push origin main');
+        expect(output).toContain('git push --no-follow-tags origin main');
+        expect(output).not.toContain('git push origin main');
         expect(output).toContain(`refs/tags/${RUNTIME_TAG}:refs/tags/${RUNTIME_TAG}`);
         expect(output).toContain(`refs/tags/${UTILS_TAG}:refs/tags/${UTILS_TAG}`);
         expect(output).toContain(`refs/tags/${AGG_TAG}:refs/tags/${AGG_TAG}`);
