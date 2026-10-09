@@ -1,0 +1,11 @@
+{
+    "wbs": "0201",
+    "verdict": "PASS",
+    "confidence": "HIGH",
+    "checks": [
+        { "name": "spur task check", "status": "pass", "evidence": "task check passed" },
+        { "name": "confidence", "status": "pass", "evidence": "HIGH" },
+        { "name": "proof-input-digest", "status": "pass", "evidence": "sha256:eeee" }
+    ],
+    "proof": { "digest": "sha256:eeee", "runId": "run-0201", "definitionDigest": "sha256:dddd" }
+}

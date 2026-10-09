@@ -1,0 +1,7 @@
+{
+    "wbs": "0204",
+    "verdict": "PASS",
+    "confidence": "LOW",
+    "checks": [{ "name": "confidence", "status": "warn", "evidence": "LOW (operator-acknowledged)" }],
+    "proof": { "digest": "sha256:9999", "runId": "run-0204", "definitionDigest": "sha256:dddd" }
+}

@@ -1,0 +1,98 @@
+# Verify-verdict confidence gate — a verdict's HIGH/MEDIUM/LOW confidence level
+# must be present, spelled correctly, and internally consistent with the checks
+# the same artifact records.
+#
+# Why this exists: the verify answer-file lint (in the spur CLI) requires exactly
+# one `Confidence: HIGH|MEDIUM|LOW` line, and the pipeline folds that level into
+# the verdict artifact — but nothing verified the artifact afterwards, so a
+# missing or mislabelled level, or a HIGH claim sitting next to a warn/pass-less
+# check, reached the completion gate unchallenged. The level is the reader's
+# signal for how much the verification is worth; an unverified level is a
+# self-assertion.
+#
+# Scope — proof-bound verdicts only. The `proof` block (ADR-071) marks a verdict
+# produced under the current proof chain, which is where the confidence contract
+# lives. Verdicts without it predate that chain; enforcing today's contract on
+# them would fire on ~45 pre-existing artifacts in this repo. They are out of
+# scope by construction, not suppressed — see the fixtures README for how the
+# rule is exercised.
+#
+# Both verdict planes are scanned: `.spur/run/` (per-run) and
+# `.spur/memory/evidence/` (the durable mirror). Both are untracked planes, so a
+# clean checkout simply has nothing to verify and the rule passes.
+
+include:
+  - ".spur/run/*-verdict.json"
+  - ".spur/memory/evidence/*-verdict.json"
+
+rules:
+  - id: verify-confidence-level
+    description: >-
+      A proof-bound verify verdict must carry an explicit confidence level of
+      HIGH, MEDIUM or LOW; if it also records a `confidence` check, that check's
+      evidence must name the same level; and a HIGH level must not coexist with
+      any check whose status is not `pass`. A HIGH level is read as "all
+      recorded checks passed and the evidence was first-hand", so pairing it with
+      a warn/fail check launders a weaker result into a stronger-looking one,
+      while a missing level leaves the completion gate with no calibratable
+      signal at all.
+    severity: error
+    evaluator:
+      type: exit-code
+      config:
+        command: sh
+        args:
+          - -c
+          - |
+            set -u
+            violations=0
+            scanned=0
+
+            for f in .spur/run/*-verdict.json .spur/memory/evidence/*-verdict.json; do
+              [ -f "$f" ] || continue
+
+              # Proof-bound verdicts only; the proof block is the contract marker.
+              is_proof_bound=$(jq -r 'has("proof")' "$f" 2>/dev/null) || {
+                echo "verify-confidence-level: $f: unreadable JSON — refusing to skip a verdict silently"
+                violations=$((violations + 1))
+                continue
+              }
+              [ "$is_proof_bound" = "true" ] || continue
+              scanned=$((scanned + 1))
+
+              level=$(jq -r '.confidence // ""' "$f" 2>/dev/null)
+              case "$level" in
+                HIGH|MEDIUM|LOW) ;;
+                *)
+                  echo "verify-confidence-level: $f: confidence must be HIGH, MEDIUM or LOW (got '${level:-<absent>}')"
+                  violations=$((violations + 1))
+                  continue
+                  ;;
+              esac
+
+              # Agreement with the recorded confidence check, when one exists.
+              check=$(jq -r '[.checks[]? | select(.name == "confidence")][0].evidence // ""' "$f" 2>/dev/null)
+              if [ -n "$check" ]; then
+                case "$check" in
+                  "$level"*) ;;
+                  *)
+                    echo "verify-confidence-level: $f: confidence check evidence '$check' disagrees with level $level"
+                    violations=$((violations + 1))
+                    ;;
+                esac
+              fi
+
+              # A HIGH claim must not sit next to a check that did not pass.
+              if [ "$level" = "HIGH" ]; then
+                nonpass=$(jq -r '[.checks[]? | select(.status != "pass")] | length' "$f" 2>/dev/null)
+                if [ "${nonpass:-0}" != "0" ]; then
+                  echo "verify-confidence-level: $f: confidence HIGH but $nonpass check(s) are not pass"
+                  violations=$((violations + 1))
+                fi
+              fi
+            done
+
+            [ "$violations" -eq 0 ] || exit 1
+            exit 0
+        message: "verify-verdict confidence level is missing, misspelled or inconsistent with its recorded checks (see stdout)"
+        timeout: 30000

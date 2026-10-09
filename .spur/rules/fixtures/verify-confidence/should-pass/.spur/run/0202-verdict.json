@@ -1,0 +1,10 @@
+{
+    "wbs": "0202",
+    "verdict": "PARTIAL",
+    "confidence": "MEDIUM",
+    "checks": [
+        { "name": "spur task check", "status": "pass", "evidence": "task check passed" },
+        { "name": "confidence", "status": "warn", "evidence": "MEDIUM (operator-acknowledged)" }
+    ],
+    "proof": { "digest": "sha256:ffff", "runId": "run-0202", "definitionDigest": "sha256:dddd" }
+}
