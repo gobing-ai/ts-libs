@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { buildPackages, cleanPackages, fixDistRoots, smokeDistImports, typecheckPackages } from './lib/build';
-import { bumpVersion, dropTags, publishPackages } from './lib/release-commands';
+import { bumpVersion, dropTags, publishPackages, verifyPublish } from './lib/release-commands';
 import { findWorkspacePackages } from './lib/workspace';
 import { assertPublishableManifest } from './lib/workspace-deps';
 
@@ -20,6 +20,16 @@ try {
             const version = args.find((arg) => !arg.startsWith('--'));
             if (!version) usage('drop-tags <version> [--remote]');
             await dropTags(version, { remote: args.includes('--remote') });
+            break;
+        }
+
+        case 'verify-publish': {
+            const tag = args.find((arg) => !arg.startsWith('--'));
+            if (!tag) usage('verify-publish <aggregate-tag> [--dispatch]', 2);
+            const exitCode = await verifyPublish(tag, {
+                dispatch: args.includes('--dispatch'),
+            });
+            process.exit(exitCode);
             break;
         }
 
@@ -79,27 +89,31 @@ function flagValue(args: string[], flag: string): string | undefined {
     return value;
 }
 
-function usage(commandUsage?: string): never {
+function usage(commandUsage?: string, exitCode = 1): never {
     const prefix = 'Usage: bun scripts/builder.ts';
     if (commandUsage) {
-        fail(`${prefix} ${commandUsage}`);
+        fail(`${prefix} ${commandUsage}`, exitCode);
     }
 
-    fail(`Usage: bun scripts/builder.ts <command>
+    fail(
+        `Usage: bun scripts/builder.ts <command>
 
 Commands:
   bump-version <version> [--push]
   drop-tags <version> [--remote]
+  verify-publish <aggregate-tag> [--dispatch]
   clean
   build
   typecheck
   fix-dist-esm-extensions <dist-dir> [...dist-dir]
   check-publish-manifest [dir]
   publish-packages [--bootstrap <package>]
-  smoke-dist-imports`);
+  smoke-dist-imports`,
+        exitCode,
+    );
 }
 
-function fail(message: string): never {
+function fail(message: string, exitCode = 1): never {
     console.error(message);
-    process.exit(1);
+    process.exit(exitCode);
 }

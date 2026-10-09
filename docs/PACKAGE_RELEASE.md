@@ -45,14 +45,25 @@ Drop `--push` to do everything locally and stop, so you can inspect the commit a
 bun run bump-ver 0.1.5        # bump + commit + tag, no push
 git show                      # review the commit
 git log --oneline -1; git tag -l '*v0.1.5'
-# release when satisfied — push branch first, then tags one at a time:
+# release when satisfied — push branch first, then tags one at a time (GitHub ignores pushes with >3 tags):
 git push --no-follow-tags origin main
 for p in utils runtime db infra; do
-  git push origin "refs/tags/@gobing-ai/ts-$p-v0.1.5"
+  git push origin "refs/tags/@gobing-ai/ts-$p-v0.1.5:refs/tags/@gobing-ai/ts-$p-v0.1.5"
 done
+git push origin "refs/tags/@gobing-ai/ts-libs-v0.1.5:refs/tags/@gobing-ai/ts-libs-v0.1.5"
+# verify the Publish run was triggered:
+bun scripts/builder.ts verify-publish @gobing-ai/ts-libs-v0.1.5
 ```
 
 ### Verify
+
+For local-mode releases (without `--push`), verify the triggered Publish run:
+
+```bash
+bun scripts/builder.ts verify-publish @gobing-ai/ts-libs-v<version>
+# or if no run was triggered (recovers with a single workflow_dispatch):
+bun scripts/builder.ts verify-publish @gobing-ai/ts-libs-v<version> --dispatch
+```
 
 `bump-ver <version> --push` now **proves the Publish run exists before returning** (task 0510 R4):
 after pushing the aggregate tag it polls `gh run list --workflow=publish.yml` (3 attempts, 5s apart)
@@ -183,7 +194,7 @@ From now on this package releases with the others via `bun run bump-ver <version
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Tag pushed, no Publish run | Tag's commit not reachable from `main` (branch wasn't pushed first), or tags were pushed together | Push `main` first, then tags one at a time (`bump-ver --push` does both). If the run is still missing, `bump-ver --push` auto-recovers by dispatching `publish.yml` at the aggregate tag ref once (task 0510 R4) — no tag deletion/re-push needed |
+| Tag pushed, no Publish run | Tag's commit not reachable from `main` (branch wasn't pushed first), or tags were pushed together | Push `main` first, then tags one at a time (`bump-ver --push` does both). For local releases, run `bun scripts/builder.ts verify-publish <aggregate-tag> [--dispatch]`. If the run is still missing, `bump-ver --push` or `verify-publish --dispatch` auto-recovers by dispatching `publish.yml` at the aggregate tag ref once (task 0510 R4) — no tag deletion/re-push needed |
 | Per-package tag pushed, no Publish run | Expected — per-package tags are traceability tags only | Check for the aggregate `@gobing-ai/ts-libs-v<version>` tag run |
 | Publish run skips everything | Version already on npm | Bump to a new version — npm versions are immutable |
 | Publish run fails with tag/version mismatch | The workflow checked out a commit whose manifest version does not match the tag | Recreate the tag on the correct release commit, or use a new version if npm already has the old one |

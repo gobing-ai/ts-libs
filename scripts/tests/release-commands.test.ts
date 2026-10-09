@@ -36,6 +36,7 @@ import {
     dropTags,
     ensurePublishWorkflowRun,
     publishPackages,
+    verifyPublish,
 } from '../lib/release-commands';
 
 const VERSION = '0.1.6';
@@ -297,6 +298,105 @@ describe('ensurePublishWorkflowRun (R4, task 0510)', () => {
     });
 });
 
+// ── verifyPublish (R2, R3, task 1143) ──────────────────────────────────────
+
+describe('verifyPublish (R2, R3, task 1143)', () => {
+    test('reports an existing run, prints id and URL, and gives exit 0 without dispatching (R4b)', async () => {
+        const { spawn, calls } = fakeSpawn([{ match: gh(...listArgs()), stdout: PUSH_RUN }]);
+        const logs: string[] = [];
+        const exitCode = await verifyPublish(AGG_TAG, {
+            spawn,
+            sleep: noopSleep,
+            log: (msg) => logs.push(msg),
+            errorLog: noopLog,
+        });
+        expect(exitCode).toBe(0);
+        expect(logs.some((l) => l.includes('12345') && l.includes('runs/12345'))).toBe(true);
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toContain('run list');
+        expect(calls.some((c) => c.includes('workflow run'))).toBe(false);
+    });
+
+    test('fails loudly with exit 1, prints recovery text, and makes zero dispatches when no run exists (R4c)', async () => {
+        const { spawn, calls } = fakeSpawn([
+            { match: gh(...listArgs()), stdout: EMPTY },
+            { match: gh(...listArgs()), stdout: EMPTY },
+            { match: gh(...listArgs()), stdout: EMPTY },
+        ]);
+        const errors: string[] = [];
+        const exitCode = await verifyPublish(AGG_TAG, {
+            spawn,
+            sleep: noopSleep,
+            log: noopLog,
+            errorLog: (msg) => errors.push(msg),
+        });
+        expect(exitCode).toBe(1);
+        const errorOutput = errors.join('\n');
+        expect(errorOutput).toContain(AGG_TAG);
+        expect(errorOutput).toContain('--dispatch');
+        expect(errorOutput).toContain(`verify-publish ${AGG_TAG} --dispatch`);
+        expect(calls.some((c) => c.includes('workflow run'))).toBe(false);
+    });
+
+    test('--dispatch performs exactly one workflow dispatch when no run exists (R4d)', async () => {
+        const { spawn, calls } = fakeSpawn([
+            { match: gh(...listArgs()), stdout: EMPTY },
+            { match: gh(...listArgs()), stdout: EMPTY },
+            { match: gh(...listArgs()), stdout: EMPTY },
+            { match: gh(...dispatchArgs()), stdout: '' },
+            { match: gh(...listArgs()), stdout: DISPATCHED_RUN },
+        ]);
+        const logs: string[] = [];
+        const exitCode = await verifyPublish(AGG_TAG, {
+            dispatch: true,
+            spawn,
+            sleep: noopSleep,
+            log: (msg) => logs.push(msg),
+            errorLog: noopLog,
+        });
+        expect(exitCode).toBe(0);
+        expect(logs.some((l) => l.includes('67890'))).toBe(true);
+        const dispatchCalls = calls.filter((c) => c.includes('workflow run'));
+        expect(dispatchCalls).toHaveLength(1);
+        expect(dispatchCalls[0]).toContain('--ref');
+        expect(dispatchCalls[0]).toContain(AGG_TAG);
+    });
+
+    test('--dispatch gives exit 1 when no run appears after dispatch', async () => {
+        const { spawn, calls } = fakeSpawn([
+            { match: gh(...listArgs()), stdout: EMPTY },
+            { match: gh(...listArgs()), stdout: EMPTY },
+            { match: gh(...listArgs()), stdout: EMPTY },
+            { match: gh(...dispatchArgs()), stdout: '' },
+            { match: gh(...listArgs()), stdout: EMPTY },
+        ]);
+        const errors: string[] = [];
+        const exitCode = await verifyPublish(AGG_TAG, {
+            dispatch: true,
+            spawn,
+            sleep: noopSleep,
+            log: noopLog,
+            errorLog: (msg) => errors.push(msg),
+        });
+        expect(exitCode).toBe(1);
+        expect(errors.join('\n')).toContain('No Publish workflow run found for aggregate tag');
+        const dispatchCalls = calls.filter((c) => c.includes('workflow run'));
+        expect(dispatchCalls).toHaveLength(1);
+    });
+
+    test('surfaces gh run list failure as an error, never treating it as a missing run', async () => {
+        const { spawn } = fakeSpawn([{ match: gh(...listArgs()), status: 1, stdout: '', stderr: 'gh: not logged in' }]);
+        await expect(
+            verifyPublish(AGG_TAG, {
+                spawn,
+                sleep: noopSleep,
+                log: noopLog,
+                errorLog: noopLog,
+            }),
+        ).rejects.toThrow(/gh run list failed/);
+    });
+});
+
 // ── bumpVersion ─────────────────────────────────────────────────────────────
 
 function bumpOpts(push = false) {
@@ -391,6 +491,25 @@ describe('bumpVersion', () => {
         // No push, no gh.
         expect(calls.some((c) => c.includes('push'))).toBe(false);
         expect(calls.some((c) => c.startsWith('gh'))).toBe(false);
+    });
+
+    test('local-mode hint lists per-tag refspecs, states three-tag limit, and contains no --tags (R4a)', async () => {
+        await installFixture(false);
+        const logs: string[] = [];
+        const { spawn } = cleanGitSpawn(false);
+        await bumpVersion(VERSION, { ...bumpOpts(false), log: (msg) => logs.push(msg) }, spawn);
+
+        const output = logs.join('\n');
+        expect(output).not.toContain('git push origin --tags');
+        expect(output).toContain('git push origin main');
+        expect(output).toContain(`refs/tags/${RUNTIME_TAG}:refs/tags/${RUNTIME_TAG}`);
+        expect(output).toContain(`refs/tags/${UTILS_TAG}:refs/tags/${UTILS_TAG}`);
+        expect(output).toContain(`refs/tags/${AGG_TAG}:refs/tags/${AGG_TAG}`);
+        const utilsIdx = logs.findIndex((l) => l.includes(UTILS_TAG));
+        const aggIdx = logs.findIndex((l) => l.includes(AGG_TAG));
+        expect(aggIdx).toBeGreaterThan(utilsIdx);
+        expect(output).toContain(`bun scripts/builder.ts verify-publish ${AGG_TAG}`);
+        expect(output).toMatch(/three tags/i);
     });
 
     test('push path verifies the Publish run and reports it', async () => {

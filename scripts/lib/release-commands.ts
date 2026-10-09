@@ -268,8 +268,14 @@ export async function bumpVersion(
     if (!options.push) {
         log('\nDone (local). Review, then push to release:');
         log(`  git push origin ${branch}`);
-        log('  git push origin --tags');
-        log('Or re-run with --push next time to do this automatically.');
+        log('GitHub creates no workflow runs when more than three tags are pushed at once — push tags individually:');
+        for (const tag of packageTags) {
+            log(`  git push origin refs/tags/${tag}:refs/tags/${tag}`);
+        }
+        log(`  git push origin refs/tags/${aggregateTag}:refs/tags/${aggregateTag}`);
+        log('\nVerify the publish workflow run after pushing:');
+        log(`  bun scripts/builder.ts verify-publish ${aggregateTag}`);
+        log('\nOr re-run with --push next time to do this automatically.');
         return;
     }
 
@@ -303,36 +309,40 @@ export async function bumpVersion(
  * release tag is immutable, so recovery is a dispatch, not a tag mutation.
  * `spawn` / `sleep` are injectable so tests can script deterministic command results.
  */
-export async function ensurePublishWorkflowRun(
+function queryPublishRun(aggregateTag: string, spawn: Spawn): PublishRunInfo | undefined {
+    const result = runCommand(
+        'gh',
+        [
+            'run',
+            'list',
+            '--workflow',
+            releaseConfig.publishWorkflow,
+            '--limit',
+            String(releaseConfig.ghRunListLimit),
+            '--json',
+            'databaseId,headBranch,event,url',
+        ],
+        { cwd: repoRoot },
+        spawn,
+    );
+    if (!result.ok) {
+        throw new Error(`gh run list failed:\n${result.stderr || result.stdout}`);
+    }
+    return findPublishRunForTag(result.stdout, aggregateTag);
+}
+
+/**
+ * Poll `gh run list` for a Publish workflow run matching the aggregate tag.
+ * Performs at most `PUBLISH_RUN_LOOKUP_ATTEMPTS` lookups without dispatching (R3, task 1143).
+ */
+export async function findPublishRun(
     aggregateTag: string,
     spawn: Spawn = spawnSync,
     sleep: (ms: number) => Promise<void> = (ms) => Bun.sleep(ms),
     log: (message: string) => void = console.log,
-): Promise<PublishRunInfo> {
-    const listRuns = (): PublishRunInfo | undefined => {
-        const result = runCommand(
-            'gh',
-            [
-                'run',
-                'list',
-                '--workflow',
-                releaseConfig.publishWorkflow,
-                '--limit',
-                String(releaseConfig.ghRunListLimit),
-                '--json',
-                'databaseId,headBranch,event,url',
-            ],
-            { cwd: repoRoot },
-            spawn,
-        );
-        if (!result.ok) {
-            throw new Error(`gh run list failed:\n${result.stderr || result.stdout}`);
-        }
-        return findPublishRunForTag(result.stdout, aggregateTag);
-    };
-
+): Promise<PublishRunInfo | undefined> {
     for (let attempt = 1; attempt <= PUBLISH_RUN_LOOKUP_ATTEMPTS; attempt++) {
-        const run = listRuns();
+        const run = queryPublishRun(aggregateTag, spawn);
         if (run !== undefined) {
             log(`Publish workflow run ${run.databaseId} (${run.event}) for ${aggregateTag}: ${run.url}`);
             return run;
@@ -340,6 +350,32 @@ export async function ensurePublishWorkflowRun(
         if (attempt < PUBLISH_RUN_LOOKUP_ATTEMPTS) {
             await sleep(PUBLISH_RUN_LOOKUP_INTERVAL_MS);
         }
+    }
+    return undefined;
+}
+
+/**
+ * Verify that a Publish workflow run exists for the aggregate release tag before
+ * returning (R4, task 0510). Performs at most `PUBLISH_RUN_LOOKUP_ATTEMPTS`
+ * `gh run list` lookups at a fixed `PUBLISH_RUN_LOOKUP_INTERVAL_MS` interval,
+ * matching `headBranch === aggregateTag` with event `push` or `workflow_dispatch`.
+ * If no matching push run appears, dispatches `publish.yml` exactly once at the
+ * aggregate tag ref through its existing `workflow_dispatch` trigger, then performs
+ * one final lookup for the dispatched run. Returns the run's database ID and URL;
+ * throws when `gh` fails, output is malformed, or no run appears on either path.
+ * Never deletes, moves, or re-pushes a tag — the workflow is idempotent and the
+ * release tag is immutable, so recovery is a dispatch, not a tag mutation.
+ * `spawn` / `sleep` are injectable so tests can script deterministic command results.
+ */
+export async function ensurePublishWorkflowRun(
+    aggregateTag: string,
+    spawn: Spawn = spawnSync,
+    sleep: (ms: number) => Promise<void> = (ms) => Bun.sleep(ms),
+    log: (message: string) => void = console.log,
+): Promise<PublishRunInfo> {
+    const existing = await findPublishRun(aggregateTag, spawn, sleep, log);
+    if (existing !== undefined) {
+        return existing;
     }
 
     log(
@@ -358,7 +394,7 @@ export async function ensurePublishWorkflowRun(
         );
     }
 
-    const dispatched = listRuns();
+    const dispatched = queryPublishRun(aggregateTag, spawn);
     if (dispatched === undefined) {
         throw new Error(
             `No Publish workflow run found for aggregate tag ${aggregateTag} after workflow_dispatch. ` +
@@ -368,6 +404,50 @@ export async function ensurePublishWorkflowRun(
     }
     log(`Dispatched Publish run ${dispatched.databaseId} (${dispatched.event}): ${dispatched.url}`);
     return dispatched;
+}
+
+export interface VerifyPublishOptions {
+    dispatch?: boolean;
+    spawn?: Spawn;
+    sleep?: (ms: number) => Promise<void>;
+    log?: (message: string) => void;
+    errorLog?: (message: string) => void;
+}
+
+/**
+ * Check-only publish verifier CLI entry (R2, task 1143).
+ * Without `--dispatch`, searches for an existing Publish run for the aggregate tag,
+ * prints the run ID and URL and returns 0. If none exists, prints recovery text and returns 1.
+ * With `--dispatch`, performs the bounded lookup, dispatches if missing, confirms the run, and returns 0 (or 1 on failure).
+ */
+export async function verifyPublish(aggregateTag: string, options: VerifyPublishOptions = {}): Promise<number> {
+    const {
+        dispatch = false,
+        spawn = spawnSync,
+        sleep = (ms) => Bun.sleep(ms),
+        log = console.log,
+        errorLog = console.error,
+    } = options;
+
+    if (dispatch) {
+        try {
+            await ensurePublishWorkflowRun(aggregateTag, spawn, sleep, log);
+            return 0;
+        } catch (error) {
+            errorLog(error instanceof Error ? error.message : String(error));
+            return 1;
+        }
+    }
+
+    const run = await findPublishRun(aggregateTag, spawn, sleep, log);
+    if (run !== undefined) {
+        return 0;
+    }
+
+    errorLog(`No Publish workflow run found for aggregate tag ${aggregateTag}.`);
+    errorLog('Recovery: re-run with --dispatch to trigger the Publish workflow:');
+    errorLog(`  bun scripts/builder.ts verify-publish ${aggregateTag} --dispatch`);
+    return 1;
 }
 
 /** Matched Publish run identity reported back to the caller. */
