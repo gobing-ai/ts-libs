@@ -22,8 +22,10 @@ normal `bun run spur-check` never sees them.
 | `should-fire/0104` | the recorded `confidence` check disagreeing with the level is rejected |
 | `should-fire/0105` | a malformed `evidenceType` (`test+static`) is rejected **without** a proof block — the vocabulary check is not proof-scoped |
 | `should-fire/0106` | `HIGH` resting on self-attestation (`manual-review`) is rejected |
+| `should-fire/0107` | a `MEDIUM` level with no `confidence` check at all is rejected as unacknowledged |
+| `should-fire/0108` | a `MEDIUM` level whose recorded check omits `(operator-acknowledged)` is rejected |
 | `should-pass/0201` | `HIGH` with every check `pass` and an agreeing check is accepted |
-| `should-pass/0202` | `MEDIUM` **may** sit beside a non-`pass` check (only `HIGH` is exclusive) |
+| `should-pass/0202` | `MEDIUM` **may** sit beside a non-`pass` check (only `HIGH` is exclusive), and is accepted **because** its check carries `(operator-acknowledged)` |
 | `should-pass/0203` | a verdict with no `proof` block is out of scope for the level checks — legacy, not suppressed |
 | `should-pass/0204` | the durable `.spur/memory/evidence/` plane is scanned too |
 | `should-pass/0205` | a **valid** compound (`static-ref+test`) is accepted — the check rejects bad tokens, not compounds |
@@ -77,7 +79,10 @@ to stream it.
   they have one subject in this repo. The vocabulary check is the one with broad
   reach: it reads all 84 artifacts and caught three malformed tokens
   (`test+static`, `static+command`) that had sat unread in two of them.
-- **A recorded `confidence` check is optional**, so the agreement assertion only
-  fires when one exists. The current pipeline writes the level as a top-level
-  field and only sometimes as a check, so requiring the check outright would
-  invent a contract the pipeline does not keep.
+- **A recorded `confidence` check is optional for a HIGH level** — the agreement
+  assertion only fires when one exists, because the pipeline writes the check as
+  a `warn` row for weaker levels and a `pass` row for HIGH. For a **non-HIGH**
+  level the check is required and must carry `(operator-acknowledged)`: that
+  marker is written only when the operator actually accepted the weaker level, so
+  its absence means the level was self-assigned. Fixtures `0107`/`0108` pin both
+  halves of that.

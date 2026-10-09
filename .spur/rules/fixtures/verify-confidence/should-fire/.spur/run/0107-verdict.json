@@ -1,0 +1,8 @@
+{
+    "wbs": "0107",
+    "verdict": "PARTIAL",
+    "confidence": "MEDIUM",
+    "acceptanceCriteria": [{ "id": "AC1", "status": "PARTIAL", "evidenceType": "test", "evidence": "suite ran" }],
+    "checks": [{ "name": "spur task check", "status": "pass", "evidence": "task check passed" }],
+    "proof": { "digest": "sha256:aaa3", "runId": "run-0107", "definitionDigest": "sha256:dddd" }
+}

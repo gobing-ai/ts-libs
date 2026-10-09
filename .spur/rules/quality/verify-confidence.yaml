@@ -13,6 +13,10 @@
 #      acceptance row beneath it must cite executable evidence (`test` or
 #      `command`) rather than self-attestation (`manual-review`, `llm-judge`),
 #      a bare citation (`static-ref`) or nothing at all.
+#   3. Acknowledgement — a MEDIUM or LOW claim must be operator-acknowledged
+#      rather than silently self-assigned. The pipeline records
+#      '(operator-acknowledged)' only when someone actually accepted the weaker
+#      level, so its absence means nobody signed off.
 #
 # Scope differs per check, deliberately:
 #   - the vocabulary check runs on EVERY verdict artifact. It costs nothing,
@@ -50,6 +54,9 @@ rules:
       a bare static-ref, or an absent type. A HIGH level is read as "all
       recorded checks passed and the evidence was first-hand", so pairing it
       with a weaker row launders an unproven result into a proven-looking one.
+      (3) A MEDIUM or LOW level must be operator-acknowledged: the recorded
+      `confidence` check must carry '(operator-acknowledged)', because that
+      marker is written only when the operator accepted the weaker level.
     severity: error
     evaluator:
       type: exit-code
@@ -105,6 +112,20 @@ rules:
                   "$level"*) ;;
                   *)
                     echo "verify-confidence-level: $f: confidence check evidence '$check' disagrees with level $level"
+                    violations=$((violations + 1))
+                    ;;
+                esac
+              fi
+
+              # A non-HIGH level must be explicitly acknowledged rather than silently
+              # self-assigned: the pipeline records '(operator-acknowledged)' only when the
+              # operator actually accepted a weaker level, so its absence on a MEDIUM/LOW
+              # verdict means nobody signed off on it.
+              if [ "$level" != "HIGH" ]; then
+                case "$check" in
+                  *"(operator-acknowledged)"*) ;;
+                  *)
+                    echo "verify-confidence-level: $f: confidence $level is not operator-acknowledged (expected a confidence check carrying '(operator-acknowledged)')"
                     violations=$((violations + 1))
                     ;;
                 esac
