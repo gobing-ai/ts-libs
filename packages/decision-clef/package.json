@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-decision-clef",
-    "version": "0.5.20",
+    "version": "0.5.21",
     "description": "@gobing-ai/ts-decision-clef — Hosted Clef decision backend driving Cloudflare Workers AI over the portable ts-infra APIClient seam.",
     "keywords": [
         "typescript",
