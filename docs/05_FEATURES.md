@@ -3,10 +3,10 @@ name: Features
 doc: 05_FEATURES
 owns: STATUS — feature decomposition + state; index over docs/features/
 authority: derived
-version: 1.5.0
+version: 1.6.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-10-04
+updated_at: 2026-10-09
 read_before: finding a feature's state
 edit_rules: 99 §6.6
 sync: [T4, T9]
@@ -23,6 +23,7 @@ Feature satellites are owned by `spur feature`. The generated, authoritative ros
 |----|---------|--------|-----------|
 | A | ts-ai-runner | ⏳ planned | [`A_ts-ai-runner.md`](features/A_ts-ai-runner.md) |
 | A1 | ↳ Add Grok coding agent to ts-ai-runner | ✅ done | [`A1_add-grok-coding-agent-to-ts-ai-runner.md`](features/A1_add-grok-coding-agent-to-ts-ai-runner.md) |
+| A3 | ↳ Hosted Clef decision backend (ADR-037) | ⏳ planned | [`A3_cloudflare-clef-decision-backend-in-ts-decision-clef.md`](features/A3_cloudflare-clef-decision-backend-in-ts-decision-clef.md) |
 | B | ts-db | ⏳ planned | [`B_ts-db.md`](features/B_ts-db.md) |
 | C | ts-dual-workflow-engine | ⏳ planned | [`C_ts-dual-workflow-engine.md`](features/C_ts-dual-workflow-engine.md) |
 | C1 | ↳ Workflow YAML rule-style extensions | ✅ done | [`C1_workflow-yaml-rule-style-extensions.md`](features/C1_workflow-yaml-rule-style-extensions.md) |

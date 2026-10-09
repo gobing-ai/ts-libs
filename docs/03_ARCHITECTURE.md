@@ -3,16 +3,38 @@ name: Architecture
 doc: 03_ARCHITECTURE
 owns: HOW — module boundaries, data flow, runtime model, invariants, rationale-in-depth
 authority: derived
-version: 1.6.0
+version: 1.7.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-10-07
+updated_at: 2026-10-09
 read_before: cross-package, seam, or schema work
 edit_rules: 99 §6.4
 sync: [T1]
 ---
 
 # Architecture
+
+## decision-clef (accepted design — ADR-037; not yet built)
+
+`@gobing-ai/ts-decision-clef` implements `DecisionDriver.ask` through the
+portable `APIClient.rawRequest` seam. The caller provides account/token and
+injects the driver into DecisionMaker; a custom registry factory is optional.
+The driver validates neutral questions plus provider limits, serializes one
+batch request, selects a matching Workers AI route/body model, unwraps the
+Cloudflare REST envelope, maps typed answers and validates their correspondence.
+The factory makes no request and reads no process environment.
+
+Runtime dependencies are `ts-ai-runner` for the contract, errors and shared
+validators, and `ts-infra` for HTTP. Source-resolution paths include their
+transitive source closure per ADR-004/ADR-012. Existing backend selectors and
+registry built-ins do not change. Boundary rules prohibit reverse ai-runner
+imports and Clef imports of the higher catalog layer.
+
+Model probabilities and confidence are preserved; score remains an expected
+fractional value, and noul has no synthetic confidence. Configuration, request,
+auth, rate-limit, timeout, connection and backend failures use existing
+`DecisionError` classes. Local inference and multimodal input extensions are
+outside this implementation. Public shapes: [Clef backend](design/decision-clef-backend.md).
 
 ## ai-decision (accepted design — ADR-033; not yet built)
 

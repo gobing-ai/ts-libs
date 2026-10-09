@@ -3,9 +3,9 @@ name: Architecture Decision Records
 doc: 00_ADR
 owns: WHY — which cross-cutting decision was made, and the one-line reason
 authority: authoritative
-version: 1.4.0
+version: 1.5.0
 owner: Robin Min
-updated_at: 2026-10-07
+updated_at: 2026-10-09
 read_before: any structural change
 edit_rules: 99 §6.1
 sync: [T1, T2]
@@ -734,3 +734,33 @@ JSON schema's pre-existing drift on `resumeRerun` / `startable` remains recorded
 
 **Detail:** `docs/03_ARCHITECTURE.md` § dual-workflow-engine; `packages/dual-workflow-engine/README.md`
 § State Display Metadata; task 1103 (feature I13).
+
+---
+
+## ADR-037: Hosted Clef Decision Backend Ships as ts-decision-clef through APIClient
+
+**Status:** Accepted (design; not built) · **Date:** 2026-10-09 · **Targets:** `ts-decision-clef` (new), `ts-ai-runner`
+
+**Decision.** Publish `@gobing-ai/ts-decision-clef` from `packages/decision-clef` as an
+additive `DecisionDriver` implementing hosted Workers AI REST for `clef` and
+`clef-flash`. The adapter uses the existing portable `ts-infra` `APIClient`;
+account and token are explicit caller configuration. Its default is `clef-flash`,
+with configured and per-request model selection. No Cloudflare SDK is introduced.
+
+**Reason.** The existing driver and HTTP seams already hide typed mapping, response
+validation and transport policy; a separate package lets consumers choose Clef
+without changing existing backend defaults or provisioning a local GPU runtime.
+
+**Boundary.** Dependencies point from Clef to ai-runner/infra, never in reverse.
+Consumers inject the driver with `createDecisionMaker({ driver })` or manually
+register a maker using the existing registry. There is no new ai-runner backend
+selector or bundled registry maker. The existing question and answer validators
+become named ai-runner exports for reuse by external drivers.
+
+**Alternatives.** Binding plus REST adds an unrequested second transport; local
+joint-head inference adds a GPU/Python bridge. Both remain outside this slice.
+Reusing the TypeSafe SDK outside its owning adapter would violate the established
+SDK boundary. No direct-fetch exception is needed.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § decision-clef;
+`docs/design/decision-clef-backend.md`; feature A3.
