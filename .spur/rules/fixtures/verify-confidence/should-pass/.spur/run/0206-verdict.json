@@ -1,0 +1,12 @@
+{
+    "wbs": "0206",
+    "verdict": "PASS",
+    "confidence": "HIGH",
+    "acceptanceCriteria": [
+        { "id": "AC1", "status": "MET", "evidenceType": "command", "evidence": "gate ran" },
+        { "id": "AC2", "status": "MET", "evidenceType": "test", "evidence": "suite ran" },
+        { "id": "AC3", "status": "MET", "evidenceType": "n/a", "evidence": "explicitly non-behavioral" }
+    ],
+    "checks": [{ "name": "spur task check", "status": "pass", "evidence": "task check passed" }],
+    "proof": { "digest": "sha256:aaa2", "runId": "run-0206", "definitionDigest": "sha256:dddd" }
+}

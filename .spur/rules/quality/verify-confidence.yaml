@@ -1,21 +1,30 @@
 # Verify-verdict confidence gate — a verdict's HIGH/MEDIUM/LOW confidence level
-# must be present, spelled correctly, and internally consistent with the checks
-# the same artifact records.
+# must be present, spelled correctly, and backed by the evidence it claims.
 #
 # Why this exists: the verify answer-file lint (in the spur CLI) requires exactly
 # one `Confidence: HIGH|MEDIUM|LOW` line, and the pipeline folds that level into
-# the verdict artifact — but nothing verified the artifact afterwards, so a
-# missing or mislabelled level, or a HIGH claim sitting next to a warn/pass-less
-# check, reached the completion gate unchallenged. The level is the reader's
-# signal for how much the verification is worth; an unverified level is a
-# self-assertion.
+# the verdict artifact — but nothing verified the artifact afterwards. The level
+# is the reader's signal for how much the verification is worth, so an
+# unverified level is a self-assertion. Two distinct gaps are closed here:
 #
-# Scope — proof-bound verdicts only. The `proof` block (ADR-071) marks a verdict
-# produced under the current proof chain, which is where the confidence contract
-# lives. Verdicts without it predate that chain; enforcing today's contract on
-# them would fire on ~45 pre-existing artifacts in this repo. They are out of
-# scope by construction, not suppressed — see the fixtures README for how the
-# rule is exercised.
+#   1. Spelling — every recorded `evidenceType` must use the CLI's documented
+#      vocabulary, and a proof-bound verdict must carry an explicit level.
+#   2. Substance — a HIGH claim must be EARNED: every behavior-bearing
+#      acceptance row beneath it must cite executable evidence (`test` or
+#      `command`) rather than self-attestation (`manual-review`, `llm-judge`),
+#      a bare citation (`static-ref`) or nothing at all.
+#
+# Scope differs per check, deliberately:
+#   - the vocabulary check runs on EVERY verdict artifact. It costs nothing,
+#     needs no proof block, and it catches malformed tokens in artifacts written
+#     under older contracts rather than letting them sit unread (`test+static`
+#     and `static+command` were exactly this: `static` is not a token).
+#   - the level and substance checks run on PROOF-BOUND verdicts only. The
+#     `proof` block (ADR-071) marks a verdict produced under the current proof
+#     chain, which is where the confidence contract lives; enforcing today's
+#     contract on the 45 pre-existing non-proof-bound artifacts would fire on
+#     historical records instead of describing them. Out of scope by
+#     construction, not suppressed — fixtures 0203/0205 pin that boundary.
 #
 # Both verdict planes are scanned: `.spur/run/` (per-run) and
 # `.spur/memory/evidence/` (the durable mirror). Both are untracked planes, so a
@@ -28,14 +37,19 @@ include:
 rules:
   - id: verify-confidence-level
     description: >-
-      A proof-bound verify verdict must carry an explicit confidence level of
-      HIGH, MEDIUM or LOW; if it also records a `confidence` check, that check's
-      evidence must name the same level; and a HIGH level must not coexist with
-      any check whose status is not `pass`. A HIGH level is read as "all
-      recorded checks passed and the evidence was first-hand", so pairing it with
-      a warn/fail check launders a weaker result into a stronger-looking one,
-      while a missing level leaves the completion gate with no calibratable
-      signal at all.
+      Two assertions over verify-verdict artifacts. (1) Every recorded
+      `evidenceType` must be drawn from the documented vocabulary (test,
+      command, static-ref, manual-review, llm-judge, n/a), optionally joined
+      with `+` — a misspelled token like `static` silently reads as a valid
+      evidence class it is not. (2) A proof-bound verdict must carry an
+      explicit HIGH/MEDIUM/LOW `confidence`; if it also records a `confidence`
+      check, that check's evidence must name the same level; a HIGH level must
+      not coexist with any check whose status is not `pass`; and a HIGH level
+      must be earned — each acceptance row that is not explicitly `n/a` must
+      cite executable evidence (test/command), never manual-review, llm-judge,
+      a bare static-ref, or an absent type. A HIGH level is read as "all
+      recorded checks passed and the evidence was first-hand", so pairing it
+      with a weaker row launders an unproven result into a proven-looking one.
     severity: error
     evaluator:
       type: exit-code
@@ -46,19 +60,34 @@ rules:
           - |
             set -u
             violations=0
-            scanned=0
+            VOCAB="test command static-ref manual-review llm-judge n/a"
+            EXEC="test command"
 
             for f in .spur/run/*-verdict.json .spur/memory/evidence/*-verdict.json; do
               [ -f "$f" ] || continue
 
-              # Proof-bound verdicts only; the proof block is the contract marker.
-              is_proof_bound=$(jq -r 'has("proof")' "$f" 2>/dev/null) || {
+              if ! jq -e . "$f" >/dev/null 2>&1; then
                 echo "verify-confidence-level: $f: unreadable JSON — refusing to skip a verdict silently"
                 violations=$((violations + 1))
                 continue
-              }
-              [ "$is_proof_bound" = "true" ] || continue
-              scanned=$((scanned + 1))
+              fi
+
+              # --- (1) evidenceType vocabulary — every artifact ---
+              bad=$(jq -r --arg v "$VOCAB" '
+                ($v | split(" ")) as $valid
+                | (.acceptanceCriteria // [])[]?
+                | select((.evidenceType | type) == "string")
+                | (.evidenceType | split("+") | map(gsub("^\\s+|\\s+$"; ""))) as $toks
+                | select(($toks | map(. as $x | ($valid | index($x)) != null) | all) | not)
+                | "\(.evidenceType)"
+              ' "$f" 2>/dev/null)
+              if [ -n "$bad" ]; then
+                printf '%s\n' "$bad" | sed "s|^|verify-confidence-level: $f: evidenceType '|; s|\$|' is not in the documented vocabulary (test/command/static-ref/manual-review/llm-judge/n\\/a, optionally joined with +)|"
+                violations=$((violations + $(printf '%s\n' "$bad" | grep -c .)))
+              fi
+
+              # --- (2) proof-bound verdicts only from here ---
+              [ "$(jq -r 'has("proof")' "$f" 2>/dev/null)" = "true" ] || continue
 
               level=$(jq -r '.confidence // ""' "$f" 2>/dev/null)
               case "$level" in
@@ -70,7 +99,6 @@ rules:
                   ;;
               esac
 
-              # Agreement with the recorded confidence check, when one exists.
               check=$(jq -r '[.checks[]? | select(.name == "confidence")][0].evidence // ""' "$f" 2>/dev/null)
               if [ -n "$check" ]; then
                 case "$check" in
@@ -82,17 +110,32 @@ rules:
                 esac
               fi
 
-              # A HIGH claim must not sit next to a check that did not pass.
               if [ "$level" = "HIGH" ]; then
                 nonpass=$(jq -r '[.checks[]? | select(.status != "pass")] | length' "$f" 2>/dev/null)
                 if [ "${nonpass:-0}" != "0" ]; then
                   echo "verify-confidence-level: $f: confidence HIGH but $nonpass check(s) are not pass"
                   violations=$((violations + 1))
                 fi
+
+                weak=$(jq -r --arg e "$EXEC" '
+                  ($e | split(" ")) as $exec
+                  | (.acceptanceCriteria // [])[]?
+                  | select(.evidenceType != "n/a")
+                  | (if (.evidenceType | type) == "string"
+                     then (.evidenceType | split("+") | map(gsub("^\\s+|\\s+$"; "")))
+                     else [] end) as $toks
+                  | select((($toks | length) == 0)
+                           or (($toks | map(. as $x | ($exec | index($x)) != null) | all) | not))
+                  | "\(.id // "?") -> \(.evidenceType // "<absent>")"
+                ' "$f" 2>/dev/null)
+                if [ -n "$weak" ]; then
+                  printf '%s\n' "$weak" | sed "s|^|verify-confidence-level: $f: confidence HIGH but acceptance row '|; s|\$|' is not backed by executable evidence (test/command)|"
+                  violations=$((violations + $(printf '%s\n' "$weak" | grep -c .)))
+                fi
               fi
             done
 
             [ "$violations" -eq 0 ] || exit 1
             exit 0
-        message: "verify-verdict confidence level is missing, misspelled or inconsistent with its recorded checks (see stdout)"
+        message: "verify-verdict confidence level or evidenceType is missing, misspelled or inconsistent with the checks and evidence it claims (see stdout)"
         timeout: 30000

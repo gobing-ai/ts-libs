@@ -20,13 +20,19 @@ normal `bun run spur-check` never sees them.
 | `should-fire/0102` | a misspelled level (`"high"`) is rejected, not coerced |
 | `should-fire/0103` | `HIGH` launder: a non-`pass` check beside a `HIGH` claim is rejected |
 | `should-fire/0104` | the recorded `confidence` check disagreeing with the level is rejected |
+| `should-fire/0105` | a malformed `evidenceType` (`test+static`) is rejected **without** a proof block — the vocabulary check is not proof-scoped |
+| `should-fire/0106` | `HIGH` resting on self-attestation (`manual-review`) is rejected |
 | `should-pass/0201` | `HIGH` with every check `pass` and an agreeing check is accepted |
 | `should-pass/0202` | `MEDIUM` **may** sit beside a non-`pass` check (only `HIGH` is exclusive) |
-| `should-pass/0203` | a verdict with no `proof` block is out of scope — legacy, not suppressed |
+| `should-pass/0203` | a verdict with no `proof` block is out of scope for the level checks — legacy, not suppressed |
 | `should-pass/0204` | the durable `.spur/memory/evidence/` plane is scanned too |
+| `should-pass/0205` | a **valid** compound (`static-ref+test`) is accepted — the check rejects bad tokens, not compounds |
+| `should-pass/0206` | `HIGH` earned by `test`/`command` rows, with an explicit `n/a` row correctly excluded |
 
-`0203` is the load-bearing one for scope: it proves the rule's proof-block
-boundary is a real boundary rather than a file the rule fails to look at.
+`0203` is the load-bearing one for scope, and `0105`/`0205` are the pair that
+pin the vocabulary check's own scope: `0105` proves it reaches artifacts without
+a proof block, `0205` proves it does not simply reject every `+` compound. The
+level and substance checks stay proof-bound; the vocabulary check does not.
 
 ## Reproducing
 
@@ -38,23 +44,20 @@ SRC="$(git rev-parse --show-toplevel)/.spur/rules/fixtures/verify-confidence"
 
 # The exit-code evaluator reports ONE finding for a non-zero exit, so the
 # per-file reasons are the script's stdout — read them directly.
-extract() {
-  python3 - "$RULE" <<'PY'
+python3 - "$RULE" > /tmp/verify-confidence.sh <<'PY'
 import sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
 sys.stdout.write(d["rules"][0]["evaluator"]["config"]["args"][1])
 PY
-}
-extract > /tmp/verify-confidence.sh
 
-echo "--- should-fire: each file must exit 1 and name its own reason ---"
+echo "--- should-fire: each file exits 1 and names its own reason ---"
 for f in "$SRC"/should-fire/.spur/run/*-verdict.json; do
   TMP="$(mktemp -d)"; mkdir -p "$TMP/.spur/run"; cp "$f" "$TMP/.spur/run/"
   (cd "$TMP" && sh /tmp/verify-confidence.sh); echo "  $(basename "$f") exit=$?"
   rm -rf "$TMP"
 done
 
-echo "--- should-pass: whole set must exit 0 with no output ---"
+echo "--- should-pass: whole set exits 0 with no output ---"
 TMP="$(mktemp -d)"; cp -R "$SRC/should-pass/." "$TMP/"
 (cd "$TMP" && sh /tmp/verify-confidence.sh); echo "  exit=$?"
 rm -rf "$TMP"
@@ -64,9 +67,17 @@ Via the real preset the rule surfaces a single finding whose detail is the
 script's stdout — use `spur rule run --preset recommended-post-check --verbose`
 to stream it.
 
-## Known limit
+## Known limits
 
-The subject plane (`.spur/run/`, `.spur/memory/evidence/`) is untracked, so in a
-clean checkout or CI there is nothing to verify and the rule passes. It bites on
-the developer's machine, immediately after a pipeline run — which is where a
-miscategorised confidence level is actionable.
+- **The subject plane is untracked.** `.spur/run/` and `.spur/memory/evidence/`
+  are gitignored, so in a clean checkout or CI there is nothing to verify and the
+  rule passes. It bites on the developer's machine, immediately after a pipeline
+  run — which is where a miscategorised level is actionable.
+- **The level and substance checks apply to proof-bound verdicts only**, so today
+  they have one subject in this repo. The vocabulary check is the one with broad
+  reach: it reads all 84 artifacts and caught three malformed tokens
+  (`test+static`, `static+command`) that had sat unread in two of them.
+- **A recorded `confidence` check is optional**, so the agreement assertion only
+  fires when one exists. The current pipeline writes the level as a top-level
+  field and only sometimes as a check, so requiring the check outright would
+  invent a contract the pipeline does not keep.

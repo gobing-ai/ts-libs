@@ -1,0 +1,11 @@
+{
+    "wbs": "0106",
+    "verdict": "PASS",
+    "confidence": "HIGH",
+    "acceptanceCriteria": [
+        { "id": "AC1", "status": "MET", "evidenceType": "test", "evidence": "suite ran" },
+        { "id": "AC2", "status": "MET", "evidenceType": "manual-review", "evidence": "I looked at it" }
+    ],
+    "checks": [{ "name": "spur task check", "status": "pass", "evidence": "task check passed" }],
+    "proof": { "digest": "sha256:aaa1", "runId": "run-0106", "definitionDigest": "sha256:dddd" }
+}

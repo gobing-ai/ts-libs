@@ -1,0 +1,8 @@
+{
+    "wbs": "0205",
+    "verdict": "PASS",
+    "acceptanceCriteria": [
+        { "id": "AC1", "status": "MET", "evidenceType": "static-ref+test", "evidence": "citation plus a suite" }
+    ],
+    "checks": []
+}
