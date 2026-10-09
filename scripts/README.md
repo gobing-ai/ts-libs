@@ -30,7 +30,9 @@ release goes through the Publish workflow. See `docs/PACKAGE_RELEASE.md`.
 
 `verify-publish <aggregate-tag>` checks that a Publish workflow run exists for the aggregate release
 tag and prints its id and URL, exiting 1 when none exists. It is the post-push check for a
-local-mode release (`bump-version` without `--push`). With `--dispatch` it first performs the same
+local-mode release (`bump-version` without `--push`). The lookup is bounded — up to 3 `gh run list`
+attempts 5s apart (~10s) — so an immediate scripted run can report a false "no run" for a trigger
+that is merely late; re-run it, or pass `--dispatch`. With `--dispatch` it first performs the same
 bounded lookup and, only when no run exists, dispatches `publish.yml` once at the tag ref — the
 safe recovery for a missed push event, never a tag delete or re-push.
 

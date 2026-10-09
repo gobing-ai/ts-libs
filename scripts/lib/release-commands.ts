@@ -266,14 +266,17 @@ export async function bumpVersion(
     }
 
     if (!options.push) {
+        // Every printed push carries the followTags guard the --push path applies (branchPushArgs /
+        // tagPushArgs): with `push.followTags=true` an unguarded tag push also pushes every other
+        // annotated tag on the same commit — 13 tags at once, which GitHub ignores silently.
         log('\nDone (local). Review, then push to release:');
         log(`  git push --no-follow-tags origin ${branch}`);
         log('GitHub creates no workflow runs when more than three tags are pushed at once — push tags individually:');
         for (const tag of packageTags) {
-            log(`  git push origin refs/tags/${tag}:refs/tags/${tag}`);
+            log(`  git -c push.followTags=false push origin refs/tags/${tag}:refs/tags/${tag}`);
         }
-        log(`  git push origin refs/tags/${aggregateTag}:refs/tags/${aggregateTag}`);
-        log('\nVerify the publish workflow run after pushing:');
+        log(`  git -c push.followTags=false push origin refs/tags/${aggregateTag}:refs/tags/${aggregateTag}`);
+        log('\nVerify the publish workflow run after pushing (waits ~10s for the run to appear):');
         log(`  bun scripts/builder.ts verify-publish ${aggregateTag}`);
         log('\nOr re-run with --push next time to do this automatically.');
         return;

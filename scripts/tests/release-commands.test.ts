@@ -503,9 +503,18 @@ describe('bumpVersion', () => {
         expect(output).not.toContain('git push origin --tags');
         expect(output).toContain('git push --no-follow-tags origin main');
         expect(output).not.toContain('git push origin main');
-        expect(output).toContain(`refs/tags/${RUNTIME_TAG}:refs/tags/${RUNTIME_TAG}`);
-        expect(output).toContain(`refs/tags/${UTILS_TAG}:refs/tags/${UTILS_TAG}`);
-        expect(output).toContain(`refs/tags/${AGG_TAG}:refs/tags/${AGG_TAG}`);
+        expect(output).toContain(
+            `git -c push.followTags=false push origin refs/tags/${RUNTIME_TAG}:refs/tags/${RUNTIME_TAG}`,
+        );
+        expect(output).toContain(
+            `git -c push.followTags=false push origin refs/tags/${UTILS_TAG}:refs/tags/${UTILS_TAG}`,
+        );
+        expect(output).toContain(`git -c push.followTags=false push origin refs/tags/${AGG_TAG}:refs/tags/${AGG_TAG}`);
+        // No printed push may omit the guard: an unguarded tag push follows every other annotated
+        // tag on the commit, which is the 13-tag push GitHub ignores silently.
+        for (const line of logs.filter((l) => l.trimStart().startsWith('git ') && l.includes('push origin'))) {
+            expect(line.includes('--no-follow-tags') || line.includes('-c push.followTags=false')).toBe(true);
+        }
         const utilsIdx = logs.findIndex((l) => l.includes(UTILS_TAG));
         const aggIdx = logs.findIndex((l) => l.includes(AGG_TAG));
         expect(aggIdx).toBeGreaterThan(utilsIdx);

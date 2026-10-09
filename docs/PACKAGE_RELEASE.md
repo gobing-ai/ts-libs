@@ -45,13 +45,15 @@ Drop `--push` to do everything locally and stop, so you can inspect the commit a
 bun run bump-ver 0.1.5        # bump + commit + tag, no push
 git show                      # review the commit
 git log --oneline -1; git tag -l '*v0.1.5'
-# release when satisfied — push branch first, then tags one at a time (GitHub ignores pushes with >3 tags):
+# release when satisfied — push branch first, then tags one at a time. Keep the followTags guard on
+# every push: with `push.followTags=true` an unguarded tag push also pushes every other annotated
+# tag on the same commit, and GitHub creates no workflow runs when more than three tags arrive at once.
 git push --no-follow-tags origin main
 for p in utils runtime db infra; do
-  git push origin "refs/tags/@gobing-ai/ts-$p-v0.1.5:refs/tags/@gobing-ai/ts-$p-v0.1.5"
+  git -c push.followTags=false push origin "refs/tags/@gobing-ai/ts-$p-v0.1.5:refs/tags/@gobing-ai/ts-$p-v0.1.5"
 done
-git push origin "refs/tags/@gobing-ai/ts-libs-v0.1.5:refs/tags/@gobing-ai/ts-libs-v0.1.5"
-# verify the Publish run was triggered:
+git -c push.followTags=false push origin "refs/tags/@gobing-ai/ts-libs-v0.1.5:refs/tags/@gobing-ai/ts-libs-v0.1.5"
+# verify the Publish run was triggered (bounded lookup, ~10s, then exit 1 if absent):
 bun scripts/builder.ts verify-publish @gobing-ai/ts-libs-v0.1.5
 ```
 
@@ -64,6 +66,10 @@ bun scripts/builder.ts verify-publish @gobing-ai/ts-libs-v<version>
 # or if no run was triggered (recovers with a single workflow_dispatch):
 bun scripts/builder.ts verify-publish @gobing-ai/ts-libs-v<version> --dispatch
 ```
+
+The check-only form polls `gh run list` up to 3 times, 5s apart (~10s), so a scripted verify run
+fired the instant the tag lands can report a false "no run" for a trigger that is merely late. Exit 1
+naming the tag is always actionable: re-run it, or add `--dispatch`.
 
 `bump-ver <version> --push` now **proves the Publish run exists before returning** (task 0510 R4):
 after pushing the aggregate tag it polls `gh run list --workflow=publish.yml` (3 attempts, 5s apart)
