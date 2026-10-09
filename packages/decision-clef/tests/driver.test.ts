@@ -310,7 +310,9 @@ describe('Question mapping and provider limits', () => {
         });
 
         expect(Object.hasOwn(answers, '__proto__')).toBe(true);
-        expect(answers['__proto__']).toMatchObject({ kind: 'choice' });
+        // Assert the own property's value directly: a literal-key member access would be rewritten
+        // to a prototype read by lint autofix and would only work because this record is prototype-less.
+        expect(Object.getOwnPropertyDescriptor(answers, '__proto__')?.value).toMatchObject({ kind: 'choice' });
         expect(Object.hasOwn(recHolder.wire().questions, '__proto__')).toBe(true);
     });
 
