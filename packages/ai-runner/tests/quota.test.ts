@@ -95,6 +95,46 @@ describe('classifyQuotaErrorRecord — precision contract (Spur 0798 R2)', () =>
     });
 });
 
+describe('top-level provider envelope (Spur 1134 R2)', () => {
+    const ZAI_ALLOWANCE_429 =
+        '429 {"code":"1310","message":"Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-10-13 01:47:29"}';
+
+    test('the observed z.ai allowance envelope confirms allowance exhaustion', () => {
+        expect(classifyQuotaErrorRecord(ZAI_ALLOWANCE_429)).toEqual({ quota: true, reason: 'usage_limit_reached' });
+    });
+
+    test('a top-level canonical code is accepted with the same allowlist', () => {
+        expect(classifyQuotaErrorRecord(JSON.stringify({ code: 'insufficient_quota', message: 'no credit' }))).toEqual({
+            quota: true,
+            reason: 'insufficient_quota',
+        });
+    });
+
+    test('an unverified provider code is not quota', () => {
+        expect(classifyQuotaErrorRecord(JSON.stringify({ code: '1302', message: 'rate limit reached' }))).toEqual({
+            quota: false,
+        });
+    });
+
+    test('a bare top-level code without a message is not an envelope', () => {
+        expect(classifyQuotaErrorRecord('the request body was {"code":"1310"}')).toEqual({ quota: false });
+    });
+
+    test('plain 429 text with no envelope is not quota', () => {
+        expect(classifyQuotaErrorRecord('429 Too Many Requests')).toEqual({ quota: false });
+    });
+
+    test('the incident record quoted inside error.message never confirms', () => {
+        const record = JSON.stringify({
+            error: {
+                type: 'invalid_request_error',
+                message: `your prompt contained ${ZAI_ALLOWANCE_429}`,
+            },
+        });
+        expect(classifyQuotaErrorRecord(record)).toEqual({ quota: false });
+    });
+});
+
 describe('quota observation identity (Spur 0798 R1)', () => {
     test('observationId is stable across redelivery regardless of timestamp', () => {
         const first = buildQuotaObservation({

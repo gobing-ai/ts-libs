@@ -75,10 +75,20 @@ const QUOTA_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Verified provider-specific exhaustion codes, mapped onto the canonical reason
+ * they confirm. The canonical allowlist above stays exact-match; a provider code
+ * is added here only when it has been observed to mean exhaustion (Spur 1134 R2 —
+ * `1310` is z.ai's weekly/monthly allowance cap).
+ */
+const PROVIDER_QUOTA_CODES: ReadonlyMap<string, QuotaExhaustionReason> = new Map([['1310', 'usage_limit_reached']]);
+
+/**
  * Classify one error record as quota exhaustion. Accepts only structured
  * provider error envelopes — a JSON object with an `error` object whose
- * `type` or `code` exactly matches a canonical quota code. Free text, quoted
- * prompt content inside `error.message`, plain HTTP 429 rate-limit codes,
+ * `type` or `code` exactly matches a canonical quota code, or (for providers
+ * that omit the wrapper) a top-level `{ code, message }` pair where `code`
+ * matches a canonical or verified provider code. Free text, quoted prompt
+ * content inside `error.message`, plain HTTP 429 rate-limit codes,
  * throttling/overload, authentication, context/output limits, and timeouts
  * all classify as negative (R2). Input is bounded to
  * {@link MAX_QUOTA_EVIDENCE_BYTES} trailing bytes.
@@ -92,10 +102,19 @@ export function classifyQuotaErrorRecord(record: string): QuotaClassification {
     for (const candidate of [type, code]) {
         if (QUOTA_CODES.has(candidate)) return { quota: true, reason: candidate as QuotaExhaustionReason };
     }
+    const providerReason = PROVIDER_QUOTA_CODES.get(code);
+    if (providerReason !== undefined) return { quota: true, reason: providerReason };
     return { quota: false };
 }
 
-/** Best-effort parse of a JSON provider error envelope (`{ error: { type?, code?, message? } }`). */
+/**
+ * Best-effort parse of a JSON provider error envelope. Two shapes are accepted:
+ * the `error`-wrapped form (`{ error: { type?, code?, message? } }`) used by most
+ * providers, and a top-level `{ code, message }` form used by providers that omit
+ * the wrapper. The top-level form requires both a string `code` and a string
+ * `message` so an incidental `{"code":"…"}` echo in surrounding text is not read
+ * as an envelope. A present-but-malformed `error` key stays negative.
+ */
 function tryParseErrorEnvelope(record: string): { type?: unknown; code?: unknown } | null {
     const start = record.indexOf('{');
     const end = record.lastIndexOf('}');
@@ -103,9 +122,14 @@ function tryParseErrorEnvelope(record: string): { type?: unknown; code?: unknown
     try {
         const parsed: unknown = JSON.parse(record.slice(start, end + 1));
         if (typeof parsed !== 'object' || parsed === null) return null;
-        const error = (parsed as { error?: unknown }).error;
-        if (typeof error !== 'object' || error === null) return null;
-        return error as { type?: unknown; code?: unknown };
+        if ('error' in parsed) {
+            const error = (parsed as { error?: unknown }).error;
+            if (typeof error !== 'object' || error === null) return null;
+            return error as { type?: unknown; code?: unknown };
+        }
+        const topLevel = parsed as { type?: unknown; code?: unknown; message?: unknown };
+        if (typeof topLevel.code !== 'string' || typeof topLevel.message !== 'string') return null;
+        return { type: topLevel.type, code: topLevel.code };
     } catch {
         return null;
     }
