@@ -27,7 +27,7 @@ API; generated declarations are the compile-time contract.
 | Apple `fm` decision backend (`ts-decision-fm`) and `fm` agent | built 2026-09-23 — ADR-029/ADR-030/ADR-031 | [`decision-fm-backend.md`](design/decision-fm-backend.md) |
 | Browser profile sessions (`ts-browser-automation`) | built 2026-09-26 — ADR-032 | [`browser-profile-sessions.md`](design/browser-profile-sessions.md) |
 | AI decision catalog and hub (`ts-ai-decision`) | shipped — `packages/ai-decision`; catalog loader, `DecisionMakerRegistry`, `DecisionHub` (ADR-033) | [`ai-decision-catalog.md`](design/ai-decision-catalog.md) |
-| Hosted Clef decision backend (`ts-decision-clef`) | accepted design — ADR-037; not built | [`decision-clef-backend.md`](design/decision-clef-backend.md) |
+| Hosted Clef decision backend (`ts-decision-clef`) | built 2026-10-09 — ADR-037 | [`decision-clef-backend.md`](design/decision-clef-backend.md) |
 
 Cross-package and platform constraints are architectural decisions in `docs/00_ADR.md`, not
 duplicated here.

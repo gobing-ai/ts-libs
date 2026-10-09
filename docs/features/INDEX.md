@@ -4,7 +4,7 @@
 [active] **A**: ts-ai-runner ([A_ts-ai-runner.md](./A_ts-ai-runner.md))
     ├── [done] **A1**: Add Grok coding agent to ts-ai-runner ([A1_add-grok-coding-agent-to-ts-ai-runner.md](./A1_add-grok-coding-agent-to-ts-ai-runner.md))
     ├── [done] **A2**: Provider-neutral DecisionMaker over TypeSafe Jev in ts-ai-runner ([A2_provider-neutral-decisionmaker-over-typesafe-jev-in-ts-ai-runner.md](./A2_provider-neutral-decisionmaker-over-typesafe-jev-in-ts-ai-runner.md))
-    └── [backlog] **A3**: Cloudflare Clef decision backend in ts-decision-clef ([A3_cloudflare-clef-decision-backend-in-ts-decision-clef.md](./A3_cloudflare-clef-decision-backend-in-ts-decision-clef.md))
+    └── [done] **A3**: Cloudflare Clef decision backend in ts-decision-clef ([A3_cloudflare-clef-decision-backend-in-ts-decision-clef.md](./A3_cloudflare-clef-decision-backend-in-ts-decision-clef.md))
 [backlog] **B**: ts-db ([B_ts-db.md](./B_ts-db.md))
 [backlog] **C**: ts-dual-workflow-engine ([C_ts-dual-workflow-engine.md](./C_ts-dual-workflow-engine.md))
     ├── [done] **C1**: Workflow YAML rule-style extensions ([C1_workflow-yaml-rule-style-extensions.md](./C1_workflow-yaml-rule-style-extensions.md))

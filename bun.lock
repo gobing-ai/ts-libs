@@ -76,6 +76,18 @@
         "zod",
       ],
     },
+    "packages/decision-clef": {
+      "name": "@gobing-ai/ts-decision-clef",
+      "version": "0.5.20",
+      "dependencies": {
+        "@gobing-ai/ts-ai-runner": "workspace:*",
+        "@gobing-ai/ts-infra": "workspace:*",
+      },
+      "devDependencies": {
+        "@gobing-ai/ts-ai-decision": "workspace:*",
+        "@types/bun": "1.3.14",
+      },
+    },
     "packages/decision-fm": {
       "name": "@gobing-ai/ts-decision-fm",
       "version": "0.5.20",
@@ -285,6 +297,8 @@
     "@gobing-ai/ts-browser-automation": ["@gobing-ai/ts-browser-automation@workspace:packages/browser-automation"],
 
     "@gobing-ai/ts-db": ["@gobing-ai/ts-db@workspace:packages/db"],
+
+    "@gobing-ai/ts-decision-clef": ["@gobing-ai/ts-decision-clef@workspace:packages/decision-clef"],
 
     "@gobing-ai/ts-decision-fm": ["@gobing-ai/ts-decision-fm@workspace:packages/decision-fm"],
 

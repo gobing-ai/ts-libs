@@ -14,7 +14,7 @@ sync: [T1]
 
 # Architecture
 
-## decision-clef (accepted design — ADR-037; not yet built)
+## decision-clef (built 2026-10-09 — ADR-037)
 
 `@gobing-ai/ts-decision-clef` implements `DecisionDriver.ask` through the
 portable `APIClient.rawRequest` seam. The caller provides account/token and
@@ -30,11 +30,44 @@ transitive source closure per ADR-004/ADR-012. Existing backend selectors and
 registry built-ins do not change. Boundary rules prohibit reverse ai-runner
 imports and Clef imports of the higher catalog layer.
 
-Model probabilities and confidence are preserved; score remains an expected
-fractional value, and noul has no synthetic confidence. Configuration, request,
-auth, rate-limit, timeout, connection and backend failures use existing
-`DecisionError` classes. Local inference and multimodal input extensions are
-outside this implementation. Public shapes: [Clef backend](design/decision-clef-backend.md).
+**Request shape.** One `POST` to `/accounts/<accountId>/ai/run/@cf/cloudflare/<model>`
+with `Authorization: Bearer` and a `{ model, state, questions }` body. `clef-flash`
+is the default; the factory model is overridden per call by `ask({ model })`. Only
+the two short selectors are accepted. Prompt-less questions fall back to the
+question ID as the hosted `instructions` field. Manual redirects, the configured
+timeout and an 8 MiB response cap are set on the client; there is no retry loop.
+
+**Strict JSON gate.** `state` and the mapped body are walked before
+`JSON.stringify`: only nulls, strings, booleans, finite numbers, dense arrays and
+plain/null-prototype objects pass. Cycles, `undefined`, functions, symbols,
+`BigInt`, sparse arrays, non-finite numbers and non-plain object instances raise
+`DecisionRequestError` before any transport — `JSON.stringify` alone would lose or
+coerce them. The request cap is measured in UTF-8 bytes.
+
+**Probability model.** Provider probabilities and `confidence` are preserved
+verbatim; score stays an expected fractional value and `noul` carries a bare
+probability with no synthetic confidence. Nothing argmaxes, rounds or resamples.
+
+**Error mapping.** Configuration, request, auth, rate-limit (with a parsed
+`Retry-After` hint), timeout (APIClient `APIError` with status 0), connection and
+backend failures use the existing `DecisionError` classes. Public messages carry
+the status and a generic category only — never the token, the serialized state or
+the raw upstream body.
+
+**Invariants** (checkable):
+
+- No file under `packages/ai-runner/src/**` imports `@gobing-ai/ts-decision-clef`, and the
+  `ts-ai-runner` manifest lists it in no dependency field.
+- No file under `packages/decision-clef/src/**` imports `@gobing-ai/ts-ai-decision`.
+- The factory performs no I/O: construction validates options and builds one `APIClient`.
+- Exactly one HTTP request per `ask`; the endpoint model and the body model always match.
+- A `noul` answer carries a bare probability and no `confidence`.
+- Errors never embed the API token, the serialized state or upstream response text.
+- Tests are offline: `fetch` is injected into the real `APIClient`, so timeout, redirect
+  and body-cap behavior is exercised rather than mocked away.
+
+Local inference and multimodal input extensions are outside this implementation. Public shapes:
+[Clef backend](design/decision-clef-backend.md).
 
 ## ai-decision (accepted design — ADR-033; not yet built)
 

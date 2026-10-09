@@ -21,7 +21,7 @@ sync: [T5]
 | Phase 0 — Library foundation | ✅ done | Eight-package Bun workspace, lockstep releases, package boundaries | `bun run spur-check` and `bun run build` pass for every package |
 | Phase 1 — Agent and observability coverage | ✅ done | Grok agent support (A1) and System Events observability (D1) | Both delivery satellites and every linked task are terminal |
 | Phase 2 — Browser profile automation | ✅ done | Feature M, task 0088: dedicated headed login and later headless profile reuse | Package build, tests, and task verify PASS; consumer dogfood follows in knowledge-kit E9 |
-| Phase 3 — Hosted Clef decisions | ⏳ planned | Feature A3, package `ts-decision-clef` (ADR-037) | Feature AC verified; canonical workspace gates and build pass |
+| Phase 3 — Hosted Clef decisions | ✅ done | Feature A3, package `ts-decision-clef` (ADR-037) | Feature AC verified; canonical workspace gates and build pass |
 
 **Status legend:** ✅ done · 🔶 partial · ⏳ planned · 💤 deferred
 

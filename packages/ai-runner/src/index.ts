@@ -6,6 +6,7 @@ export * from './ai-runner';
 export * from './decision/decision-maker';
 export * from './decision/errors';
 export * from './decision/types';
+export * from './decision/validation';
 export * from './doctor-runner';
 export * from './events';
 export * from './identity';

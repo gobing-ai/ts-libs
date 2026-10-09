@@ -314,4 +314,10 @@ describe('decision boundary validation', () => {
             questions: { ['__proto__']: { type: 'choice', criteria: { ['__proto__']: null } } },
         });
     });
+
+    test('validateQuestions and validateAnswers are exported from ai-runner main barrel', async () => {
+        const barrel = await import('../../src/index');
+        expect(typeof barrel.validateQuestions).toBe('function');
+        expect(typeof barrel.validateAnswers).toBe('function');
+    });
 });

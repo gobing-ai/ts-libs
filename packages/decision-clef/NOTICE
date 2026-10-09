@@ -1,0 +1,5 @@
+@gobing-ai/ts-decision-clef
+Copyright 2026 Robin Min and ts-libs contributors
+
+This package bundles no third-party code and no model weights. It drives the
+Cloudflare Workers AI REST API over the portable ts-infra APIClient seam.

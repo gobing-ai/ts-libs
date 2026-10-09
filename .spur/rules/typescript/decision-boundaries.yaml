@@ -126,3 +126,40 @@ rules:
         scope:
           include:
             - "packages/laya-mlx/src/**/*.ts"
+
+  - id: no-clef-driver-import-in-ai-runner
+    description: "ADR-037 / task 0108: @gobing-ai/ts-ai-runner must not declare a dependency on or statically import @gobing-ai/ts-decision-clef. Clef is a consumer-injected driver; the dependency points from Clef to ai-runner, never in reverse."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-decision-clef"
+        scope:
+          include:
+            - "packages/ai-runner/src/**/*.ts"
+
+  - id: no-ai-decision-import-in-decision-clef
+    description: "ADR-037 / task 0108: @gobing-ai/ts-decision-clef must not import @gobing-ai/ts-ai-decision. The hosted driver sits below the catalog layer; the catalog declares its makers, never the reverse."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-ai-decision"
+        scope:
+          include:
+            - "packages/decision-clef/src/**/*.ts"
+
+  - id: no-clef-dependency-in-ai-runner-manifest
+    description: "ADR-037 / task 0108: the @gobing-ai/ts-ai-runner manifest must not reference @gobing-ai/ts-decision-clef at all. The import-direction rule above cannot see a declaration with no import, so this covers the manifest half of the one-way boundary. The check is a line scan: it flags the name anywhere in that file, which is deliberately broader than the dependency fields it protects."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - pattern: "ts-decision-clef"
+            matchMode: usage
+        scope:
+          include:
+            - "packages/ai-runner/package.json"

@@ -739,7 +739,7 @@ JSON schema's pre-existing drift on `resumeRerun` / `startable` remains recorded
 
 ## ADR-037: Hosted Clef Decision Backend Ships as ts-decision-clef through APIClient
 
-**Status:** Accepted (design; not built) · **Date:** 2026-10-09 · **Targets:** `ts-decision-clef` (new), `ts-ai-runner`
+**Status:** Accepted · built 2026-10-09 (feature A3) · **Date:** 2026-10-09 · **Targets:** `ts-decision-clef` (new), `ts-ai-runner`
 
 **Decision.** Publish `@gobing-ai/ts-decision-clef` from `packages/decision-clef` as an
 additive `DecisionDriver` implementing hosted Workers AI REST for `clef` and

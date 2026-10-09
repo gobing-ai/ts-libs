@@ -34,6 +34,7 @@ graph TD
     laya-mlx["@gobing-ai/ts-laya-mlx<br/>→ runtime, ai-runner"]
     decision-fm["@gobing-ai/ts-decision-fm<br/>→ runtime, ai-runner"]
     ai-decision["@gobing-ai/ts-ai-decision<br/>→ runtime, ai-runner, decision-fm, laya-mlx"]
+    decision-clef["@gobing-ai/ts-decision-clef<br/>→ ai-runner, infra"]
 
     runtime --> utils
     db --> runtime
@@ -54,9 +55,11 @@ graph TD
     ai-decision --> ai-runner
     ai-decision --> decision-fm
     ai-decision --> laya-mlx
+    decision-clef --> ai-runner
+    decision-clef --> infra
 ```
 
-**2700 tests across 12 packages.** All pass. No skipped.
+**2902 tests across 13 packages.** All pass. No skipped.
 
 ### Core Packages
 
@@ -72,6 +75,7 @@ graph TD
 - **[@gobing-ai/ts-dual-workflow-engine](packages/dual-workflow-engine/README.md)** — Standalone workflow runtime combining state-machine and transition-flow engines. Owns workflow definition loading, validation, variable resolution, action execution, persistence schema, and driver loops.
 - **[@gobing-ai/ts-llm-jsonl-importer](packages/llm-jsonl-importer/README.md)** — Generic JSONL importer for LLM agent history files. Handles schema validation, source definitions, content redaction, hash-based deduplication, and checkpointed incremental imports.
 - **[@gobing-ai/ts-ai-decision](packages/ai-decision/README.md)** — Declarative YAML decision catalogs (ADR-033) over the `DecisionMaker` surface of `@gobing-ai/ts-ai-runner`: strict catalog schema (JSON Schema + zod), `${params.*}` template validation/rendering, and load-time consistency checks. Declares `ts-decision-fm`/`ts-laya-mlx` as bundled driver dependencies.
+- **[@gobing-ai/ts-decision-clef](packages/decision-clef/README.md)** — Hosted Cloudflare Workers AI decision backend (ADR-037) over the same `DecisionMaker` surface: `clef`/`clef-flash` REST routing through the portable `ts-infra` `APIClient`, explicit caller credentials, provider limit enforcement and typed answer mapping. Consumer-injected; no built-in backend selector.
 
 ## Getting Started
 

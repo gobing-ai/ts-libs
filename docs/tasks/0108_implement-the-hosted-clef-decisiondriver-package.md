@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Implement the hosted Clef DecisionDriver package
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-09T18:32:28.066Z
-updated_at: "2026-10-09T18:47:42.058Z"
+updated_at: "2026-10-09T20:29:45.795Z"
 feature_id: A3
 priority: P2
 tags:
@@ -13,6 +13,8 @@ tags:
   - cloudflare
 estimate_hours: 8
 
+done_forced: "false"
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0108-verdict.json
 ---
 
 ## 0108. Implement the hosted Clef DecisionDriver package
@@ -40,22 +42,22 @@ Verified premises: DecisionDriver exists at packages/ai-runner/src/decision/type
 
 ### Requirements
 
-- [ ] R1. Add the lockstep package with createClefDriver, ClefDriverOptions and ClefModel exports; standard manifest, TypeScript configs, transitive paths, ESM build, README/legal files and Bun lock wiring.
-- [ ] R2. Use APIClient.rawRequest with explicit accountId/apiToken, default clef-flash and configured/per-call clef selection; match endpoint model and body model; no import-time HTTP or environment discovery.
-- [ ] R3. Map neutral choice/score/noul questions and the success/result REST envelope into typed answers. Preserve distributions, confidence, legends, fractional scores and bare noul probability; all facade convenience methods work.
-- [ ] R4. Export/reuse existing ai-runner validators and enforce hosted limits, valid IDs, instructions fallback, JSON-serializable state and request/response caps. Reject malformed responses and correspondence failures. Enforce JSON values without lossy coercion; reject cycles, nonfinite numbers, undefined/functions/BigInt and non-JSON object instances. Accept a nonempty response model string without assuming an exact spelling.
-- [ ] R5. Map configuration, auth, rate-limit including Retry-After, request, backend, timeout and connection errors to existing decision classes; redact credentials/state/untrusted upstream text and never fabricate answers.
-- [ ] R6. Preserve one-way dependencies and current backend/registry defaults; add decision boundary rules/fixtures, test explicit custom maker registration with ts-ai-decision as a workspace:* devDependency and test source paths, and document usage, provider constraints and new-package bootstrap.
-- [ ] R7. Complete offline behavior tests, bun run spur-check and bun run build without skipped tests or suppressions; update package export/shared validation docs and actual package indexes and verify only intentional changes.
+- [x] R1. Add the lockstep package with createClefDriver, ClefDriverOptions and ClefModel exports; standard manifest, TypeScript configs, transitive paths, ESM build, README/legal files and Bun lock wiring.
+- [x] R2. Use APIClient.rawRequest with explicit accountId/apiToken, default clef-flash and configured/per-call clef selection; match endpoint model and body model; no import-time HTTP or environment discovery.
+- [x] R3. Map neutral choice/score/noul questions and the success/result REST envelope into typed answers. Preserve distributions, confidence, legends, fractional scores and bare noul probability; all facade convenience methods work.
+- [x] R4. Export/reuse existing ai-runner validators and enforce hosted limits, valid IDs, instructions fallback, JSON-serializable state and request/response caps. Reject malformed responses and correspondence failures. Enforce JSON values without lossy coercion; reject cycles, nonfinite numbers, undefined/functions/BigInt and non-JSON object instances. Accept a nonempty response model string without assuming an exact spelling.
+- [x] R5. Map configuration, auth, rate-limit including Retry-After, request, backend, timeout and connection errors to existing decision classes; redact credentials/state/untrusted upstream text and never fabricate answers.
+- [x] R6. Preserve one-way dependencies and current backend/registry defaults; add decision boundary rules/fixtures, test explicit custom maker registration with ts-ai-decision as a workspace:* devDependency and test source paths, and document usage, provider constraints and new-package bootstrap.
+- [x] R7. Complete offline behavior tests, bun run spur-check and bun run build without skipped tests or suppressions; update package export/shared validation docs and actual package indexes and verify only intentional changes.
 
 ### Acceptance Criteria
 
-- [ ] AC1 — Consumers import the lockstep Clef driver package
-- [ ] AC2 — Model selection uses matching Clef routes and body selectors
-- [ ] AC3 — DecisionMaker preserves typed batch answers and probabilities
-- [ ] AC4 — Invalid requests and malformed responses fail at the driver boundary
-- [ ] AC5 — Configuration and transport failures use the decision error taxonomy
-- [ ] AC6 — Applications compose the backend without changing existing defaults
+- [x] AC1 — Consumers import the lockstep Clef driver package
+- [x] AC2 — Model selection uses matching Clef routes and body selectors
+- [x] AC3 — DecisionMaker preserves typed batch answers and probabilities
+- [x] AC4 — Invalid requests and malformed responses fail at the driver boundary
+- [x] AC5 — Configuration and transport failures use the decision error taxonomy
+- [x] AC6 — Applications compose the backend without changing existing defaults
 
 ### Q&A
 
@@ -107,18 +109,80 @@ Sizing remains one cohesive 8h implementation task; priority P2. There are no pr
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Change-map (auto-generated — implement step did not record a Solution).
+Each entry cites the first changed line per file (`file:line`).
+
+| Change (`file:line`) |
+|----------------------|
+| `AGENTS.md:22` |
+| `README.md:37` |
+| `README.md:58` |
+| `README.md:62` |
+| `README.md:78` |
+| `docs/00_ADR.md:742` |
+| `docs/03_ARCHITECTURE.md:17` |
+| `docs/03_ARCHITECTURE.md:33` |
+| `docs/04_DESIGN.md:30` |
+| `docs/design/decision-clef-backend.md:11` |
+| `docs/design/decision-clef-backend.md:3` |
+| `packages/ai-runner/README.md:835` |
+| `packages/ai-runner/src/index.ts:9` |
+| `packages/ai-runner/tests/decision/validation.test.ts:317` |
+| `packages/decision-clef/LICENSE:1` |
+| `packages/decision-clef/NOTICE:1` |
+| `packages/decision-clef/README.md:1` |
+| `packages/decision-clef/package.json:1` |
+| `packages/decision-clef/src/driver.ts:1` |
+| `packages/decision-clef/src/index.ts:1` |
+| `packages/decision-clef/tests/driver.test.ts:1` |
+| `packages/decision-clef/tests/registry.test.ts:1` |
+| `packages/decision-clef/tsconfig.build.json:1` |
+| `packages/decision-clef/tsconfig.json:1` |
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | packages/decision-clef/package.json:2-3 (name + lockstep 0.5.19 == root package.json:3), exports/main/types plus files (LICENSE, NOTICE); src/index.ts:1-2 exports createClefDriver/ClefDriverOptions/ClefModel; tsconfig.json:4-17 transitive paths closure; tsconfig.build.json mirrors decision-fm (paths {}, rootDir src); dist/index.js ESM specifier; bun.lock:79-90,301; gate log "@gobing-ai/ts-decision-clef typecheck: Exited with code 0" |
+| R2 | MET | driver.ts:205-207 one APIClient, fixed https://api.cloudflare.com/client/v4; zero process.env in src/**; driver.ts:223 model ?? configuredModel and :292 path from the same resolvedModel; :295-301 rawRequest POST + Authorization: Bearer + redirect manual + maxResponseBytes; tests driver.test.ts:180-226 (default clef-flash, configured clef, per-call override, invalid selector pre-transport, callCount()===1) |
+| R3 | MET | driver.ts:113-142 mapQuestion (choice/score/noul), :103-111 instructions fallback to question ID, :366-438 envelope to typed answers on a null-prototype record; validateAnswers at :438; tests driver.test.ts:229-316 assert fractional score 1.5, confidence 0.85, legend, noul probability 0.75 with no confidence, __proto__ IDs end to end; facade sugar :790+ |
+| R4 | MET | ai-runner/src/index.ts:9 re-exports the shared validators; limits driver.ts:226-231 (1-64), :235-238 (ID pattern), :245-260 (2-255 options, nonempty), :262-268 (2-10 levels); strict JSON gate :53-101 plus :272 (state) and :286 (mapped body) rejecting cycles/nonfinite/undefined/function/symbol/BigInt/sparse-and-decorated arrays/non-plain instances; UTF-8 13 MiB cap :286-290; decode/envelope/answer checks :342-438; nonempty model without echo requirement :358-360; tests :317-509, :512-535, :721-775 |
+| R5 | MET | driver.ts:305-339 taxonomy (400/404 Request, 401/403 Auth, 429 RateLimit+Retry-After, 5xx/3xx/other Backend, APIError status 0 Timeout, other transport Connection); Retry-After :154-167; redaction -- generic messages, bodySummary undefined at :331, no cause at :305-309; tests :554-719 incl. cause === undefined and :777-787 never fabricates |
+| R6 | MET | ai-runner/package.json names no clef token; packages/decision-clef/src/** imports no @gobing-ai/ts-ai-decision; rules .spur/rules/typescript/decision-boundaries.yaml:130,142,154 plus fixtures should-fire/ and should-pass/; tests/registry.test.ts uses the real DecisionMakerRegistry and DecisionHub with a test-only ts-ai-decision devDependency (package.json:59) and test path (tsconfig.json:5); docs updated (package README bootstrap to docs/PACKAGE_RELEASE.md:125, ai-runner README shared validators, docs/00_ADR.md:742, docs/03_ARCHITECTURE.md, docs/04_DESIGN.md:30, README.md, AGENTS.md:22) |
+| R7 | MET | digest-bound gate log: 2902 pass / 0 fail / 8556 expect() calls / 238 files, 61 pre-check + 2 post-check rules passed, closing proof-digest sha256:02873316...b164d7 == certified digest, matched by .spur/run/0108-check-receipt.json status PASS; coverage cross-check lcov LF:338 LH:332 reproduces 98.22 percent with uncovered 99-100,140,149,161; no .skip/biome-ignore/commented assertions; bun run build 13/13 exit 0 (.spur/run/0108-build.log) |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| R1 — Consumers import the lockstep Clef driver package | MET | command | package.json:2-3 name/version lockstep with root 0.5.19; exports/files/LICENSE/NOTICE present; dist/index.js and dist/index.d.ts built; new-package typecheck exit 0 in the gate log; usage import in packages/decision-clef/README.md:22-23 |
+| R2 — Model selection uses matching Clef routes and body selectors | MET | test | driver.test.ts:180-226: default route .../@cf/cloudflare/clef-flash with body model clef-flash; configured clef; per-call model clef overrides route and body; invalid selector rejected with callCount()===0; driver.ts:292 proves endpoint and body derive from one resolvedModel |
+| R3 — DecisionMaker preserves typed batch answers and probabilities | MET | test | mixed-kind batch driver.test.ts:229-287 (choice/score/noul, fractional score, preserved confidence, bare noul probability); facade sugar :790-820; correspondence enforced by validateAnswers (driver.ts:438) |
+| R4 — Invalid requests and malformed responses fail at the driver boundary | MET | test | pre-transport rejections at callCount()===0: 65/0 questions, 1/256 options, empty option ID, 11 score levels, bad IDs, cyclic/sparse/symbol/decorated-array/non-enumerable/BigInt/Date/NaN/Infinity state, unserializable description, 13 MiB body (driver.test.ts:338-509); malformed JSON / success:false / missing result / empty model / absent or non-object answers / malformed choice-score / wrong names / unnormalized mass / unknown kind to DecisionBackendError (:536-553, :721-775) |
+| R5 — Configuration and transport failures use the decision error taxonomy | MET | test | config: driver.test.ts:119-172 (13 bad option shapes to DecisionConfigError, field named, value omitted); HTTP matrix :554-574 (401/403/429/400/404/500/503/302); Retry-After :575-630; timeout via the real APIClient + AbortSignal :631-646; connection :647-657; redaction :658-719 |
+| R6 — Applications compose the backend without changing existing defaults | MET | test | tests/registry.test.ts:86-197: lazy custom clef-hosted factory memoised exactly once, hub routing and fallback untouched; registry.names() stays typesafe/fm-local/laya-local before and adds clef-hosted after, registry.has('clef')===false; ai-runner backend selectors unchanged |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+<!-- spur:record-review -->
+
+**SECU findings** (pipeline verify step — verdict: PASS)
+
+| Priority | Dimension | Location | Finding |
+|----------|-----------|----------|----------|
+| P4 | — | — | No findings (verify verdict PASS) |
 
 ### References
 
 <!-- Links to the parent feature, design docs, related tasks, or external references. -->
 
 ### History
+
+- 2026-10-09T18:54:36.667Z todo → wip (system)
+- 2026-10-09T20:28:56.633Z wip → testing (system)
+- 2026-10-09T20:29:45.789Z testing → done (system)
+

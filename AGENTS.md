@@ -19,6 +19,7 @@ TypeScript libraries under `packages/*`:
 | `ts-llm-jsonl-importer` | generic JSONL importer for LLM history files |
 | `ts-decision-fm` | Apple `fm` decision backend over a one-shot process bridge (ADR-029/030) |
 | `ts-laya-mlx` | local MLX decision backend over a process bridge (ADR-027/028) |
+| `ts-decision-clef` | hosted Cloudflare Workers AI Clef decision backend over the portable APIClient seam (ADR-037) |
 | `ts-browser-automation` | reusable Playwright persistent-profile browser sessions (ADR-032) |
 
 - **Runtime / package manager / test runner:** Bun `1.3.14`. Use platform APIs only in their owning package/adapter seam; otherwise use `ts-runtime` abstractions.

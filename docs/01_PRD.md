@@ -33,7 +33,7 @@ AI-agent, rules, workflow, import, and browser automation concerns across Gobing
 - Portable core APIs with platform-specific behavior isolated behind owning packages or adapter subpaths.
 - Bun-based build, test, release, and Spur rule gates for the workspace.
 - Hosted Cloudflare Clef decision backend through the existing DecisionMaker seam
-  (planned feature A3; ADR-037), with text/JSON state and both model variants.
+  (feature A3, ADR-037), with text/JSON state and both model variants.
 
 ### Supporting
 

@@ -832,6 +832,21 @@ Applications own decision policy and evidence selection. For example, Spur can a
 `HitlResponder` to use DecisionMaker while retaining its own HITL actions and fallback behavior;
 the workflow engine itself has no dependency on ai-runner.
 
+### Shared validators for external drivers
+
+Out-of-tree drivers reuse the same two validators instead of reimplementing neutral validation.
+Both are named exports of the main barrel:
+
+| Export | Signature | Purpose |
+| ------ | --------- | ------- |
+| `validateQuestions` | `(questions: unknown) => asserts questions is Record<string, Question>` | Rejects a malformed question map before any transport. |
+| `validateAnswers` | `(questions: Record<string, Question>, answers: unknown) => void` | Verifies answer names/kinds, label and level keys, bounded probabilities/confidence, normalized mass (tolerance `1e-6`) and rubric bounds. |
+
+The facade already runs both around every `ask`, so a driver that also calls them reports matching
+errors from its own boundary. Driver-local concerns the neutral validators do not cover (provider
+question/option counts, JSON-serializability of `state`, provider response caps) stay in the
+driver — see [`@gobing-ai/ts-decision-clef`](../decision-clef/README.md) for a worked example.
+
 ### Adding a backend driver
 
 Additional backend drivers are the intended extension point. A driver implements only `ask` —

@@ -1,6 +1,6 @@
 ---
 name: Clef decision backend
-status: accepted-design
+status: built
 updated_at: 2026-10-09
 adr: ADR-037
 feature: A3
@@ -8,7 +8,7 @@ feature: A3
 
 # Clef decision backend
 
-Planned surface; implementation belongs to feature A3. Decision: ADR-037.
+Implemented in feature A3. Decision: ADR-037. Package: `packages/decision-clef`.
 
 ## Exports
 
