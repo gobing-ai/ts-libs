@@ -68,14 +68,25 @@ function assertJsonSerializable(value: unknown, context: string, ancestors = new
         }
         ancestors.add(value);
         try {
+            if (
+                Object.values(Object.getOwnPropertyDescriptors(value)).some(
+                    (property) => !Object.hasOwn(property, 'value'),
+                )
+            ) {
+                throw new DecisionRequestError(`Accessor property in ${context}`, undefined, undefined);
+            }
             if (Array.isArray(value)) {
                 // Extra own properties and holes are both dropped or coerced by JSON.stringify;
                 // only a dense, index-only array survives round-trip intact.
-                if (Object.keys(value).length !== value.length) {
+                if (
+                    Object.keys(value).length !== value.length ||
+                    Object.getOwnPropertyNames(value).length !== value.length + 1 ||
+                    Object.getOwnPropertySymbols(value).length > 0
+                ) {
                     throw new DecisionRequestError(`Sparse or decorated array in ${context}`, undefined, undefined);
                 }
                 for (let i = 0; i < value.length; i++) {
-                    assertJsonSerializable(value[i], `${context}[${i}]`, ancestors);
+                    assertJsonSerializable(value[i], context, ancestors);
                 }
             } else {
                 const proto = Object.getPrototypeOf(value);
@@ -89,7 +100,7 @@ function assertJsonSerializable(value: unknown, context: string, ancestors = new
                     throw new DecisionRequestError(`Unserializable own property in ${context}`, undefined, undefined);
                 }
                 for (const key of ownNames) {
-                    assertJsonSerializable((value as Record<string, unknown>)[key], `${context}.${key}`, ancestors);
+                    assertJsonSerializable((value as Record<string, unknown>)[key], context, ancestors);
                 }
             }
         } finally {
@@ -155,11 +166,11 @@ function parseRetryAfter(header: string | undefined): number | undefined {
     if (!header) return undefined;
     const trimmed = header.trim();
     if (/^\d+$/.test(trimmed)) {
-        const seconds = Number(trimmed);
-        if (Number.isFinite(seconds) && seconds >= 0) {
-            return seconds * 1000;
-        }
+        const milliseconds = Number(trimmed) * 1000;
+        return Number.isFinite(milliseconds) ? milliseconds : undefined;
     }
+    // HTTP dates start with a weekday; Date.parse also accepts invalid numeric hints as dates.
+    if (!/^[A-Za-z]+(?:,| )/.test(trimmed)) return undefined;
     const timestamp = Date.parse(trimmed);
     if (!Number.isNaN(timestamp)) {
         return Math.max(0, timestamp - Date.now());
@@ -211,11 +222,15 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
     return {
         name: 'clef',
         async ask({ state, questions, model }) {
-            validateQuestions(questions);
+            try {
+                validateQuestions(questions);
+            } catch {
+                throw new DecisionRequestError('Invalid decision questions', undefined, undefined);
+            }
 
             if (model !== undefined && model !== 'clef' && model !== 'clef-flash') {
                 throw new DecisionRequestError(
-                    `Invalid model selector '${model}': must be clef or clef-flash`,
+                    'Invalid model selector: must be clef or clef-flash',
                     undefined,
                     undefined,
                 );
@@ -234,7 +249,7 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
             for (const [name, q] of questionEntries) {
                 if (!QUESTION_ID_PATTERN.test(name)) {
                     throw new DecisionRequestError(
-                        `Question ID '${name}' does not match pattern ^[A-Za-z0-9_.-]{1,100}$`,
+                        'Question ID does not match pattern ^[A-Za-z0-9_.-]{1,100}$',
                         undefined,
                         undefined,
                     );
@@ -243,7 +258,7 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
                     const labelKeys = Object.keys(q.labels);
                     if (labelKeys.length < 2 || labelKeys.length > 255) {
                         throw new DecisionRequestError(
-                            `Choice question '${name}' must have between 2 and 255 choice IDs, got ${labelKeys.length}`,
+                            `Choice question must have between 2 and 255 choice IDs, got ${labelKeys.length}`,
                             undefined,
                             undefined,
                         );
@@ -251,7 +266,7 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
                     for (const labelId of labelKeys) {
                         if (labelId.length === 0) {
                             throw new DecisionRequestError(
-                                `Choice question '${name}' contains empty choice ID`,
+                                'Choice question contains empty choice ID',
                                 undefined,
                                 undefined,
                             );
@@ -261,7 +276,7 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
                     const levels = q.rubric.length;
                     if (levels < 2 || levels > 10) {
                         throw new DecisionRequestError(
-                            `Score question '${name}' must have between 2 and 10 score levels, got ${levels}`,
+                            `Score question must have between 2 and 10 score levels, got ${levels}`,
                             undefined,
                             undefined,
                         );
@@ -366,7 +381,7 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
             const answers: Record<string, Answer> = Object.create(null);
             for (const [name, rawAnswer] of Object.entries(result.answers)) {
                 if (!isRecord(rawAnswer)) {
-                    throw new DecisionBackendError(`Invalid answer for question '${name}'`, response.status);
+                    throw new DecisionBackendError('Invalid answer in response', response.status);
                 }
                 switch (rawAnswer.type) {
                     case 'choice': {
@@ -375,10 +390,7 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
                             typeof rawAnswer.confidence !== 'number' ||
                             !isRecord(rawAnswer.probabilities)
                         ) {
-                            throw new DecisionBackendError(
-                                `Malformed choice answer for question '${name}'`,
-                                response.status,
-                            );
+                            throw new DecisionBackendError('Malformed choice answer in response', response.status);
                         }
                         answers[name] = {
                             kind: 'choice',
@@ -400,10 +412,7 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
                             !isRecord(rawAnswer.legend) ||
                             !isRecord(rawAnswer.probabilities)
                         ) {
-                            throw new DecisionBackendError(
-                                `Malformed score answer for question '${name}'`,
-                                response.status,
-                            );
+                            throw new DecisionBackendError('Malformed score answer in response', response.status);
                         }
                         answers[name] = {
                             kind: 'score',
@@ -419,10 +428,7 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
                     }
                     case 'noul': {
                         if (typeof rawAnswer.noul !== 'number') {
-                            throw new DecisionBackendError(
-                                `Malformed noul answer for question '${name}'`,
-                                response.status,
-                            );
+                            throw new DecisionBackendError('Malformed noul answer in response', response.status);
                         }
                         answers[name] = {
                             kind: 'noul',
@@ -431,11 +437,15 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
                         break;
                     }
                     default:
-                        throw new DecisionBackendError(`Unknown answer type for question '${name}'`, response.status);
+                        throw new DecisionBackendError('Unknown answer type in response', response.status);
                 }
             }
 
-            validateAnswers(questions, answers);
+            try {
+                validateAnswers(questions, answers);
+            } catch {
+                throw new DecisionBackendError('Invalid decision answers in response', response.status);
+            }
             return answers;
         },
     };

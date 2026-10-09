@@ -10,10 +10,11 @@ document usage.
 | `@gobing-ai/ts-db` | `.`, `./bun-sqlite`, `./d1`, `./inbox`, `./schema` | [README](../../packages/db/README.md) |
 | `@gobing-ai/ts-infra` | `.`, `./job-queue-db`, `./otel-node`, `./scheduler-cloudflare`, `./scheduler-node`, `./application`, `./application-node`, `./application-cli` | [README](../../packages/infra/README.md) |
 | `@gobing-ai/ts-ai-runner` | `.` | [README](../../packages/ai-runner/README.md) |
-| `@gobing-ai/ts-rule-engine` | `.` | [README](../../packages/rule-engine/README.md) |
+| `@gobing-ai/ts-rule-engine` | `.`, `./package.json`, `./schemas/*` | [README](../../packages/rule-engine/README.md) |
 | `@gobing-ai/ts-dual-workflow-engine` | `.` | [README](../../packages/dual-workflow-engine/README.md) |
 | `@gobing-ai/ts-llm-jsonl-importer` | `.` | [README](../../packages/llm-jsonl-importer/README.md) |
 | `@gobing-ai/ts-laya-mlx` | `.` | [README](../../packages/laya-mlx/README.md) |
 | `@gobing-ai/ts-decision-fm` | `.` | [README](../../packages/decision-fm/README.md) |
-| `@gobing-ai/ts-ai-decision` | `.` | [README](../../packages/ai-decision/README.md) |
+| `@gobing-ai/ts-ai-decision` | `.`, `./package.json`, `./schemas/*` | [README](../../packages/ai-decision/README.md) |
 | `@gobing-ai/ts-browser-automation` | `.` | [README](../../packages/browser-automation/README.md) |
+| `@gobing-ai/ts-decision-clef` | `.` | [README](../../packages/decision-clef/README.md) |

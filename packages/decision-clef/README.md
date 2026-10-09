@@ -63,7 +63,7 @@ const answers = await dm.ask({
 2. **Question IDs:** must match `/^[A-Za-z0-9_.-]{1,100}$/`.
 3. **Choice options:** 2–255 non-empty choice label keys per question.
 4. **Score levels:** 2–10 rubric levels per question.
-5. **JSON serializability:** `state` and question contents must be strict JSON values. Cycles, non-finite numbers (`NaN`, `Infinity`), `BigInt`, `undefined`, functions, symbols, sparse arrays, and custom object instances (e.g. `Date`) are rejected before transport with `DecisionRequestError`.
+5. **JSON serializability:** `state` and question contents must be strict JSON values. Cycles, non-finite numbers (`NaN`, `Infinity`), `BigInt`, `undefined`, functions, symbols, sparse arrays, hidden or extra array properties, accessors, and custom object instances (e.g. `Date`) are rejected before transport with `DecisionRequestError`.
 6. **Payload bounds:** request bodies cannot exceed 13 MiB; responses exceeding 8 MiB are rejected with `DecisionBackendError`.
 7. **Instructions fallback:** when a question prompt is omitted, null, or empty whitespace, the question ID is used as the instructions field.
 

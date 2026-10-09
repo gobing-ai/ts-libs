@@ -447,12 +447,27 @@ describe('JSON serialization and size limits', () => {
         arrayWithExtraProp.extra = 3;
         const nonEnumerableHolder: Record<string, unknown> = { visible: 1 };
         Object.defineProperty(nonEnumerableHolder, 'hidden', { value: 2, enumerable: false });
+        const symbolKeyedArray = Object.assign([1, 2], { [Symbol('hidden')]: 3 });
+        const hiddenArray = [1, 2];
+        Object.defineProperty(hiddenArray, 'hidden', { value: 3 });
+        let accessorReads = 0;
+        const accessorState = {
+            get field() {
+                return accessorReads++ < 2 ? 'valid during validation' : undefined;
+            },
+        };
+        const accessorArray = [1];
+        Object.defineProperty(accessorArray, '0', { get: () => accessorReads++ });
 
         const badStates: unknown[] = [
             circular,
             symbolKeyed,
             arrayWithExtraProp,
             nonEnumerableHolder,
+            symbolKeyedArray,
+            hiddenArray,
+            accessorState,
+            accessorArray,
             { num: BigInt(42) },
             { fn: () => undefined },
             { sym: Symbol('s') },
@@ -469,6 +484,7 @@ describe('JSON serialization and size limits', () => {
             );
         }
         expect(rec.callCount()).toBe(0);
+        expect(accessorReads).toBe(0);
     });
 
     test('rejects an unserializable description in the request body, not only in state', async () => {
@@ -609,7 +625,7 @@ describe('Response envelope, mapping and error taxonomy', () => {
             expect(retryAfterMs as number).toBeGreaterThanOrEqual(0);
         }
 
-        for (const header of [undefined, 'not-a-date']) {
+        for (const header of [undefined, 'not-a-date', '-1', '1.5', '1e308', '9'.repeat(308)]) {
             const invalid = createClefDriver({
                 accountId: VALID_ACCOUNT,
                 apiToken: VALID_TOKEN,
@@ -675,6 +691,59 @@ describe('Response envelope, mapping and error taxonomy', () => {
             expect(message).not.toContain('super-secret-password-123');
             expect(message).not.toContain('SQL syntax error');
             expect((err as Error).cause).toBeUndefined();
+        }
+    });
+
+    test('redacts state keys and untrusted response answer names', async () => {
+        const secret = 'private-state-or-upstream-text';
+        const { driver, rec } = clefWithOptions();
+        try {
+            await driver.ask({ state: { [secret]: undefined } as never, questions: { q1: q.noul() } });
+            expect.unreachable();
+        } catch (err) {
+            expect(err).toBeInstanceOf(DecisionRequestError);
+            expect((err as Error).message).not.toContain(secret);
+            expect((err as Error).cause).toBeUndefined();
+        }
+        expect(rec.callCount()).toBe(0);
+
+        for (const input of [
+            { questions: { q1: q.noul() }, model: secret },
+            { questions: { [secret]: { kind: 'unknown' } } },
+            { questions: { [`${secret}/`]: q.noul() } },
+        ]) {
+            try {
+                await driver.ask({ state: null, ...input } as never);
+                expect.unreachable();
+            } catch (err) {
+                expect(err).toBeInstanceOf(DecisionRequestError);
+                expect((err as Error).message).not.toContain(secret);
+            }
+        }
+        expect(rec.callCount()).toBe(0);
+
+        for (const answer of [
+            null,
+            { type: 'unknown' },
+            { type: 'choice' },
+            { type: 'score' },
+            { type: 'noul' },
+            { type: 'noul', noul: 2 },
+        ]) {
+            const backend = createClefDriver({
+                accountId: VALID_ACCOUNT,
+                apiToken: VALID_TOKEN,
+                fetch: (async () => makeValidResponse({ [secret]: answer })) as unknown as typeof fetch,
+            });
+            try {
+                await backend.ask({ state: null, questions: { [secret]: q.noul() } });
+                expect.unreachable();
+            } catch (err) {
+                expect(err).toBeInstanceOf(DecisionBackendError);
+                expect((err as Error).message).not.toContain(secret);
+                expect((err as Error).cause).toBeUndefined();
+                expect((err as DecisionBackendError).status).toBe(200);
+            }
         }
     });
 

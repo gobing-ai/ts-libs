@@ -4,7 +4,7 @@ name: Implement the hosted Clef DecisionDriver package
 status: done
 template: feature-impl
 created_at: 2026-10-09T18:32:28.066Z
-updated_at: "2026-10-09T21:33:34.553Z"
+updated_at: "2026-10-09T21:59:41.859Z"
 feature_id: A3
 priority: P2
 tags:
@@ -193,6 +193,15 @@ Each entry cites the first changed line per file (`file:line`).
 | `scripts/tests/release-commands.test.ts:39` |
 | `scripts/tests/release-commands.test.ts:496` |
 
+**Verification fixes (2026-10-09)**
+
+- `packages/decision-clef/src/driver.ts:71` rejects accessors, symbol and hidden array properties before transport. Recursive serialization errors retain the state/request category without key paths.
+- `packages/decision-clef/src/driver.ts:165` rejects Retry-After millisecond overflow and numeric non-date hints.
+- `packages/decision-clef/src/driver.ts:225` redacts invalid request identifiers; `packages/decision-clef/src/driver.ts:382` reports malformed backend answers without upstream names. Shared validator bodies remain unchanged.
+- `packages/decision-clef/tests/driver.test.ts:450`, `packages/decision-clef/tests/driver.test.ts:628` and `packages/decision-clef/tests/driver.test.ts:697` exercise lossy arrays/accessors, invalid/overflow retry hints and identifier leakage.
+
+- `packages/decision-clef/src/driver.ts:445` translates shared answer-validation failures into a generic backend error while retaining HTTP status, preventing requested IDs from leaking on invalid probabilities.
+
 ### Testing
 
 **Pipeline verify results**
@@ -202,22 +211,22 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | packages/decision-clef/package.json:2-3 (name + 0.5.20, matching the 14-manifest lockstep); src/index.ts:1-2 exports createClefDriver/ClefDriverOptions/ClefModel; tsconfig.json transitive path closure; tsconfig.build.json (paths {}, rootDir src, outDir dist); dist/index.js carries the fixed ESM .js specifier; gate log shows the package typecheck exit 0 |
-| R2 | MET | driver.ts:205 one APIClient on the fixed Cloudflare origin; zero process.env in src/**; driver.ts:223 model ?? configuredModel; driver.ts:292 endpoint path derived from the same resolvedModel; driver.ts:295-302 rawRequest POST with Authorization: Bearer, redirect manual and maxResponseBytes; src/quota.ts is the only ai-runner file main touched and it is not on this path |
-| R3 | MET | driver.ts:103-111 instructions fallback to the question ID; driver.ts:113-141 choice/score/noul mapping via Object.fromEntries; driver.ts:366-438 envelope to typed answers on a null-prototype record; validateAnswers at driver.ts:438; tests/driver.test.ts:229-287 mixed kinds with fractional score and a bare noul probability; tests/driver.test.ts:288-316 __proto__ IDs end to end; facade sugar at :790+ |
-| R4 | MET | packages/ai-runner/src/index.ts:9 re-exports the shared validators (seam blob-identical); limits driver.ts:226, :235, :245-260, :263; strict JSON gate driver.ts:53-101 with driver.ts:272 (state) and driver.ts:284 (mapped body); UTF-8 13 MiB cap driver.ts:286-289; decode/envelope driver.ts:342-438; nonempty model without echo requirement driver.ts:358-360; tests/driver.test.ts:338-509, :512-535, :536-553, :721-775 |
-| R5 | MET | driver.ts:316-339 taxonomy (401/403 Auth, 429 RateLimit + parsed Retry-After, 400/404 Request, 5xx/3xx/other Backend, APIError status 0 Timeout at :306-308, other transport Connection at :309); parseRetryAfter driver.ts:154-168; redaction: generic messages, bodySummary undefined at driver.ts:331, no cause; tests/driver.test.ts:554-630, :631-646, :647-657, :658-719, :777-787; 14 invalid option shapes (12 in the badOptions table plus 2 in the per-field loop) all raise DecisionConfigError |
-| R6 | MET | packages/ai-runner/package.json names no clef token; packages/decision-clef/src/** imports no @gobing-ai/ts-ai-decision (only tests/registry.test.ts, package.json:58 devDependency, tsconfig.json test path); rules .spur/rules/typescript/decision-boundaries.yaml:130,142,154 cover the reverse-import, catalog-import and ai-runner-manifest halves with should-fire/should-pass fixtures; tests/registry.test.ts:61-161 proves lazy memoisation, hub routing and unchanged built-in names; docs updated (package README, ai-runner README, docs/00_ADR.md, docs/03_ARCHITECTURE.md, docs/04_DESIGN.md, README.md, AGENTS.md) |
-| R7 | MET | rebased-tree gate: 61 pre-check rules passed, 2914 pass / 0 fail / 238 files, 3 post-check rules passed (coverage-gate, every-export-has-tsdoc, and verify-confidence-level which validates this very verdict artifact); bun run build 13/13 exit 0; driver.ts 100 percent funcs / 98.22 percent lines with 6 uncovered lines (99,100,140,149,161,339); no .skip, .todo, .only, biome-ignore or eslint-disable in the package or the ai-runner validator test |
+| R1 | MET | `packages/decision-clef/package.json:2` names the lockstep package; `packages/decision-clef/src/index.ts:1` exports the factory/options/model. Fresh build and built ESM import passed; 14 workspace manifests share the root version. Evidence: @gobing-ai/ts-libs `.spur/run/0108-verify-package.log` line 1. |
+| R2 | MET | `packages/decision-clef/src/driver.ts:216` constructs the fixed-origin APIClient; `packages/decision-clef/src/driver.ts:307` uses the resolved model for the route and rawRequest. `packages/decision-clef/tests/driver.test.ts:180` covers default/configured/per-call model, Authorization and one request per ask; these tests passed in the fresh full suite. |
+| R3 | MET | `packages/decision-clef/tests/driver.test.ts:229` verifies mixed choice/score/noul mapping, fractional scores and provider probabilities; `packages/decision-clef/tests/driver.test.ts:288` verifies prototype-looking IDs; `packages/decision-clef/tests/driver.test.ts:859` covers all facade convenience methods. Full suite passed. |
+| R4 | MET | `packages/ai-runner/src/index.ts:9` exports the unchanged validators; `packages/ai-runner/tests/decision/validation.test.ts:318` exercises public exports. `packages/decision-clef/src/driver.ts:71` rejects accessors and lossy array properties; `packages/decision-clef/tests/driver.test.ts:435` exercises invalid state, limits and body bounds; malformed responses and correspondence tests also passed. |
+| R5 | MET | `packages/decision-clef/src/driver.ts:165` handles finite Retry-After milliseconds; `packages/decision-clef/src/driver.ts:318` separates timeout/connection from HTTP taxonomy. `packages/decision-clef/tests/driver.test.ts:628` exercises invalid/overflow retry hints; `packages/decision-clef/tests/driver.test.ts:697` proves state/request/upstream identifier redaction; shared answer-validation failures are redacted at packages/decision-clef/src/driver.ts:445; existing auth, HTTP, timeout and connection tests passed. |
+| R6 | MET | `packages/decision-clef/tests/registry.test.ts:61` proves lazy custom registration, memoization and hub routing; `packages/decision-clef/tests/registry.test.ts:96` proves unchanged built-ins. `.spur/rules/typescript/decision-boundaries.yaml:130` defines the new directions. Six evaluator positive/negative controls passed, including the manifest rule, and the package dependency check passed. Evidence: @gobing-ai/ts-libs `.spur/run/0108-verify-rules-before.json` lines 1-50. |
+| R7 | MET | Fresh bun run spur-check: 2915 tests passed, zero failed, 61 pre-check and 3 post-check rules passed. Fresh workspace build succeeded. Driver coverage: 100 percent functions, 98.26 percent lines. Evidence: @gobing-ai/ts-libs `.spur/run/0108-verify-check.log` lines 46-268; @gobing-ai/ts-libs `.spur/run/0108-verify-build.log` line 1. No tests skipped or suppressions added; git diff --check passed. Reissued verdict/confidence and evidence in .spur/run/0108-verify-answer.txt:1-29 and .spur/run/0108-verdict.json:1-3; prior snapshots retained. Shippable A3 check passed with its only task done. |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| R1 — Consumers import the lockstep Clef driver package | MET | command | package.json:2-3 at 0.5.20 with exports/files/LICENSE/NOTICE; dist/index.js and dist/index.d.ts built; every new-package typecheck exit 0 in the gate log; the usage import shown at README.md:19-20 |
-| R2 — Model selection uses matching Clef routes and body selectors | MET | test | tests/driver.test.ts:180-226: default route and body both clef-flash, configured clef, per-call override, invalid selector rejected with zero fetches, one request per ask |
-| R3 — DecisionMaker preserves typed batch answers and probabilities | MET | test | tests/driver.test.ts:229-287 mixed-kind batch preserving fractional score, confidence, legend and bare noul probability; facade sugar :790+; correspondence enforced by validateAnswers at driver.ts:438 |
-| R4 — Invalid requests and malformed responses fail at the driver boundary | MET | test | pre-transport rejections with zero fetches for question counts, option counts, empty option IDs, score levels, bad IDs, cyclic/sparse/symbol/decorated/non-enumerable/BigInt/Date/NaN/Infinity state, unserializable descriptions and an oversize body (tests/driver.test.ts:338-509); malformed JSON, failed envelope, missing result, empty model, absent or non-object answers, malformed choice/score bodies, wrong names, unnormalized mass and unknown kind all raise DecisionBackendError (:536-553, :721-775) |
-| R5 — Configuration and transport failures use the decision error taxonomy | MET | test | config: tests/driver.test.ts:119-172; HTTP matrix :554-574; Retry-After numeric/date/invalid :575-630; timeout through the real APIClient with AbortSignal :631-646; connection :647-657; redaction including an undefined cause :658-719 |
-| R6 — Applications compose the backend without changing existing defaults | MET | test | tests/registry.test.ts:61-161: a lazy custom clef-hosted factory memoised exactly once, hub routing and declared fallback untouched, registry names unchanged as built-ins then plus the registration, and no built-in clef maker |
+| R1 — Consumers import the lockstep Clef driver package | MET | command | Fresh workspace build and built ESM factory import; 14 lockstep manifests and correct runtime/test dependencies. `packages/decision-clef/package.json:2`; Evidence: @gobing-ai/ts-libs `.spur/run/0108-verify-package.log` line 1. |
+| R2 — Model selection uses matching Clef routes and body selectors | MET | test | `packages/decision-clef/tests/driver.test.ts:180` default/configured/per-call routes, body selector, auth and single request; fresh full suite passed. |
+| R3 — DecisionMaker preserves typed batch answers and probabilities | MET | test | `packages/decision-clef/tests/driver.test.ts:229` mixed batch, fractional score, confidence and bare noul; `packages/decision-clef/tests/driver.test.ts:859` convenience methods; fresh full suite passed. |
+| R4 — Invalid requests and malformed responses fail at the driver boundary | MET | test | `packages/decision-clef/tests/driver.test.ts:435` lossless JSON and size bounds; `packages/decision-clef/tests/driver.test.ts:449` hidden/symbol array properties and accessors rejected without fetch; existing limit/envelope/answer correspondence tests passed in the full suite. |
+| R5 — Configuration and transport failures use the decision error taxonomy | MET | test | `packages/decision-clef/tests/driver.test.ts:119` configuration matrix; `packages/decision-clef/tests/driver.test.ts:628` invalid retry hints; `packages/decision-clef/tests/driver.test.ts:697` redaction; real APIClient abort/network/HTTP tests passed in the full suite. |
+| R6 — Applications compose the backend without changing existing defaults | MET | test | `packages/decision-clef/tests/registry.test.ts:61` lazy maker and hub routing; `packages/decision-clef/tests/registry.test.ts:96` unchanged built-ins; fallback test at `packages/decision-clef/tests/registry.test.ts:141`; full suite passed. |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

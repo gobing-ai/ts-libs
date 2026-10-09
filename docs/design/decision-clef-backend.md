@@ -140,6 +140,11 @@ transport; JSON.stringify alone would lose or coerce some of them. Existing
 neutral validator bodies remain unchanged. Size is measured in UTF-8 bytes;
 the 8 MiB response cap is adapter policy, distinct from the provider request cap.
 
+Arrays also reject symbol or hidden extra properties. Accept data properties only;
+accessors can change their values between validation and serialization. Error
+categories omit state key paths, request identifiers and upstream answer names.
+Retry-After conversion rejects nonfinite milliseconds and numeric non-date hints.
+
 Use safe own-property mapping for names such as `__proto__`. Exercise the real
 APIClient through injected fetch and real Response fixtures; do not mock away
 timeout, redirect or body-limit behavior. Timeout fixtures wait for AbortSignal

@@ -3,7 +3,7 @@ name: Architecture
 doc: 03_ARCHITECTURE
 owns: HOW — module boundaries, data flow, runtime model, invariants, rationale-in-depth
 authority: derived
-version: 1.7.0
+version: 1.8.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
 updated_at: 2026-10-09
@@ -34,15 +34,17 @@ imports and Clef imports of the higher catalog layer.
 with `Authorization: Bearer` and a `{ model, state, questions }` body. `clef-flash`
 is the default; the factory model is overridden per call by `ask({ model })`. Only
 the two short selectors are accepted. Prompt-less questions fall back to the
-question ID as the hosted `instructions` field. Manual redirects, the configured
-timeout and an 8 MiB response cap are set on the client; there is no retry loop.
+question ID as the hosted `instructions` field. Manual redirects and an 8 MiB
+response cap are per request, the timeout on the client; there is no retry loop.
 
 **Strict JSON gate.** `state` and the mapped body are walked before
-`JSON.stringify`: only nulls, strings, booleans, finite numbers, dense arrays and
-plain/null-prototype objects pass. Cycles, `undefined`, functions, symbols,
-`BigInt`, sparse arrays, non-finite numbers and non-plain object instances raise
-`DecisionRequestError` before any transport — `JSON.stringify` alone would lose or
-coerce them. The request cap is measured in UTF-8 bytes.
+`JSON.stringify`: only nulls, strings, booleans, finite numbers, dense index-only
+arrays and plain/null-prototype objects of enumerable data properties pass.
+Cycles, `undefined`, function or symbol values, `BigInt`, sparse or
+property-decorated arrays, accessors, hidden or symbol own keys, non-finite
+numbers and non-plain object instances raise `DecisionRequestError` before any
+transport — `JSON.stringify` alone would lose or coerce them. The request cap is
+measured in UTF-8 bytes.
 
 **Probability model.** Provider probabilities and `confidence` are preserved
 verbatim; score stays an expected fractional value and `noul` carries a bare
@@ -51,8 +53,10 @@ probability with no synthetic confidence. Nothing argmaxes, rounds or resamples.
 **Error mapping.** Configuration, request, auth, rate-limit (with a parsed
 `Retry-After` hint), timeout (APIClient `APIError` with status 0), connection and
 backend failures use the existing `DecisionError` classes. Public messages carry
-the status and a generic category only — never the token, the serialized state or
-the raw upstream body.
+the status and a generic category only — never the token, the serialized state,
+request identifiers, upstream answer names or the raw upstream body. `Retry-After`
+parses to nonnegative milliseconds, or to nothing when absent, unparseable or
+beyond finite milliseconds.
 
 **Invariants** (checkable):
 
@@ -62,7 +66,7 @@ the raw upstream body.
 - The factory performs no I/O: construction validates options and builds one `APIClient`.
 - Exactly one HTTP request per `ask`; the endpoint model and the body model always match.
 - A `noul` answer carries a bare probability and no `confidence`.
-- Errors never embed the API token, the serialized state or upstream response text.
+- Errors never embed the API token, the serialized state, request identifiers or upstream response text.
 - Tests are offline: `fetch` is injected into the real `APIClient`, so timeout, redirect
   and body-cap behavior is exercised rather than mocked away.
 
