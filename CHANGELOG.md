@@ -8,6 +8,27 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.21] - 2026-10-09
+
+### Added
+
+- feat(rules): require acknowledgement for a non-HIGH confidence level (ddef60cd)
+- feat(rules): make the confidence level earn itself (3df097e3)
+- feat(decision-clef): add hosted Clef DecisionDriver package (cedb2fed)
+- feat(rules): verify the verify-verdict confidence level (f5c9f0fb)
+
+### Fixed
+
+- fix(decision-clef): redact request identifiers and harden the strict JSON gate (5dbc0e83)
+
+### Other
+
+- test(decision-clef): read the __proto__ answer via its own property descriptor (c9a2ffe5)
+- docs(tasks): file 0109 to verify the project rule fixtures (0a4a508a)
+- docs(0108): re-issue the verification record after the rebase (c1bc2e9f)
+
+<!-- verification: 6/6 behavior claims cited; confidence HIGH — ddef60cd→.spur/rules/quality/verify-confidence.yaml:126 (a MEDIUM/LOW level must carry a confidence check with '(operator-acknowledged)'; fixtures 0107 no check and 0108 check-without-marker are both rejected), 3df097e3→verify-confidence.yaml:135 (HIGH rejected when any check is not pass) + :141 (a non-n/a acceptance row resting on manual-review is rejected) — fixtures 0103/0106, cedb2fed→packages/decision-clef/src/driver.ts:185 (createClefDriver, exported at src/index.ts:2) + .spur/rules/typescript/decision-boundaries.yaml:11, f5c9f0fb→verify-confidence.yaml:70 (evidenceType vocabulary runs on every artifact, proof-bound or not; fixture 0105 rejects test+static, 0205 accepts static-ref+test) + :99 (a proof-bound verdict must carry HIGH, MEDIUM or LOW; fixtures 0101 absent level and 0102 'high' are rejected), 5dbc0e83→driver.ts:71 (accessor properties rejected before transport), :81 (symbol or hidden array keys), :168 (Retry-After accepts only a finite millisecond conversion and weekday-form dates), :231 and :250 (request identifiers dropped from error text), :381 (prototype-less answer map), c9a2ffe5→packages/decision-clef/tests/driver.test.ts:315 (own-property-descriptor read of the __proto__ answer); checks run: bun test packages/decision-clef/tests/driver.test.ts → 34 pass, 0 fail; the fixture reproduction in .spur/rules/fixtures/verify-confidence/README.md → 8 of 8 should-fire fixtures exit 1 naming their own reason and should-pass exits 0 silent; spur rule run on verify-confidence.yaml → 1 rule passed -->
+
 ## [0.5.19] - 2026-10-08
 
 ### Fixed
