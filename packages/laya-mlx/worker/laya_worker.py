@@ -153,8 +153,19 @@ def handle_request(agent, line):
     if not isinstance(questions, dict) or not questions:
         return request_error(request_id, "request questions must be a nonempty object")
 
+    # For choice questions, ensure compatibility with laya_mlx >= 0.4.0 where
+    # 'labels' is rejected if present alongside 'criteria'.
+    sanitized_questions = {}
+    for qid, qdef in questions.items():
+        if isinstance(qdef, dict) and qdef.get("type") == "choice" and "labels" in qdef:
+            q_copy = dict(qdef)
+            q_copy.pop("labels", None)
+            sanitized_questions[qid] = q_copy
+        else:
+            sanitized_questions[qid] = qdef
+
     try:
-        result = agent.predict(state, questions)
+        result = agent.predict(state, sanitized_questions)
     except Exception as exc:  # classified and reported, never fatal to the worker
         return {"id": request_id, "ok": False, "error": {"kind": classify(exc), "message": str(exc)}}
     return {"id": request_id, "ok": True, "result": result}

@@ -22,10 +22,25 @@ export interface LayaDriverOptions extends LayaWorkerClientOptions {
 }
 
 /** Format a {@link Desc} field into a string instructions value for the worker. */
-function formatDesc(desc: Desc | undefined): string {
-    if (typeof desc === 'string') return desc;
-    if (desc === null || desc === undefined) return '';
+/** Format a {@link Desc} field into a string instructions value for the worker. */
+function formatDesc(desc: Desc | undefined, fallback = ''): string {
+    if (typeof desc === 'string') return desc.trim().length > 0 ? desc : fallback;
+    if (desc === null || desc === undefined) return fallback;
     return JSON.stringify(desc);
+}
+
+/** Rescale a probability distribution to sum to exactly 1.0 when rounding error exceeds 1e-6. */
+function normalizeDistribution<K extends string | number>(probs: Record<K, number>): Record<K, number> {
+    const entries = Object.entries(probs) as [K, number][];
+    const sum = entries.reduce<number>((s, [, p]) => s + (typeof p === 'number' && Number.isFinite(p) ? p : 0), 0);
+    if (sum <= 0 || Math.abs(sum - 1) <= 1e-6) {
+        return probs;
+    }
+    const result = {} as Record<K, number>;
+    for (const [k, p] of entries) {
+        result[k] = p / sum;
+    }
+    return result;
 }
 
 /** Convert a neutral {@link Question} into the wire shape consumed by the worker. */
@@ -34,18 +49,18 @@ export function toWorkerQuestion(question: Question): WorkerQuestion {
         case 'choice':
             return {
                 type: 'choice',
-                instructions: formatDesc(question.prompt),
+                instructions: formatDesc(question.prompt, 'Select the best matching option.'),
                 labels: question.labels,
                 criteria: question.labels,
             };
         case 'score':
             return {
                 type: 'score',
-                instructions: formatDesc(question.prompt),
+                instructions: formatDesc(question.prompt, 'Evaluate according to the rubric.'),
                 rubric: question.rubric,
                 // The runtime rejects a map here: score criteria is the rubric as a
                 // nonempty list of descriptions (laya_mlx agent.py `_to_internal`).
-                criteria: question.rubric.map(formatDesc),
+                criteria: question.rubric.map((r) => formatDesc(r, 'Level')),
             };
         case 'noul': {
             const outcomes =
@@ -54,7 +69,7 @@ export function toWorkerQuestion(question: Question): WorkerQuestion {
                     : { true: question.yes ?? null, false: question.no ?? null };
             return {
                 type: 'noul',
-                instructions: formatDesc(question.prompt),
+                instructions: formatDesc(question.prompt, 'Evaluate whether the proposition is true.'),
                 ...(outcomes !== undefined ? { criteria: outcomes } : {}),
             };
         }
@@ -77,7 +92,8 @@ export function mapWorkerAnswer(question: Question, rawAnswer: unknown): Answer 
                 throw new DecisionBackendError('laya worker returned invalid choice answer: missing label', undefined);
             }
             const confidence = typeof raw.confidence === 'number' ? raw.confidence : 0;
-            const probabilities = (raw.probabilities ?? {}) as Record<string, number>;
+            const rawProbs = (raw.probabilities ?? {}) as Record<string, number>;
+            const probabilities = normalizeDistribution(rawProbs);
             return {
                 kind: 'choice',
                 label,
@@ -120,7 +136,7 @@ export function mapWorkerAnswer(question: Question, rawAnswer: unknown): Answer 
                 score,
                 confidence,
                 legend: rawLegend ? normalizedLegend : legend,
-                probabilities: normalizedProbs,
+                probabilities: normalizeDistribution(normalizedProbs),
             };
         }
         case 'noul': {

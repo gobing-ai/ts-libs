@@ -20,7 +20,14 @@ import {
     DecisionRequestError,
     DecisionTimeoutError,
 } from '@gobing-ai/ts-ai-runner';
-import { joinPath, nodeBunFactory, type PipeProcess, type ProcessExecutor } from '@gobing-ai/ts-runtime';
+import {
+    type FileSystem,
+    getHomeDir,
+    joinPath,
+    nodeBunFactory,
+    type PipeProcess,
+    type ProcessExecutor,
+} from '@gobing-ai/ts-runtime';
 
 /** Environment keys this package may pass to the child process — the full allowlist. */
 const FORWARDED_ENV_KEYS = ['LAYA_MODEL_ID', 'LAYA_MODEL_PATH', 'LAYA_CACHE_DIR', 'LAYA_PYTHON', 'HF_TOKEN'] as const;
@@ -457,6 +464,33 @@ class WorkerHandle {
  * hold it warm for the client's lifetime, and serve serialized asks with
  * id-correlated, timeout-bounded responses.
  */
+/** Resolve the Python interpreter to execute: explicit option -> injected env -> candidate discovery -> 'python3'. */
+export function resolvePythonPath(
+    options: LayaWorkerClientOptions,
+    packageRoot: string,
+    cwd: string,
+    fileSystem: FileSystem = nodeBunFactory.createFileSystem(),
+): string {
+    if (options.pythonPath !== undefined) return options.pythonPath;
+    if (options.env?.LAYA_PYTHON !== undefined && options.env.LAYA_PYTHON.length > 0) {
+        return options.env.LAYA_PYTHON;
+    }
+    const home = getHomeDir();
+    const candidates = [
+        home ? joinPath(home, '.local', 'share', 'uv', 'tools', 'laya-mlx', 'bin', 'python') : undefined,
+        home ? joinPath(home, '.virtualenvs', 'laya-mlx', 'bin', 'python') : undefined,
+        joinPath(packageRoot, '..', '..', 'vendors', 'laya-mlx', '.venv', 'bin', 'python'),
+        joinPath(cwd, '.venv', 'bin', 'python'),
+    ].filter((p): p is string => p !== undefined);
+
+    for (const candidate of candidates) {
+        if (fileSystem.exists(candidate)) {
+            return candidate;
+        }
+    }
+    return 'python3';
+}
+
 export class LayaWorkerClient {
     private readonly pythonPath: string;
     private readonly args: string[];
@@ -475,8 +509,8 @@ export class LayaWorkerClient {
     ) {
         validateHostPrerequisites(options.platform, options.arch);
         const packageRoot = joinPath(import.meta.dir, '..');
-        this.pythonPath = options.pythonPath ?? options.env?.LAYA_PYTHON ?? 'python3';
         this.cwd = options.cwd ?? packageRoot;
+        this.pythonPath = resolvePythonPath(options, packageRoot, this.cwd);
         this.startupTimeoutMs = options.startupTimeoutMs ?? 120_000;
         this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
         this.forwardedEnv = resolveForwardedEnv(options.env);
