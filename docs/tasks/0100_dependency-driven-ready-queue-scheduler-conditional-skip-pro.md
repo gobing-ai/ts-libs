@@ -4,7 +4,7 @@ name: Dependency-driven ready-queue scheduler, conditional skip propagation, and
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.284Z
-updated_at: "2026-10-07T21:52:26.542Z"
+updated_at: "2026-10-11T19:38:46.062Z"
 feature_id: C3
 priority: P2
 tags:
@@ -15,7 +15,7 @@ estimate_hours: 12
 
 dependencies: ["0099", "0094"]
 done_forced: "false"
-done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs-runall-c3-c3f1/.spur/run/0100-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0100-verdict.json
 ---
 
 ## 0100. Dependency-driven ready-queue scheduler, conditional skip propagation, and durable DAG execution

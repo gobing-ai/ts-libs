@@ -4,7 +4,7 @@ name: Fork-join workflow definition schema, validation rules, and unhandled para
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.268Z
-updated_at: "2026-10-07T20:21:36.939Z"
+updated_at: "2026-10-11T19:38:44.497Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -15,7 +15,7 @@ tags:
 estimate_hours: 4
 
 done_forced: "false"
-done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs/.spur/run/0093-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0093-verdict.json
 ---
 
 ## 0093. Fork-join workflow definition schema, validation rules, and unhandled parallel rejection

@@ -4,7 +4,7 @@ name: Dispatch ready DAG dependents without waiting for unrelated nodes
 status: done
 template: feature-impl
 created_at: 2026-10-07T18:45:38.827Z
-updated_at: "2026-10-07T21:52:34.625Z"
+updated_at: "2026-10-11T19:38:46.942Z"
 feature_id: C3
 
 priority: P2
@@ -13,7 +13,7 @@ ac_altitude: task-local
 dependencies: ["0103", "0104"]
 estimate_hours: 6
 done_forced: "false"
-done_reason: unforced close; PASS artifact at .spur/run/0105-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0105-verdict.json
 ---
 
 ## 0105. Dispatch ready DAG dependents without waiting for unrelated nodes

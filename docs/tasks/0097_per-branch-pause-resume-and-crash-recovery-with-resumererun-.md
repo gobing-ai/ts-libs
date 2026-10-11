@@ -4,7 +4,7 @@ name: Per-branch pause, resume, and crash recovery with resumeRerun checks
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.281Z
-updated_at: "2026-10-07T20:21:42.842Z"
+updated_at: "2026-10-11T19:38:45.411Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -16,7 +16,7 @@ estimate_hours: 6
 
 dependencies: ["0094", "0095"]
 done_forced: "false"
-done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs-runall-c2-c2f1/.spur/run/0097-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0097-verdict.json
 ---
 
 ## 0097. Per-branch pause, resume, and crash recovery with resumeRerun checks

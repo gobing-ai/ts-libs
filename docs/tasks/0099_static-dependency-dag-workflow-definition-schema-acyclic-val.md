@@ -4,7 +4,7 @@ name: Static dependency DAG workflow definition schema, acyclic validation, and 
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.283Z
-updated_at: "2026-10-07T21:52:24.549Z"
+updated_at: "2026-10-11T19:38:45.852Z"
 feature_id: C3
 priority: P2
 tags:
@@ -15,7 +15,7 @@ estimate_hours: 6
 
 dependencies: ["0093"]
 done_forced: "false"
-done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs-runall-c3-c3f1/.spur/run/0099-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0099-verdict.json
 ---
 
 ## 0099. Static dependency DAG workflow definition schema, acyclic validation, and ADR specification

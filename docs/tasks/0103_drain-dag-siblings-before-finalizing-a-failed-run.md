@@ -4,7 +4,7 @@ name: Drain DAG siblings before finalizing a failed run
 status: done
 template: feature-impl
 created_at: 2026-10-07T18:44:08.760Z
-updated_at: "2026-10-07T21:52:30.523Z"
+updated_at: "2026-10-11T19:38:46.530Z"
 feature_id: C3
 
 priority: P1
@@ -12,7 +12,7 @@ ac_numbering: task-local
 ac_altitude: task-local
 estimate_hours: 2
 done_forced: "false"
-done_reason: unforced close; PASS artifact at .spur/run/0103-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0103-verdict.json
 ---
 
 ## 0103. Drain DAG siblings before finalizing a failed run

@@ -4,7 +4,7 @@ name: Persist DAG recovery state and honor pause action semantics
 status: done
 template: feature-impl
 created_at: 2026-10-07T18:45:34.968Z
-updated_at: "2026-10-07T21:52:32.548Z"
+updated_at: "2026-10-11T19:38:46.741Z"
 feature_id: C3
 
 priority: P1
@@ -13,7 +13,7 @@ ac_altitude: task-local
 dependencies: ["0101"]
 estimate_hours: 8
 done_forced: "false"
-done_reason: unforced close; PASS artifact at .spur/run/0104-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0104-verdict.json
 ---
 
 ## 0104. Persist DAG recovery state and honor pause action semantics

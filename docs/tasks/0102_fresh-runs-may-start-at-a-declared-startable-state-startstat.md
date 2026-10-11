@@ -4,7 +4,7 @@ name: Fresh runs may start at a declared startable state (startState)
 status: done
 template: feature-impl
 created_at: 2026-10-05T17:58:41.865Z
-updated_at: "2026-10-05T18:19:34.593Z"
+updated_at: "2026-10-11T19:38:46.288Z"
 feature_id: C
 
 priority: P2
@@ -12,7 +12,7 @@ ac_numbering: task-local
 ac_altitude: task-local
 estimate_hours: 5
 done_forced: "false"
-done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs/.spur/run/0102-verdict.json
+done_reason: unforced close; PASS artifact at tracked Testing section (scratch verdict not retained)
 ---
 
 ## 0102. Fresh runs may start at a declared startable state (startState)

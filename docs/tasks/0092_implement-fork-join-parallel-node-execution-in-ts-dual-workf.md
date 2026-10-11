@@ -4,12 +4,12 @@ name: Implement fork/join parallel node execution in ts-dual-workflow-engine
 status: done
 template: feature-impl
 created_at: 2026-10-04T06:57:19.806Z
-updated_at: "2026-10-07T20:21:45.817Z"
+updated_at: "2026-10-11T19:38:44.260Z"
 feature_id: C2
 
 dependencies: ["0093", "0094", "0095", "0096", "0097", "0098"]
 done_forced: "false"
-done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs-runall-c2-c2f1/.spur/run/0092-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0092-verdict.json
 ---
 
 ## 0092. Implement fork/join parallel node execution in ts-dual-workflow-engine

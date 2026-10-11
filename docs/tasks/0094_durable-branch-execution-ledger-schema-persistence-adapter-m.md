@@ -4,7 +4,7 @@ name: Durable branch execution ledger schema, persistence adapter methods, and a
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.276Z
-updated_at: "2026-10-07T20:21:38.608Z"
+updated_at: "2026-10-11T19:38:44.723Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -16,7 +16,7 @@ estimate_hours: 6
 
 dependencies: ["0093"]
 done_forced: "false"
-done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs-runall-c2-c2f1/.spur/run/0094-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0094-verdict.json
 ---
 
 ## 0094. Durable branch execution ledger schema, persistence adapter methods, and atomic join commit

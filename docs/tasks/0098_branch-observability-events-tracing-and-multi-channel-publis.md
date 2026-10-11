@@ -4,7 +4,7 @@ name: Branch observability events, tracing, and multi-channel publish E2E integr
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.282Z
-updated_at: "2026-10-07T20:21:44.214Z"
+updated_at: "2026-10-11T19:38:45.643Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -17,7 +17,7 @@ estimate_hours: 6
 
 dependencies: ["0095", "0096", "0097"]
 done_forced: "false"
-done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs-runall-c2-c2f1/.spur/run/0098-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0098-verdict.json
 ---
 
 ## 0098. Branch observability events, tracing, and multi-channel publish E2E integration tests

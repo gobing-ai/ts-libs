@@ -4,7 +4,7 @@ name: TransitionFlowDriver parallel region scheduler, concurrency bounding, and 
 status: done
 template: feature-impl
 created_at: 2026-10-04T21:10:02.278Z
-updated_at: "2026-10-07T20:21:40.047Z"
+updated_at: "2026-10-11T19:38:44.940Z"
 feature_id: C2
 parent_wbs: "0092"
 priority: P2
@@ -16,7 +16,7 @@ estimate_hours: 8
 
 dependencies: ["0093", "0094"]
 done_forced: "false"
-done_reason: unforced close; PASS artifact at /Users/robin/xprojects/ts-libs-runall-c2-c2f1/.spur/run/0095-verdict.json
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0095-verdict.json
 ---
 
 ## 0095. TransitionFlowDriver parallel region scheduler, concurrency bounding, and variable isolation
