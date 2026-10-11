@@ -39,9 +39,18 @@ export class DecisionMakerRegistry {
         this.register('fm-local', () =>
             createDecisionMaker({ driver: createFmDriver(driverOptions['fm-local'] ?? {}), ...makerOptions }),
         );
-        this.register('laya-local', () =>
-            createDecisionMaker({ driver: createLayaDriver(driverOptions['laya-local'] ?? {}), ...makerOptions }),
-        );
+        this.register('laya-local', () => {
+            const driverOpts: LayaDriverOptions = {
+                ...driverOptions['laya-local'],
+            };
+            if (makerOptions.env && driverOpts.env === undefined) {
+                driverOpts.env = makerOptions.env as Record<string, string | undefined>;
+            }
+            return createDecisionMaker({
+                driver: createLayaDriver(driverOpts),
+                ...makerOptions,
+            });
+        });
     }
 
     /** Register a maker or factory under `name`; chains. Throws on a bad or already-registered name. */

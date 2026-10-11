@@ -121,7 +121,11 @@ function renderEntry(decisionId: string, entry: JevEntry, params: ResolvedParams
  * `maker` and `model` are never templated, so the answer vocabulary stays static.
  */
 export function renderQuestion(decision: DecisionDefinition, params: ResolvedParams): JevQuestion {
-    const instructions = renderEntry(decision.id, decision.instructions, params);
+    const rendered = renderEntry(decision.id, decision.instructions, params);
+    const instructions =
+        typeof rendered === 'string' && rendered.trim().length === 0 && decision.description
+            ? decision.description
+            : rendered;
     const criteria = decision.criteria;
     switch (criteria.kind) {
         case 'choice': {
