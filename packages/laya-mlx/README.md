@@ -21,7 +21,7 @@ Part of the `@gobing-ai/ts-libs` monorepo and lockstep-versioned with it.
 > **Notice:** This is the only package in the workspace with specific host architecture constraints.
 
 1. **Platform:** macOS on Apple Silicon (`darwin arm64`). Unsupported platforms fail fast at construction time before any process is spawned.
-2. **Python:** Python 3.10+ carrying the `laya-mlx` runtime (resolvable via `pythonPath`, injected `env.LAYA_PYTHON`, or `python3` on `PATH`).
+2. **Python (core `mlx-python` only):** Python 3.10+ carrying the `laya-mlx` runtime (resolvable via `pythonPath`, injected `env.LAYA_PYTHON`, or `python3` on `PATH`). Core `mlx-native` needs no Python.
 3. **Supported runtime range:** `laya-mlx 0.1.x` (validated against upstream `0.1.0` @ `fc1df62828a3fedf4d8229fdac1cbd85f1cdf337`).
 4. **Install command:**
    ```sh
@@ -29,6 +29,35 @@ Part of the `@gobing-ai/ts-libs` monorepo and lockstep-versioned with it.
    # or with uv:
    uv pip install laya-mlx
    ```
+
+---
+
+## Execution core and model selection
+
+Both cores run Apple MLX on Metal and return identical neutral answers; pick per host.
+
+| Option | Env (injected) | Values | Default |
+| --- | --- | --- | --- |
+| `core` | `LAYA_CORE` | `mlx-python` · `mlx-native` · `auto` | `mlx-python` |
+| `modelPath` | `LAYA_MODEL_PATH` | local checkpoint dir (fine-tuned) — wins over `modelId` | — |
+| `modelId` | `LAYA_MODEL_ID` | Hugging Face repo id | `convaiinnovations/laya-multilingual` |
+
+- **`mlx-python`** — warm `laya-mlx` Python child process over JSON lines. Lowest latency and memory.
+- **`mlx-native`** — in-process [`@johnhenry/laya`](https://github.com/johnhenry/laya-js) via libmlxc FFI;
+  no Python, no child process. Does not support `cacheDir`/`LAYA_CACHE_DIR` (set `HF_HUB_CACHE` for the
+  process instead) or `dtype: 'bfloat16'`; both are rejected as `DecisionConfigError`.
+- **`auto`** — loads the native core on first ask; any native load failure falls back to `mlx-python`.
+
+Measured on an Apple Silicon Mac (official checkpoint, f16, 3-question batch, 20 warm asks):
+
+| Core | Cold (load + first ask) | Warm p50 | Resident memory |
+| --- | --- | --- | --- |
+| `mlx-python` | ~0.8–1.0 s | ~10 ms | ~1.15 GB (78 MB host + ~1.07 GB worker) |
+| `mlx-native` | ~0.8–1.0 s | ~22 ms | ~1.78 GB (all in host process) |
+
+```ts
+createLayaDriver({ core: 'mlx-native', modelPath: '/models/laya-ft-kk' });
+```
 
 ---
 

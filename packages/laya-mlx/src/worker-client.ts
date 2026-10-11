@@ -131,7 +131,11 @@ export function validateHostPrerequisites(platform: string = process.platform, a
     }
 }
 
-function hasNonFiniteValues(obj: unknown): boolean {
+/** Official Laya checkpoint used when no modelId/modelPath is configured. */
+export const DEFAULT_LAYA_MODEL_ID = 'convaiinnovations/laya-multilingual';
+
+/** @internal True when any number nested in `obj` is NaN/Infinity (fp16 overflow). */
+export function hasNonFiniteValues(obj: unknown): boolean {
     if (typeof obj === 'number') {
         return !Number.isFinite(obj);
     }
@@ -519,7 +523,7 @@ export class LayaWorkerClient {
         this.args.push('--module', options.module ?? 'laya_mlx');
         const resolvedModelPath = options.modelPath ?? options.env?.LAYA_MODEL_PATH;
         const resolvedCacheDir = options.cacheDir ?? options.env?.LAYA_CACHE_DIR;
-        const resolvedModelId = options.modelId ?? options.env?.LAYA_MODEL_ID ?? 'convaiinnovations/laya-multilingual';
+        const resolvedModelId = options.modelId ?? options.env?.LAYA_MODEL_ID ?? DEFAULT_LAYA_MODEL_ID;
 
         if (resolvedModelPath !== undefined) {
             this.args.push('--model-path', resolvedModelPath);

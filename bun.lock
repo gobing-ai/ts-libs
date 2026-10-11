@@ -158,9 +158,13 @@
       "dependencies": {
         "@gobing-ai/ts-ai-runner": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
+        "@johnhenry/laya": "0.3.2",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
+      },
+      "optionalDependencies": {
+        "@johnhenry/backend-mlx": "0.5.0",
       },
     },
     "packages/llm-jsonl-importer": {
@@ -316,6 +320,74 @@
 
     "@gobing-ai/ts-utils": ["@gobing-ai/ts-utils@workspace:packages/utils"],
 
+    "@huggingface/tokenizers": ["@huggingface/tokenizers@0.2.0", "", {}, "sha512-LidMHe1FpcSYH4vcSjXooda34pC0M8m1gmDOv7SQi6Iv+ib1zX7J3sHBCC9/3FPCkn2k1b55FneVqMRxrr99pg=="],
+
+    "@johnhenry/backend-cpu": ["@johnhenry/backend-cpu@0.3.3", "", { "dependencies": { "@johnhenry/math-plus-tensor-cpu": "^0.2.0", "@johnhenry/tensor-backend": "^0.4.0" } }, "sha512-MwmNuLENaoESo1+oeqT7mdlFEKi9TD254BkgB3Btqj2OY76a+1VWq7rB+Aqey0T6cZS1UM11vgwWjWxIcEvz7Q=="],
+
+    "@johnhenry/backend-mlx": ["@johnhenry/backend-mlx@0.5.0", "", { "dependencies": { "@johnhenry/tensor-backend": "^0.4.0" }, "optionalDependencies": { "@johnhenry/backend-mlx-darwin-arm64": "^0.1.1", "koffi": "^3.3.1" } }, "sha512-3hgBAJsP2yfnRP6vaa1s68LAh7ep+4AYDM30E27+NF3a6CX6HWVE87GXIlPw+UfMPlK2k5t73Qi1MZ8MwVPH8g=="],
+
+    "@johnhenry/backend-mlx-darwin-arm64": ["@johnhenry/backend-mlx-darwin-arm64@0.1.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-GosMuMgiQS0P5XDq3oRnvuziNXNN/izLkzQUwQUddbSay4faB5at5mg619RcgEyicidL1aseyQkGWI4eDoaqGg=="],
+
+    "@johnhenry/hf-cache": ["@johnhenry/hf-cache@0.1.2", "", {}, "sha512-zQdOHfuVlgdG1Vj2o8+Kvrp63r09PCekI9R8vrIcYoOoM9dSKFBrnRPgd+zLQt/IPegh2+F/sApRA0e+p6ciuw=="],
+
+    "@johnhenry/laya": ["@johnhenry/laya@0.3.2", "", { "dependencies": { "@johnhenry/backend-cpu": "^0.3.3", "@johnhenry/hf-cache": "^0.1.2", "@johnhenry/laya-core": "^0.1.1", "@johnhenry/math-plus-safetensors": "^0.1.0", "@johnhenry/modernbert": "^0.3.1", "@johnhenry/pyjson": "^0.1.2", "@johnhenry/tensor-backend": "^0.4.0" }, "peerDependencies": { "@johnhenry/backend-mlx": "^0.2.0 || ^0.3.0 || ^0.4.0 || ^0.5.0", "@johnhenry/backend-webgpu": "^0.2.0 || ^0.3.0 || ^0.4.0 || ^0.5.0 || ^0.6.0" }, "optionalPeers": ["@johnhenry/backend-mlx", "@johnhenry/backend-webgpu"] }, "sha512-87Ou4EP4DGuNXTtRfYVr3oLPRjnENMSSFcSX15GvZXHbXUD3H59Rcgsa7tm95JweWp7RGPnlggp5MZo/pj/Sgw=="],
+
+    "@johnhenry/laya-core": ["@johnhenry/laya-core@0.1.1", "", { "dependencies": { "@huggingface/tokenizers": "^0.2.0", "@johnhenry/pyjson": "^0.1.2" } }, "sha512-7niAKNMAsHeNR9jWnmN2KHCGNTZ18urYXyG6/J2/u6Tn+cZx+R/DKmybW2B48N757RNSOLqrIa7f460CXohDMA=="],
+
+    "@johnhenry/math-plus-safetensors": ["@johnhenry/math-plus-safetensors@0.1.3", "", { "peerDependencies": { "@johnhenry/math-plus-tensor-core": "^0.0.0 || ^0.1.0 || ^0.2.0" }, "optionalPeers": ["@johnhenry/math-plus-tensor-core"] }, "sha512-djbT5O1T9ucZitYzdj6Va3bzIaflVbyxiTU4YGXSlV2vJNg2J6gnJLc0uqWFRye/QAmPVFOpltxrkGTHQ10MXw=="],
+
+    "@johnhenry/math-plus-special": ["@johnhenry/math-plus-special@0.1.1", "", {}, "sha512-+NQvdthZFbqnW2RilZjImzpfEr1dwx70OvD3IHpEoC6WivCGRf3EKyVFy3iIrCvNOBd5TzwSJQSZBgqOmhvWhg=="],
+
+    "@johnhenry/math-plus-tensor-core": ["@johnhenry/math-plus-tensor-core@0.2.1", "", { "dependencies": { "@johnhenry/math-plus-special": "^0.1.1" } }, "sha512-0N/diO6k+8ZVKi7LkfAtMJLuxgHr3ZfiKRkltAb0JY9pEMMsGX8yY1KDN80BpuGkpNTSXgxqjlceGmqeuhYnIg=="],
+
+    "@johnhenry/math-plus-tensor-cpu": ["@johnhenry/math-plus-tensor-cpu@0.2.2", "", { "dependencies": { "@johnhenry/math-plus-tensor-core": "^0.2.1", "@johnhenry/tensor-backend": "^0.3.0" } }, "sha512-70CiTEh0H3f7A1e0YgZnLsnuR6nhXLFhTBkLQ+zCmjPgTG+gjs7pmRvGq4ZL88VY/VNCF71u8g/ru4NnKiu/uQ=="],
+
+    "@johnhenry/modernbert": ["@johnhenry/modernbert@0.3.1", "", { "dependencies": { "@johnhenry/tensor-backend": "^0.4.0" } }, "sha512-KoNvW0mHe875jfO798X37+8bmD52NpP5yuHobn5n3k+gXCiorOZXVxNIX3k2c5X6lJyhKee64fURQMdL7DaOpg=="],
+
+    "@johnhenry/pyjson": ["@johnhenry/pyjson@0.1.2", "", {}, "sha512-QQNjjz/Zlay/Zi/dqIwDMCH/GNAxuDbrOxn4Ge7oKZR/Ik1UXs3S/4juLDIt/9q+6kFTWl+sQVJA5yJVjupQbQ=="],
+
+    "@johnhenry/tensor-backend": ["@johnhenry/tensor-backend@0.4.0", "", {}, "sha512-e6REiH1fNJW/4RQHOhxPBBUSSpkdFR32MseNSDd7Jf3f/dKybhYG9eVUoM7U7TLNaunxKal8oZxNJosTBckmrA=="],
+
+    "@koromix/koffi-android-arm64": ["@koromix/koffi-android-arm64@3.3.3", "", { "os": "android", "cpu": "arm64" }, "sha512-c8iDq/mPXkgQmrmZ6SpqWIVF3ZnJEpjVQswzKzbrCSdr68pmSY/cNj1t4qvv32T8nNjW71/hB+E8Rq1+vVpmQg=="],
+
+    "@koromix/koffi-android-x64": ["@koromix/koffi-android-x64@3.3.3", "", { "os": "android", "cpu": "x64" }, "sha512-yAFu4oX6rpBCqr4HiGo3FpywmRN11LOSde4+GJZvfkFymqV3wZtx6TgVe8rZ4ogJZz9B8o1tDeKsZ6pqeoH40g=="],
+
+    "@koromix/koffi-darwin-arm64": ["@koromix/koffi-darwin-arm64@3.3.3", "", { "os": "darwin", "cpu": "arm64" }, "sha512-aFYI3YMdQWOAmHlVA+GfBlJZTpvfbUv/NoeBBkqblWN7BxuY02bkWMyoksUEl+mnx7ScoMonnjzXKJkNQXmR3w=="],
+
+    "@koromix/koffi-darwin-x64": ["@koromix/koffi-darwin-x64@3.3.3", "", { "os": "darwin", "cpu": "x64" }, "sha512-6Q8/DDhVADPMm3lFnZFJRETJtf485jZKzn1KogXeA9Gfztv/XMFiCOK4aEouFc256h9uWzC69mGimtcVcwK+Ww=="],
+
+    "@koromix/koffi-freebsd-arm64": ["@koromix/koffi-freebsd-arm64@3.3.3", "", { "os": "freebsd", "cpu": "arm64" }, "sha512-IynEDMMU9pp7EVVqQwXVU9x0JH7Opj8KB0wbcKgYNEhRM9eGzJ4ai7iwG8y8tdD/Y8niSVrVTj5WLNCCvUWXIw=="],
+
+    "@koromix/koffi-freebsd-ia32": ["@koromix/koffi-freebsd-ia32@3.3.3", "", { "os": "freebsd", "cpu": "ia32" }, "sha512-5b4W9jX+wmfWn9vG7DvKIrNhhRpPDAx7YQV5i9epUR0Ogxz4s4a3APz/beLCvgHt4WhaSRrazxGYQz1oFOlfow=="],
+
+    "@koromix/koffi-freebsd-x64": ["@koromix/koffi-freebsd-x64@3.3.3", "", { "os": "freebsd", "cpu": "x64" }, "sha512-+NmMrp3ji1NN4PTaLaXDCKMaJ5Fl+0+nrClmtsu/7wi+fjCrCSGMrJZUmTIJPm1nd8Z5fMRjWesiVvQiy/ETDg=="],
+
+    "@koromix/koffi-linux-arm": ["@koromix/koffi-linux-arm@3.3.3", "", { "os": "linux", "cpu": "arm" }, "sha512-K+NFO4/SiF4ANCS1ykem36wbEjfBJKsaakLKZ+6LbaLqyLjHHGky4fEIgipac/+XJtD4ZXjhexPIVjwzkO+rMQ=="],
+
+    "@koromix/koffi-linux-arm64": ["@koromix/koffi-linux-arm64@3.3.3", "", { "os": "linux", "cpu": "arm64" }, "sha512-y7UHjwOKbj2IjIpWtHmI8LEKXchidt47k605DCv5+YQMIDTbzhz/i3zTI1kRp6EYBLTBwRkR1X1PGt3uUi+rKQ=="],
+
+    "@koromix/koffi-linux-ia32": ["@koromix/koffi-linux-ia32@3.3.3", "", { "os": "linux", "cpu": "ia32" }, "sha512-dbcpe7IrWr18AAbIKa/RvJ8pM1lEpSELWYW6wsEBIYw/RTLfXqWJ6d9Ya0NWJgHTW+N7783KVQaV5c1Sr3ONDQ=="],
+
+    "@koromix/koffi-linux-loong64": ["@koromix/koffi-linux-loong64@3.3.3", "", { "os": "linux", "cpu": "none" }, "sha512-kbJFmWSoDHGZgxgDhInuvDi8MzrHafBfQ7iWN5P+nHv297beQXrHecFfCNBApnG9d2wrhEoY+EH/TdITuvaSwQ=="],
+
+    "@koromix/koffi-linux-ppc64": ["@koromix/koffi-linux-ppc64@3.3.3", "", { "os": "linux", "cpu": "ppc64" }, "sha512-YwGxjudYHsiDZ6qH4WmEawHXmTaZzjiZ4xdjcbzsVHqNvgZ3Nz7WG03PybecJ+BVH2vqBOntGZ2VsG/sL0WY1g=="],
+
+    "@koromix/koffi-linux-riscv64": ["@koromix/koffi-linux-riscv64@3.3.3", "", { "os": "linux", "cpu": "none" }, "sha512-k/txpUsOO/L4TexahQHxqdFRmBEGE+g++np9M5eNcsHWNXmazeWBrrfB9sjl6cZAP69KZFO0toP+ZMfDUDHmnQ=="],
+
+    "@koromix/koffi-linux-x64": ["@koromix/koffi-linux-x64@3.3.3", "", { "os": "linux", "cpu": "x64" }, "sha512-AI4kcNNWeGmzQzsNb0S+ZL/ht4HMtDcQl5nYFkkuVUO2g1/2KdvNekkwNWhpp805mDbLSDoRZtlioHyH/v8poQ=="],
+
+    "@koromix/koffi-openbsd-arm64": ["@koromix/koffi-openbsd-arm64@3.3.3", "", { "os": "openbsd", "cpu": "arm64" }, "sha512-NEbQMrixbAWSmWCh4XyHWuhgEqgO4tegWyHoJej7Q3PmyIlgxKHTcRZsjAJ9C3sfgBDNIqPWTjMy3KO2mqEp1g=="],
+
+    "@koromix/koffi-openbsd-ia32": ["@koromix/koffi-openbsd-ia32@3.3.3", "", { "os": "openbsd", "cpu": "ia32" }, "sha512-zGFX0KwZGmrV7AZY0+oozBpMuQZT7yQEY3NCDSb0rEqKyOrYLBNiXiXA5T8NSY3ipaW0b71L5Cu0KLKabdLY0A=="],
+
+    "@koromix/koffi-openbsd-x64": ["@koromix/koffi-openbsd-x64@3.3.3", "", { "os": "openbsd", "cpu": "x64" }, "sha512-c1HMWkZPAZKQesKj2HqA6Zk1YEcv7Doc6JU9YJepXG8KpK4XZmI0L5vESSfySmidmasm05QDyLAcwDnNSvtfRA=="],
+
+    "@koromix/koffi-win32-arm64": ["@koromix/koffi-win32-arm64@3.3.3", "", { "os": "win32", "cpu": "arm64" }, "sha512-eL7gW4D22OBb3fi04s5ElzzNk+gkGEahaTNMB29UDLDeORe+0qIkhccBPovXW3/IRpdt8W7o8X2myUDXlTSYDQ=="],
+
+    "@koromix/koffi-win32-ia32": ["@koromix/koffi-win32-ia32@3.3.3", "", { "os": "win32", "cpu": "ia32" }, "sha512-3sw9vvQqro4yKsOWfKebzfTcdPKRwMrodGXWbfwkTsL61EQKdwsMNKA/0dDe0/ubAAZ0yPgstX8/gs94Svzfgw=="],
+
+    "@koromix/koffi-win32-x64": ["@koromix/koffi-win32-x64@3.3.3", "", { "os": "win32", "cpu": "x64" }, "sha512-tLTF17wl4CCwOlo1Tt0NbduwUduDvM6c8JSyearcLu6hpNHQo44RF3rKN2i7UkxwCqXyiudZK0lS421CC/TPZA=="],
+
     "@logtape/logtape": ["@logtape/logtape@2.1.1", "", {}, "sha512-aULbCqUQGerfOsZ3CMvcKtueKzmdchluXYUd3bIHKmOIS93fx1ko0+hyRQ4flloGZ8EiyRPydZXiy8n1J/eAQA=="],
 
     "@opentelemetry/api": ["@opentelemetry/api@1.9.1", "", {}, "sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q=="],
@@ -420,6 +492,8 @@
 
     "isexe": ["isexe@3.1.5", "", {}, "sha512-6B3tLtFqtQS4ekarvLVMZ+X+VlvQekbe4taUkf/rhVO3d/h0M2rfARm/pXLcPEsjjMsFgrFgSrhQIxcSVrBz8w=="],
 
+    "koffi": ["koffi@3.3.3", "", { "optionalDependencies": { "@koromix/koffi-android-arm64": "3.3.3", "@koromix/koffi-android-x64": "3.3.3", "@koromix/koffi-darwin-arm64": "3.3.3", "@koromix/koffi-darwin-x64": "3.3.3", "@koromix/koffi-freebsd-arm64": "3.3.3", "@koromix/koffi-freebsd-ia32": "3.3.3", "@koromix/koffi-freebsd-x64": "3.3.3", "@koromix/koffi-linux-arm": "3.3.3", "@koromix/koffi-linux-arm64": "3.3.3", "@koromix/koffi-linux-ia32": "3.3.3", "@koromix/koffi-linux-loong64": "3.3.3", "@koromix/koffi-linux-ppc64": "3.3.3", "@koromix/koffi-linux-riscv64": "3.3.3", "@koromix/koffi-linux-x64": "3.3.3", "@koromix/koffi-openbsd-arm64": "3.3.3", "@koromix/koffi-openbsd-ia32": "3.3.3", "@koromix/koffi-openbsd-x64": "3.3.3", "@koromix/koffi-win32-arm64": "3.3.3", "@koromix/koffi-win32-ia32": "3.3.3", "@koromix/koffi-win32-x64": "3.3.3" } }, "sha512-XWNI4eyxJJzR2MakPZzR3QeZ06JOklLbxglin0dHhx/qIQCby8lqHs9Acq4Q7CpCKnOrBSj+6b9J5y69wfr2ZA=="],
+
     "lefthook": ["lefthook@1.13.0", "", { "optionalDependencies": { "lefthook-darwin-arm64": "1.13.0", "lefthook-darwin-x64": "1.13.0", "lefthook-freebsd-arm64": "1.13.0", "lefthook-freebsd-x64": "1.13.0", "lefthook-linux-arm64": "1.13.0", "lefthook-linux-x64": "1.13.0", "lefthook-openbsd-arm64": "1.13.0", "lefthook-openbsd-x64": "1.13.0", "lefthook-windows-arm64": "1.13.0", "lefthook-windows-x64": "1.13.0" }, "bin": { "lefthook": "bin/index.js" } }, "sha512-6pno+NjfBrKKt3XQmFUvwDdKXzBVh5JvzAIwcCOu9mqg81nAMCZd2FtTuU1fmDzXFNdsxjW8mwwKB+S8t5ucOQ=="],
 
     "lefthook-darwin-arm64": ["lefthook-darwin-arm64@1.13.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-mhD4zOj2VRx34tptEc/lP643n5YAAVP95f/TiP6geQz4kpLwUrsTwQxzoXUIauU2DGSNbFtp9hVSE++0e4ESEA=="],
@@ -493,6 +567,8 @@
     "zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
 
     "@esbuild-kit/core-utils/esbuild": ["esbuild@0.18.20", "", { "optionalDependencies": { "@esbuild/android-arm": "0.18.20", "@esbuild/android-arm64": "0.18.20", "@esbuild/android-x64": "0.18.20", "@esbuild/darwin-arm64": "0.18.20", "@esbuild/darwin-x64": "0.18.20", "@esbuild/freebsd-arm64": "0.18.20", "@esbuild/freebsd-x64": "0.18.20", "@esbuild/linux-arm": "0.18.20", "@esbuild/linux-arm64": "0.18.20", "@esbuild/linux-ia32": "0.18.20", "@esbuild/linux-loong64": "0.18.20", "@esbuild/linux-mips64el": "0.18.20", "@esbuild/linux-ppc64": "0.18.20", "@esbuild/linux-riscv64": "0.18.20", "@esbuild/linux-s390x": "0.18.20", "@esbuild/linux-x64": "0.18.20", "@esbuild/netbsd-x64": "0.18.20", "@esbuild/openbsd-x64": "0.18.20", "@esbuild/sunos-x64": "0.18.20", "@esbuild/win32-arm64": "0.18.20", "@esbuild/win32-ia32": "0.18.20", "@esbuild/win32-x64": "0.18.20" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-ceqxoedUrcayh7Y7ZX6NdbbDzGROiyVBgC4PriJThBKSVPWnnFHZAkfI1lJT8QFkOwH4qOS2SJkS4wvpGl8BpA=="],
+
+    "@johnhenry/math-plus-tensor-cpu/@johnhenry/tensor-backend": ["@johnhenry/tensor-backend@0.3.0", "", {}, "sha512-RBbDT22g2NBtxjdlAbwAhSk5P7G79tKVKVXFjYMJ4bpVMUavGah1yt9m5f5f7j+Pw5dMp1bw7TuBpJIZFcibQQ=="],
 
     "@opentelemetry/exporter-metrics-otlp-http/@opentelemetry/resources": ["@opentelemetry/resources@2.0.0", "", { "dependencies": { "@opentelemetry/core": "2.0.0", "@opentelemetry/semantic-conventions": "^1.29.0" }, "peerDependencies": { "@opentelemetry/api": ">=1.3.0 <1.10.0" } }, "sha512-rnZr6dML2z4IARI4zPGQV4arDikF/9OXZQzrC01dLmn0CZxU5U5OLd/m1T7YkGRj5UitjeoCtg/zorlgMQcdTg=="],
 

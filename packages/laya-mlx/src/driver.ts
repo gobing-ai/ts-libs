@@ -1,27 +1,123 @@
 /**
  * The local Laya decision driver satisfying {@link DecisionDriver} from `@gobing-ai/ts-ai-runner`.
- * Translates provider-neutral decision requests into the JSON-lines worker format
- * and maps worker answers back onto neutral {@link Answer} types (task 0078).
+ * Translates provider-neutral decision requests into the laya-mlx question format
+ * and maps answers back onto neutral {@link Answer} types (task 0078). Two MLX cores
+ * serve the same wire shape: the Python worker (`mlx-python`) and the in-process
+ * `@johnhenry/laya` port (`mlx-native`).
  */
 
 import {
     type Answer,
     DecisionBackendError,
+    DecisionConfigError,
     type DecisionDriver,
     DecisionRequestError,
     type DecisionState,
     type Desc,
     type Question,
 } from '@gobing-ai/ts-ai-runner';
-import { LayaWorkerClient, type LayaWorkerClientOptions, type WorkerQuestion } from './worker-client';
+import { LayaNativeClient, type LayaNativeLoader } from './native-client';
+import {
+    LayaWorkerClient,
+    type LayaWorkerClientOptions,
+    type LayaWorkerResult,
+    type WorkerQuestion,
+} from './worker-client';
+
+/**
+ * Execution core behind `laya-local`. Both run Apple MLX on Metal:
+ * - `mlx-python`: warm `laya-mlx` Python worker over JSON lines (default; needs a Python env).
+ * - `mlx-native`: in-process `@johnhenry/laya` via libmlxc FFI (no Python).
+ * - `auto`: try `mlx-native`, fall back to `mlx-python` when it cannot load.
+ */
+export type LayaCore = 'mlx-python' | 'mlx-native' | 'auto';
+
+const LAYA_CORES: readonly LayaCore[] = ['mlx-python', 'mlx-native', 'auto'];
+
+/** The `ask` surface both cores implement. */
+export interface LayaClient {
+    ask(state: string, questions: Record<string, WorkerQuestion>): Promise<LayaWorkerResult>;
+    dispose(): void;
+}
 
 /** Configuration options for {@link createLayaDriver}. */
 export interface LayaDriverOptions extends LayaWorkerClientOptions {
-    /** Pre-constructed worker client (useful for dependency injection in tests). */
-    client?: LayaWorkerClient;
+    /** Execution core. Default: `env.LAYA_CORE`, else `'mlx-python'`. */
+    core?: LayaCore;
+    /** Pre-constructed client (dependency injection in tests); bypasses core selection. */
+    client?: LayaClient;
+    /** Injected native loader (tests); forwarded to {@link LayaNativeClient}. */
+    nativeLoader?: LayaNativeLoader;
 }
 
-/** Format a {@link Desc} field into a string instructions value for the worker. */
+/** Resolve the configured core: explicit option → injected `env.LAYA_CORE` → `'mlx-python'`. */
+export function resolveLayaCore(options: Pick<LayaDriverOptions, 'core' | 'env'> = {}): LayaCore {
+    const raw = options.core ?? (options.env?.LAYA_CORE || undefined) ?? 'mlx-python';
+    if (!(LAYA_CORES as readonly string[]).includes(raw)) {
+        throw new DecisionConfigError(
+            `Unknown laya core '${raw}'; expected one of ${LAYA_CORES.join(', ')}`,
+            'LAYA_CORE',
+        );
+    }
+    return raw as LayaCore;
+}
+
+/**
+ * `auto` core: the first ask probes `mlx-native` by loading the weights; any load
+ * failure (missing libmlxc, unsupported option, bad checkpoint) falls back to the
+ * Python worker for the client's lifetime. Request-time errors are not retried.
+ */
+class AutoLayaClient implements LayaClient {
+    private active: Promise<LayaClient> | null = null;
+    private resolved: LayaClient | null = null;
+    private disposed = false;
+
+    constructor(private readonly options: LayaDriverOptions) {}
+
+    async ask(state: string, questions: Record<string, WorkerQuestion>): Promise<LayaWorkerResult> {
+        this.active ??= this.select();
+        return (await this.active).ask(state, questions);
+    }
+
+    dispose(): void {
+        this.disposed = true;
+        this.resolved?.dispose();
+    }
+
+    private async select(): Promise<LayaClient> {
+        let chosen: LayaClient;
+        try {
+            const native = new LayaNativeClient({ ...this.options, loader: this.options.nativeLoader });
+            try {
+                await native.warm();
+            } catch (error) {
+                native.dispose();
+                throw error;
+            }
+            chosen = native;
+        } catch (error) {
+            if (!(error instanceof DecisionConfigError)) throw error;
+            chosen = new LayaWorkerClient(this.options);
+        }
+        this.resolved = chosen;
+        // dispose() raced the native probe: the chosen client must not outlive us.
+        if (this.disposed) chosen.dispose();
+        return chosen;
+    }
+}
+
+/** Construct the client for the resolved core. */
+export function createLayaClient(options: LayaDriverOptions = {}): LayaClient {
+    switch (resolveLayaCore(options)) {
+        case 'mlx-native':
+            return new LayaNativeClient({ ...options, loader: options.nativeLoader });
+        case 'auto':
+            return new AutoLayaClient(options);
+        default:
+            return new LayaWorkerClient(options);
+    }
+}
+
 /** Format a {@link Desc} field into a string instructions value for the worker. */
 function formatDesc(desc: Desc | undefined, fallback = ''): string {
     if (typeof desc === 'string') return desc.trim().length > 0 ? desc : fallback;
@@ -162,7 +258,7 @@ export function mapWorkerAnswer(question: Question, rawAnswer: unknown): Answer 
  * Exposes a readonly `name: 'laya-local'` and a single `ask` method with no sugar.
  */
 export function createLayaDriver(options: LayaDriverOptions = {}): DecisionDriver {
-    const client = options.client ?? new LayaWorkerClient(options);
+    const client = options.client ?? createLayaClient(options);
 
     return {
         name: 'laya-local',
