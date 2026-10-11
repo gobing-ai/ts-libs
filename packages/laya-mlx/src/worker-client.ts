@@ -463,11 +463,6 @@ class WorkerHandle {
     }
 }
 
-/**
- * TypeScript half of the laya process bridge: start the Python worker lazily,
- * hold it warm for the client's lifetime, and serve serialized asks with
- * id-correlated, timeout-bounded responses.
- */
 /** Resolve the Python interpreter to execute: explicit option -> injected env -> candidate discovery -> 'python3'. */
 export function resolvePythonPath(
     options: LayaWorkerClientOptions,
@@ -495,6 +490,11 @@ export function resolvePythonPath(
     return 'python3';
 }
 
+/**
+ * TypeScript half of the laya process bridge: start the Python worker lazily,
+ * hold it warm for the client's lifetime, and serve serialized asks with
+ * id-correlated, timeout-bounded responses.
+ */
 export class LayaWorkerClient {
     private readonly pythonPath: string;
     private readonly args: string[];

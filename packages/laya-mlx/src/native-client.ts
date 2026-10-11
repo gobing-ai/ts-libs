@@ -49,6 +49,12 @@ const defaultLoader: LayaNativeLoader = async (target, opts) => {
     return load(target, opts);
 };
 
+/**
+ * In-process MLX client over `@johnhenry/laya`: same wire shape and `ask()`
+ * contract as {@link LayaWorkerClient}, backed by libmlxc instead of a Python
+ * worker. Construction validates the host and the options the native backend
+ * cannot honor; the checkpoint is loaded lazily on the first `warm()`/`ask()`.
+ */
 export class LayaNativeClient {
     private agent: LayaAgent | null = null;
     private loading: Promise<LayaAgent> | null = null;
