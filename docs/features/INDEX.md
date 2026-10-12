@@ -24,5 +24,5 @@
     └── [active] **L1**: Preserve emitted JavaScript text during ESM import repair ([L1_preserve-emitted-javascript-text-during-esm-import-repair.md](./L1_preserve-emitted-javascript-text-during-esm-import-repair.md))
 [done] **M**: Reusable browser profile automation ([M_reusable-browser-profile-automation.md](./M_reusable-browser-profile-automation.md))
 [active] **N**: Declarative AI decision catalog and hub in ts-ai-decision ([N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md](./N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md))
-    └── [backlog] **N1**: Decision hub answer validation ([N1_decision-hub-answer-validation.md](./N1_decision-hub-answer-validation.md))
+    └── [active] **N1**: Decision hub answer validation ([N1_decision-hub-answer-validation.md](./N1_decision-hub-answer-validation.md))
 <!-- END AUTO-GENERATED -->

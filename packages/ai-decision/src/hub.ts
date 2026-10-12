@@ -6,6 +6,7 @@ import {
     type Json,
     type Question,
     q,
+    validateAnswers,
 } from '@gobing-ai/ts-ai-runner';
 import { type CatalogLoadOptions, loadDecisionCatalog } from './catalog';
 import { DecisionCatalogError, UnknownDecisionError, UnknownDecisionMakerError } from './errors';
@@ -289,6 +290,10 @@ export class DecisionHub {
             const maker = await this.registry.resolve(makerName);
             inAsk = true;
             const answers = await maker.ask(request);
+            // Every resolved maker crosses the shared validator — a directly registered maker would
+            // otherwise skip the check createDecisionMaker applies. Inside the try: its
+            // DecisionBackendError is an answer failure, never a caller error.
+            validateAnswers(request.questions, answers);
             const answer: Answer | undefined = answers[definition.id];
             if (answer === undefined || answer.kind !== definition.type) {
                 return this.fallbackResult(definition, makerName, 'error', null, start);

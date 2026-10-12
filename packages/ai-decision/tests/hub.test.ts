@@ -3,12 +3,17 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import {
     type Answer,
+    type AnswersFor,
+    type ChoiceAnswer,
     createDecisionMaker,
     type DecisionDriver,
+    type DecisionMaker,
     type DecisionState,
     DecisionTimeoutError,
     type Json,
+    type NoulAnswer,
     type Question,
+    type ScoreAnswer,
 } from '@gobing-ai/ts-ai-runner';
 import { joinPath } from '@gobing-ai/ts-runtime';
 import {
@@ -82,6 +87,75 @@ async function examplesHub(): Promise<{ hub: DecisionHub; typesafe: ScriptedDriv
     const hub = makeHub([typesafe, laya]);
     await hub.loadFile(EXAMPLES_PATH);
     return { hub, typesafe, laya };
+}
+
+/**
+ * Direct DecisionMaker double: registered as a maker OBJECT, never wrapped by
+ * `createDecisionMaker`, so the hub itself is the only validator. The sugar
+ * methods are part of the maker interface but `decide` only ever calls `ask`.
+ */
+class DirectMaker implements DecisionMaker {
+    readonly driver: string;
+    readonly requests: AskRequest[] = [];
+    respond: (req: AskRequest) => Record<string, Answer> = () => ({});
+
+    constructor(name: string) {
+        this.driver = name;
+    }
+
+    ask<const Q extends Record<string, Question>>(req: {
+        state: DecisionState;
+        questions: Q;
+        model?: string;
+    }): Promise<AnswersFor<Q>> {
+        this.requests.push(req);
+        return Promise.resolve(this.respond(req) as unknown as AnswersFor<Q>);
+    }
+
+    choice<const L extends string>(): Promise<ChoiceAnswer<L>> {
+        throw new Error('unused: the hub only calls ask');
+    }
+
+    score(): Promise<ScoreAnswer> {
+        throw new Error('unused: the hub only calls ask');
+    }
+
+    noul(): Promise<NoulAnswer> {
+        throw new Error('unused: the hub only calls ask');
+    }
+}
+
+/** One decision per answer kind, floor 0.5 so only answer validation can reject a scripted answer. */
+const DIRECT_CATALOG = `version: 1
+defaults:
+  minConfidence: 0.5
+decisions:
+  pick:
+    type: choice
+    parameters:
+      topic: string
+    criteria: { alpha: First, beta: Second }
+    fallback: beta
+  grade:
+    type: score
+    criteria:
+      - Low
+      - Mid
+      - High
+    fallback: 1
+  ship:
+    type: noul
+    fallback: false
+`;
+
+/** Hub whose only maker is registered directly, plus its scripted double. */
+async function directHub(name = 'custom'): Promise<{ hub: DecisionHub; maker: DirectMaker }> {
+    const maker = new DirectMaker(name);
+    const registry = new DecisionMakerRegistry({ builtins: false });
+    registry.register(name, maker);
+    const hub = new DecisionHub({ registry, defaultMaker: name, now: () => 0 });
+    await loadInline(hub, DIRECT_CATALOG);
+    return { hub, maker };
 }
 
 /** Load an inline YAML catalog into the hub (bypasses the filesystem; source must still be .yaml). */
@@ -902,5 +976,246 @@ decisions:
         expect(hub.list()).toHaveLength(1);
         expect(hub.describe('probed').maker).toBe('counted');
         expect(factoryRuns).toBe(0);
+    });
+});
+
+describe('DecisionHub.decide — directly registered makers are validated at the hub boundary (AC1/AC2/AC3)', () => {
+    const choiceAnswerFor = (overrides: Partial<ChoiceAnswer<string>> = {}): Record<string, Answer> => ({
+        pick: {
+            kind: 'choice',
+            label: 'alpha',
+            confidence: 0.9,
+            probabilities: { alpha: 0.9, beta: 0.1 },
+            ...overrides,
+        },
+    });
+    const scoreAnswerFor = (overrides: Partial<ScoreAnswer> = {}): Record<string, Answer> => ({
+        grade: {
+            kind: 'score',
+            score: 1,
+            confidence: 0.9,
+            legend: { 0: 'Low', 1: 'Mid', 2: 'High' },
+            probabilities: { 0: 0.2, 1: 0.7, 2: 0.1 },
+            ...overrides,
+        },
+    });
+    const noulAnswerFor = (probability: number): Record<string, Answer> => ({ ship: { kind: 'noul', probability } });
+
+    test('an undeclared label or a NaN confidence is rejected before confidence gating', async () => {
+        const { hub, maker } = await directHub();
+
+        // Pre-change this was accepted with source:model — NaN is not less than the floor and
+        // nothing else inspected the label or the empty probabilities.
+        maker.respond = () => ({
+            pick: { kind: 'choice', label: 'gamma', confidence: Number.NaN, probabilities: {} },
+        });
+        expect(await decideAndRecord('direct: undeclared label + NaN confidence', hub, 'pick', { topic: 'x' })).toEqual(
+            {
+                id: 'pick',
+                type: 'choice',
+                value: 'beta',
+                confidence: null,
+                source: 'default',
+                reason: 'error',
+                maker: 'custom',
+                durationMs: 0,
+            },
+        );
+        expect(maker.requests).toHaveLength(1);
+
+        maker.respond = () => choiceAnswerFor({ label: 'gamma' }); // well-formed numbers, undeclared label
+        expect(await decideAndRecord('direct: undeclared label', hub, 'pick', { topic: 'x' })).toMatchObject({
+            value: 'beta',
+            confidence: null,
+            source: 'default',
+            reason: 'error',
+            maker: 'custom',
+        });
+        expect(maker.requests).toHaveLength(2);
+    });
+
+    test('non-finite and out-of-range confidence is rejected', async () => {
+        const { hub, maker } = await directHub();
+        for (const confidence of [Number.NaN, Number.POSITIVE_INFINITY, -0.1, 1.5]) {
+            maker.respond = () => choiceAnswerFor({ confidence });
+            expect(
+                await decideAndRecord(`direct: confidence ${String(confidence)}`, hub, 'pick', { topic: 'x' }),
+            ).toMatchObject({
+                value: 'beta',
+                confidence: null,
+                source: 'default',
+                reason: 'error',
+                maker: 'custom',
+            });
+        }
+        expect(maker.requests).toHaveLength(4);
+    });
+
+    test('missing, extra and null answer payloads are rejected', async () => {
+        const missing = await directHub();
+        missing.maker.respond = () => ({});
+        expect(await decideAndRecord('direct: missing answer', missing.hub, 'pick', { topic: 'x' })).toMatchObject({
+            value: 'beta',
+            confidence: null,
+            source: 'default',
+            reason: 'error',
+        });
+        expect(missing.maker.requests).toHaveLength(1);
+
+        // Pre-change the hub indexed only the asked id, so a surplus key was silently tolerated.
+        const extra = await directHub();
+        extra.maker.respond = () => ({ ...choiceAnswerFor(), ghost: { kind: 'noul', probability: 0.9 } });
+        expect(await decideAndRecord('direct: extra answer', extra.hub, 'pick', { topic: 'x' })).toMatchObject({
+            value: 'beta',
+            confidence: null,
+            source: 'default',
+            reason: 'error',
+        });
+
+        const nil = await directHub();
+        nil.maker.respond = () => ({ pick: null as unknown as Answer });
+        expect(await decideAndRecord('direct: null answer', nil.hub, 'pick', { topic: 'x' })).toMatchObject({
+            value: 'beta',
+            confidence: null,
+            source: 'default',
+            reason: 'error',
+        });
+    });
+
+    test('a wrong answer kind is rejected', async () => {
+        const { hub, maker } = await directHub();
+        maker.respond = () => ({ pick: { kind: 'noul', probability: 0.9 } });
+        expect(await decideAndRecord('direct: wrong kind', hub, 'pick', { topic: 'x' })).toMatchObject({
+            type: 'choice',
+            value: 'beta',
+            confidence: null,
+            source: 'default',
+            reason: 'error',
+        });
+        expect(maker.requests).toHaveLength(1);
+    });
+
+    test('probability keys, non-finite values and mass outside the tolerance are rejected', async () => {
+        const { hub, maker } = await directHub();
+        const cases: Array<[string, Record<string, number>]> = [
+            ['undeclared key', { alpha: 0.9, gamma: 0.1 }],
+            ['missing key', { alpha: 1 }],
+            ['non-finite value', { alpha: Number.NaN, beta: 0.1 }],
+            ['mass 0.6', { alpha: 0.5, beta: 0.1 }],
+            ['out-of-range values', { alpha: 1.5, beta: -0.5 }],
+        ];
+        for (const [name, probabilities] of cases) {
+            maker.respond = () => choiceAnswerFor({ probabilities });
+            expect(await decideAndRecord(`direct: probabilities ${name}`, hub, 'pick', { topic: 'x' })).toMatchObject({
+                value: 'beta',
+                confidence: null,
+                source: 'default',
+                reason: 'error',
+                maker: 'custom',
+            });
+        }
+        expect(maker.requests).toHaveLength(cases.length);
+
+        // Inside the existing 1e-6 tolerance the answer stays accepted: 5e-7 over 1 reads as normalized.
+        maker.respond = () => choiceAnswerFor({ probabilities: { alpha: 0.9, beta: 0.1 + 5e-7 } });
+        expect(await decideAndRecord('direct: mass inside tolerance', hub, 'pick', { topic: 'x' })).toMatchObject({
+            value: 'alpha',
+            confidence: 0.9,
+            source: 'model',
+            reason: 'accepted',
+        });
+    });
+
+    test('score bounds and legend are validated', async () => {
+        const { hub, maker } = await directHub();
+        const cases: Array<[string, Partial<ScoreAnswer>]> = [
+            ['score above the rubric', { score: 2.5 }],
+            ['negative score', { score: -0.5 }],
+            ['missing legend level', { legend: { 0: 'Low', 1: 'Mid' } }],
+            ['non-JSON legend entry', { legend: { 0: 'Low', 1: 'Mid', 2: undefined as unknown as string } }],
+        ];
+        for (const [name, overrides] of cases) {
+            maker.respond = () => scoreAnswerFor(overrides);
+            expect(await decideAndRecord(`direct: score ${name}`, hub, 'grade')).toMatchObject({
+                type: 'score',
+                value: 1,
+                confidence: null,
+                source: 'default',
+                reason: 'error',
+                maker: 'custom',
+            });
+        }
+        expect(maker.requests).toHaveLength(cases.length);
+    });
+
+    test('noul probability out of range or non-finite is rejected', async () => {
+        const { hub, maker } = await directHub();
+        for (const probability of [1.5, -0.5, Number.NaN]) {
+            maker.respond = () => noulAnswerFor(probability);
+            expect(await decideAndRecord(`direct: noul ${String(probability)}`, hub, 'ship')).toEqual({
+                id: 'ship',
+                type: 'noul',
+                value: false,
+                probability: null,
+                confidence: null,
+                source: 'default',
+                reason: 'error',
+                maker: 'custom',
+                durationMs: 0,
+            });
+        }
+        expect(maker.requests).toHaveLength(3);
+    });
+
+    test('valid direct answers are accepted, including a fractional expected score', async () => {
+        const { hub, maker } = await directHub();
+
+        maker.respond = () => choiceAnswerFor();
+        expect(await decideAndRecord('direct: valid choice', hub, 'pick', { topic: 'x' })).toEqual({
+            id: 'pick',
+            type: 'choice',
+            value: 'alpha',
+            confidence: 0.9,
+            source: 'model',
+            reason: 'accepted',
+            maker: 'custom',
+            durationMs: 0,
+        });
+
+        maker.respond = () => scoreAnswerFor({ score: 1.5 }); // the validator tolerates a fractional expected score
+        expect(await decideAndRecord('direct: valid fractional score', hub, 'grade')).toEqual({
+            id: 'grade',
+            type: 'score',
+            value: 1.5,
+            confidence: 0.9,
+            source: 'model',
+            reason: 'accepted',
+            maker: 'custom',
+            durationMs: 0,
+        });
+
+        maker.respond = () => noulAnswerFor(0.9);
+        expect(await decideAndRecord('direct: valid noul', hub, 'ship')).toEqual({
+            id: 'ship',
+            type: 'noul',
+            value: true,
+            probability: 0.9,
+            confidence: 0.9,
+            source: 'model',
+            reason: 'accepted',
+            maker: 'custom',
+            durationMs: 0,
+        });
+        expect(maker.requests).toHaveLength(3);
+    });
+
+    test('caller errors still throw before any ask', async () => {
+        const { hub, maker } = await directHub();
+        expect(await failureOf(hub.decide('nope'))).toBeInstanceOf(UnknownDecisionError);
+        expect(await failureOf(hub.decide('pick', {}))).toBeInstanceOf(DecisionInputError);
+        expect(await failureOf(hub.decide('pick', { topic: 'x' }, { maker: 'nope' }))).toBeInstanceOf(
+            UnknownDecisionMakerError,
+        );
+        expect(maker.requests).toHaveLength(0);
     });
 });
