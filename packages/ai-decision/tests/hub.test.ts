@@ -590,6 +590,45 @@ describe('DecisionHub.decide fallbacks (AC5/AC6) — never rejects for backend o
         });
     });
 
+    test('a parameterless decision reaches the TypeSafe wire with an empty state, never a missing one', async () => {
+        // The hub sends null when a decision declares nothing but the implicit instructions parameter,
+        // and the live API answers 422 "state: Field required" for that (measured 2026-10-11: null and
+        // undefined are both rejected, '' is answered). The typesafe driver maps it, so this pins the
+        // whole composition — hub state → driver → wire body — not just the driver.
+        const bodies: Record<string, unknown>[] = [];
+        const recordingFetch = (async (_input: unknown, init?: RequestInit) => {
+            bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+            return new Response(
+                JSON.stringify({
+                    model: 'stub',
+                    answers: {
+                        plain: { type: 'choice', choice: 'a', confidence: 0.9, probabilities: { a: 0.9, b: 0.1 } },
+                    },
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } },
+            );
+        }) as unknown as typeof fetch;
+        const registry = new DecisionMakerRegistry({ builtins: false });
+        registry.register('typesafe', () =>
+            createDecisionMaker({ backend: 'typesafe', apiKey: 'test-key', fetch: recordingFetch, maxRetries: 0 }),
+        );
+        const hub = new DecisionHub({ registry, defaultMaker: 'typesafe', now: () => 0 });
+        await loadInline(
+            hub,
+            `version: 1
+decisions:
+  plain:
+    type: choice
+    criteria: { a: First, b: Second }
+    fallback: b
+`,
+        );
+        const result = await decideAndRecord('state: parameterless decision sends an empty state', hub, 'plain');
+        expect(result.reason).toBe('accepted');
+        expect('state' in (bodies[0] ?? {})).toBe(true);
+        expect(bodies[0]?.state).toBe('');
+    });
+
     test('backend missing: a typesafe maker without a key resolves to no-backend (DecisionConfigError)', async () => {
         // Real composition path: the registry factory builds a keyless typesafe maker; the
         // DecisionConfigError surfaces from ask's lazy driver construction and maps to no-backend.

@@ -42,6 +42,25 @@ function pidOf(result: LayaWorkerResult): number {
     return usage.pid;
 }
 
+/** Is the process still there? Signal 0 only probes for the pid's existence. */
+function isRunning(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Poll for the worker to disappear; the child is reaped asynchronously after it exits. */
+async function waitForExit(pid: number, deadlineMs = 5000): Promise<void> {
+    const until = Date.now() + deadlineMs;
+    while (Date.now() < until) {
+        if (!isRunning(pid)) return;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+}
+
 describe('LayaWorkerClient lifecycle', () => {
     it('pays the spawn once: repeated asks reuse the same warm worker', async () => {
         const client = makeClient();
@@ -148,5 +167,21 @@ describe('LayaWorkerClient lifecycle', () => {
         client.dispose();
         client.dispose();
         await expect(client.ask('s', { b: q('fine') })).rejects.toThrow(/disposed/);
+    });
+
+    it('dispose ends the warm worker process, so the parent is free to exit', async () => {
+        // The observed failure this pins: the worker stayed alive after the last answer and its open
+        // pipes kept a one-shot parent process running for as long as the session lasted. Signalling the
+        // pid is the observable contract (the seat no longer exists), and the stub reports its own pid.
+        const client = makeClient();
+        try {
+            const pid = pidOf(await client.ask('s', { a: q('fine') }));
+            expect(isRunning(pid)).toBe(true);
+            client.dispose();
+            await waitForExit(pid);
+            expect(isRunning(pid)).toBe(false);
+        } finally {
+            client.dispose();
+        }
     });
 });

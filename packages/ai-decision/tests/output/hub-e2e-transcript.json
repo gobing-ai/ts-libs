@@ -160,6 +160,17 @@
       "probability": 0.5
     },
     {
+      "case": "state: parameterless decision sends an empty state",
+      "id": "plain",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a"
+    },
+    {
       "case": "no-backend: missing key",
       "id": "plain",
       "confidence": null,
