@@ -1,5 +1,6 @@
 import { lstat, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, posix, relative, resolve, sep } from 'node:path';
+import ts from 'typescript';
 import { buildConfig, repoRoot } from '../config';
 import type { Spawn } from './command';
 import { runCommand } from './command';
@@ -79,18 +80,79 @@ export async function walk(root: string): Promise<string[]> {
     return files;
 }
 
+/**
+ * Repair extensionless relative module specifiers by editing only their content spans in the parsed
+ * program, so unrelated emitted text (strings, comments, regexes, templates) stays byte-identical.
+ */
 export function rewriteSpecifiers(source: string, resolveSpecifier: SpecifierResolver): string {
-    let next = source.replace(/\b(from\s*["'])(\.{1,2}\/[^"']+)(["'])/g, (_match, prefix, specifier, suffix) => {
-        return `${prefix}${resolveSpecifier(specifier)}${suffix}`;
-    });
+    const sourceFile = ts.createSourceFile('emitted.js', source, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+    const diagnostics = (sourceFile as ts.SourceFile & { parseDiagnostics: readonly ts.DiagnosticWithLocation[] })
+        .parseDiagnostics;
 
-    next = next.replace(/\b(import\s*["'])(\.{1,2}\/[^"']+)(["'])/g, (_match, prefix, specifier, suffix) => {
-        return `${prefix}${resolveSpecifier(specifier)}${suffix}`;
-    });
+    if (diagnostics.length > 0) {
+        const [first] = diagnostics;
+        throw new Error(
+            `Emitted JavaScript has syntax errors (offset ${first.start}): ${ts.flattenDiagnosticMessageText(first.messageText, ' ')}`,
+        );
+    }
 
-    return next.replace(/\b(import\s*\(\s*["'])(\.{1,2}\/[^"']+)(["']\s*\))/g, (_match, prefix, specifier, suffix) => {
-        return `${prefix}${resolveSpecifier(specifier)}${suffix}`;
-    });
+    const edits: Array<{ start: number; end: number; text: string }> = [];
+
+    const collect = (literal: ts.StringLiteral): void => {
+        const specifier = literal.text;
+        if (!specifier.startsWith('./') && !specifier.startsWith('../')) return;
+
+        const resolved = resolveSpecifier(specifier);
+        if (resolved === specifier) return;
+
+        const raw = literal.getText(sourceFile);
+        const quote = raw[0];
+        const body = raw.slice(1, -1);
+        // resolveSpecifier only appends a suffix; append it to the raw contents so escapes survive.
+        const suffix =
+            resolved === `${specifier}.js`
+                ? '.js'
+                : resolved === `${specifier.replace(/\/$/, '')}/index.js`
+                  ? '/index.js'
+                  : undefined;
+
+        edits.push({
+            start: literal.getStart(sourceFile),
+            end: literal.getEnd(),
+            text: suffix === undefined ? quoteSpecifier(resolved, quote) : `${quote}${body}${suffix}${quote}`,
+        });
+    };
+
+    const visit = (node: ts.Node): void => {
+        if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+            collect(node.moduleSpecifier);
+        } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+            collect(node.moduleSpecifier);
+        } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+            const [first] = node.arguments;
+            if (ts.isStringLiteral(first)) collect(first);
+        }
+
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+
+    let next = source;
+    for (const edit of edits.sort((left, right) => right.start - left.start)) {
+        next = `${next.slice(0, edit.start)}${edit.text}${next.slice(edit.end)}`;
+    }
+
+    return next;
+}
+
+/** Re-escape an arbitrary resolver result for the literal's existing quote character. */
+function quoteSpecifier(value: string, quote: string): string {
+    const escaped = value
+        .replaceAll('\\', '\\\\')
+        .replaceAll(quote, `\\${quote}`)
+        .replaceAll('\r', '\\r')
+        .replaceAll('\n', '\\n');
+    return `${quote}${escaped}${quote}`;
 }
 
 export function resolveSpecifier(root: string, file: string, specifier: string, emittedFiles: Set<string>): string {

@@ -21,7 +21,7 @@
 [done] **J**: Local Laya decision backend in ts-laya-mlx ([J_local-laya-decision-backend-in-ts-laya-mlx.md](./J_local-laya-decision-backend-in-ts-laya-mlx.md))
 [done] **K**: Apple fm on-device agent and ts-decision-fm decision backend ([K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md](./K_apple-fm-on-device-agent-and-ts-decision-fm-decision-backend.md))
 [done] **L**: hardening-review-remediation ([L_hardening-review-remediation.md](./L_hardening-review-remediation.md))
-    └── [backlog] **L1**: Preserve emitted JavaScript text during ESM import repair ([L1_preserve-emitted-javascript-text-during-esm-import-repair.md](./L1_preserve-emitted-javascript-text-during-esm-import-repair.md))
+    └── [active] **L1**: Preserve emitted JavaScript text during ESM import repair ([L1_preserve-emitted-javascript-text-during-esm-import-repair.md](./L1_preserve-emitted-javascript-text-during-esm-import-repair.md))
 [done] **M**: Reusable browser profile automation ([M_reusable-browser-profile-automation.md](./M_reusable-browser-profile-automation.md))
 [active] **N**: Declarative AI decision catalog and hub in ts-ai-decision ([N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md](./N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md))
     └── [backlog] **N1**: Decision hub answer validation ([N1_decision-hub-answer-validation.md](./N1_decision-hub-answer-validation.md))

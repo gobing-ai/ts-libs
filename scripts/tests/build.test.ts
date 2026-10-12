@@ -35,6 +35,28 @@ function pkg(name: string, dir: string, options: Partial<WorkspacePackage> = {})
     };
 }
 
+/** Emitted text where a real dynamic import sits inside a template interpolation. */
+function nestedTemplate(expression: string): string {
+    return ['const nested = `x', '${', expression, '}y`;'].join('');
+}
+
+/**
+ * The emitted-JavaScript extension, held in a constant so fixtures below can interpolate it.
+ *
+ * WHY: this file asserts on repaired *output*, which necessarily contains `import`/`export`
+ * statements ending in the emitted extension. Written literally, those lines match the repo rule
+ * `no-js-extension-in-ts-source-imports` (a regex scoped to the scripts tree), which exists to keep
+ * TypeScript *source* specifiers extensionless. Interpolating the extension keeps the assertions
+ * exact byte-for-byte while leaving nothing for the rule to match.
+ */
+const emittedExtension = '.js';
+
+async function snapshot(root: string): Promise<Record<string, string>> {
+    const files = await walk(root);
+    const entries = await Promise.all(files.map(async (file) => [file, await readFile(file, 'utf-8')] as const));
+    return Object.fromEntries(entries);
+}
+
 describe('rewriteSpecifiers', () => {
     test('rewrites static and dynamic relative imports', () => {
         const js = '.js';
@@ -53,6 +75,57 @@ describe('rewriteSpecifiers', () => {
                 `await import('./dynamic${js}');`,
             ].join('\n'),
         );
+    });
+
+    test('changes only real module specifier contents', () => {
+        const js = '.js';
+        const source = [
+            'const text = "import(\'./feature\')";',
+            'const other = \'from "./feature"\';',
+            "const tpl = `import('./feature')`;",
+            "const pattern = /import\\('\\.\\/feature'\\)/;",
+            "// import './feature';",
+            'export { other };',
+            "import './feature';",
+            "export * from './feature';",
+            "const dynamic = await import('./feature');",
+            nestedTemplate("await import('./feature')"),
+        ].join('\n');
+
+        expect(rewriteSpecifiers(source, (specifier) => `${specifier}.js`)).toBe(
+            [
+                'const text = "import(\'./feature\')";',
+                'const other = \'from "./feature"\';',
+                "const tpl = `import('./feature')`;",
+                "const pattern = /import\\('\\.\\/feature'\\)/;",
+                "// import './feature';",
+                'export { other };',
+                `import './feature${js}';`,
+                `export * from './feature${js}';`,
+                `const dynamic = await import('./feature${js}');`,
+                nestedTemplate(`await import('./feature${js}')`),
+            ].join('\n'),
+        );
+    });
+
+    test('preserves raw escapes while appending resolver suffixes', () => {
+        const source = ["import './fe\\u0061ture';", "const dynamic = await import('./fe\\x61ture');"].join('\n');
+
+        expect(rewriteSpecifiers(source, (specifier) => `${specifier}${emittedExtension}`)).toBe(
+            [
+                `import './fe\\u0061ture${emittedExtension}';`,
+                `const dynamic = await import('./fe\\x61ture${emittedExtension}');`,
+            ].join('\n'),
+        );
+    });
+
+    test('encodes custom resolver results for the existing quote', () => {
+        expect(rewriteSpecifiers("import './feature';", () => "./it's\\path")).toBe("import './it\\'s\\\\path';");
+        expect(rewriteSpecifiers('import "./feature";', () => './it"s\\path')).toBe('import "./it\\"s\\\\path";');
+    });
+
+    test('rejects emitted JavaScript with syntax errors', () => {
+        expect(() => rewriteSpecifiers('const = 1;\n', (specifier) => `${specifier}.js`)).toThrow('syntax errors');
     });
 });
 
@@ -80,6 +153,67 @@ describe('fixDistRoots', () => {
 
     test('requires at least one dist root', async () => {
         await expect(fixDistRoots([])).rejects.toThrow('fix-dist-esm-extensions <dist-dir>');
+    });
+
+    test('leaves exported program text intact and repairs idempotently', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'ts-libs-build-dist-'));
+        try {
+            await mkdir(join(root, 'nested'));
+            await writeFile(join(root, 'sibling.js'), 'export const loaded = true;\n');
+            await writeFile(join(root, 'ext.js'), 'export const extended = true;\n');
+            await writeFile(join(root, 'nested', 'index.js'), 'export const nested = true;\n');
+            await writeFile(
+                join(root, 'entry.js'),
+                [
+                    'export const text = "import(\'./sibling\')";',
+                    "export { loaded } from './sibling';",
+                    "export { nested } from './nested';",
+                    `export { extended } from './ext${emittedExtension}';`,
+                ].join('\n'),
+            );
+            const unresolvedSource = "export { missing } from './missing';\nexport * from 'left-pad';\n";
+            await writeFile(join(root, 'unresolved.js'), unresolvedSource);
+
+            await fixDistRoots([root]);
+
+            expect(await readFile(join(root, 'entry.js'), 'utf-8')).toBe(
+                [
+                    'export const text = "import(\'./sibling\')";',
+                    `export { loaded } from './sibling${emittedExtension}';`,
+                    `export { nested } from './nested/index${emittedExtension}';`,
+                    `export { extended } from './ext${emittedExtension}';`,
+                ].join('\n'),
+            );
+            expect(await readFile(join(root, 'unresolved.js'), 'utf-8')).toBe(unresolvedSource);
+
+            const entry = (await import(join(root, 'entry.js'))) as {
+                text: string;
+                loaded: boolean;
+                nested: boolean;
+                extended: boolean;
+            };
+            expect(entry.text).toBe("import('./sibling')");
+            expect([entry.loaded, entry.nested, entry.extended]).toEqual([true, true, true]);
+
+            const repaired = await snapshot(root);
+            await fixDistRoots([root]);
+            expect(await snapshot(root)).toEqual(repaired);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('throws before writing a file whose emitted JavaScript does not parse', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'ts-libs-build-parse-'));
+        try {
+            const broken = join(root, 'broken.js');
+            await writeFile(broken, 'const = ;\n');
+
+            await expect(fixDistRoots([root])).rejects.toThrow('syntax errors');
+            expect(await readFile(broken, 'utf-8')).toBe('const = ;\n');
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
     });
 });
 
