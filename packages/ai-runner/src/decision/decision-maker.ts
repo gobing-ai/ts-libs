@@ -40,6 +40,12 @@ export interface DecisionMaker {
     score(state: DecisionState, prompt: Desc, rubric: readonly [Desc, Desc, ...Desc[]]): Promise<ScoreAnswer>;
     /** Yes/no judgment. Sugar over `ask` with exactly one noul question. */
     noul(state: DecisionState, prompt?: Desc, outcomes?: { yes?: Desc; no?: Desc }): Promise<NoulAnswer>;
+    /**
+     * Release the driver's own resources (a warm worker process, a socket, a pool), if it owns any.
+     * Optional: a driver that owns nothing omits it. Never constructs a driver just to dispose it,
+     * is safe to call more than once, and leaves the maker unusable — resolve it again instead.
+     */
+    dispose?(): void | Promise<void>;
 }
 
 /** Available named decision backends (task 0080, task 0085). */
@@ -191,6 +197,12 @@ export function createDecisionMaker(options: DecisionMakerOptions = {}): Decisio
 
     return {
         driver: options.driver?.name ?? options.backend ?? 'typesafe',
+        // Only an injected or already-resolved driver is a candidate: running the lazy factory
+        // here would construct a backend (and, for the local ones, spawn a process) purely to
+        // close it.
+        dispose: async () => {
+            await (options.driver ?? resolvedDriver)?.dispose?.();
+        },
         ask,
         // R4/R5: each sugar method is one `ask` with exactly one `q.*` question,
         // unwrapping the single answer — no second driver call, no duplicated

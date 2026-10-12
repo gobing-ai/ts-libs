@@ -867,6 +867,11 @@ const myDriver: DecisionDriver = {
 const custom = createDecisionMaker({ driver: myDriver }); // no TYPESAFE_API_KEY required
 ```
 
+A driver that owns something outside the JS heap — a warm worker process, a socket, a pool — also
+implements the optional `dispose(): void` hook, and `createDecisionMaker` forwards it as
+`maker.dispose()`. It is never run against a backend that was not already resolved, and it must be
+safe to call more than once; the maker is not usable afterwards.
+
 ## Boundary Notes
 
 - This package is a command adapter, not an agent orchestration framework.

@@ -8,6 +8,12 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+### Added
+
+- feat(ai-runner, ai-decision, laya-mlx): disposal seam for process-backed drivers — `DecisionDriver.dispose?()`,
+  `DecisionMaker.dispose()`, and `DecisionMakerRegistry.dispose(name?)`; `laya-local` implements it and the
+  registry leaves every disposed entry unresolved so a later `resolve` rebuilds a working maker.
+
 ### Fixed
 
 - fix(ai-runner): send an empty string when a decision has no state. The neutral contract allows a `null`

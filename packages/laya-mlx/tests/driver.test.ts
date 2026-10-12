@@ -47,6 +47,23 @@ describe('Laya decision driver answer mapping (task 0078)', () => {
             expect(res.approved.kind).toBe('noul');
             client.dispose();
         });
+
+        it('exposes dispose, which releases the injected client', () => {
+            // The worker is held warm for the client's lifetime and its open pipes keep a one-shot
+            // parent alive, so a consumer needs a way to close it through the driver it holds.
+            let disposed = 0;
+            const injected = {
+                ask: () => Promise.reject(new Error('dispose test must not ask')),
+                dispose: () => {
+                    disposed += 1;
+                },
+            };
+            const driver = createLayaDriver({ client: injected, platform: 'darwin', arch: 'arm64' });
+            expect(typeof driver.dispose).toBe('function');
+            driver.dispose?.();
+            driver.dispose?.();
+            expect(disposed).toBe(2); // the driver forwards every call; clients are idempotent
+        });
     });
 
     describe('R2 — Choice answer mapping', () => {

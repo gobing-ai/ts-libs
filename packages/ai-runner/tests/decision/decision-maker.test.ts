@@ -83,6 +83,25 @@ describe('createDecisionMaker', () => {
         expect(() => createDecisionMaker({ env: {} })).not.toThrow();
     });
 
+    test('dispose releases an injected driver and never constructs an unused backend', async () => {
+        let disposed = 0;
+        const dm = createDecisionMaker({
+            driver: {
+                name: 'owned',
+                ask: () => Promise.reject(new Error('not asked')),
+                dispose: () => {
+                    disposed += 1;
+                },
+            },
+        });
+        await dm.dispose?.();
+        expect(disposed).toBe(1);
+        // No key is configured, so a dispose that resolved the backend first would throw
+        // DecisionConfigError instead of returning quietly.
+        const unused = createDecisionMaker({ env: {} });
+        await expect(unused.dispose?.()).resolves.toBeUndefined();
+    });
+
     test('AC R6 — missing key rejects on ask with DecisionConfigError naming TYPESAFE_API_KEY, fetch never invoked', async () => {
         let fetched = false;
         const spyFetch = (() => {

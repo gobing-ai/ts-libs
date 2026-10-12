@@ -59,6 +59,11 @@ Measured on an Apple Silicon Mac (official checkpoint, f16, 3-question batch, 20
 createLayaDriver({ core: 'mlx-native', modelPath: '/models/laya-ft-kk' });
 ```
 
+The returned driver implements `dispose()`, which closes the client it was built with — the
+`mlx-python` worker is held warm for the client's lifetime, and its open pipes otherwise keep a
+one-shot parent process alive after the last answer. Call it through `maker.dispose()` (from
+`createDecisionMaker`) or `registry.dispose('laya-local')`.
+
 ---
 
 ## Backend selection (`ts-ai-runner`)
@@ -99,6 +104,7 @@ Resolution order: `options.driver` (custom driver double) → `options.backend` 
 | Dimension | Hosted TypeSafe (`ts-ai-runner`) | Local Laya (`ts-laya-mlx`) | Notes |
 |-----------|----------------------------------|---------------------------|-------|
 | **Factory** | `createTypesafeDriver(config)` | `createLayaDriver(options)` | Both return `DecisionDriver` with single `ask()` method. |
+| **Release** | none (stateless HTTP) | `dispose()` closes the warm worker | A `laya-local` maker must be disposed or a one-shot parent never exits. |
 | **Driver name** | `'typesafe'` | `'laya-local'` | Available on `driver.name`. |
 | **Credentials** | `apiKey: string` (`TYPESAFE_API_KEY`) | `env.HF_TOKEN` (optional) | Local inference needs no key; token only for gated HF repos. |
 | **Model selector** | `model?: string` | `modelId?: string` | Default: `'convaiinnovations/laya-multilingual'`. |

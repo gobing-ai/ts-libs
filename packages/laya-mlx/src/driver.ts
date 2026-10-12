@@ -262,6 +262,10 @@ export function createLayaDriver(options: LayaDriverOptions = {}): DecisionDrive
 
     return {
         name: 'laya-local',
+        // The client holds a warm Python worker for its lifetime (and the worker's open pipes keep
+        // a one-shot parent alive), so the driver exposes the release the client already owns; a
+        // consumer that made no call has nothing to close and every dispose is idempotent.
+        dispose: () => client.dispose(),
         async ask({
             state,
             questions,

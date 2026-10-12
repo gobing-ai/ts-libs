@@ -230,4 +230,36 @@ describe('DecisionMakerRegistry (AC1: makers registered by name)', () => {
         const error = await resolveFailure(registry.resolve('typesafe'));
         expect(error).toBeInstanceOf(UnknownDecisionMakerError);
     });
+
+    test('dispose releases resolved makers only, and a later resolve rebuilds', async () => {
+        // A laya-local maker holds a warm worker process; the registry has to be able to close it
+        // without running factories that were never used.
+        const disposed: string[] = [];
+        let runs = 0;
+        const registry = new DecisionMakerRegistry({ builtins: false });
+        registry.register('used', () => {
+            runs += 1;
+            return createDecisionMaker({
+                driver: {
+                    name: 'used',
+                    ask: () => Promise.reject(new Error('not asked')),
+                    dispose: () => {
+                        disposed.push('used');
+                    },
+                },
+            });
+        });
+        registry.register('untouched', () => {
+            runs += 1;
+            return createDecisionMaker({ driver: stubDriver('untouched') });
+        });
+        await registry.resolve('used');
+        await registry.dispose();
+        expect(disposed).toEqual(['used']);
+        expect(runs).toBe(1); // the unresolved factory was never run to be disposed
+        // The entry is back to unresolved, so a later resolve builds a fresh maker.
+        expect(await registry.resolve('used')).not.toBeUndefined();
+        expect(runs).toBe(2);
+        await registry.dispose('unknown'); // unknown names are ignored, never thrown
+    });
 });

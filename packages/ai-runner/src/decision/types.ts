@@ -108,4 +108,10 @@ export interface DecisionDriver {
         questions: Record<string, Question>;
         model?: string;
     }): Promise<Record<string, Answer>>;
+    /**
+     * Release whatever the driver owns outside the JS heap — a warm worker process, a socket, a
+     * pool. Optional: a driver that owns no such resource omits it. Must be safe to call more than
+     * once, and the driver is not expected to answer after it runs.
+     */
+    dispose?(): void;
 }

@@ -105,4 +105,25 @@ export class DecisionMakerRegistry {
         }
         return await entry.pending;
     }
+
+    /**
+     * Release the resources of already-resolved makers — a `laya-local` maker holds a warm Python
+     * worker whose open pipes keep the calling process alive until it is closed. An unresolved
+     * factory is never run to be disposed, and every entry returns to its unresolved state so a
+     * later `resolve` rebuilds a working maker instead of handing back a closed one.
+     */
+    async dispose(name?: string): Promise<void> {
+        const names = name === undefined ? this.names() : [name];
+        for (const key of names) {
+            const entry = this.entries.get(key);
+            if (entry === undefined) continue;
+            // Wait out an in-flight factory rather than releasing around it: it may complete after
+            // this loop and leave a live worker with nobody holding a reference. A failed run has
+            // nothing to release.
+            const maker = entry.maker ?? (await entry.pending?.catch(() => undefined));
+            entry.maker = undefined;
+            entry.pending = undefined;
+            await maker?.dispose?.();
+        }
+    }
 }

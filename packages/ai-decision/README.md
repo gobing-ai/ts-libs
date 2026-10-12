@@ -124,6 +124,12 @@ throw `DecisionRegistryError`; unknown names throw `UnknownDecisionMakerError { 
 errors propagate unchanged. Pass `builtins: { makerOptions, driverOptions }` to tune the built-ins
 (env/keys/timeouts, or executor/client injection for the local drivers).
 
+`dispose(name?)` releases the resources of already-`resolve`d makers — a `laya-local` maker holds a
+warm Python worker whose open pipes keep the calling process alive until it is closed (reachable from
+a hub as `hub.registry.dispose()`). It never runs an unresolved factory just to close it, ignores
+unknown names, and returns each entry to its unresolved state, so a later `resolve` builds a fresh
+maker instead of handing back a closed one.
+
 The hub picks a maker purely by name — no new driver code per routing:
 per-call `options.maker` → the decision's `maker` → the catalog's `defaults.maker` → the hub's
 `defaultMaker` (default `typesafe`). Catalog names are checked at `load`; a misspelled per-call
