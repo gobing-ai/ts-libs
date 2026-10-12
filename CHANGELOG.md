@@ -23,6 +23,32 @@ versioned in **lockstep** — a single version number covers every package in th
 
 <!-- verification: 4/4 behavior claims cited to their owning source + 6 executable checks; confidence HIGH — R1 packages/ai-runner/src/decision/typesafe-driver.ts:83 (`state ?? ''`, the same null→'' normalization packages/laya-mlx/src/driver.ts:280 and packages/decision-fm/src/schema.ts:89 already applied; `SystemOneRequest.state` is an EntryType, and the wire drops a null field) + packages/ai-runner/tests/decision/typesafe-driver.test.ts:188 (null AND undefined both reach the wire as '') + packages/ai-decision/tests/hub.test.ts:593 (end to end: hub `buildState` → null → wire body `state === ''`) + live probe `bun -e` against the real backend → null 422 before / answered after; R2 packages/ai-runner/src/decision/types.ts (DecisionDriver.dispose?), packages/ai-runner/src/decision/decision-maker.ts:203 (maker.dispose() never resolves a lazy backend), packages/ai-decision/src/registry.ts:115 (dispose(name?) releases resolved makers only, resets entries, ignores unknown names), packages/laya-mlx/src/driver.ts:268 (forwards to the client) + tests packages/laya-mlx/tests/driver.test.ts:51, packages/laya-mlx/tests/worker-client.test.ts:172 (a real stub worker: the pid is gone after dispose), packages/ai-runner/tests/decision/decision-maker.test.ts:86, packages/ai-decision/tests/registry.test.ts:234; checks run: `bun run spur-check` → exit 0 (Biome 547 files, every package typecheck, 2941 pass / 0 fail across 240 files, 62 pre-check + 3 post-check rules), each new regression test re-run with its fix reverted and observed failing (hub.test.ts 26 pass / 1 fail; the laya disposal test asserts the worker pid), and `spur rule run --file .spur/rules/quality/verify-confidence.yaml` → PASS on `.spur/memory/evidence/decision-backend-hardening-verdict.json` (confidence HIGH) while FAILING on each of six mutations — level absent, level misspelled, MEDIUM without '(operator-acknowledged)', HIGH with a manual-review acceptance row, HIGH with a failing check, and a confidence check disagreeing with the level — each with its expected message; assertion coverage: (1) every behavior claim names the file:line that implements it or the command that produced it, (2) confidence HIGH is recorded and validated by the verify-confidence rule rather than self-asserted, (3) uncertainty-phrase scan over the three commit bodies and this section → 0 hits -->
 
+## [0.5.23] - 2026-10-12
+
+### Added
+
+- feat(ai-runner,ai-decision,laya-mlx): add a disposal seam for process-backed drivers (a8ce0ba8)
+- feat(rule-engine): assert project rule fixtures through the real evaluators (f2960cb8)
+
+### Fixed
+
+- fix(ai-runner): send an empty state for a parameterless decision (56347561)
+- fix(infra): roll log files over by expanded date tokens (8c82c6ac)
+- fix(rule-engine): bound strict glob suffix matching at a path boundary (19ccc34e)
+- fix(build): repair emitted ESM specifiers without rewriting program text (a9d8e227)
+- fix(ai-decision): validate every resolved maker's answers at the hub boundary (b7731849)
+- fix(rule-engine,build): close the 0109/0110/0111 follow-ups and migrate the feature-verify port (21c97ab7)
+
+### Other
+
+- test(ai-decision,laya-mlx): pin the empty-state wire mapping and the worker exit on dispose (fb961288)
+- docs(changelog): add the unreleased verification record with its confidence level (36189412)
+- docs(features,tasks): plan the fixture, build-repair and hub-validation work (bfd79de6)
+- docs(tasks): record 0109 completion evidence (434f464c)
+- docs(adr,architecture,design): sync after the fixture, build-repair and hub-validation batch (a93417ec)
+
+<!-- verification: 13/13 bullets — one per commit in @gobing-ai/ts-utils-v0.5.22..HEAD, each short hash exactly once, each bullet the commit's verbatim subject; confidence HIGH — provenance claim only: this section asserts nothing about behavior beyond the subjects the commits themselves carry, so the level covers derivation and not the behavior behind it (that is recorded per commit, e.g. the empty-state fix's behavior record at CHANGELOG.md:24). Evidence: `git log --format='%h%x09%s' @gobing-ai/ts-utils-v0.5.22..HEAD` → 13 rows, matched one-by-one against CHANGELOG.md:26-48 by `grep -qF -- "- <subject> (<hash>)"` (no MISMATCH for any of the 13) and `grep -cF "(<hash>)"` = 1 per hash (no DUP/MISS), totals `commits=13 bullets=13`; insertion position follows commit 0e73eda3 (`git show 0e73eda3 -- CHANGELOG.md`, +13 lines, section placed between `## [Unreleased]` and the then-newest release heading), the same slot CHANGELOG.md:26 now holds between `## [Unreleased]` (CHANGELOG.md:9) and `## [0.5.22]` (CHANGELOG.md:52); assertion coverage: (1) every bullet traced to the commit that produced it, never paraphrased — checked by exact-subject match rather than by eye, (2) confidence level HIGH recorded and scoped to what was verified: the claim is derivation-from-`git log`, machine-checked; the per-commit behavior the bullets name is verified by each commit's own record (CHANGELOG.md:24 for 56347561, CHANGELOG.md:35 for its bullet here) and neither re-verified nor inflated here, (3) uncertainty-phrase scan over this section → 0 hits -->
+
 ## [0.5.22] - 2026-10-11
 
 ### Added
