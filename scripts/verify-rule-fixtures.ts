@@ -45,6 +45,12 @@ const LIFECYCLE_CROSSFILE_DIR = 'crossfile';
 /** Rule ID backing the verify-confidence fixture set. */
 const VERIFY_CONFIDENCE_RULE_ID = 'verify-confidence-level';
 
+/** Rule ID backing the changelog-verification fixture set. */
+const CHANGELOG_RULE_ID = 'changelog-verification-confidence';
+
+/** File every changelog-verification case stages at its workdir root. */
+const CHANGELOG_FIXTURE_FILE = 'CHANGELOG.md';
+
 /**
  * Decision-boundary rule asserted per package directory. The manifest-direction rule
  * (`no-clef-dependency-in-ai-runner-manifest`) is deliberately absent: its subject is a
@@ -86,6 +92,11 @@ const FIXTURE_SETS: readonly FixtureSetDeclaration[] = [
         set: 'verify-confidence',
         ruleFile: '.spur/rules/quality/verify-confidence.yaml',
         expected: { fire: 8, pass: 6 },
+    },
+    {
+        set: 'changelog-verification',
+        ruleFile: '.spur/rules/quality/changelog-verification-confidence.yaml',
+        expected: { fire: 4, pass: 5 },
     },
 ];
 
@@ -337,11 +348,44 @@ async function planVerifyConfidenceCases(setDir: string, expect: Expectation): P
     });
 }
 
+/** Plan the changelog-verification set: each case is a directory holding one whole CHANGELOG.md. */
+async function planChangelogVerificationCases(setDir: string, expect: Expectation): Promise<PlannedCase[]> {
+    const expectDirName = EXPECTATION_DIRS[expect];
+    const label = `changelog-verification/${expectDirName}`;
+    const expectDir = join(setDir, expectDirName);
+    const entries = await readdir(expectDir, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+
+    const planned: PlannedCase[] = [];
+    for (const entry of entries) {
+        // The rule reads the one file at the workdir root, so the case directory carries the id and
+        // the copy inside it always stages as CHANGELOG.md. A symlink is neither, and is rejected
+        // rather than followed: it would take the pinned content outside the fixture set.
+        const contents = entry.isDirectory() ? await readdir(join(expectDir, entry.name)) : [];
+        if (!contents.includes(CHANGELOG_FIXTURE_FILE)) {
+            throw new Error(
+                `unrecognized fixture shape "${label}/${entry.name}": a changelog-verification case is a directory holding "${CHANGELOG_FIXTURE_FILE}"`,
+            );
+        }
+        planned.push({
+            source: `${expectDirName}/${entry.name}`,
+            ruleIds: [CHANGELOG_RULE_ID],
+            expect,
+            files: [
+                { relative: CHANGELOG_FIXTURE_FILE, absolute: join(expectDir, entry.name, CHANGELOG_FIXTURE_FILE) },
+            ],
+        });
+    }
+
+    return planned;
+}
+
 /** Shape planners, keyed by fixture set directory name. */
 const SET_PLANNERS: Readonly<Record<string, (setDir: string, expect: Expectation) => Promise<PlannedCase[]>>> = {
     'lifecycle-bus-propagation': planLifecycleCases,
     'decision-boundaries': planDecisionBoundaryCases,
     'verify-confidence': planVerifyConfidenceCases,
+    'changelog-verification': planChangelogVerificationCases,
 };
 
 /** Stage one planned case into a scratch workdir and return its engine declaration. */

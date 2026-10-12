@@ -1,4 +1,13 @@
 {
+    "changelog-verification/should-fire/0101-level-absent/CHANGELOG.md": "a76bff046693d740a3deb4cb14fe89a7bbba7003f8ddc72740b287a16893fe9d",
+    "changelog-verification/should-fire/0102-level-lowercase/CHANGELOG.md": "49b72aed5c558f038cd19b9ac3137333c5d1e386348485b0f03667d20628faf3",
+    "changelog-verification/should-fire/0103-level-non-enum/CHANGELOG.md": "d77f85b52674543da6cdf4c2561c46f30865afa2952a911a1223965bae0a5522",
+    "changelog-verification/should-fire/0104-miscased-beside-valid/CHANGELOG.md": "96ca5867ded447ba0c1610cea5cd1198d9dc7c34f233688aa5fd78b5b8aea1fc",
+    "changelog-verification/should-pass/0201-high/CHANGELOG.md": "cc88bf22eadab59dfc83e99535723199b5bef2de46048a4e87f6ea5a26fd3130",
+    "changelog-verification/should-pass/0202-medium/CHANGELOG.md": "96b311ed992911fad08a7a56cc68ba631a714f1991d6a9cd7ecd3ab30d93bc72",
+    "changelog-verification/should-pass/0203-low/CHANGELOG.md": "d1a3f98d60969a8306f1ca48cc2747eaf5bf90ee4e4ef98f3cca66e9ebfbe1bb",
+    "changelog-verification/should-pass/0204-prose-mentions/CHANGELOG.md": "03a3866bee3530ebb8d99edb9826ed753d9ee044fd72e61ad749cfc89ccfbbbe",
+    "changelog-verification/should-pass/0205-keyword-case-and-colon/CHANGELOG.md": "71aa02cadad3169c7eea3c91e879083173957b65b288019d6190f0918ca058fb",
     "decision-boundaries/should-fire/packages/ai-runner/src/imports-clef.ts": "cbbc650824fcd686809eb3ce09b6c977621dd894fbf2240f695ced237163673a",
     "decision-boundaries/should-fire/packages/decision-clef/src/imports-ai-decision.ts": "e721f728e2c676d67c6c8073dfe6abfb25f0206b816e6ad7bd6b2d26ac6b04a8",
     "decision-boundaries/should-pass/packages/ai-runner/src/no-clef.ts": "830f5ad2e970c209d806a5c4dfdf0d1a7cc34b62c31716e41cf3103866919c3e",

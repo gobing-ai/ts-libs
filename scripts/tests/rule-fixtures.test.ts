@@ -11,6 +11,7 @@ const RULE_FILES = [
     '.spur/rules/typescript/lifecycle-bus-propagation.yaml',
     '.spur/rules/typescript/decision-boundaries.yaml',
     '.spur/rules/quality/verify-confidence.yaml',
+    '.spur/rules/quality/changelog-verification-confidence.yaml',
 ] as const;
 
 /** Fixture paths whose content is asserted to be read-only for the gate. */
@@ -18,6 +19,7 @@ const CHECKED_IN_FIXTURES = [
     '.spur/rules/fixtures/lifecycle-bus-propagation/should-pass/with-lifecycle-bus.ts',
     '.spur/rules/fixtures/decision-boundaries/should-pass/packages/ai-runner/src/no-clef.ts',
     '.spur/rules/fixtures/verify-confidence/should-pass/.spur/run/0201-verdict.json',
+    '.spur/rules/fixtures/changelog-verification/should-pass/0201-high/CHANGELOG.md',
 ] as const;
 
 const scratchRoots: string[] = [];
@@ -57,25 +59,27 @@ afterEach(async () => {
 });
 
 describe('runRuleFixtureChecks', () => {
-    test('asserts every current case in all three sets and writes a passing report', async () => {
+    test('asserts every current case in all four sets and writes a passing report', async () => {
         const reportPath = await makeReportPath();
         const report = await runRuleFixtureChecks(repoRoot, reportPath);
 
         expect(report.error).toBeUndefined();
         expect(report.pass).toBe(true);
-        expect(report.totals.sets).toBe(3);
-        expect(report.totals.cases).toEqual({ total: 23, fire: 12, pass: 11 });
+        expect(report.totals.sets).toBe(4);
+        expect(report.totals.cases).toEqual({ total: 32, fire: 16, pass: 16 });
         expect(report.totals.failed).toEqual({ total: 0, fire: 0, pass: 0 });
         expect(report.sets.map((set) => [set.set, set.cases.total])).toEqual([
             ['lifecycle-bus-propagation', 5],
             ['decision-boundaries', 4],
             ['verify-confidence', 14],
+            ['changelog-verification', 9],
         ]);
 
         // Per-set and per-expectation counts are reported, not only a global pass.
         const lifecycle = report.sets[0];
         expect(lifecycle?.cases).toEqual({ total: 5, fire: 2, pass: 3 });
         expect(report.sets[2]?.cases).toEqual({ total: 14, fire: 8, pass: 6 });
+        expect(report.sets[3]?.cases).toEqual({ total: 9, fire: 4, pass: 5 });
 
         expect(JSON.parse(await readFile(reportPath, 'utf8'))).toEqual(report);
     });
@@ -134,6 +138,27 @@ describe('runRuleFixtureChecks', () => {
         expect(failed.map((row) => [row.source, row.ruleId, row.expect])).toEqual([
             ['should-pass/.spur/run/0201-verdict.json', 'verify-confidence-level', 'pass'],
         ]);
+    });
+
+    test('fails a mutated changelog-verification case', async () => {
+        const root = await makeTempRepo();
+        const setDir = '.spur/rules/fixtures/changelog-verification';
+        await invertFixture(
+            root,
+            `${setDir}/should-pass/0201-high/CHANGELOG.md`,
+            `${setDir}/should-fire/0101-level-absent/CHANGELOG.md`,
+        );
+        const before = await readFile(join(repoRoot, CHECKED_IN_FIXTURES[3]));
+        const report = await runRuleFixtureChecks(root, await makeReportPath());
+
+        expect(report.pass).toBe(false);
+        const failed = report.results.filter((row) => !row.pass);
+        expect(failed.map((row) => [row.source, row.ruleId, row.expect])).toEqual([
+            ['should-pass/0201-high', 'changelog-verification-confidence', 'pass'],
+        ]);
+        expect(failed[0]?.error).toContain('expected pass but exit');
+        // The gate only ever reads checked-in fixtures.
+        expect(await readFile(join(repoRoot, CHECKED_IN_FIXTURES[3]))).toEqual(before);
     });
 
     test('fails rather than skips when a declared directory is deleted, and still writes a report', async () => {
@@ -271,6 +296,16 @@ describe('runRuleFixtureChecks — fixture shapes that cannot be silently droppe
         expect(report.pass).toBe(false);
         expect(report.error).toContain('unrecognized fixture shape');
         expect(report.error).toContain('verify-confidence/should-fire/notes.txt');
+    });
+
+    test('fails an unrecognized shape in the changelog-verification set', async () => {
+        const root = await makeTempRepo();
+        await writeFile(join(root, '.spur/rules/fixtures/changelog-verification/should-fire/notes.md'), 'x');
+        const report = await runRuleFixtureChecks(root, await makeReportPath());
+
+        expect(report.pass).toBe(false);
+        expect(report.error).toContain('unrecognized fixture shape');
+        expect(report.error).toContain('changelog-verification/should-fire/notes.md');
     });
 
     test('fails a non-file fixture entry', async () => {

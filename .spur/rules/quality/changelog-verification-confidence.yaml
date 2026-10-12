@@ -1,0 +1,146 @@
+# CHANGELOG verification-record confidence gate — every
+# `<!-- verification: … -->` record in CHANGELOG.md must declare its confidence
+# level as exactly one of HIGH, MEDIUM or LOW.
+#
+# Why this exists: the level is the reader's signal for how much the verification
+# behind a release entry is worth. The sibling rule
+# `.spur/rules/quality/verify-confidence.yaml` covers verdict artifacts only, so a
+# CHANGELOG record could carry no level at all — or a near-miss token
+# (`confidence high`, `confidence sure`) that reads as a level while pinning
+# nothing. The record is prose an author writes; this rule makes the enum the
+# contract, not the author's intent.
+#
+# What is checked, per record:
+#   1. Presence — at least one `confidence [level] <token>` clause whose token is
+#      exactly `HIGH`, `MEDIUM` or `LOW`. A record with no `confidence` clause, or
+#      one whose token is a word that is not a level (`confidence sure`), is
+#      reported as declaring no level.
+#   2. Spelling — a level word written in any other case (`confidence high`,
+#      `confidence Medium`) is reported even when a correctly-spelled level sits
+#      beside it in the same record, because `high` is the shape that reads as a
+#      claim while matching nothing. The keyword itself is matched
+#      case-insensitively with an optional `:` separator (`Confidence: HIGH`),
+#      because that is the spelling this repository's answer-file lint already
+#      uses — the enum is what is asserted, not the punctuation.
+#   Prose after `confidence` that is not a level word (`confidence check`,
+#   `verify-confidence.yaml`, `confidence rule`) is ignored, so the check does not
+#   depend on how the surrounding sentence is phrased; so is `low confidence`,
+#   where the level word precedes the keyword.
+#
+# Scope: both halves are pinned by `.spur/rules/fixtures/changelog-verification/`
+# and asserted through the real engine by `bun run verify-rule-fixtures`.
+#
+# Known limits (fixture `should-pass/0204-prose-mentions` pins the last one):
+#   - The records are the subject, so a CHANGELOG carrying none has nothing to
+#     check and passes. Deleting every record is not reported here, and the
+#     `<!-- verification:` marker itself is matched exactly (a differently cased
+#     marker is not a record).
+#   - Only the enum is asserted. Whether a HIGH claim is *earned* is not checked:
+#     a CHANGELOG record's evidence is prose, and the machine-checkable half of
+#     that contract belongs to the verdict artifacts the record cites, where
+#     `verify-confidence-level` enforces it.
+#   - Two different levels in one record are not rejected — a clause at HIGH with
+#     a `confidence MEDIUM` mention further down still passes, because the record
+#     legitimately discusses the weaker levels it rejected.
+include:
+  - "CHANGELOG.md"
+
+rules:
+  - id: changelog-verification-confidence
+    description: >-
+      Every `<!-- verification: … -->` record in CHANGELOG.md must name its
+      confidence level as exactly one of HIGH, MEDIUM or LOW. A record with no
+      level clause, a level-shaped token that is not one of the three
+      (`confidence sure`), and a mis-cased level word (`confidence high`) are
+      each reported. The level tells the reader how much the verification behind
+      a release entry is worth, so an absent or misspelled one reads as a claim
+      while pinning nothing. Prose following `confidence` that is not a level
+      word (`confidence check`, `verify-confidence.yaml`) is ignored, so the
+      check does not depend on the surrounding sentence.
+    severity: error
+    evaluator:
+      type: exit-code
+      config:
+        command: sh
+        args:
+          - -c
+          - |
+            set -u
+            if [ ! -f CHANGELOG.md ]; then
+              echo "changelog-verification-confidence: CHANGELOG.md is missing"
+              exit 1
+            fi
+            awk '
+              function take_word(s,   i, n, c, w) {
+                n = length(s); i = 1
+                # ':' is a separator, not part of the token: `confidence: HIGH` is a
+                # spelling this repo already uses in its answer files.
+                while (i <= n) { c = substr(s, i, 1); if (c != " " && c != "\t" && c != ":") break; i++ }
+                w = ""
+                while (i <= n) {
+                  c = substr(s, i, 1)
+                  if (index(letters, c) == 0) break
+                  w = w c; i++
+                }
+                G_REST = substr(s, i)
+                return w
+              }
+              # Report a record unless it carries a correctly-spelled level, and
+              # report a mis-cased one even when it does.
+              function check_record(rec, line,   low, at, i, pre, w, lower, ok, bad, first_bad) {
+                ok = 0; bad = 0; first_bad = ""
+                low = tolower(rec)
+                at = 0
+                # The keyword is matched case-insensitively while the token is read from
+                # the original text, so `Confidence: HIGH` is accepted and `Confidence: high`
+                # is still reported.
+                while ((i = index(substr(low, at + 1), "confidence")) > 0) {
+                  at = at + i
+                  pre = at > 1 ? substr(rec, at - 1, 1) : ""
+                  # Skip hyphenated/path tokens: verify-confidence.yaml, verify-confidence-level.
+                  if (pre != "" && index(wordchars, pre) > 0) continue
+                  w = take_word(substr(rec, at + 10))
+                  if (tolower(w) == "level") w = take_word(G_REST)
+                  if (w == "") continue
+                  lower = tolower(w)
+                  if (lower == "high" || lower == "medium" || lower == "low") {
+                    if (w == toupper(w)) { ok++ } else { bad++; if (first_bad == "") first_bad = w }
+                  }
+                }
+                if (bad > 0) {
+                  printf "changelog-verification-confidence: CHANGELOG.md:%d: confidence level <%s> is mis-cased — write HIGH, MEDIUM or LOW\n", line, first_bad
+                  violations++
+                  return
+                }
+                if (ok > 0) return
+                printf "changelog-verification-confidence: CHANGELOG.md:%d: verification record declares no confidence level — add a <confidence HIGH|MEDIUM|LOW> clause\n", line
+                violations++
+              }
+              BEGIN {
+                violations = 0; inrec = 0; rec = ""
+                open_marker = "<!-- verification:"
+                close_marker = "-->"
+                letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+                wordchars = letters "0123456789_-"
+              }
+              {
+                line = $0
+                while (line != "") {
+                  if (!inrec) {
+                    i = index(line, open_marker)
+                    if (i == 0) break
+                    inrec = 1; rec = ""; recline = NR
+                    line = substr(line, i + length(open_marker))
+                  }
+                  j = index(line, close_marker)
+                  if (j == 0) { rec = rec == "" ? line : rec " " line; break }
+                  body = substr(line, 1, j - 1)
+                  rec = rec == "" ? body : rec " " body
+                  check_record(rec, recline)
+                  inrec = 0; rec = ""
+                  line = substr(line, j + length(close_marker))
+                }
+              }
+              END { exit (violations > 0 ? 1 : 0) }
+            ' CHANGELOG.md
+        message: "a CHANGELOG.md verification record declares no confidence level, or spells it as something other than HIGH, MEDIUM or LOW (see stdout)"
