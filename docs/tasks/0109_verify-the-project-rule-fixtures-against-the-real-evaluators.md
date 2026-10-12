@@ -1,16 +1,18 @@
 ---
 schema_version: 1
 name: Verify the project rule fixtures against the real evaluators
-status: testing
+status: done
 template: feature-impl
 created_at: 2026-10-09T21:50:39.278Z
-updated_at: "2026-10-12T17:52:46.719Z"
+updated_at: "2026-10-12T18:12:28.126Z"
 feature_id: F1
 
 priority: P2
 ac_altitude: task-local
 ac_numbering: task-local
 estimate_hours: 6
+done_forced: "false"
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0109-verdict.json
 ---
 
 ## 0109. Verify the project rule fixtures against the real evaluators
@@ -181,24 +183,24 @@ declaration line beside it — a deliberate trade against a vacuous green.
 
 **Pipeline verify results**
 
-- Verdict: PARTIAL (from verdict artifact)
+- Verdict: PASS (from verdict artifact)
 - Confidence: HIGH
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `verifyRuleFixtures` is exported (`packages/rule-engine/src/index.ts:14`) and implemented at `packages/rule-engine/src/fixture-verifier.ts:81`: physical `loadRuleFile`, one enabled rule against one workdir per pair, fixes off; `judgeCase` (`packages/rule-engine/src/fixture-verifier.ts:174`) requires a genuine violation for fire and zero findings for pass, and an evaluator `kind: 'error'` fails both expectations. Reproduced independently against the real engine and the real rule `.spur/rules/typescript/decision-boundaries.yaml` (id `no-clef-driver-import-in-ai-runner`): matched fire over the should-fire source → `findings=1 pass=true`; matched pass over the should-pass source → `findings=0 pass=true`; the same workdirs under a crossed expectation → `expected fire but the rule reported no violation` and `expected pass but the rule reported 1 violation(s)`. |
-| R2 | MET | `package.json:41` runs `bun run verify-rule-fixtures` after the existing `spur rule run --preset recommended-post-check --fail-on warning &&`; `package.json:42` defines the entry point. Live run printed `PASS  lifecycle-bus-propagation  cases 5 (fire 2, pass 3)  failed 0` / `PASS  decision-boundaries  cases 4 (fire 2, pass 2)  failed 0` / `PASS  verify-confidence  cases 14 (fire 8, pass 6)  failed 0` / `rule-fixtures: PASS — 23/23 pair(s) across 3 set(s)` with exit 0, and `.spur/run/rule-fixtures-report.json` records `{"sets":3,"cases":{"total":23,"fire":12,"pass":11},"passed":{"total":23}}`. |
-| R3 | MET | Exit-code rules are routed to the exit-status judge (`packages/rule-engine/src/fixture-verifier.ts:185` → `packages/rule-engine/src/fixture-verifier.ts:197`), which reads the captured `ProcessResult` recorded by the wrapped `run()` and compares `exitCode` against the configured `successCode` (default 0); `exitCode === null` or `outcome !== 'exit'` fails regardless of expectation (`packages/rule-engine/src/fixture-verifier.ts:206`), and `processDiagnostics` retains the recorded stdout/stderr (`packages/rule-engine/src/fixture-verifier.ts:233`). Repo-level control on a temporary copy of the exit-code-typed lifecycle set (crossfile parenting file `service.ts` deleted): `expected pass but exit 1 differs from successCode 0` with `stdout: lifecycle-bus-propagation: no parented EventBus path; add lifecycleBus and construct new EventBus({ lifecycleBus }): packages/demo/src/options.ts:17`, recorded process `{"exitCode":1,"outcome":"exit"}`. |
-| R4 | MET | Absent optional `fixtureDir` → `{ pass: true, skipped: true, cases: [] }` (`packages/rule-engine/src/fixture-verifier.ts:87`); present-but-empty case set → `pass: false` (`packages/rule-engine/src/fixture-verifier.ts:88`); unknown or disabled rule ID → `is not an enabled rule` (`packages/rule-engine/src/fixture-verifier.ts:139`); absent case workdir or missing case source → named failure (`packages/rule-engine/src/fixture-verifier.ts:159`). The repository adapter requires all three set directories and both expectation classes (`scripts/verify-rule-fixtures.ts:227`) and fails a reduced or grown inventory by name (`scripts/verify-rule-fixtures.ts:438`). Reproduced on temporary copies: set directory removed → `declared fixture directory "lifecycle-bus-propagation" is missing`; `verify-confidence/should-fire` emptied → `declared case inventory mismatch for "verify-confidence/should-fire": declared 8 case(s), found 0`; one case source deleted → `declared 6 case(s), found 5`; undeclared case added → `declared 2 case(s), found 3`. |
-| R5 | MET | Deterministic diagnostics plus a machine-readable report are produced by `runRuleFixtureChecks` (`scripts/verify-rule-fixtures.ts:496`) and rendered by `printReport` (`scripts/verify-rule-fixtures.ts:513`), which names set, source, rule ID and expectation for every failing pair; captured streams are bounded (`scripts/verify-rule-fixtures.ts:362`) and the scratch root is removed in `finally`. Two consecutive `bun run verify-rule-fixtures` runs produced byte-identical `.spur/run/rule-fixtures-report.json` (`cmp` exit 0) with zero matches for `ts-libs-rule-fixtures-`, `/tmp/` or `/var/folders`; no `ts-libs-rule-fixtures-*` scratch directory survived; `git status --porcelain .spur/rules/fixtures` lists only the two README targets, so no case file was mutated; in a temporary repository copy the CLI exited 1 on a mutated fixture and still wrote the report. |
+| R1 | MET | verifyRuleFixtures is exported through packages/rule-engine/src/index.ts:14 and implemented at packages/rule-engine/src/fixture-verifier.ts:81: it loads the physical rule file, keeps only enabled rule IDs, then evaluates one rule against one prepared workdir per pair, sequentially, with fixes off. judgeCase (packages/rule-engine/src/fixture-verifier.ts:174) demands a genuine violation for expected fire (packages/rule-engine/src/fixture-verifier.ts:189), zero findings for expected pass (packages/rule-engine/src/fixture-verifier.ts:193), and fails both expectations on any evaluator-kind error (packages/rule-engine/src/fixture-verifier.ts:182). Reproduced this run against the real rule .spur/rules/typescript/decision-boundaries.yaml (id no-clef-driver-import-in-ai-runner) with the real RuleEngine: matched expectations returned pass=true with fire findings=1 / pass findings=0; the crossed expectations returned pass=false with "expected fire but the rule reported no violation" and "expected pass but the rule reported 1 violation(s)", each naming the source path and rule ID. Evaluator error cannot satisfy a violation: packages/rule-engine/tests/fixture-verifier.test.ts:183 passes, and its finding set is entirely kind error. |
+| R2 | MET | package.json:41 appends "bun run verify-rule-fixtures" to test-post-check after the recommended-post-check rule command; package.json:42 defines the entry point as "bun scripts/verify-rule-fixtures.ts". My own run of bun run verify-rule-fixtures printed "PASS  lifecycle-bus-propagation  cases 5 (fire 2, pass 3)  failed 0", "PASS  decision-boundaries  cases 4 (fire 2, pass 2)  failed 0", "PASS  verify-confidence  cases 14 (fire 8, pass 6)  failed 0", "rule-fixtures: PASS — 23/23 pair(s) across 3 set(s)" and exited 0; .spur/run/rule-fixtures-report.json records totals sets=3, cases total 23 (fire 12, pass 11), passed 23, failed 0, matching the per-set counts echoed above. The gate log .spur/run/0109-test-gate.log shows both chained commands running in order after the tests. |
+| R3 | MET | packages/rule-engine/src/fixture-verifier.ts:185 routes exit-code rules to judgeExitCodeCase (packages/rule-engine/src/fixture-verifier.ts:197), which reads the ProcessResult recorded by the wrapped run() and compares its exitCode with the rule's configured successCode (packages/rule-engine/src/fixture-verifier.ts:202). Abnormal outcomes fail regardless of expectation (packages/rule-engine/src/fixture-verifier.ts:206) and stdout/stderr are retained in the diagnostic (packages/rule-engine/src/fixture-verifier.ts:233). My own exit-code control with successCode 7 and a command exiting 7: expected fire returned pass=false with "expected fire but exit 7 equals successCode 7", recorded processes [{"exitCode":7,"outcome":"exit"}], and the same input with expected pass returned pass=true, so the judgement comes from the recorded exit and not from the findings. On a temporary repository copy with the rule command pointed at a missing binary, all 5 lifecycle pairs failed with "exit-code: process did not complete normally (outcome exit)" and processes [{"exitCode":null,"outcome":"exit"}], i.e. the null exit fails even for expected fire. |
+| R4 | MET | Library half, reproduced this run through verifyRuleFixtures with the real rule file: absent optional fixture directory returned {"pass":true,"skipped":true,"cases":[]} (packages/rule-engine/src/fixture-verifier.ts:87); an existing empty case set returned {"pass":false,"skipped":false,"cases":[]} (packages/rule-engine/src/fixture-verifier.ts:88); an unknown rule ID returned "rule \"not-a-rule\" is not an enabled rule" (packages/rule-engine/src/fixture-verifier.ts:134); a missing case source and an absent workdir returned the named "case source ... is missing under" and "case workdir ... is missing" failures (packages/rule-engine/src/fixture-verifier.ts:165, packages/rule-engine/src/fixture-verifier.ts:168). Adapter half: all three declared set directories and both expectation classes are required (scripts/verify-rule-fixtures.ts:227) and a reduced or grown inventory fails by name (scripts/verify-rule-fixtures.ts:438). My own temporary-copy runs: removing the lifecycle-bus-propagation set directory returned pass=false with "declared fixture directory \"lifecycle-bus-propagation\" is missing"; emptying verify-confidence/should-fire with the directory kept returned "declared 8 case(s), found 0"; deleting verify-confidence/should-pass/.spur/memory/evidence/0204-verdict.json returned "declared 6 case(s), found 5"; adding decision-boundaries/should-pass/packages/ai-runner/src/extra.ts returned "declared 2 case(s), found 3". |
+| R5 | MET | runRuleFixtureChecks (scripts/verify-rule-fixtures.ts:496) produces the machine-readable report and printReport (scripts/verify-rule-fixtures.ts:513) renders set, source, rule ID and expectation for every failing pair; captured streams are bounded (scripts/verify-rule-fixtures.ts:362). My own checks this run: two consecutive bun run verify-rule-fixtures runs wrote byte-identical .spur/run/rule-fixtures-report.json (cmp clean); the report contains zero occurrences of the scratch prefix, /tmp/ or the temp root, and no "case-" workdir string; zero ts-libs-rule-fixtures-* directories survived under the OS temp dir after the sweeps; git status --porcelain .spur/rules is empty, so no checked-in fixture was written or mutated; on a temporary repository copy the failing sweep still wrote the report with pass=false and its single named error, and printReport rendered "rule-fixtures: FAIL — declared case inventory mismatch ..." to stderr. |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 — A fixture that should fire and does not fails the check (req: R1) | MET | test | `packages/rule-engine/tests/fixture-verifier.test.ts:138` passes and asserts `pass=false` with `expected fire` and `no violation` on the named case. Independent control through the real rule at `packages/rule-engine/src/fixture-verifier.ts:174`: a clean workdir with `expect: 'fire'` returned `pass=false findings=0 :: expected fire but the rule reported no violation`. An evaluator error cannot satisfy the violation either — `packages/rule-engine/tests/fixture-verifier.test.ts:183` passes, and `packages/rule-engine/src/fixture-verifier.ts:181` returns `evaluator error: …` before the fire branch. |
-| AC2 — A fixture that should pass and does not fails the check (req: R1) | MET | test | `packages/rule-engine/tests/fixture-verifier.test.ts:162` passes and asserts `expected pass`, `1 violation` and `findings` length 1. Independent control: the violating source staged into a workdir with `expect: 'pass'` returned `pass=false findings=1 :: expected pass but the rule reported 1 violation(s)` through the real evaluator, naming the source path and rule ID. |
-| AC3 — The three existing fixture sets are exercised (req: R2, R5) | MET | test | `bun run verify-rule-fixtures` (exit 0) reported all three sets with per-set and per-expectation counts — lifecycle 5 (fire 2, pass 3), decision-boundaries 4 (2, 2), verify-confidence 14 (8, 6) — and `rule-fixtures: PASS — 23/23 pair(s) across 3 set(s)`; `scripts/tests/rule-fixtures.test.ts:60` pins the same counts and the written report. Mutations in each set fail: `scripts/tests/rule-fixtures.test.ts:83`, `scripts/tests/rule-fixtures.test.ts:105`, `scripts/tests/rule-fixtures.test.ts:122` invert one case per set, and in a temporary repository copy the real CLI `bun scripts/verify-rule-fixtures.ts` exited 1 per set — lifecycle `declared case inventory mismatch for "lifecycle-bus-propagation/should-fire": declared 2 case(s), found 1`, decision-boundaries `mismatch for "decision-boundaries/should-fire": declared 2 case(s), found 1`, verify-confidence `mismatch for "verify-confidence/should-pass": declared 6 case(s), found 5` — each writing `{"pass":false,"error":"declared case inventory mismatch …"}` to the report path. |
-| AC4 — An exit-code rule's fixtures are asserted by exit status (req: R3) | MET | test | `packages/rule-engine/src/fixture-verifier.ts:197` judges the recorded `ProcessResult` rather than the findings: `packages/rule-engine/tests/fixture-verifier.test.ts:215` (non-default `successCode: 1`) asserts `successCode 1` on mismatch and `processes[0].exitCode === 1`; `packages/rule-engine/tests/fixture-verifier.test.ts:239` accepts differing/equal exits for the fire/pass halves against `successCode 0`; `packages/rule-engine/tests/fixture-verifier.test.ts:266` asserts stdout/stderr retention; `packages/rule-engine/tests/fixture-verifier.test.ts:292` asserts timeout, spawn error and launch failure fail even for expected fire. Repo-level control: the exit-code-typed `lifecycle-bus-propagation` set failed only through recorded exit `1` vs `successCode 0` (`{"exitCode":1,"outcome":"exit"}`) after the crossfile parenting file was deleted, with the evaluator stdout retained. |
-| AC5 — The check cannot pass vacuously (req: R4) | MET | test | Adversarial runs of the real adapter `runRuleFixtureChecks` (`scripts/verify-rule-fixtures.ts:496`) against temporary repository copies: (d) unmutated copy → `pass=true` 23/23; (a) `verify-confidence/should-fire` emptied with the directory kept → `pass=false` `declared 8 case(s), found 0`; (b) one case source `.spur/memory/evidence/0204-verdict.json` deleted → `pass=false` `declared 6 case(s), found 5`; (c) undeclared `decision-boundaries/should-pass/packages/ai-runner/src/extra.ts` added → `pass=false` `declared 2 case(s), found 3`; plus a removed declared set directory → `pass=false` `declared fixture directory "lifecycle-bus-propagation" is missing`. The inventory guard sits at `scripts/verify-rule-fixtures.ts:438` inside `collectReport`, before staging and evaluation, so it throws and the CLI exits 1; pinned by `scripts/tests/rule-fixtures.test.ts:320`, `scripts/tests/rule-fixtures.test.ts:331` and `scripts/tests/rule-fixtures.test.ts:341`. Library half: absent optional directory skips while an existing empty case set fails (`packages/rule-engine/tests/fixture-verifier.test.ts:338`, `packages/rule-engine/tests/fixture-verifier.test.ts:353`). |
+| AC1 — A fixture that should fire and does not fails the check (req: R1) | MET | test | packages/rule-engine/tests/fixture-verifier.test.ts:138 passes (re-run this run with bun test -t "fails an expected-fire case whose evaluator reports no violation": 1 pass, 0 fail) and asserts pass=false naming the case path, the rule ID, expect fire and "no violation". Independent control through the real evaluator (see R1): a should-pass workdir asserted with expect fire returned pass=false, findings=0, error "expected fire but the rule reported no violation". An evaluator error cannot satisfy the violation: packages/rule-engine/tests/fixture-verifier.test.ts:183 passes and packages/rule-engine/src/fixture-verifier.ts:182 returns the evaluator error before the fire branch. |
+| AC2 — A fixture that should pass and does not fails the check (req: R1) | MET | test | packages/rule-engine/tests/fixture-verifier.test.ts:162 passes (re-run this run with bun test -t "fails an expected-pass case that produces a finding": 1 pass, 0 fail) and asserts expect pass, "1 violation" and findings length 1. Independent control through the real evaluator (see R1): the should-fire source staged with expect pass returned pass=false, findings=1, error "expected pass but the rule reported 1 violation(s)" while naming the source path and rule ID. |
+| AC3 — The three existing fixture sets are exercised (req: R2, R5) | MET | test | bun run verify-rule-fixtures exited 0 and reported all three sets with per-set and per-expectation counts — lifecycle-bus-propagation 5 (fire 2, pass 3), decision-boundaries 4 (fire 2, pass 2), verify-confidence 14 (fire 8, pass 6) — plus "rule-fixtures: PASS — 23/23 pair(s) across 3 set(s)"; scripts/tests/rule-fixtures.test.ts:60 pins the same counts and the written report, and the full two-file suite ran 31 pass / 0 fail / 100 expect() calls this run. My own temporary-copy mutations through the real adapter runRuleFixtureChecks (scripts/verify-rule-fixtures.ts:496) failed the sweep in every set and still wrote the diagnostic report: lifecycle should-fire/no-lifecycle-bus.ts deleted gave "declared case inventory mismatch for \"lifecycle-bus-propagation/should-fire\": declared 2 case(s), found 1"; decision-boundaries should-pass/packages/ai-runner/src/extra.ts added gave "declared 2 case(s), found 3"; verify-confidence should-pass/.spur/memory/evidence/0204-verdict.json deleted gave "declared 6 case(s), found 5" and the emptied verify-confidence/should-fire gave "declared 8 case(s), found 0". |
+| AC4 — An exit-code rule's fixtures are asserted by exit status (req: R3) | MET | test | packages/rule-engine/tests/fixture-verifier.test.ts:215 asserts the recorded exit against a non-default successCode 1 and that processes[0].exitCode is the recorded 1; packages/rule-engine/tests/fixture-verifier.test.ts:239 accepts the differing-exit fire half and the equal-exit pass half against successCode 0; packages/rule-engine/tests/fixture-verifier.test.ts:266 asserts stdout/stderr retention; packages/rule-engine/tests/fixture-verifier.test.ts:292 asserts timeout, spawn error and launch failure fail even for expected fire. Independent reproduction this run (see R3): successCode 7 with a real command exiting 7 failed the expected-fire half with "expected fire but exit 7 equals successCode 7" and passed the expected-pass half, from recorded processes [{"exitCode":7,"outcome":"exit"}], so the judge reads the recorded process and not a re-derivation from findings; a missing binary failed all 5 lifecycle pairs with exitCode null and outcome exit. On a temporary copy whose crossfile parenting file was gutted, the expected-pass lifecycle case failed with "expected pass but exit 1 differs from successCode 0" and the rule's own stdout retained. |
+| AC5 — The check cannot pass vacuously (req: R4) | MET | test | Adversarial runs this run of the real adapter runRuleFixtureChecks (scripts/verify-rule-fixtures.ts:496) against fresh temporary repository copies holding a copy of .spur/rules: (d) unmutated copy returned pass=true with totals total 23 (fire 12, pass 11); (a) verify-confidence/should-fire emptied with the directory kept returned pass=false with "declared 8 case(s), found 0"; (b) the single case source verify-confidence/should-pass/.spur/memory/evidence/0204-verdict.json deleted returned pass=false with "declared 6 case(s), found 5"; (c) the undeclared case decision-boundaries/should-pass/packages/ai-runner/src/extra.ts added returned pass=false with "declared 2 case(s), found 3"; and removing the declared lifecycle-bus-propagation set directory returned pass=false with "declared fixture directory \"lifecycle-bus-propagation\" is missing". Every failing sweep wrote the report (pass=false) to the requested path, and the guard sits at scripts/verify-rule-fixtures.ts:438 inside collectReport before staging, pinned by scripts/tests/rule-fixtures.test.ts:320, scripts/tests/rule-fixtures.test.ts:331 and scripts/tests/rule-fixtures.test.ts:341. Library half: the absent optional directory skip and the existing empty case set failure are asserted by packages/rule-engine/tests/fixture-verifier.test.ts:338 and packages/rule-engine/tests/fixture-verifier.test.ts:353, and I reproduced both through verifyRuleFixtures in this run. |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -208,49 +210,122 @@ declaration line beside it — a deliberate trade against a vacuous green.
 | P1 (blocker) | — | none | — |
 | P2 (major) | — | none | — |
 | P3 (minor) | — | none | — |
-| P4 (advisory) | `scripts/verify-rule-fixtures.ts:76` | Count-only inventory: a count-preserving case substitution still passes; and one file inside the sole multi-file case (`should-pass/crossfile`) can be deleted while the case stays counted and green. Hardening, not a contract failure — a per-case name or file inventory would close both. | DEFER |
+| P4 (advisory) | `scripts/verify-rule-fixtures.ts:436` | Case identity and fixture bytes are not pinned, only observed rule behaviour. Emptied a declared `should-fire` body (`verify-confidence/should-fire/.spur/run/0103-verdict.json` zero-byte, name and count preserved) and the sweep still reported 23/23, because the rule treats unreadable JSON as a violation — its own fail-safe branch. `lifecycle-bus-propagation/should-fire/events.ts` emptied likewise stayed green. A name-based inventory would not close this; only a content pin would. Needs a deliberate fixture edit, and no rule regression escapes without it. | DEFER |
+| P4 (advisory) | `.spur/run/0109-check-receipt.json` | Receipt `inputDigest` is the stale run-1 digest `sha256:32a91859…`, not this tree's digest `sha256:4b7e5d7e…`. Cause is harness-side: `quality-gate` records the *supplied* `proofDigest` (`quality-gate.mjs:30551`) even when its reuse check refused that value, and the refusal line plus `0109-gate2.env.sh` both carry the current `4b7e5d7e…`, which I reproduced independently from the working tree. Not caused by this diff; the consequence is a re-run (fail-closed), never a false green — but a verify-stage receipt/proof equality check will see a mismatch. | DEFER |
 
-**Verdict: PASS.** No open P1–P3 finding. Requirements R1–R5 are implemented, wired, and reproduced; the round-1 escape is closed.
+**Verdict: PASS.** No open P1–P3 finding; the two P4 items are deferred hardening/evidence-chain notes, not contract failures.
 
-**Round-1 P3 — closed, reproduced independently (temporary repository copies via `runRuleFixtureChecks`).**
-- Emptying `verify-confidence/should-fire` (directory kept): `pass=false`, `declared case inventory mismatch for "verify-confidence/should-fire": declared 8 case(s), found 0` (round 1: `pass: true`, fire 12 → 4).
-- Emptying both `verify-confidence` expectation directories: `pass=false` with the same named mismatch (round 1: `pass: true`, 9 pairs).
-- Deleting a single case source (`should-pass/.spur/memory/evidence/0204-verdict.json`): `pass=false`, `declared 6 case(s), found 5`; the lifecycle `should-fire` variant reports `declared 2 case(s), found 1`. Round 1: `pass: true` with 22 pairs.
-- Adding an undeclared case (`decision-boundaries/should-pass/packages/ai-runner/src/extra.ts`): `pass=false`, `declared 2 case(s), found 3`. The report is written on every failing path, and `printReport` renders the single named reason before the CLI exits nonzero.
-- The check sits at `scripts/verify-rule-fixtures.ts:436` inside `collectReport`, before staging and evaluation, and throws — so it cannot be skipped by a later stage. The three new tests at `scripts/tests/rule-fixtures.test.ts:319-352` assert exactly these messages, and `bun test` on the two test files is 31 pass / 0 fail / 100 expect() calls (round-1 digest: 28). The failure text names the set, expectation class, declared count and found count, which satisfies R4's "fails by name" and the diagnostics half of R5.
+## What I verified independently
 
-**Traceability of R1–R5 (executable evidence, not prose).**
-- R1 `packages/rule-engine/src/fixture-verifier.ts:81` + `packages/rule-engine/src/index.ts:14`: exported verifier, one rule against one workdir, fixes off, genuine violation required for fire, zero findings for pass, evaluator `kind: 'error'` (`:178`) fails both expectations. A synthetic `not-a-builtin` evaluator case cannot satisfy expected fire (`packages/rule-engine/tests/fixture-verifier.test.ts:183`).
-- R2 `package.json:41-42`: `verify-rule-fixtures` is appended to `test-post-check` after the rule preset. Live run: lifecycle 5 (fire 2, pass 3), decision-boundaries 4 (2, 2), verify-confidence 14 (8, 6) — 23/23, exit 0. Per-set and per-expectation counts appear both in stdout and in `.spur/run/rule-fixtures-report.json`.
-- R3 `fixture-verifier.ts:197-241`: the judge reads the *recorded* `ProcessResult` (`exitCode`, `outcome`, `signal`) captured by the `run()` wrapper (`:103-113`), with `successCode` read as `ExitCodeEvaluator` reads it; `runStreaming` is delegated unchanged. Timeout, `outcome: 'error'`, spawn throw, signal and evaluator error all fail regardless of expectation (`packages/rule-engine/tests/fixture-verifier.test.ts:292`), and stdout/stderr are retained in the diagnostic (`:233`). Independent control mutation — deleting the crossfile parenting file `service.ts` — is caught with `expected pass but exit 1 differs from successCode 0` and the rule's message in stdout.
-- R4 `fixture-verifier.ts:88` (empty case set fails), `:165` (missing source / workdir fails), `:130` (unknown or disabled rule ID fails), `:85` (absent optional directory → explicit skip); adapter `scripts/verify-rule-fixtures.ts:227` requires all three set directories **and** both expectation classes, `:203` fails an unrecognized shape, `:436` fails a reduced *or* grown inventory. The library-level skip-vs-fail pair is pinned by `packages/rule-engine/tests/fixture-verifier.test.ts:343-347`.
-- R5 report at `.spur/run/rule-fixtures-report.json`: byte-identical across two consecutive runs, no `ts-libs-rule-fixtures-`, `/tmp/` or `/var/folders` string anywhere in it, `finally` cleanup of the scratch root verified by `scripts/tests/rule-fixtures.test.ts:161`, and no checked-in fixture is ever written — staging is `copyFile` reads only, confirmed by `git status --porcelain` (only the six modified files plus the four new files under review) and by the byte-identity assertions in `scripts/tests/rule-fixtures.test.ts:83`.
+Frozen contract: `docs/tasks/0109_...md` (`### Requirements` R1–R5, `### Acceptance Criteria` AC1–AC5). Scope reviewed:
+commit `f2960cb8` plus the corpus writes. `### Solution` and the replaced `### Review` were treated as claims only.
 
-**Review-dimension verdicts.**
-- *Wrapper preserves evaluator semantics*: yes. It records the original result and returns it unchanged; `ProcessExecutor` has exactly `run`/`runStreaming`, both forwarded; the per-pair capture is reset before each evaluation and evaluation is sequential, so no cross-pair bleed. The exit-code judgement is read off the recorded process, not re-derived from findings (`fixture-verifier.ts:185`).
-- *No fixture mutation, no temp leakage*: confirmed. Scratch roots are `mkdtemp` under the OS temp dir, removed in `finally` on both paths, and the report is path-clean.
-- *Relative workspace-source imports in the adapter*: correct call, not a defect. The root `tsconfig.json` declares no `paths`, `scripts/` has no tsconfig, and every package `exports` points at an unbuilt `dist/`, so a package-name import cannot resolve without a prior build. The comment at `scripts/verify-rule-fixtures.ts:5-8` states exactly this constraint.
-- *Gate order*: `spur rule run --preset recommended-post-check --fail-on warning && bun run verify-rule-fixtures` short-circuits on the left operand, so neither command can mask the other. Receipt `.spur/run/0109-check-receipt.json` is status PASS at `inputDigest sha256:32a91859…`, and the log shows 2976 pass / 0 fail plus both chained commands; the receipt (10:37:45) postdates the adapter edit (10:34:03), so the wired gate ran against the fixed code.
-- *Architecture*: right seam and right owner. Evaluation/assertion lives in `ts-rule-engine` behind the injected `FileSystem`/`ProcessExecutor` ports (`ADR-011`); repository enumeration, staging, the package→rule map and the report live in `scripts/`, outside the `runtime-boundaries` include and alongside the existing `scripts/lib/build.ts` node-tooling convention.
+**R1 (reusable verifier).** `packages/rule-engine/src/fixture-verifier.ts:81` exports `verifyRuleFixtures`, wired
+into the public barrel at `packages/rule-engine/src/index.ts:14`. One enabled rule against one workdir per pair,
+sequentially, fixes off (`engine.evaluate` → `evaluateWithFixes(..., 'none')`). `judgeCase`
+(`packages/rule-engine/src/fixture-verifier.ts:174`) requires a genuine violation for `fire`, zero findings for
+`pass`, and routes `kind: 'error'` findings to a failure for both expectations (`:180-182`), so an evaluator error
+cannot satisfy an expected violation. Reproduced live through the real engine and the real rule files: all 23
+declared pairs pass against the checked-in corpus, and inverting one pair in a temp copy fails that pair by name.
 
-**Adversarial mutations — 8 attempted on temporary repository copies, 4 caught, 3 surviving in the count-preserving-substitution class, 1 rejected as out of scope.**
-1. Empty `verify-confidence/should-fire` — CAUGHT (8 declared vs 0 found).
-2. Empty both `verify-confidence` expectation directories — CAUGHT (the round-1 headline defect).
-3. Delete one `should-pass` case source — CAUGHT (6 declared vs 5 found).
-4. Delete the crossfile parenting file `service.ts` — CAUGHT (`expected pass but exit 1 differs from successCode 0`).
-5. Swap a `verify-confidence` fire case for an equal-content copy under a new name — SURVIVED: `pass=true`, 23/23 → P4 (count-only inventory).
-6. Swap a `decision-boundaries` ai-runner fire case name — SURVIVED: `pass=true`, 23/23 → P4.
-7. Swap the decision-clef fire case name — SURVIVED: `pass=true`, 23/23 → P4.
-8. Delete the crossfile declaration file `options.ts`, then strip the case to `events.ts` only — SURVIVED: `pass=true`, 23/23, crossfile row `findings: 0` → P4 (within-case file inventory unpinned).
-Rejected candidate: adding an offending file at the crossfile workdir root survived because the file lands outside the rule's `packages/**` scan scope by construction — a property of the rule, not a gate escape.
+**R2 (wiring + coverage).** `package.json:41` appends `bun run verify-rule-fixtures` to `test-post-check` after the
+`recommended-post-check` preset; `package.json:42` defines the entry point. Live run: `lifecycle-bus-propagation`
+5 (fire 2, pass 3), `decision-boundaries` 4 (2, 2), `verify-confidence` 14 (8, 6) — `23/23 pair(s) across 3 set(s)`,
+exit 0, and `.spur/run/rule-fixtures-report.json` carries the same per-set and per-expectation counts.
 
-**P4 detail.**
-- `scripts/verify-rule-fixtures.ts:76` with `:436`: `expected` holds per-expectation *counts*. A deleted case replaced by an undeclared same-class case keeps the count, so mutations 5–7 pass with 23/23. No integrity loss in kind — each substitute is still a genuinely asserted case, and the pair count never shrinks — but case *identity* is not pinned, so the Solution's "fails by name" guarantee is a cardinality guarantee. Pinning the declared names (or a sorted manifest) would make it name-based.
-- `scripts/verify-rule-fixtures.ts:274`: the crossfile case is one declared case whose files are unpinned, so mutation 8 leaves the case counted while its subject is gone. The flat lifecycle case is protected (`events.ts` is required, and its source deletion reduces the count), so the blast radius is one case of 23 and requires a deliberate fixture edit. No R4/AC5 clause is false: the declared directory, the declared case source and the case count are all intact.
-- `scripts/verify-rule-fixtures.ts:455` with `:468`: `verification.pass`/`skipped` are still not consulted; `report.pass` is recomputed from rows. Harmless today (every case yields exactly one row, all declared counts are non-zero, and `results.length > 0` is required), but an explicit `verification.pass` guard would make that equivalence explicit instead of incidental — this redundancy is what allowed the round-1 escape.
-- `scripts/verify-rule-fixtures.ts:362` with `:384`: `boundedStream` bounds stdout/stderr only; `violations[].message` is copied verbatim, so report size tracks finding messages (18 KB for 23 pairs today, deterministic and accepted).
+**R3 (exit-code semantics).** The wrapper at `packages/rule-engine/src/fixture-verifier.ts:112-116` records the
+original `ProcessResult` and returns it unchanged; `runStreaming` is delegated. The judgement is read off that
+recorded result (`:185` routes `exit-code`, `:197` compares `exitCode` against the rule's `successCode`, read the
+same way `ExitCodeEvaluator` reads it — `configNumber` falls back to 0 for a non-finite value, and the verifier's
+`typeof === 'number'` test matches that on every realistically-loadable config). Abnormal outcomes fail regardless
+of expectation (`:206`), with stdout/stderr retained (`:233`). Three live deformations of the rule files through
+the **real** `ProcessExecutor` and real rule engine, each on a temporary copy: missing binary → 5/5 lifecycle pairs
+fail (`{"exitCode":null,"outcome":"exit"}`); `sleep 5` under `timeout: 400` → 14/14 verify-confidence pairs fail
+(`outcome timeout (signal Termination)`); `kill -TERM $$` → 14/14 fail (`outcome signal`). Worth recording: the bun
+executor reports a launch failure as `outcome: 'exit'` with `exitCode: null`, so the `exitCode === null` disjunct
+at `:206` is the load-bearing half — an `outcome`-only test would have let a spawn failure satisfy an expected-fire
+case.
 
-**Residual risk.** The wired gate cannot detect count-preserving fixture substitution, nor deletion of a file inside the one multi-file case (P4-1/P4-2), so the corpus regression pin at `scripts/tests/rule-fixtures.test.ts:67` remains the only end-to-end guard against those two shapes. `scripts/` is covered by no `tsc --noEmit` gate, so adapter type regressions surface at test runtime only (pre-existing for all of `scripts/`). Report size tracks finding messages, not just the bounded streams. The CLI's exit-1-on-failure path was judged from the three-line `import.meta.main` guard plus the failure reports written by `runRuleFixtureChecks`, not executed end-to-end against a mutated repository, because the CLI binds to the real repository root and mutating checked-in fixtures is out of bounds.
+**R4 / AC5 (cannot pass vacuously).** Library half: absent optional directory → `{pass: true, skipped: true, cases:
+[]}` (`:87`), present-but-empty case set → failure (`:88`), unknown/disabled rule ID → named failure (`:134`),
+missing case source or workdir → named failure (`:159-169`). Adapter half: all three set directories **and** both
+expectation classes are required (`scripts/verify-rule-fixtures.ts:227`), an unrecognized shape throws (`:216`,
+`:258`, `:300`, `:326`), and the declared count per expectation class is asserted before staging (`:436`) — the
+guard that closed the round-1 escape. Live confirmation: with the selected rule set `enabled: false` in a temp copy,
+the two `no-clef-driver-import-in-ai-runner` pairs fail naming the rule; deleting a rule file fails the sweep with
+the I/O reason and a written report.
+
+**R5 (deterministic diagnostics + report).** `.spur/run/rule-fixtures-report.json` is produced by
+`runRuleFixtureChecks` (`:496`) and rendered by `printReport` (`:513`) naming set, source, rule ID and expectation.
+Two consecutive live runs produced a byte-identical report (`cmp` clean), with zero occurrences of
+`ts-libs-rule-fixtures-`, `/tmp/` or `/var/folders`; no `ts-libs-rule-fixtures-*` scratch directory survived
+(`finally` at `:478`); `git status --porcelain .spur/rules/fixtures` is empty, so no checked-in fixture was written
+(staging is `copyFile` only, `:356`).
+
+**AC1–AC5.** AC1 and AC2 are pinned by `packages/rule-engine/tests/fixture-verifier.test.ts:138` and `:162` plus
+the cross-expectation control I ran through the real rule; AC3 by the live sweep and the count pin at
+`scripts/tests/rule-fixtures.test.ts:60`; AC4 by `packages/rule-engine/tests/fixture-verifier.test.ts:215`, `:239`,
+`:266`, `:292` and by the three live process deformations above; AC5 by the inventory guard at
+`scripts/verify-rule-fixtures.ts:436` and the skip-vs-fail pair at
+`packages/rule-engine/tests/fixture-verifier.test.ts:343-347`. All five are MET; the honest caveat is the P4 in the
+table, which is a *content*-pinning gap, not a cardinality or fail-open gap.
+
+**Review questions asked by the brief.** The wrapper preserves evaluator semantics (records and forwards; per-pair
+capture reset before each evaluation; sequential, so no cross-pair bleed). The exit-code judgement is read off the
+recorded process, not re-derived from findings. No checked-in fixture is mutated and the report is temp-path-free
+(verified above). `test-post-check`'s `&&` cannot hide a failure: `A && B` is non-zero when either side fails, and
+the receipt log shows both chained commands executing in order after the tests. The adapter's relative
+workspace-source import (`scripts/verify-rule-fixtures.ts:5-12`) is the right call and arguably the safer one: the
+root `tsconfig.json` declares no `paths`, `scripts/` has no tsconfig of its own, and every package `exports` targets
+an unbuilt `dist/`, so a package-name import would (a) fail without a prior build and (b) once built, risk asserting
+against a *stale* `dist` copy of the evaluator instead of the source under change. It is a new convention for
+`scripts/` (existing scripts import only local modules), and the comment states the constraint. Architecture: the
+reusable evaluation/assertion capability sits in `ts-rule-engine` behind the injected `FileSystem`/`ProcessExecutor`
+ports (ADR-011) with no repository knowledge, while enumeration, staging, the package→rule map and the report sit in
+`scripts/`, consistent with the existing `scripts/lib/*` node-tooling home and outside `runtime-boundaries`. Both are
+the right seams.
+
+## Adversarial mutations (10 attempted on temporary copies; 7 caught, 3 survived)
+
+Each ran `runRuleFixtureChecks` (`scripts/verify-rule-fixtures.ts:496`) against a throwaway repository root holding a
+copy of `.spur/rules`; the checked-in corpus was never touched. Baseline on the unmutated copy: `pass=true`, 23/23.
+
+1. Rule disabled (`enabled: false` on `no-clef-driver-import-in-ai-runner`) — CAUGHT by name (2 pairs).
+2. Rule file deleted (`verify-confidence.yaml`) — CAUGHT (report `error`, `pass=false`, 0 pairs).
+3. Rule retargeted (forbidden specifier `@gobing-ai/ts-decision-clef` → `@gobing-ai/ts-somewhere-else`) — CAUGHT;
+   the fixture that documents the rule is what caught the rule edit, which is this task's whole point.
+4. `should-fire/no-lifecycle-bus.ts` body replaced with a passing body (name and count preserved) — CAUGHT
+   (`expected fire but exit 0 equals successCode 0`).
+5. `should-pass/crossfile/.../service.ts` gutted to a no-op export — CAUGHT (`expected pass but exit 1 differs from
+   successCode 0`, with the rule's own message retained).
+6. Rule command replaced with a missing binary — CAUGHT (5/5 lifecycle pairs).
+7. Rule command set to `sleep 5` under a 400 ms timeout — CAUGHT (14/14 pairs).
+8. Rule command set to `kill -TERM $$` — CAUGHT (14/14 pairs).
+9. `verify-confidence/should-fire/.spur/run/0103-verdict.json` zero-byte, name and count preserved — SURVIVED
+   (`pass=true`, 23/23): the rule flags unreadable JSON as a violation, so the `fire` expectation still holds while
+   the case's documented subject is gone. The P4 in the table.
+10. `lifecycle-bus-propagation/should-fire/events.ts` zero-byte, name and count preserved — SURVIVED (`pass=true`):
+    support-file bytes are unpinned, and the violation lives in the asserted source, so the case still fires.
+
+Class not re-tested because it is already known: emptying an expectation directory, deleting a case source and
+adding an undeclared case all fail by name today, and a count-preserving substitution of one case for a
+differently-named one remains the known advisory.
+
+## Residual risk
+
+The two surfaced gaps (case-body/support-byte content, and substitution) share one root: the gate asserts behaviour,
+never fixture bytes. Any body that produces the required outcome satisfies its case, so a fixture can silently stop
+testing what its README documents without turning the gate red; a content pin (or a catalogue hash) would close it.
+`scripts/` is outside every `tsconfig` project reference, so the 537-line adapter is biome-linted and executed by the
+tests but never typechecked — pre-existing for all of `scripts/`, not introduced here. `verifyRuleFixtures`'s failure
+text for a missing case workdir interpolates the (temporary) workdir path; unreachable from the adapter today, since
+staging always creates the workdir, but it is the one diagnostic that could leak a scratch path into the report if
+that ever changed. The `import.meta.main` + `process.exit(report.pass ? 0 : 1)` failure path
+(`scripts/verify-rule-fixtures.ts:533-537`) was judged from the source plus the passing CLI's exit 0 and the
+`printReport` unit test, not executed end-to-end against a mutated repository root, because the CLI is bound to the
+real repository root and mutating checked-in fixtures is out of bounds. The receipt digest mismatch recorded as P4 is
+environmental; if the verify stage asserts receipt/proof digest equality, it should compare against the *recomputed*
+digest (`0109-gate2.env.sh` / the gate log's refusal line), which is this tree's.
 
 ### References
 
@@ -264,4 +339,7 @@ Rejected candidate: adding an offending file at the crossfile workdir root survi
 - 2026-10-12T16:16:12.350Z backlog → todo (system)
 - 2026-10-12T17:16:29.744Z todo → wip (system)
 - 2026-10-12T17:51:40.713Z wip → testing (system)
+- 2026-10-12T17:55:01.781Z testing → wip (system)
+- 2026-10-12T18:12:13.748Z wip → testing (system)
+- 2026-10-12T18:12:28.116Z testing → done (system)
 
