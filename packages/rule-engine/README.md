@@ -485,6 +485,74 @@ rules:
     include: ["src/**/*.ts"]
 ```
 
+## Fixture Verification
+
+`verifyRuleFixtures` asserts a rule's own fixtures against the **real** evaluators — the same
+`RuleEngine`, the same registered evaluator implementations — so a fixture's expectation is checked
+by the code it documents, not by a second implementation of the same idea. One rule is evaluated
+against one prepared workdir at a time, independently, sequentially, and with fixes disabled.
+
+```ts
+import { verifyRuleFixtures } from '@gobing-ai/ts-rule-engine';
+
+const result = await verifyRuleFixtures({
+    ruleFile: '.spur/rules/quality/verify-confidence.yaml',
+    fixtureDir: '.spur/rules/fixtures/verify-confidence',
+    cases: [
+        {
+            path: 'should-fire/.spur/run/0101-verdict.json',
+            workdir: '/tmp/staged/0101',
+            ruleIds: ['verify-confidence-level'],
+            expect: 'fire',
+        },
+    ],
+});
+```
+
+`RuleFixtureVerificationOptions`:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `ruleFile` | `string` | Rule file loaded through `loadRuleFile`; always a physical path, because the loader has no filesystem port. |
+| `fixtureDir` | `string` | Root the case `path`s resolve under. Absent is an explicit skip. |
+| `cases` | `RuleFixtureCase[]` | Prepared cases: `{ path, workdir, ruleIds, expect }`. Each case is staged by the caller. |
+| `fileSystem` | `FileSystem?` | Port for the existence check and evaluation. Defaults to `createNodeFileSystem()`. |
+| `processExecutor` | `ProcessExecutor?` | Executor handed to process-backed evaluators. Defaults to `nodeBunFactory.createProcessExecutor()`. |
+
+`RuleFixtureVerificationResult` carries `pass`, `skipped`, and one `RuleFixtureCaseResult` per
+case/rule pair (`path`, `ruleId`, `expect`, `pass`, `findings`, `processes`, optional `error`).
+
+What each expectation means:
+
+- `expect: 'fire'` requires a genuine violation finding; `expect: 'pass'` requires zero findings.
+- An evaluator error never satisfies an expected violation — it fails the pair either way.
+- An `exit-code` rule is additionally asserted on the recorded process result: a normal exit must
+differ from (fire) or equal (pass) the rule's configured `successCode` (default `0`). A timeout,
+signal, spawn failure or any non-`exit` outcome fails the pair regardless of expectation, and the
+captured stdout/stderr and findings are retained in the failure diagnostic.
+
+Failure is never silent:
+
+| Situation | Outcome |
+|-----------|---------|
+| Absent optional `fixtureDir` | `pass: true, skipped: true, cases: []` — nothing was asserted. |
+| Present but empty `cases` | Failure: an empty case set cannot pass vacuously. |
+| Unknown or disabled rule ID | Failure naming the rule ID. |
+| Absent case workdir, or case `path` missing under `fixtureDir` | Failure naming the case. |
+| `ruleFile` declares extension modules | Throws — this verifier supports built-in rules only, and never silently ignores an extension. |
+| Unreadable rule file, or a case selecting no rule IDs | Throws. |
+
+### Repository gate
+
+A consuming repository wires this into its own gate with a thin adapter, because enumeration,
+staging and reporting are repository-specific. `bun run verify-rule-fixtures`
+(`scripts/verify-rule-fixtures.ts` in this workspace) enumerates every declared fixture directory,
+stages each case into an OS-temp workdir, evaluates it, prints a per-set and per-expectation
+summary, and writes a machine-readable report to `.spur/run/rule-fixtures-report.json` before
+exiting non-zero on any mismatch. It reads checked-in fixtures only, never evaluates the live
+repository as a case, removes its scratch workdirs in a `finally`, and fails — rather than skips —
+on a deleted declared directory or an unrecognized fixture shape.
+
 ## Rules Migration
 
 The `rg` evaluator now runs the **real ripgrep CLI** instead of being a JS-`RegExp` alias of `regex`. Ripgrep's Rust regex engine is ReDoS-immune, runs in parallel, and prunes heavy trees (`node_modules`, `dist`, …) during traversal — a meaningful speedup on large workspaces. The trade-off is a stricter dialect: ripgrep has **no lookbehind and no backreferences**.

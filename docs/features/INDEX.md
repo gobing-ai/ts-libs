@@ -14,7 +14,7 @@
     └── [done] **D1**: Restore System Events observability coverage ([D1_restore-system-events-observability-coverage.md](./D1_restore-system-events-observability-coverage.md))
 [active] **E**: ts-llm-jsonl-importer ([E_ts-llm-jsonl-importer.md](./E_ts-llm-jsonl-importer.md))
 [backlog] **F**: ts-rule-engine ([F_ts-rule-engine.md](./F_ts-rule-engine.md))
-    └── [backlog] **F1**: Rule fixture verification ([F1_rule-fixture-verification.md](./F1_rule-fixture-verification.md))
+    └── [active] **F1**: Rule fixture verification ([F1_rule-fixture-verification.md](./F1_rule-fixture-verification.md))
 [backlog] **G**: ts-runtime ([G_ts-runtime.md](./G_ts-runtime.md))
 [backlog] **H**: ts-utils ([H_ts-utils.md](./H_ts-utils.md))
 [active] **I**: Add DeepSeek dsh coding agent support ([I_add-deepseek-dsh-coding-agent-support.md](./I_add-deepseek-dsh-coding-agent-support.md))

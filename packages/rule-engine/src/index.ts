@@ -11,6 +11,7 @@ export { isRipgrepCompatiblePattern } from './evaluators/ripgrep-evaluator';
 export type { RuleEngineEvents } from './events';
 export * from './fixers/fixers';
 export * from './fixers/test-stub-fixer';
+export * from './fixture-verifier';
 export * from './formatters/json';
 export * from './formatters/text';
 export * from './host/bundled-rules';

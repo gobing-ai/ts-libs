@@ -8,9 +8,11 @@ subject relative to the workdir rather than receiving a file list.
 - `should-fire/` — each file must be reported, with the reason named for that file.
 - `should-pass/` — each file must be silent.
 
-Not part of any automated gate: they live under `.spur/`, and the rule reads
-`.spur/run/` + `.spur/memory/evidence/` in whatever tree it runs in, so a
-normal `bun run spur-check` never sees them.
+Inputs to an automated gate: `bun run verify-rule-fixtures` (`scripts/verify-rule-fixtures.ts`) is
+wired into `test-post-check`, so `bun run spur-check` stages every verdict JSON below into a scratch
+workdir and re-evaluates it through the real `RuleEngine`. It fails the command on any mismatch, and
+it fails — rather than skips — on a deleted `should-fire`/`should-pass` directory or an
+unrecognized fixture shape.
 
 ## What each fixture pins
 
@@ -36,9 +38,11 @@ pin the vocabulary check's own scope: `0105` proves it reaches artifacts without
 a proof block, `0205` proves it does not simply reject every `+` compound. The
 level and substance checks stay proof-bound; the vocabulary check does not.
 
-## Reproducing
+## Reproducing one rule by hand
 
-Run from a scratch copy so the rule runner's SQLite artifacts stay out of the repo:
+Still useful for a fast answer on a single rule edit. Run from a scratch copy so the rule runner's
+SQLite artifacts stay out of the repo; the fixture's own subject plane is preserved by copying the
+whole expectation directory:
 
 ```bash
 RULE="$(git rev-parse --show-toplevel)/.spur/rules/quality/verify-confidence.yaml"
