@@ -4,7 +4,7 @@
  * Guaranteed to match the package version; a bump-or-fail test enforces that
  * any modification to HISTORY_IMPORT_SCHEMA_SQL must be accompanied by a version bump.
  */
-export const HISTORY_IMPORT_SCHEMA_VERSION = '0.5.22';
+export const HISTORY_IMPORT_SCHEMA_VERSION = '0.5.23';
 
 /**
  * DDL string that creates the history import checkpoint, ledger, and typed contract tables.
