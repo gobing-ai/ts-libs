@@ -6,7 +6,7 @@ whose shape follows TypeSafe AI's Jev question spec (`type` / `instructions` / `
 **`DecisionHub`** loads catalogs and serves `decide(id, input)` with a fallback-guaranteed answer.
 A **`DecisionMakerRegistry`** maps maker names to `DecisionMaker`s. It comes with the three bundled
 makers, consumers can register their own, and any decision can be routed to a maker by name.
-Status: accepted design — ADR-033; not yet built.
+Status: built 2026-10-03 — ADR-033.
 
 Feature: [N](../features/N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md).
 
@@ -314,7 +314,10 @@ const r2 = await hub.decide('category', { instructions: ticketText }, { maker: '
 
    Below the effective `minConfidence` (decision, then `defaults`, then 0.7), return the fallback
    with `low-confidence`.
-7. Errors from steps 4–5 resolve to the fallback:
+7. The hub validates the returned answers against the rendered request with the shared
+   `validateAnswers` validator from `ts-ai-runner` — for every resolved maker, a directly registered
+   one included — before the confidence gate. Errors from steps 4–5 and a malformed answer resolve to
+   the fallback:
    - `DecisionConfigError` → `no-backend`
    - `DecisionTimeoutError` → `timeout`
    - any other error, including an invalid answer reported as `DecisionBackendError` → `error`

@@ -3,10 +3,10 @@ name: Architecture
 doc: 03_ARCHITECTURE
 owns: HOW — module boundaries, data flow, runtime model, invariants, rationale-in-depth
 authority: derived
-version: 1.8.0
+version: 1.9.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-10-09
+updated_at: 2026-10-12
 read_before: cross-package, seam, or schema work
 edit_rules: 99 §6.4
 sync: [T1]
@@ -73,7 +73,7 @@ beyond finite milliseconds.
 Local inference and multimodal input extensions are outside this implementation. Public shapes:
 [Clef backend](design/decision-clef-backend.md).
 
-## ai-decision (accepted design — ADR-033; not yet built)
+## ai-decision (built 2026-10-03 — ADR-033)
 
 `@gobing-ai/ts-ai-decision` turns the `ts-ai-runner` `DecisionMaker` into declarative, static
 decision catalogs served by an in-process `DecisionHub` (`load`/`list`/`describe`/`decide`), with
@@ -96,6 +96,9 @@ Invariants:
   low confidence resolve to the declared fallback with `source: 'default'` and a closed `reason`.
 - Caller mistakes (unknown id, invalid input, unregistered per-call maker) throw named errors before
   any backend call.
+- Every resolved maker's answers are validated against the rendered request inside `DecisionHub.decide`
+  — directly registered makers included — before the confidence gate; a malformed answer resolves to the
+  declared fallback with `reason: 'error'`, never to an accepted answer.
 - Maker precedence: per-call `maker` → decision `maker` → catalog `defaults.maker` → hub
   `defaultMaker` (`typesafe`). Registry factories run lazily and are memoised on success, so
   `list`/`describe` never touch a backend.
@@ -333,7 +336,12 @@ process remains the hard fallback for blocking synchronous work.
 ## rule-engine
 
 `@gobing-ai/ts-rule-engine` owns constraint schemas, configuration loading, rule evaluation, fixers,
-formatters, and host/persistence extension seams.
+formatters, and host/persistence extension seams. Its `verifyRuleFixtures` export loads a physical rule
+file and asserts each declared fixture case through the real `RuleEngine` — an `exit-code` rule on the
+recorded process status against its `successCode`, every other evaluator on violation findings — so a
+fixture that stops firing fails instead of passing silently. The repository adapter
+`scripts/verify-rule-fixtures.ts` stages each case into a scratch workdir and runs as part of the
+post-check gate (ADR-006).
 
 ## runtime
 

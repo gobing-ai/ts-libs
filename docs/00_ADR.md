@@ -3,9 +3,9 @@ name: Architecture Decision Records
 doc: 00_ADR
 owns: WHY — which cross-cutting decision was made, and the one-line reason
 authority: authoritative
-version: 1.5.0
+version: 1.6.0
 owner: Robin Min
-updated_at: 2026-10-09
+updated_at: 2026-10-12
 read_before: any structural change
 edit_rules: 99 §6.1
 sync: [T1, T2]
@@ -87,6 +87,11 @@ on their dedicated subpaths only: `D1Adapter` is exported from `@gobing-ai/ts-db
 `bun run spur-check` is the canonical gate (Biome + per-package `tsc` + `spur` pre-check + `bun test`
 coverage + `spur` post-check, all `--fail-on warning`); architectural invariants live as spur rules under
 `.spur/rules/` and must stay green. New cross-cutting invariants are added as rules, not review habits.
+
+**Amendment (2026-10-12, feature F1).** The post-check stage also runs `bun run verify-rule-fixtures`
+(every declared rule fixture asserted through the real engine and evaluators), so a fixture that no
+longer fires fails the canonical gate. Why: a rule gate whose own examples rot is unenforced.
+**Detail:** `docs/03_ARCHITECTURE.md` § rule-engine; `.spur/rules/fixtures/`.
 
 ---
 
@@ -489,7 +494,7 @@ alone do not establish decision quality, and the host owns uncertainty/unavailab
 
 ## ADR-027: Local Laya Decision Backend Ships as `ts-laya-mlx` and Executes the Vendored MLX Runtime over a Process Bridge
 
-**Status:** Accepted (design) · **Date:** 2026-09-20 · **Targets:** `ts-laya-mlx` (new), `ts-ai-runner`
+**Status:** Accepted · Built: 2026-09-21 (feature J) · **Date:** 2026-09-20 · **Targets:** `ts-laya-mlx` (new), `ts-ai-runner`
 
 **Decision.** A second `DecisionDriver` for the neutral decision surface ships as its own
 lockstep-versioned workspace package, `@gobing-ai/ts-laya-mlx` (source `packages/laya-mlx`). It
@@ -519,7 +524,7 @@ binary carries a macOS 26 deployment floor.
 
 ## ADR-028: Backend Selection Is One-Way — `ts-ai-runner` Never Depends on a Driver Package
 
-**Status:** Accepted (design) · **Date:** 2026-09-20 · **Targets:** `ts-ai-runner`, `ts-laya-mlx`
+**Status:** Accepted · Built: 2026-09-21 (feature J) · **Date:** 2026-09-20 · **Targets:** `ts-ai-runner`, `ts-laya-mlx`
 
 **Decision.** `ts-ai-runner` may name a backend (`"typesafe"` | `"laya-local"`) and resolve it when a
 decision is first asked, but it declares no dependency on `@gobing-ai/ts-laya-mlx` and imports no
@@ -622,7 +627,7 @@ commands via `context.newCDPSession(page)`.
 
 ## ADR-033: Declarative AI Decision Catalogs Ship as `ts-ai-decision`, a Fallback-Guaranteed Hub over `DecisionMaker`
 
-**Status:** Accepted (design) · **Date:** 2026-10-02 · **Targets:** `ts-ai-decision` (new)
+**Status:** Accepted · built 2026-10-03 (feature N) · **Date:** 2026-10-02 · **Targets:** `ts-ai-decision` (new)
 
 **Decision.** Static, named AI decision points are declared in YAML catalog files and served by an
 in-process `DecisionHub` in a new lockstep-versioned package, `@gobing-ai/ts-ai-decision` (source
