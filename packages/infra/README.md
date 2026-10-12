@@ -621,7 +621,7 @@ bootstrap:
   logging:
     level: info
     console: true
-    filePath: ./logs/app.jsonl
+    filePath: ./logs/app.jsonl   # a directory (e.g. ./logs/) writes daily spur{YYYYMMDD}.log files
   telemetry:
     enabled: true
     serviceName: billing-api
@@ -775,7 +775,9 @@ never opens files: it calls `attachFileObserver(lifecycleBus, filePath, writer)`
 only when `services.fileObserverWriter` is provided; its portable default path is
 `.spur/logs/system-events.jsonl`. The Node subpath `runNodeApplication` constructs a
 Node writer and uses `createNodeFileSystem()` to resolve the path to
-`<projectRoot>/.spur/logs/system-events.jsonl`. Set `config.events.fileObserver: false`
+`<projectRoot>/.spur/logs/system-events{YYYYMM}.jsonl` (one file per month). The Node
+writer expands `{YYYYMM}` / `{YYYYMMDD}` (local date) in any `filePath` on each write, so a
+long-running process rolls over without a restart. Set `config.events.fileObserver: false`
 to disable; supply a custom `filePath` (or a test-stub writer via
 `services.fileObserverWriter`) to override.
 

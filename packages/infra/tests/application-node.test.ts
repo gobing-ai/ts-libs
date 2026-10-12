@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -582,6 +582,110 @@ bootstrap:
             expect(existsSync(logPath)).toBe(true);
             expect(readFileSync(logPath, 'utf-8')).toContain('file-sink-probe');
         } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('rotates daily into spur{YYYYMMDD}.log when logging.filePath is a directory', async () => {
+        const dir = tmpDir();
+        const logDir = join(dir, 'logs');
+        const configPath = writeYaml(
+            dir,
+            'logdir.yaml',
+            `
+bootstrap:
+  telemetry:
+    enabled: false
+  logging:
+    console: false
+    filePath: ${logDir}/
+`,
+        );
+        const now = new Date();
+        const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+        try {
+            const app = await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                start: async (a) => {
+                    a.config.logging.fileSink?.('rotating-probe\n');
+                },
+            });
+            await app.stop();
+
+            expect(readFileSync(join(logDir, `spur${day}.log`), 'utf-8')).toContain('rotating-probe');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('expands {YYYYMM} in the events JSONL path and defaults to a monthly file', async () => {
+        const dir = tmpDir();
+        const configPath = writeYaml(
+            dir,
+            'events.yaml',
+            `
+bootstrap:
+  telemetry:
+    enabled: false
+  events:
+    filePath: ${join(dir, 'system-events{YYYYMM}.jsonl')}
+`,
+        );
+        const now = new Date();
+        const month = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+        try {
+            const app = await runNodeApplication({
+                configLoader: { configFile: configPath, bootstrapSection: 'bootstrap' },
+                start() {},
+            });
+            await app.events.emit('api.request.error', { url: '/x', method: 'GET', error: 'boom', severity: 'error' });
+            await app.stop();
+
+            expect(readFileSync(join(dir, `system-events${month}.jsonl`), 'utf-8')).toContain('api.request.error');
+
+            const defaults = await runNodeApplication({ start() {} });
+            expect(defaults.config.events.filePath?.endsWith('system-events{YYYYMM}.jsonl')).toBe(true);
+            await defaults.stop();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('creates date-expanded event directories again after rollover', async () => {
+        const dir = tmpDir();
+        try {
+            setSystemTime(new Date(2026, 0, 31, 12));
+            const app = await runNodeApplication({
+                config: {
+                    telemetry: { enabled: false },
+                    logging: { console: false },
+                    events: { filePath: join(dir, '{YYYYMM}', 'events{YYYYMMDD}.jsonl') },
+                },
+                start() {},
+            });
+            try {
+                await app.events.emit('api.request.error', {
+                    url: '/jan',
+                    method: 'GET',
+                    error: 'probe',
+                    severity: 'error',
+                });
+                expect(readFileSync(join(dir, '202601', 'events20260131.jsonl'), 'utf-8')).toContain('/jan');
+
+                setSystemTime(new Date(2026, 1, 1, 12));
+                await app.events.emit('api.request.error', {
+                    url: '/feb',
+                    method: 'GET',
+                    error: 'probe',
+                    severity: 'error',
+                });
+                expect(readFileSync(join(dir, '202602', 'events20260201.jsonl'), 'utf-8')).toContain('/feb');
+                expect(existsSync(join(dir, '{YYYYMM}'))).toBe(false);
+            } finally {
+                await app.stop();
+            }
+        } finally {
+            setSystemTime();
             rmSync(dir, { recursive: true, force: true });
         }
     });

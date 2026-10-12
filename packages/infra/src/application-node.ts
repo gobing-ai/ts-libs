@@ -15,8 +15,8 @@
  * @module application-node
  */
 
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import { createDbAdapter, type DbAdapter } from '@gobing-ai/ts-db';
 import { createNodeFileSystem, interpolateTree, parseYamlObject } from '@gobing-ai/ts-runtime';
@@ -217,11 +217,33 @@ function normalizeSchedulerJobs(raw: unknown): readonly SchedulerJobConfig[] {
 
 // ── File sink helper ──────────────────────────────────────────────────────
 
+/**
+ * Expand `{YYYYMMDD}` / `{YYYYMM}` (local date) in a file path. Resolved per write,
+ * so a long-running process rolls over to the next file without a restart.
+ */
+function expandDateTokens(path: string, now = new Date()): string {
+    const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const dd = String(now.getDate()).padStart(2, '0');
+    return path.replaceAll('{YYYYMMDD}', `${yyyymm}${dd}`).replaceAll('{YYYYMM}', yyyymm);
+}
+
+function isDirectoryPath(path: string): boolean {
+    if (path.endsWith('/') || path.endsWith('\\')) return true;
+    try {
+        return statSync(path).isDirectory();
+    } catch {
+        return false;
+    }
+}
+
+/** A directory `filePath` gets the daily-rotated `spur{YYYYMMDD}.log` inside it; a file path is used as-is. */
 function createFileSink(filePath: string): (line: string) => void {
+    const pattern = isDirectoryPath(filePath) ? join(filePath, 'spur{YYYYMMDD}.log') : filePath;
     return (line: string) => {
         try {
-            mkdirSync(dirname(filePath), { recursive: true });
-            appendFileSync(filePath, line);
+            const target = expandDateTokens(pattern);
+            mkdirSync(dirname(target), { recursive: true });
+            appendFileSync(target, line);
         } catch {
             // Best-effort — don't crash on log write failure
         }
@@ -470,7 +492,7 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
     const fileObserverWriter = options.services?.fileObserverWriter ?? {
         ensureDir: (dir: string) => {
             try {
-                mkdirSync(dir, { recursive: true });
+                mkdirSync(expandDateTokens(dir), { recursive: true });
             } catch (error) {
                 // ensureDir contract: an existing directory is success. Node
                 // semantics already suppress EEXIST with `recursive: true`, but
@@ -480,10 +502,14 @@ export async function runNodeApplication<TAppConfig = unknown, TEvents extends E
             }
         },
         appendFile: (path: string, content: string) => {
-            appendFileSync(path, content);
+            const target = expandDateTokens(path);
+            mkdirSync(dirname(target), { recursive: true });
+            appendFileSync(target, content);
         },
     };
-    const eventsFilePath = eventsOpts.filePath ?? injectedFileSystem.resolve('.spur', 'logs', 'system-events.jsonl');
+    // Monthly file by default so the raw bus trace never grows unbounded in one file.
+    const eventsFilePath =
+        eventsOpts.filePath ?? injectedFileSystem.resolve('.spur', 'logs', 'system-events{YYYYMM}.jsonl');
     const eventsConfig: EventsOptions<TEvents> = {
         ...eventsOpts,
         filePath: eventsFilePath,
