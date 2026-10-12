@@ -2,11 +2,11 @@
 schema_version: 1
 id: "N"
 name: "Declarative AI decision catalog and hub in ts-ai-decision"
-status: done
+status: active
 priority: P2
 tags: []
 created_at: "2026-10-03T05:38:02.433Z"
-updated_at: "2026-10-03T19:32:35.932Z"
+updated_at: "2026-10-12T07:16:18.477Z"
 ---
 
 # N: Declarative AI decision catalog and hub in ts-ai-decision
@@ -269,4 +269,5 @@ Feature: Declarative AI decision catalog and hub in ts-ai-decision
 - 2026-10-03T17:50:38.866Z backlog → active (system)
 - 2026-10-03T19:16:10.316Z active → verifying (system)
 - 2026-10-03T19:32:35.932Z verifying → done (system)
+- 2026-10-12T07:16:18.477Z done → active (system)
 
