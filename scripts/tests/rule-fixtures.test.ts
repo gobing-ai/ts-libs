@@ -317,6 +317,19 @@ describe('runRuleFixtureChecks — fixture shapes that cannot be silently droppe
 });
 
 describe('runRuleFixtureChecks — the declared case inventory', () => {
+    test('rejects emptied failure cases and support files even when rule outcomes still match', async () => {
+        for (const relative of [
+            'verify-confidence/should-fire/.spur/run/0103-verdict.json',
+            'lifecycle-bus-propagation/should-fire/events.ts',
+        ]) {
+            const root = await makeTempRepo();
+            await writeFile(join(root, '.spur/rules/fixtures', relative), '');
+            const report = await runRuleFixtureChecks(root, await makeReportPath());
+            expect(report.pass).toBe(false);
+            expect(report.results.some((row) => row.error?.includes('fixture content changed'))).toBe(true);
+        }
+    });
+
     test('fails when a declared expectation directory is emptied', async () => {
         const root = await makeTempRepo();
         const dir = join(root, '.spur/rules/fixtures/verify-confidence/should-fire');

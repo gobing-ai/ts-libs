@@ -3,6 +3,7 @@ import type { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { loadRuleFile, RuleEngine } from '../../packages/rule-engine/src';
 import {
     buildPackages,
     cleanPackages,
@@ -58,8 +59,35 @@ async function snapshot(root: string): Promise<Record<string, string>> {
 }
 
 describe('rewriteSpecifiers', () => {
+    test('the source import rule catches static, side-effect and standalone dynamic imports', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'ts-libs-import-rule-'));
+        try {
+            await mkdir(join(root, 'scripts'));
+            await writeFile(
+                join(root, 'scripts/probe.ts'),
+                [
+                    `import value from './value${emittedExtension}';`,
+                    `export { other } from './other${emittedExtension}';`,
+                    `import './side-effect${emittedExtension}';`,
+                    `import('./dynamic${emittedExtension}');`,
+                    "import allowed from './allowed';",
+                    "import('external');",
+                ].join('\n'),
+            );
+            const loaded = await loadRuleFile(
+                join(import.meta.dir, '../../.spur/rules/typescript/esm-build-conventions.yaml'),
+            );
+            const rules = loaded.rules.filter((rule) => rule.id === 'no-js-extension-in-ts-source-imports');
+            expect(rules).toHaveLength(1);
+            const result = await new RuleEngine().evaluate(rules, root);
+            expect(result.findings.map((finding) => finding.line)).toEqual([1, 2, 3, 4]);
+            expect(result.findings.every((finding) => finding.kind !== 'error')).toBe(true);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
     test('rewrites static and dynamic relative imports', () => {
-        const js = '.js';
         const source = [
             "import value from './value';",
             "export { thing } from '../thing';",
@@ -69,16 +97,15 @@ describe('rewriteSpecifiers', () => {
 
         expect(rewriteSpecifiers(source, (specifier) => `${specifier}.js`)).toBe(
             [
-                `import value from './value${js}';`,
-                `export { thing } from '../thing${js}';`,
-                `import './side-effect${js}';`,
-                `await import('./dynamic${js}');`,
+                `import value from './value${emittedExtension}';`,
+                `export { thing } from '../thing${emittedExtension}';`,
+                `import './side-effect${emittedExtension}';`,
+                `await import('./dynamic${emittedExtension}');`,
             ].join('\n'),
         );
     });
 
     test('changes only real module specifier contents', () => {
-        const js = '.js';
         const source = [
             'const text = "import(\'./feature\')";',
             'const other = \'from "./feature"\';',
@@ -100,10 +127,10 @@ describe('rewriteSpecifiers', () => {
                 "const pattern = /import\\('\\.\\/feature'\\)/;",
                 "// import './feature';",
                 'export { other };',
-                `import './feature${js}';`,
-                `export * from './feature${js}';`,
-                `const dynamic = await import('./feature${js}');`,
-                nestedTemplate(`await import('./feature${js}')`),
+                `import './feature${emittedExtension}';`,
+                `export * from './feature${emittedExtension}';`,
+                `const dynamic = await import('./feature${emittedExtension}');`,
+                nestedTemplate(`await import('./feature${emittedExtension}')`),
             ].join('\n'),
         );
     });
@@ -122,6 +149,20 @@ describe('rewriteSpecifiers', () => {
     test('encodes custom resolver results for the existing quote', () => {
         expect(rewriteSpecifiers("import './feature';", () => "./it's\\path")).toBe("import './it\\'s\\\\path';");
         expect(rewriteSpecifiers('import "./feature";', () => './it"s\\path')).toBe('import "./it\\"s\\\\path";');
+    });
+
+    test('preserves directory resolver results with literal and escaped trailing slashes', () => {
+        const source = ["import './nested/';", "import './nested\\u002f';"].join('\n');
+        const emittedFiles = new Set(['nested/index.js']);
+        expect(
+            rewriteSpecifiers(source, (specifier) =>
+                resolveSpecifier('/repo/dist', '/repo/dist/entry.js', specifier, emittedFiles),
+            ),
+        ).toBe(
+            [`import './nested/index${emittedExtension}';`, `import './nested\\u002findex${emittedExtension}';`].join(
+                '\n',
+            ),
+        );
     });
 
     test('rejects emitted JavaScript with syntax errors', () => {
@@ -273,9 +314,9 @@ describe('smokeDistImports', () => {
     test('reports command output when smoke import fails', () => {
         const spawn = (() => ({ status: 1, stdout: '', stderr: 'module not found' })) as typeof spawnSync;
 
-        expect(() => smokeImport('node', ['-e', 'import("./missing.js")'], 'missing package', spawn)).toThrow(
-            'module not found',
-        );
+        expect(() =>
+            smokeImport('node', ['-e', `import("./missing${emittedExtension}")`], 'missing package', spawn),
+        ).toThrow('module not found');
     });
 });
 
@@ -309,26 +350,33 @@ describe('workspace scripts', () => {
             return { status: 0, stdout: '', stderr: '' };
         }) as typeof spawnSync;
 
-        await buildPackages(
-            [
-                pkg('@gobing-ai/ts-utils', 'packages/utils'),
-                pkg('@gobing-ai/ts-runtime', 'packages/runtime', {
-                    dependencies: { '@gobing-ai/ts-utils': 'workspace:*' },
-                }),
-                pkg('@gobing-ai/ts-db', 'packages/db', { dependencies: { '@gobing-ai/ts-runtime': 'workspace:*' } }),
-            ],
-            spawn,
-        );
+        const root = await mkdtemp(join(tmpdir(), 'ts-libs-build-order-'));
+        try {
+            await buildPackages(
+                [
+                    pkg('@gobing-ai/ts-utils', join(root, 'utils')),
+                    pkg('@gobing-ai/ts-runtime', join(root, 'runtime'), {
+                        dependencies: { '@gobing-ai/ts-utils': 'workspace:*' },
+                    }),
+                    pkg('@gobing-ai/ts-db', join(root, 'db'), {
+                        dependencies: { '@gobing-ai/ts-runtime': 'workspace:*' },
+                    }),
+                ],
+                spawn,
+            );
 
-        expect(calls).toEqual([
-            'bun run --filter @gobing-ai/ts-utils build',
-            'bun run --filter @gobing-ai/ts-runtime build',
-            'bun run --filter @gobing-ai/ts-db build',
-            'bun -e const p = "./packages/utils/dist/index.js"; await import(p)',
-            'bun -e const p = "./packages/runtime/dist/index.js"; await import(p)',
-            'bun -e const p = "./packages/db/dist/index.js"; await import(p)',
-            'node -e const p = "./packages/db/dist/index.js"; import(p)',
-        ]);
+            expect(calls).toEqual([
+                'bun run --filter @gobing-ai/ts-utils build',
+                'bun run --filter @gobing-ai/ts-runtime build',
+                'bun run --filter @gobing-ai/ts-db build',
+                `bun -e const p = "./${root}/utils/dist/index.js"; await import(p)`,
+                `bun -e const p = "./${root}/runtime/dist/index.js"; await import(p)`,
+                `bun -e const p = "./${root}/db/dist/index.js"; await import(p)`,
+                `node -e const p = "./${root}/db/dist/index.js"; import(p)`,
+            ]);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
     });
 
     test('clean removes workspace dist directories', async () => {

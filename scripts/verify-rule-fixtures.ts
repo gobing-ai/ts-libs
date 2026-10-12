@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
-import { copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 // Repository tooling, not a package consumer: reach the workspace source directly so the gate needs
 // no prior `bun run build` (the root tsconfig declares no paths to workspace packages, and each
 // package's `exports` points at its unbuilt `dist/`).
@@ -12,6 +13,7 @@ import {
 } from '../packages/rule-engine/src/fixture-verifier';
 import { echo, echoError } from '../packages/utils/src/index';
 import { repoRoot as projectRoot } from './config';
+import fixtureHashes from './rule-fixture-hashes.json';
 
 /** Required outcome for a case: a genuine violation, or silence. */
 type Expectation = 'fire' | 'pass';
@@ -451,6 +453,23 @@ async function collectReport(repoRoot: string): Promise<RuleFixtureReport> {
                 fixtureDir: setDir,
                 cases,
             });
+
+            // Pin support files too: an empty failure fixture can still satisfy a fail-closed rule.
+            for (const [index, entry] of planned.entries()) {
+                for (const file of entry.files) {
+                    const source = relative(fixturesRoot, file.absolute).split(sep).join('/');
+                    const expected = (fixtureHashes as Record<string, string>)[source];
+                    const actual = createHash('sha256')
+                        .update(await readFile(join(cases[index].workdir, file.relative)))
+                        .digest('hex');
+                    if (actual === expected) continue;
+                    for (const result of verification.cases.filter((result) => result.path === entry.source)) {
+                        result.pass = false;
+                        result.error =
+                            `${result.error ?? ''}\nfixture content changed: ${source}; update scripts/rule-fixture-hashes.json with intentional fixture edits`.trim();
+                    }
+                }
+            }
 
             const setRows = verification.cases.map((result) => toResultRow(declaration.set, result));
             results.push(...setRows);

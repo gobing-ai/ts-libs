@@ -15,7 +15,7 @@ rules:
     evaluator:
       type: regex
       config:
-        pattern: "\\b(import|export)\\b[^\\n]*(from\\s+['\"]\\.{1,2}/[^'\"]+\\.js['\"]|import\\s*\\(\\s*['\"]\\.{1,2}/[^'\"]+\\.js['\"])"
+        pattern: "\\b(?:(?:import|export)\\b[^\\n]*?\\bfrom\\s*|import\\s*(?:\\(\\s*)?)['\"]\\.{1,2}/[^'\"]+\\.js['\"]"
     include:
       - "packages/**/*.ts"
       - "scripts/**/*.ts"

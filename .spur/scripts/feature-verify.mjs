@@ -1,54 +1,13 @@
 #!/usr/bin/env bun
-// Feature-scoped verification driver (ADR-119 receipt contract).
-//
-// Project-owned port of the sp plugin's feature-verification-steps for repos
-// that consume the sp plugin via installed skills (no plugins/sp/ source tree).
-// The receipt seams are NOT exported by the spur CLI bundle, but they ship in
-// the installed @gobing-ai/spur package under plugins/sp/lib/inline-run.generated.mjs;
-// this driver resolves and imports that bundle, then:
-//
-//   resolves the feature-verification workflow definition (project layer wins),
-//   records the RUNNING receipt (run-scoped + feature-latest copies),
-//   registers the run-scoped receipt as a run artifact,
-//   runs vars.verificationCmd via the safe launch splitter,
-//   completes the receipt PASS/FAIL with the after-pass proof-input digest.
-//
-// A changed tree during the pass records FAIL (fail-closed).
-//
-// Run: bun .spur/scripts/feature-verify.mjs verify --feature-id <id> --run-id <id>
+// Project argv adapter for Spur's feature verification and receipt operation.
 import { spawnSync } from 'node:child_process';
-import {
-    closeSync,
-    existsSync,
-    lstatSync,
-    mkdirSync,
-    openSync,
-    readdirSync,
-    readFileSync,
-    realpathSync,
-    renameSync,
-    statSync,
-    writeFileSync,
-} from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-
-const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 async function requireModule(entry) {
     const mod = await import(entry);
-    const missing = [
-        'startFeatureVerificationReceipt',
-        'completeFeatureVerificationReceipt',
-        'captureFeatureReceiptDigest',
-        'resolveWorkflowDefinition',
-        'splitLaunchCommand',
-        'openInlineRunProjectDb',
-        'ArtifactDao',
-    ].filter((k) => typeof mod[k] !== 'function');
-    if (missing.length > 0) {
-        throw new Error(
-            `module ${entry} is missing feature-verification seams (${missing.join(', ')}) \u2014 reinstall/upgrade @gobing-ai/spur`,
-        );
+    if (typeof mod.runFeatureVerification !== 'function') {
+        throw new Error(`module ${entry} is missing runFeatureVerification — reinstall/upgrade @gobing-ai/spur`);
     }
     return mod;
 }
@@ -76,129 +35,10 @@ async function loadSeams(spurModule) {
     );
 }
 
-function assertSafeId(kind, id) {
-    if (!SAFE_ID_RE.test(id) || id.includes('..')) {
-        throw new Error(`refusing unsafe ${kind}: ${id}`);
-    }
-}
-
-function findFeatureFile(featureDir, featureId) {
-    if (!existsSync(featureDir)) return;
-    const name = readdirSync(featureDir).find((n) => n.startsWith(`${featureId}_`) && n.endsWith('.md'));
-    return name === undefined ? undefined : join(featureDir, name);
-}
-
-const nodeFsShim = {
-    ensureDir: (dir) => {
-        mkdirSync(dir, { recursive: true });
-    },
-    writeFile: (path, body) => {
-        writeFileSync(path, body);
-    },
-    rename: (src, dest) => {
-        renameSync(src, dest);
-    },
-    readFile: (path) => {
-        return readFileSync(path, 'utf8');
-    },
-    realPath: (path) => {
-        // Rule 0785 R2 physical-path confinement: the seams bundle refuses a
-        // FileSystem without realPath support.
-        return realpathSync(path);
-    },
-    lstat: (path) => {
-        try {
-            return lstatSync(path);
-        } catch {
-            return null;
-        }
-    },
-    stat: (path) => {
-        // Soft stat: the seams bundle probes paths with `await stat(p) !== null`
-        // and expects null (not undefined/throw) when absent.
-        try {
-            return statSync(path);
-        } catch {
-            return null;
-        }
-    },
-    readDir: (path) => {
-        return readdirSync(path);
-    },
-};
-
 async function verify(featureId, runId, spurModule) {
-    assertSafeId('feature id', featureId);
-    assertSafeId('run id', runId);
-    const cwd = process.cwd();
     const mod = await loadSeams(spurModule);
-    const runDir = join(cwd, '.spur', 'run');
-    mkdirSync(runDir, { recursive: true });
-    const selected = await mod.resolveWorkflowDefinition(cwd, 'feature-verification');
-    const vars = selected.workflow.vars;
-    const configuredCmd =
-        typeof vars?.verificationCmd === 'string' && vars.verificationCmd.length > 0
-            ? vars.verificationCmd
-            : 'bun run spur-check-feature';
-    const featureFile = findFeatureFile(join(cwd, 'docs', 'features'), featureId);
-    if (featureFile === undefined) {
-        throw new Error(`feature ${featureId} not found under ${join(cwd, 'docs', 'features')}`);
-    }
-    const featureContent = readFileSync(featureFile, 'utf8');
-    const learningsPath = join(cwd, '.spur', 'context', 'learnings.md');
-    const learningsContent = existsSync(learningsPath) ? readFileSync(learningsPath, 'utf8') : undefined;
-    const beforeDigest = await mod.captureFeatureReceiptDigest(cwd, featureContent, learningsContent);
-    const receipt = await mod.startFeatureVerificationReceipt(nodeFsShim, runDir, {
-        featureId,
-        runId,
-        workdir: cwd,
-        verifier: {
-            name: 'feature-verification',
-            sourcePath: selected.path,
-            layer: selected.layer,
-            definitionDigest: selected.digest,
-        },
-        verificationCmd: configuredCmd,
-        inputDigest: beforeDigest,
-    });
-    const db = await mod.openInlineRunProjectDb(cwd);
-    try {
-        await new mod.ArtifactDao(db.adapter).record({
-            runId,
-            // The completion check matches the artifact row against the receipt's
-            // run-scoped durable path (`.spur/memory/evidence/<runId>-…json`), not
-            // the legacy `.spur/run/` scratch location.
-            path: join(dirname(runDir), 'memory', 'evidence', `${runId}-feature-verification.json`),
-            kind: 'feature-verification',
-        });
-    } finally {
-        db.close();
-    }
-    const logPath = join(runDir, `${runId}-feature-verification.log`);
-    const launch = mod.splitLaunchCommand(configuredCmd, 'feature-verification verificationCmd');
-    if ('error' in launch) {
-        await mod.completeFeatureVerificationReceipt(nodeFsShim, runDir, receipt, {
-            status: 'FAIL',
-            inputDigest: beforeDigest,
-        });
-        console.log(`feature-verify: ${featureId} verification FAIL (${launch.error})`);
-        return;
-    }
-    const logFd = openSync(logPath, 'a');
-    try {
-        const result = spawnSync(launch.command, launch.leadingArgs, {
-            cwd,
-            stdio: ['ignore', logFd, logFd],
-            timeout: 14400000,
-        });
-        const exit = result.status ?? 1;
-        const afterDigest = await mod.captureFeatureReceiptDigest(cwd, featureContent, learningsContent);
-        const status = exit === 0 && afterDigest === beforeDigest ? 'PASS' : 'FAIL';
-        await mod.completeFeatureVerificationReceipt(nodeFsShim, runDir, receipt, { status, inputDigest: afterDigest });
-        console.log(`feature-verify: ${featureId} verification ${status} (run ${runId}, log ${logPath})`);
-    } finally {
-        closeSync(logFd);
-    }
+    const result = await mod.runFeatureVerification({ workdir: process.cwd(), featureId, runId });
+    console.log(`feature-verify: ${featureId} ${result.message}`);
 }
 
 function main() {

@@ -84,7 +84,8 @@ export async function verifyRuleFixtures(
     const { ruleFile, fixtureDir, cases } = options;
     const fileSystem = options.fileSystem ?? createNodeFileSystem();
     const fixtureStat = await fileSystem.stat(fixtureDir);
-    if (fixtureStat === null || !fixtureStat.isDirectory()) return { pass: true, skipped: true, cases: [] };
+    if (fixtureStat === null) return { pass: true, skipped: true, cases: [] };
+    if (!fixtureStat.isDirectory()) throw new Error(`Fixture root "${fixtureDir}" is not a directory`);
     if (cases.length === 0) return { pass: false, skipped: false, cases: [] };
     for (const fixtureCase of cases) {
         if (fixtureCase.ruleIds.length === 0) {

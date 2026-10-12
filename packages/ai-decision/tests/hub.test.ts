@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import {
     type Answer,
@@ -36,11 +36,10 @@ const OUTPUT_DIR = joinPath(import.meta.dir, 'output');
 const transcript: Array<{ case: string } & DecisionResult> = [];
 
 afterAll(() => {
-    mkdirSync(OUTPUT_DIR, { recursive: true });
-    writeFileSync(
-        joinPath(OUTPUT_DIR, 'hub-e2e-transcript.json'),
-        `${JSON.stringify({ suite: 'hub-e2e', results: transcript }, null, 2)}\n`,
-    );
+    // Compare recorded evidence without letting a failed or filtered run overwrite it.
+    const expected = JSON.parse(readFileSync(joinPath(OUTPUT_DIR, 'hub-e2e-transcript.json'), 'utf8'));
+    expect(expected.suite).toBe('hub-e2e');
+    for (const result of transcript) expect(expected.results).toContainEqual(result);
 });
 
 interface AskRequest {

@@ -365,6 +365,19 @@ describe('verifyRuleFixtures — absence and invalid declarations', () => {
         }
     });
 
+    test('rejects a fixture root that exists as a file instead of skipping it', async () => {
+        const workspace = await makeWorkspace(REGEX_RULE);
+        try {
+            const fixtureFile = join(workspace.root, 'fixture-file');
+            await writeFile(fixtureFile, 'not a directory');
+            await expect(
+                verifyRuleFixtures({ ruleFile: workspace.ruleFile, fixtureDir: fixtureFile, cases: [] }),
+            ).rejects.toThrow('not a directory');
+        } finally {
+            await rm(workspace.root, { recursive: true, force: true });
+        }
+    });
+
     test('fails an unknown rule ID and a disabled rule ID', async () => {
         const workspace = await makeWorkspace(exitRule(0, false));
         try {

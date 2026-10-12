@@ -2,11 +2,11 @@
 schema_version: 1
 id: "N1"
 name: "Decision hub answer validation"
-status: active
+status: done
 priority: P2
 tags: []
 created_at: "2026-10-12T16:07:12.987Z"
-updated_at: "2026-10-12T18:55:53.986Z"
+updated_at: "2026-10-12T21:30:10.877Z"
 ---
 
 # N1: Decision hub answer validation
@@ -57,4 +57,6 @@ Feature: Decision hub answer validation
 ## History
 
 - 2026-10-12T18:55:53.986Z backlog → active (system)
+- 2026-10-12T21:30:10.469Z active → verifying (system)
+- 2026-10-12T21:30:10.877Z verifying → done (system)
 

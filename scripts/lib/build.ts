@@ -113,7 +113,9 @@ export function rewriteSpecifiers(source: string, resolveSpecifier: SpecifierRes
             resolved === `${specifier}.js`
                 ? '.js'
                 : resolved === `${specifier.replace(/\/$/, '')}/index.js`
-                  ? '/index.js'
+                  ? specifier.endsWith('/')
+                      ? 'index.js'
+                      : '/index.js'
                   : undefined;
 
         edits.push({

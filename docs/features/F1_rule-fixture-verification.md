@@ -2,11 +2,11 @@
 schema_version: 1
 id: "F1"
 name: "Rule fixture verification"
-status: active
+status: done
 priority: P2
 tags: []
 created_at: "2026-10-12T16:07:12.802Z"
-updated_at: "2026-10-12T17:51:41.324Z"
+updated_at: "2026-10-12T21:27:30.524Z"
 ---
 
 # F1: Rule fixture verification
@@ -68,4 +68,6 @@ Feature: Project rule fixtures are verified by the gate
 ## History
 
 - 2026-10-12T17:51:41.324Z backlog → active (system)
+- 2026-10-12T21:27:29.640Z active → verifying (system)
+- 2026-10-12T21:27:30.524Z verifying → done (system)
 

@@ -536,6 +536,7 @@ Failure is never silent:
 | Situation | Outcome |
 |-----------|---------|
 | Absent optional `fixtureDir` | `pass: true, skipped: true, cases: []` — nothing was asserted. |
+| Existing `fixtureDir` that is not a directory | Throws instead of silently skipping. |
 | Present but empty `cases` | Failure: an empty case set cannot pass vacuously. |
 | Unknown or disabled rule ID | Failure naming the rule ID. |
 | Absent case workdir, or case `path` missing under `fixtureDir` | Failure naming the case. |
@@ -552,6 +553,11 @@ summary, and writes a machine-readable report to `.spur/run/rule-fixtures-report
 exiting non-zero on any mismatch. It reads checked-in fixtures only, never evaluates the live
 repository as a case, removes its scratch workdirs in a `finally`, and fails — rather than skips —
 on a deleted declared directory or an unrecognized fixture shape.
+
+The adapter also checks SHA-256 content pins in `scripts/rule-fixture-hashes.json`, including
+support files, so empty or replaced fixtures cannot pass solely through a rule's fail-safe branch.
+Update the corresponding pin alongside each intentional fixture edit; the gate reports changed
+paths and still evaluates the real rules.
 
 ## Rules Migration
 

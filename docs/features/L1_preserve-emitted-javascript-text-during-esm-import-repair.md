@@ -2,11 +2,11 @@
 schema_version: 1
 id: "L1"
 name: "Preserve emitted JavaScript text during ESM import repair"
-status: active
+status: done
 priority: P2
 tags: []
 created_at: "2026-10-12T07:16:17.361Z"
-updated_at: "2026-10-12T18:37:12.285Z"
+updated_at: "2026-10-12T21:29:02.232Z"
 ---
 
 # L1: Preserve emitted JavaScript text during ESM import repair
@@ -53,4 +53,6 @@ Feature: Safe ESM import repair
 ## History
 
 - 2026-10-12T18:37:12.285Z backlog → active (system)
+- 2026-10-12T21:29:01.816Z active → verifying (system)
+- 2026-10-12T21:29:02.232Z verifying → done (system)
 
