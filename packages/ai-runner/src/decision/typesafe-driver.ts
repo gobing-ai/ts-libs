@@ -69,12 +69,18 @@ export function createTypesafeDriver(config: TypesafeDriverConfig): DecisionDriv
         name: 'typesafe',
         async ask({ state, questions, model }) {
             validateQuestions(questions);
+
+            // The neutral contract allows `null` state ("no caller context") and the SDK type
+            // accepts it, but the wire drops a null field and the API answers 422 "state: Field
+            // required" — so every fully parameterless decision used to fall back on this backend.
+            // Same null→'' mapping the laya and fm drivers already apply; structured state passes
+            // through untouched (the wire accepts an object or array).
             let result: SystemOneResult<Record<string, SdkQuestion>>;
             try {
                 const sdkQuestions = Object.fromEntries(
                     Object.entries(questions).map(([name, question]) => [name, toSdkQuestion(question)]),
                 );
-                result = await client.systemOne({ state, questions: sdkQuestions, model });
+                result = await client.systemOne({ state: state ?? '', questions: sdkQuestions, model });
             } catch (err) {
                 translateError(err);
             }

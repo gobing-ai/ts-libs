@@ -10,7 +10,7 @@ import {
     DecisionRequestError,
     DecisionTimeoutError,
 } from '../../src/decision/errors';
-import type { ChoiceAnswer, NoulAnswer, ScoreAnswer } from '../../src/decision/types';
+import type { ChoiceAnswer, DecisionState, NoulAnswer, ScoreAnswer } from '../../src/decision/types';
 import { q } from '../../src/decision/types';
 import { createTypesafeDriver, type TypesafeDriverConfig } from '../../src/decision/typesafe-driver';
 
@@ -178,12 +178,24 @@ describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
     test('R4 — undescribed prompts become null; a bare noul sends no criteria', async () => {
         const { wire, driver: d } = driver((call) => matchingSuccess(call));
         await d.ask({ state: null, questions: { bare: q.noul(), pick: q.choice(null, { a: 'x' }) } });
-        expect(firstCall(wire).body.state).toBeNull();
         // Parsed from the serialized body, so an absent key really is absent on the wire.
         expect(firstCall(wire).questions).toEqual({
             bare: { type: 'noul', instructions: null },
             pick: { type: 'choice', instructions: null, criteria: { a: 'x' } },
         });
+    });
+
+    test('R4 — an absent state is sent as an empty string, never dropped from the body', async () => {
+        // Measured against the live API 2026-10-12: a null/undefined `state` reaches the wire as a
+        // missing field and is rejected with 422 "state: Field required", while '' is accepted.
+        // Every fully parameterless catalog decision (the hub's `buildState` returns null when only
+        // `instructions` is declared) therefore fell back on this backend until the mapping below.
+        for (const state of [null, undefined as unknown as DecisionState]) {
+            const { wire, driver: d } = driver((call) => matchingSuccess(call));
+            await d.ask({ state, questions: { tier: q.choice('Which tier?', { basic: null, pro: null }) } });
+            expect(firstCall(wire).body.state).toBe('');
+            expect('state' in firstCall(wire).body).toBe(true);
+        }
     });
 
     test('R5/R6/R8 — answers keyed by caller names, mapped per kind, noul carries no confidence', async () => {
