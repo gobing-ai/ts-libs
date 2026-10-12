@@ -44,7 +44,7 @@ export function matchesGlob(path: string, pattern: string): boolean {
     if (pattern.startsWith('**/')) {
         const suffix = pattern.slice(3);
         if (suffix.indexOf('*') === -1) {
-            return normalized.endsWith(suffix) || normalized.endsWith(`/${suffix}`);
+            return normalized === suffix || normalized.endsWith(`/${suffix}`);
         }
     }
     if (pattern === normalized) return true;

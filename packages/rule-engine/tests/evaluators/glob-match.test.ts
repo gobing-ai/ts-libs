@@ -54,6 +54,14 @@ describe('matchesGlob', () => {
         expect(matchesGlob('c.test.ts', '**/c.test.ts')).toBe(true);
     });
 
+    test('leading **/ literal suffix starts at a path segment boundary', () => {
+        expect(matchesGlob('notfoo.ts', '**/foo.ts')).toBe(false);
+        expect(matchesGlob('src/notfoo.ts', '**/foo.ts')).toBe(false);
+        expect(matchesGlob('notdir/foo.ts', '**/dir/foo.ts')).toBe(false);
+        expect(matchesGlob('dir/foo.ts', '**/dir/foo.ts')).toBe(true);
+        expect(matchesGlob('src/dir/foo.ts', '**/dir/foo.ts')).toBe(true);
+    });
+
     test('exact literal pattern matches the identical path', () => {
         expect(matchesGlob('src/index.ts', 'src/index.ts')).toBe(true);
     });
