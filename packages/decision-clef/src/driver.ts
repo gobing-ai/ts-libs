@@ -284,7 +284,9 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
                 }
             }
 
-            assertJsonSerializable(state, 'state');
+            // `undefined` means "no caller context" exactly as `null` does — the neutral contract
+            // has one absent state, so validate it as such rather than rejecting it as unserializable.
+            assertJsonSerializable(state ?? null, 'state');
 
             const mappedQuestions = Object.fromEntries(
                 questionEntries.map(([name, q]) => [name, mapQuestion(name, q)]),
@@ -292,7 +294,12 @@ export function createClefDriver(options: ClefDriverOptions): DecisionDriver {
 
             const requestBody = {
                 model: resolvedModel,
-                state: state ?? null,
+                // Cloudflare's Clef endpoint requires `state` to be a string, dictionary or list:
+                // `"state": null` fails request-body validation with HTTP 422, which degraded every
+                // parameterless decision (the hub's `buildState` returns null) to its declared
+                // fallback. Same null→'' mapping the laya and fm drivers already apply; structured
+                // state passes through untouched.
+                state: state ?? '',
                 questions: mappedQuestions,
             };
 

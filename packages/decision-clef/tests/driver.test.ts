@@ -194,6 +194,21 @@ describe('Clef driver routing, model selection and auth', () => {
         expect(answers.q1).toMatchObject({ kind: 'choice' });
     });
 
+    // A parameterless decision is the common case for the task-pipeline decisions: the hub's
+    // `buildState` returns null when a decision declares no parameter beside `instructions`.
+    test('a parameterless decision reaches the wire as empty-string state, never null', async () => {
+        const { driver, rec } = clefWithOptions();
+
+        await driver.ask({ state: null, questions: { q1: q.noul('prompt') } });
+        expect(rec.wire().state).toBe('');
+        expect(rec.wire().model).toBe('clef-flash');
+        expect(Object.keys(rec.wire().questions)).toEqual(['q1']);
+
+        // A JS caller that omits `state` entirely means the same thing and takes the same branch.
+        await driver.ask({ questions: { q1: q.noul('prompt') } } as never);
+        expect(rec.wire().state).toBe('');
+    });
+
     test('configured model selects the matching route and body model', async () => {
         const { driver, rec } = clefWithOptions({ model: 'clef' });
         await driver.ask({ state: null, questions: { q1: q.noul('prompt') } });
