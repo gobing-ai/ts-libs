@@ -22,7 +22,7 @@ const keyworded = (keywords: string, value: string) => `(?i)(${keywords})${ASSIG
 const BUILTIN_PATTERNS: Record<SecretsCategory, string> = {
     'api-key': `${keyworded('api[_-]?key|apikey|api_secret|access[_-]?token|auth[_-]?token|secret[_-]?key', '[A-Za-z0-9_/+=.-]{8,}')}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}`,
     'private-key': 'PRIVATE[_-]?KEY|-----BEGIN\\s+(?:RSA |OPENSSH |EC )?PRIVATE\\s+KEY',
-    password: keyworded('passw[o]rd|passwd|pwd|pass', '[^"\'`]{4,}'),
+    password: keyworded('passw[o]rd|passwd|pwd', '[^"\'`]{4,}'),
     token: keyworded('bearer[_-]?token|refresh[_-]?token|session[_-]?token', '[A-Za-z0-9_\\-./+=]{8,}'),
     'connection-string': '(?i)(mongodb|postgres|mysql|redis)://[^\\s"\'`]{8,}',
 };

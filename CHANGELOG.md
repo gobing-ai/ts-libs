@@ -16,6 +16,10 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Fixed
 
+- fix(rule-engine): drop the bare `pass` keyword from the secrets-scanner `password` category. The alternation had
+  no left word boundary, so it matched the ecosystem's own PASS verdict vocabulary in doc comments
+  (`PASS: \`HIGH\``) and the `bypass`/`compass` substrings in ordinary prose — a hard `--fail-on warning`
+  gate failure indistinguishable from a real leak. `passw[o]rd`, `passwd` and `pwd` still match.
 - fix(ai-runner): send an empty string when a decision has no state. The neutral contract allows a `null`
   state, but the SDK drops the field and the API answers `422 state: Field required`, so every fully
   parameterless decision (the hub's `buildState` returns `null` when only `instructions` is declared)
