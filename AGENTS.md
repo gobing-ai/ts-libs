@@ -22,7 +22,7 @@ TypeScript libraries under `packages/*`:
 | `ts-decision-clef` | hosted Cloudflare Workers AI Clef decision backend over the portable APIClient seam (ADR-037) |
 | `ts-browser-automation` | reusable Playwright persistent-profile browser sessions (ADR-032) |
 
-- **Runtime / package manager / test runner:** Bun `1.3.14`. Use platform APIs only in their owning package/adapter seam; otherwise use `ts-runtime` abstractions.
+- **Runtime / package manager / test runner:** Bun `1.4.3`. Use platform APIs only in their owning package/adapter seam; otherwise use `ts-runtime` abstractions.
 - **Lint + format:** Biome. **Type gate:** per-package `tsc --noEmit`. No ESLint, no Prettier.
 - **Hooks:** Lefthook. **Rule gate:** `spur` (global binary) against `.spur/rules/`.
 

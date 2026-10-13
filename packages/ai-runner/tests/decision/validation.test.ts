@@ -304,7 +304,10 @@ describe('decision boundary validation', () => {
         const questions = { ['__proto__']: q.choice(null, { ['__proto__']: null }) };
         const answers = await driver.ask({ state: null, questions });
         expect(Object.keys(answers)).toEqual(['__proto__']);
-        expect(answers.__proto__).toEqual({
+        // noProto: the `__proto__` key is the subject of this test (an answer keyed
+        // `__proto__` must survive), so read it as the own property it is (asserted above by
+        // Object.keys) rather than through the deprecated accessor.
+        expect(Object.getOwnPropertyDescriptor(answers, '__proto__')?.value).toEqual({
             kind: 'choice',
             label: '__proto__',
             confidence: 1,

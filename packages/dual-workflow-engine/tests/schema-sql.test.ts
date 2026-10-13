@@ -27,12 +27,10 @@ describe('WORKFLOW_ENGINE_SCHEMA_SQL', () => {
         expect(WORKFLOW_ENGINE_SCHEMA_SQL).toInclude('workflow_states');
     });
 
-    test.each([
-        ['runs'],
-        ['phase_runs'],
-        ['transition_runs'],
-        ['workflow_states'],
-    ])('CREATE TABLE IF NOT EXISTS %s', (table) => {
-        expect(WORKFLOW_ENGINE_SCHEMA_SQL).toInclude(`CREATE TABLE IF NOT EXISTS ${table}`);
-    });
+    test.each([['runs'], ['phase_runs'], ['transition_runs'], ['workflow_states']])(
+        'CREATE TABLE IF NOT EXISTS %s',
+        (table) => {
+            expect(WORKFLOW_ENGINE_SCHEMA_SQL).toInclude(`CREATE TABLE IF NOT EXISTS ${table}`);
+        },
+    );
 });

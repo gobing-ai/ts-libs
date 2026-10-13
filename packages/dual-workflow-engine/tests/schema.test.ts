@@ -420,16 +420,12 @@ describe.each(['state-machine', 'transition-flow'] as const)('%s dialect extensi
         expect(schema.safeParse(base({ actions: [''] })).success).toBe(false);
     });
 
-    test.each([
-        '/abs.ts',
-        '\\abs.ts',
-        'C:\\x.ts',
-        'C:/x.ts',
-        '../escape.ts',
-        'a/../../x.ts',
-    ])('rejects absolute or traversing path %s', (path) => {
-        expect(schema.safeParse(base({ actions: [path] })).success).toBe(false);
-    });
+    test.each(['/abs.ts', '\\abs.ts', 'C:\\x.ts', 'C:/x.ts', '../escape.ts', 'a/../../x.ts'])(
+        'rejects absolute or traversing path %s',
+        (path) => {
+            expect(schema.safeParse(base({ actions: [path] })).success).toBe(false);
+        },
+    );
 
     test('rejects unknown key inside extensions', () => {
         expect(schema.safeParse(base({ evaluators: ['./x.ts'] })).success).toBe(false);

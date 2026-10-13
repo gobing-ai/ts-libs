@@ -8,8 +8,8 @@ Monorepo of TypeScript libraries — shared runtime abstractions, database facad
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| [Bun](https://bun.sh) | 1.3.14 | Runtime, package manager, test runner |
-| [Biome](https://biomejs.dev) | 2.4.16 | Linter + formatter (no ESLint, no Prettier) |
+| [Bun](https://bun.sh) | 1.4.3 | Runtime, package manager, test runner |
+| [Biome](https://biomejs.dev) | 2.5.15 | Linter + formatter (no ESLint, no Prettier) |
 | [TypeScript](https://www.typescriptlang.org) | 6.0 | Type checking |
 | [Lefthook](https://github.com/evilmartians/lefthook) | 1.13 | Git hooks (commit-msg, pre-commit, pre-push) |
 | [spur](https://github.com/gobing-ai/spur) | — | Architecture rule gate + quality enforcement |
