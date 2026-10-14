@@ -69,7 +69,7 @@ export function resolveDecisionInput(decision: DecisionDefinition, input: Record
         }
     }
     for (const param of Object.values(decision.parameters)) {
-        const supplied = param.name in input ? input[param.name] : undefined;
+        const supplied = Object.hasOwn(input, param.name) ? input[param.name] : undefined;
         if (supplied === undefined && param.required) {
             throw new DecisionInputError(
                 `Missing required parameter "${param.name}" for decision "${decision.id}"`,

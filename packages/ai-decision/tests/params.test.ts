@@ -88,6 +88,20 @@ describe('resolveDecisionInput', () => {
         expect(inputFailure(decision(), {}).message).toMatch(/Missing required parameter "feature"/);
     });
 
+    test('only own input properties override defaults or satisfy required parameters', () => {
+        const inherited = Object.create({ feature: 'inherited', effort: 9 });
+        expect(inputFailure(decision(), inherited).message).toMatch(/Missing required parameter "feature"/);
+        inherited.feature = 'own';
+        expect(resolveDecisionInput(decision(), inherited).effort).toBe(3);
+
+        const d = decision({
+            parameters: {
+                constructor: { name: 'constructor', type: 'string' as const, required: false, default: 'default' },
+            },
+        });
+        expect(resolveDecisionInput(d, {})).toEqual({ constructor: 'default' });
+    });
+
     test('rejects type mismatches per declared type, including enum vocabulary and non-finite numbers', () => {
         expect(inputFailure(decision(), { feature: 7 }).message).toMatch(/expects string, got 7/);
         expect(inputFailure(decision(), { feature: 'x', priority: 'p9' }).message).toMatch(/one of \[p1, p2\]/);
