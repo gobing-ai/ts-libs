@@ -4,7 +4,7 @@ name: Make manual queue cancellation terminal when handlers reject
 status: done
 template: feature-impl
 created_at: 2026-10-14T03:37:04.998Z
-updated_at: "2026-10-14T04:15:44.260Z"
+updated_at: "2026-10-14T04:57:24.532Z"
 feature_id: D
 
 priority: P2
@@ -27,6 +27,10 @@ Review of packages and scripts reproduced a manual-cancellation defect. In `pack
 - Coincident timeout precedence was a design-only assertion → R3 and a dedicated AC now require accepted manual cancellation to win, with handler settlement controlled by promises.
 - Event assertions had no frozen consumer setup → eventSink requires queueName with events → freeze a nonblank queueName and real event bus/DAO setup, including a second immediate poll.
 - Environment was assumed locked → Bun.resolveSync from packages/db/src resolves parent drizzle-orm 0.44.7 while bun.lock pins 0.38.4 → add a dependency-restoration Step 0 before implementation and verification.
+
+**Verification correction (2026-10-13)**
+
+The earlier dependency mismatch claim came from Bun.resolveSync with a relative base path. Fresh resolution using the absolute repository packages/db/src directory selects locked drizzle-orm 0.38.4 from this repository. bun install --frozen-lockfile reports no changes. The parent 0.44.7 result was a probe error, not the package runtime dependency. Implementation behavior and regression design are unchanged.
 
 ### Requirements
 
@@ -89,7 +93,7 @@ Tests use the real in-memory QueueJobDao and existing EventBus<QueueEvents>, wit
 
 Rejected alternatives: changing runWithExecutionDeadline (would change scheduler behavior); detecting cancellation from an error name (cannot distinguish manual cancellation and timeout); changing global DAO retry policy; changing acknowledgement after it has started (introduces a persistence race). Out of scope: scheduler policy, queue schema, cross-poll concurrency, cancellation of settled acknowledgements. Existing cancellation with a resolving handler remains supported.
 
-Precondition: Bun 1.4.3 is installed, but the audited environment resolves drizzle-orm from /Users/robin/node_modules at 0.44.7 while bun.lock pins 0.38.4. Before implementation, run bun install --frozen-lockfile and verify resolution from packages/db/src matches the lockfile; do not update manifests/lockfile to accept the fallback. If it still differs, resolve installation first. No unfinished dependencies; 0113 is independent. Workspace audit found only the main worktree and no wip tasks. Preserve current unrelated working-tree edits.
+Precondition: run bun install --frozen-lockfile and verify dependency resolution using the absolute packages/db/src directory. Fresh verification confirms Bun 1.4.3 and locked drizzle-orm 0.38.4; the earlier parent-directory mismatch was caused by a relative-base probe. Preserve manifests and lockfile. No unfinished dependencies; 0113 is independent. Workspace audit found only the main worktree and no wip tasks. Preserve current unrelated working-tree edits.
 
 ### Plan
 
@@ -101,15 +105,16 @@ Precondition: Bun 1.4.3 is installed, but the audited environment resolves drizz
 
 ### Solution
 
-Change-map (auto-generated — implement step did not record a Solution).
-Each entry cites the first changed line per file (`file:line`).
+| File | Change and purpose |
+|---|---|
+| `packages/infra/src/job-queue/db-job-queue.ts:203` | Refuse cancellation once the attempt is settled, including its pending acknowledgement window. |
+| `packages/infra/src/job-queue/db-job-queue.ts:363` | After lease-loss fencing, dispatch accepted cancellation before handler error/deadline outcomes, preserving fenced failure writes and event emission. |
+| `packages/infra/tests/job-queue/lease-consumer.test.ts:385` | Real-DAO regression proves abort rejection becomes terminal failure with one failed event and no second-poll execution. |
+| `packages/infra/tests/job-queue/lease-consumer.test.ts:421` | Replacement-token case proves a cancelled stale attempt cannot mutate its rival's row or emit lifecycle events. |
+| `packages/infra/tests/job-queue/lease-consumer.test.ts:459` | A held acknowledgement proves late cancellation returns false and completion persists. |
+| `packages/infra/tests/job-queue/lease-consumer.test.ts:498` | A held handler after deadline proves accepted cancellation wins over timeout. |
 
-| Change (`file:line`) |
-|----------------------|
-| `packages/infra/src/job-queue/db-job-queue.ts:205` |
-| `packages/infra/src/job-queue/db-job-queue.ts:363` |
-| `packages/infra/src/job-queue/db-job-queue.ts:383` |
-| `packages/infra/tests/job-queue/lease-consumer.test.ts:374` |
+No public API, schema or dependency changes. Existing resolving-handler cancellation and ordinary error/deadline retry tests remain supported. Fresh verification corrects the former relative-base dependency probe; absolute package-local resolution matches the lockfile.
 
 ### Testing
 
@@ -120,17 +125,17 @@ Each entry cites the first changed line per file (`file:line`).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | Dispatch precedence: `attempt.cancelled` branch precedes `outcome.error`/`timedOut` (packages/infra/src/job-queue/db-job-queue.ts:363); `cancel()` refuses settled attempts (packages/infra/src/job-queue/db-job-queue.ts:203); AC1+AC4 tests green in packages/infra/tests/job-queue/lease-consumer.test.ts |
-| R2 | MET | `attempt.lost` fencing branch remains first (packages/infra/src/job-queue/db-job-queue.ts:348); AC2 test: token theft mid-run + accepted cancel settles → fenced markFailed refuses, replacement row and attemptToken unchanged, zero lifecycle events |
-| R3 | MET | `failOrRetry` paths for error/timedOut unchanged (packages/infra/src/job-queue/db-job-queue.ts:381-386); existing crash-retry and timeout-retry tests pass (43/43); AC5 test: cancel after deadline → terminal failed, no retry |
+| R1 | MET | Settled admission guard and terminal cancellation dispatch at `packages/infra/src/job-queue/db-job-queue.ts:203` and `packages/infra/src/job-queue/db-job-queue.ts:363`; executable rejecting-handler and held-ack regressions at `packages/infra/tests/job-queue/lease-consumer.test.ts:385` and `packages/infra/tests/job-queue/lease-consumer.test.ts:459` pass in the fresh full gate. |
+| R2 | MET | Lease-loss early return at `packages/infra/src/job-queue/db-job-queue.ts:351` and fenced markFailed result at `packages/infra/src/job-queue/db-job-queue.ts:370`; real replacement-token and no-events regression at `packages/infra/tests/job-queue/lease-consumer.test.ts:421` passes. |
+| R3 | MET | Ordinary error/deadline retry dispatch at `packages/infra/src/job-queue/db-job-queue.ts:383`; existing timeout retry at `packages/infra/tests/job-queue/lease-consumer.test.ts:58` and crash retry at `packages/infra/tests/job-queue/lease-consumer.test.ts:312` pass, as does manual-cancellation precedence at `packages/infra/tests/job-queue/lease-consumer.test.ts:498`. No public signatures or schema changes in the implementation commit. |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 — Rejected abort becomes terminal failure (req: R1) | MET | test | packages/infra/tests/job-queue/lease-consumer.test.ts 'AC1: a rejecting handler cannot send an accepted cancellation back to pending': cancel true pre-settlement, handler rejects on abort → row failed with 'job cancelled' reason, exactly one queue.job.failed event, no retry, second processOnce returns 0 and row stays failed |
-| AC2 — Lease loss fences cancelled attempts (req: R2) | MET | test | packages/infra/tests/job-queue/lease-consumer.test.ts 'AC2: lease loss fences a cancelled attempt acknowledgements': rival claimReady mints replacement token; cancelled attempt settles → markFailed fenced (applied false), row stays processing with replacement token, events [] |
-| AC3 — Uncancelled errors and timeouts still retry (req: R3) | MET | test | existing crash-retry (AC10) and deadline-retry tests in packages/infra/tests/job-queue/lease-consumer.test.ts pass unchanged in the full suite (43 pass / 0 fail); failOrRetry path untouched by the diff |
-| AC4 — Settled acknowledgement refuses late cancellation (req: R1) | MET | test | packages/infra/tests/job-queue/lease-consumer.test.ts 'AC4: cancelling a settled attempt while its acknowledgement is pending returns false': markCompleted held via dao proxy, cancel returns false, ack completes → row completed, exactly queue.job.completed |
-| AC5 — Accepted cancellation takes precedence over timeout (req: R3) | MET | test | packages/infra/tests/job-queue/lease-consumer.test.ts 'AC5: an accepted cancellation wins over a coincident deadline': deadline abort observed while handler held pre-settlement, cancel true, settle → row failed with 'job cancelled', single queue.job.failed, no retry |
+| Scenario: AC1 — Rejected abort becomes terminal failure (req: R1) | MET | test | `packages/infra/tests/job-queue/lease-consumer.test.ts:385` — Rejecting abort produces terminal failed status, cancellation reason, exactly one failed event and no second-poll execution. Fresh full gate: 3015 pass, 0 fail. |
+| Scenario: AC2 — Lease loss fences cancelled attempts (req: R2) | MET | test | `packages/infra/tests/job-queue/lease-consumer.test.ts:421` — Stolen ownership preserves the replacement token and processing row while emitting no lifecycle events. Fresh full gate: 3015 pass, 0 fail. |
+| Scenario: AC3 — Uncancelled errors and timeouts still retry (req: R3) | MET | test | `packages/infra/tests/job-queue/lease-consumer.test.ts:58` — Existing deadline retry settles to pending then completes on retry; ordinary crash retry at packages/infra/tests/job-queue/lease-consumer.test.ts:312 reaches maxRetries. Fresh full gate: 3015 pass, 0 fail. |
+| Scenario: AC4 — Settled acknowledgement refuses late cancellation (req: R1) | MET | test | `packages/infra/tests/job-queue/lease-consumer.test.ts:459` — Held acknowledgement refuses late cancellation and completes with exactly one completion event. Fresh full gate: 3015 pass, 0 fail. |
+| Scenario: AC5 — Accepted cancellation takes precedence over timeout (req: R3) | MET | test | `packages/infra/tests/job-queue/lease-consumer.test.ts:498` — Deadline abort occurs while handler is held; accepted cancellation then settles to failed with cancellation reason and no retry event. Fresh full gate: 3015 pass, 0 fail. |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -162,9 +167,17 @@ Residual risk: none blocking. No `biome-ignore` added; no skips.
 
 - Readiness probes: `.spur/run/refineall-0112-0113-probes.ts`; executed this refinement, using disposable in-memory databases and injected queue I/O.
 - Current work: only /Users/robin/xprojects/ts-libs on main; spur task list --status wip --json returned []; no declared dependencies and no dependency between 0112 and 0113.
-- Runtime: Bun 1.4.3; TypeScript 6.0.3 and @types/bun 1.4.3 match bun.lock; Drizzle resolution mismatch is an explicit Step 0 precondition.
+- Runtime: Bun 1.4.3; TypeScript 6.0.3 and @types/bun 1.4.3 match bun.lock; Drizzle resolves to locked 0.38.4 when probed with the absolute packages/db/src directory; earlier relative-base evidence is superseded by the Verification correction.
 - Original review: `.spur/run/review-packages-scripts-2026-10-13.md`.
 - Feature D: docs/features/D_ts-infra.md. Existing failure branch: `packages/infra/src/job-queue/db-job-queue.ts:360`; settlement/cancel race: `packages/infra/src/job-queue/db-job-queue.ts:341` and `packages/infra/src/job-queue/db-job-queue.ts:203`.
+
+Final pre-commit readiness:
+- Task 0112 remains done; all requirements and acceptance criteria MET.
+- Shippable: PASS — feature D check is clean and every linked task is done.
+- Review-format gate and residual sweep pass; no blocking or deferred implementation work. P4 observations describe accepted intended behavior.
+- Shipping receipt: `.spur/run/0112-shippable.json:1-29`.
+- Fresh verdict and source answer: `.spur/run/0112-verdict.json`, `.spur/run/0112-verify-answer.txt`.
+- Source code unchanged since the successful full gate (3015 tests) and build; no redundant runtime checks repeated for these evidence-only updates. No commit made.
 
 ### History
 
