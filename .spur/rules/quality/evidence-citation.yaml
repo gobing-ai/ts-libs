@@ -1,0 +1,110 @@
+# Evidence-citation gate — an evidence cell asserting an external API/library
+# claim must carry a verifiable source citation in the SAME cell.
+#
+# Why this exists: the answer-file lint (`spur task verdict --from-answer`,
+# task 1070) already rejects such rows at derivation time with
+# `evidence-citation`, using the closed sets in the verdict schema ("Source
+# citations for external claims": claim markers = a scoped-package mention, a
+# `node_modules/` reference, a semver version claim, or a backticked
+# function-call-shaped token; accepted citations = a repo `path:line(-end)`
+# backticked or bare, the external named-origin form `@origin <path> line N`,
+# or an http(s) URL; the check is cell-local and presence-only). But nothing
+# verified the recorded plane afterwards — exactly the gap
+# `verify-confidence.yaml` closed for confidence levels. A recorded verdict
+# whose evidence rests on recall ("drizzle 0.44 supports X", "the SDK drops
+# the field") reads as proven while pinning nothing a reader can re-check.
+#
+# Scope: PROOF-BOUND verdict artifacts only (the `proof` block marks a verdict
+# produced under the current proof chain, ADR-071) — the same deliberate
+# boundary as the sibling `verify-confidence-level` substance checks.
+# Enforcing today's contract on the pre-proof-chain artifacts would fire on
+# historical records instead of describing them; fixture 0206 pins that
+# boundary (a marker without a citation is NOT reported on a non-proof-bound
+# artifact). Both verdict planes are scanned — `.spur/run/` (per-run) and
+# `.spur/memory/evidence/` (the durable mirror); both are untracked planes, so
+# a clean checkout has nothing to verify and the rule passes.
+#
+# Cells scanned: every string `evidence` of `requirements[]` and
+# `acceptanceCriteria[]`. Cell-locality mirrors the CLI: a citation in another
+# row or a "receipt above" cross-reference does not clear a cell, and
+# presence-only means the rule does not try to decide WHICH citation proves
+# WHICH claim. Claim-free receipts (test counts, command output, reviewed-log
+# notes) need no citation and pass untouched.
+#
+# Known limits (pinned by fixtures where decidable):
+#   - Presence-only: a wrong or decorative citation still clears the cell;
+#     which citation proves which claim is not deterministically decidable.
+#   - The marker/citation sets are the CLI's closed sets; a claim phrased
+#     outside them ("the retry helper in the SDK") is not detected. The
+#     machine-checkable half of the contract stays identical on both paths.
+#   - Only proof-bound artifacts are substance-checked; the sibling rule owns
+#     the level vocabulary on every artifact.
+
+include:
+  - ".spur/run/*-verdict.json"
+  - ".spur/memory/evidence/*-verdict.json"
+
+rules:
+  - id: evidence-citation
+    description: >-
+      Every string evidence cell of requirements[] and acceptanceCriteria[] in
+      a proof-bound verdict artifact that asserts an external API/library
+      claim — a scoped-package mention (@scope/name), a node_modules/
+      reference, a semver version claim (x.y.z), or a backticked
+      function-call-shaped token — must also contain, in the same cell, one
+      accepted citation form: a repo path:line(-end) (backticked or bare),
+      the external named-origin form (@origin <path> line N), or an http(s)
+      URL. Mirrors the `evidence-citation` rejection of the
+      `spur task verdict --from-answer` lint (task 1070) so the recorded
+      plane obeys the same contract it was derived under.
+    severity: error
+    evaluator:
+      type: exit-code
+      config:
+        command: sh
+        args:
+          - -c
+          - |
+            set -u
+            violations=0
+            # Closed sets from the verdict schema, task 1070 (same predicates as
+            # hasClaimMarker / hasCitationForm in the CLI answer lint).
+            MARK='@[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*|node_modules/|[0-9]+\.[0-9]+\.[0-9]+|`[A-Za-z_][A-Za-z0-9_.-]*\([^`]*\)`'
+            CITE='([A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.[A-Za-z]{1,5}:[0-9]+(-[0-9]+)?|@[A-Za-z0-9][A-Za-z0-9._/-]*[[:space:]]+`[^`]+`[[:space:]]+line[[:space:]]+[0-9]+|https?://[^[:space:]]+'
+
+            for f in .spur/run/*-verdict.json .spur/memory/evidence/*-verdict.json; do
+              [ -f "$f" ] || continue
+
+              if ! jq -e . "$f" >/dev/null 2>&1; then
+                echo "evidence-citation: $f: unreadable JSON — refusing to skip a verdict silently"
+                violations=$((violations + 1))
+                continue
+              fi
+
+              # Substance runs on proof-bound verdicts only — a non-proof-bound
+              # artifact describes an older contract and is not reported on.
+              [ "$(jq -r 'has("proof")' "$f" 2>/dev/null)" = "true" ] || continue
+
+              # One line per cell (newlines folded) so cell-locality survives
+              # multi-line evidence strings.
+              cells=$(jq -r '[(.requirements // [])[]?.evidence, (.acceptanceCriteria // [])[]?.evidence]
+                | map(select(type == "string")) | .[] | gsub("\n"; " ")' "$f" 2>/dev/null)
+              [ -n "$cells" ] || continue
+
+              while IFS= read -r cell; do
+                [ -n "$cell" ] || continue
+                if printf '%s' "$cell" | grep -qE -- "$MARK"; then
+                  if ! printf '%s' "$cell" | grep -qE -- "$CITE"; then
+                    printf '%s\n' "$cell" | cut -c1-120 | sed "s|^|evidence-citation: $f: evidence cell asserts an external API/library claim without a same-cell citation (repo path:line, '@origin <path> line N', or URL): |"
+                    violations=$((violations + 1))
+                  fi
+                fi
+              done <<EOF
+            $cells
+            EOF
+            done
+
+            [ "$violations" -eq 0 ] || exit 1
+            exit 0
+        message: "a proof-bound verdict's evidence cell asserts an external API/library claim without a same-cell source citation (see stdout)"
+        timeout: 30000

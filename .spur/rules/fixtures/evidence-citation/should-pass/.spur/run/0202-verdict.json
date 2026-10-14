@@ -1,0 +1,14 @@
+{
+    "wbs": "0202",
+    "verdict": "PASS",
+    "confidence": "HIGH",
+    "proof": "Fresh verification 2026-10-13: bun run build exit 0; npm pack --dry-run listed 18 files.",
+    "requirements": [
+        {
+            "id": "R1",
+            "status": "MET",
+            "evidence": "Dependency pinned exactly at 0.6.0 with no range; the exports map is declared at packages/db/src/schema-entry.ts:40-44 (re-read this run)."
+        }
+    ],
+    "acceptanceCriteria": []
+}

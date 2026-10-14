@@ -1,0 +1,14 @@
+{
+    "wbs": "0101",
+    "verdict": "PASS",
+    "confidence": "HIGH",
+    "proof": "Fresh verification 2026-10-13: bun test packages/ai-runner/tests → 223 pass / 0 fail; spur rule run → exit 0.",
+    "requirements": [
+        {
+            "id": "R1",
+            "status": "MET",
+            "evidence": "Hub maps null instructions to '' because @typesafe-ai/sdk drops the field on the wire."
+        }
+    ],
+    "acceptanceCriteria": []
+}

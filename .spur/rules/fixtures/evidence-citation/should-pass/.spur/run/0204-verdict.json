@@ -1,0 +1,14 @@
+{
+    "wbs": "0204",
+    "verdict": "PASS",
+    "confidence": "HIGH",
+    "proof": "Fresh verification 2026-10-13: declaration read from the installed artifact, not from documentation memory.",
+    "requirements": [
+        {
+            "id": "R1",
+            "status": "MET",
+            "evidence": "`load(modelIdOrPath, opts?)` is declared by @johnhenry/laya `packages/laya-mlx/node_modules/@johnhenry/laya/dist/load.d.ts` line 40, with the keys the native client passes at :13 and :15."
+        }
+    ],
+    "acceptanceCriteria": []
+}

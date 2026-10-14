@@ -1,0 +1,13 @@
+{
+    "wbs": "0206",
+    "verdict": "PASS",
+    "confidence": "HIGH",
+    "requirements": [
+        {
+            "id": "R1",
+            "status": "MET",
+            "evidence": "Version remains 0.4.10 until operator bun run bump-ver 0.5.0 (Plan §6). Code readiness via CHANGELOG + additive API."
+        }
+    ],
+    "acceptanceCriteria": []
+}

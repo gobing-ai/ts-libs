@@ -45,6 +45,9 @@ const LIFECYCLE_CROSSFILE_DIR = 'crossfile';
 /** Rule ID backing the verify-confidence fixture set. */
 const VERIFY_CONFIDENCE_RULE_ID = 'verify-confidence-level';
 
+/** Rule ID backing the evidence-citation fixture set. */
+const EVIDENCE_CITATION_RULE_ID = 'evidence-citation';
+
 /** Rule ID backing the changelog-verification fixture set. */
 const CHANGELOG_RULE_ID = 'changelog-verification-confidence';
 
@@ -92,6 +95,11 @@ const FIXTURE_SETS: readonly FixtureSetDeclaration[] = [
         set: 'verify-confidence',
         ruleFile: '.spur/rules/quality/verify-confidence.yaml',
         expected: { fire: 8, pass: 6 },
+    },
+    {
+        set: 'evidence-citation',
+        ruleFile: '.spur/rules/quality/evidence-citation.yaml',
+        expected: { fire: 3, pass: 6 },
     },
     {
         set: 'changelog-verification',
@@ -326,22 +334,30 @@ async function planDecisionBoundaryCases(setDir: string, expect: Expectation): P
     });
 }
 
-/** Plan the verify-confidence set: each verdict JSON is one isolated verdict-plane case. */
-async function planVerifyConfidenceCases(setDir: string, expect: Expectation): Promise<PlannedCase[]> {
+/**
+ * Plan a verdict-plane set (verify-confidence, evidence-citation): each staged
+ * verdict JSON is one isolated case on the `.spur/run|memory/evidence` plane.
+ */
+async function planVerdictPlaneCases(
+    set: string,
+    ruleId: string,
+    setDir: string,
+    expect: Expectation,
+): Promise<PlannedCase[]> {
     const expectDirName = EXPECTATION_DIRS[expect];
-    const label = `verify-confidence/${expectDirName}`;
+    const label = `${set}/${expectDirName}`;
     const expectDir = join(setDir, expectDirName);
     const files = await walkRelativeFiles(expectDir, label);
 
     return files.map((relative) => {
         if (!/^\.spur\/(?:run|memory\/evidence)\/[^/]+\.json$/.test(relative)) {
             throw new Error(
-                `unrecognized fixture shape "${label}/${relative}": a verify-confidence case is .spur/run/<file>.json or .spur/memory/evidence/<file>.json`,
+                `unrecognized fixture shape "${label}/${relative}": a ${set} case is .spur/run/<file>.json or .spur/memory/evidence/<file>.json`,
             );
         }
         return {
             source: `${expectDirName}/${relative}`,
-            ruleIds: [VERIFY_CONFIDENCE_RULE_ID],
+            ruleIds: [ruleId],
             expect,
             files: [{ relative, absolute: join(expectDir, relative) }],
         };
@@ -384,7 +400,10 @@ async function planChangelogVerificationCases(setDir: string, expect: Expectatio
 const SET_PLANNERS: Readonly<Record<string, (setDir: string, expect: Expectation) => Promise<PlannedCase[]>>> = {
     'lifecycle-bus-propagation': planLifecycleCases,
     'decision-boundaries': planDecisionBoundaryCases,
-    'verify-confidence': planVerifyConfidenceCases,
+    'verify-confidence': (setDir, expect) =>
+        planVerdictPlaneCases('verify-confidence', VERIFY_CONFIDENCE_RULE_ID, setDir, expect),
+    'evidence-citation': (setDir, expect) =>
+        planVerdictPlaneCases('evidence-citation', EVIDENCE_CITATION_RULE_ID, setDir, expect),
     'changelog-verification': planChangelogVerificationCases,
 };
 

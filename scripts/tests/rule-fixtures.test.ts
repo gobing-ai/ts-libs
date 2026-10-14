@@ -11,6 +11,7 @@ const RULE_FILES = [
     '.spur/rules/typescript/lifecycle-bus-propagation.yaml',
     '.spur/rules/typescript/decision-boundaries.yaml',
     '.spur/rules/quality/verify-confidence.yaml',
+    '.spur/rules/quality/evidence-citation.yaml',
     '.spur/rules/quality/changelog-verification-confidence.yaml',
 ] as const;
 
@@ -59,19 +60,20 @@ afterEach(async () => {
 });
 
 describe('runRuleFixtureChecks', () => {
-    test('asserts every current case in all four sets and writes a passing report', async () => {
+    test('asserts every current case in all five sets and writes a passing report', async () => {
         const reportPath = await makeReportPath();
         const report = await runRuleFixtureChecks(repoRoot, reportPath);
 
         expect(report.error).toBeUndefined();
         expect(report.pass).toBe(true);
-        expect(report.totals.sets).toBe(4);
-        expect(report.totals.cases).toEqual({ total: 32, fire: 16, pass: 16 });
+        expect(report.totals.sets).toBe(5);
+        expect(report.totals.cases).toEqual({ total: 41, fire: 19, pass: 22 });
         expect(report.totals.failed).toEqual({ total: 0, fire: 0, pass: 0 });
         expect(report.sets.map((set) => [set.set, set.cases.total])).toEqual([
             ['lifecycle-bus-propagation', 5],
             ['decision-boundaries', 4],
             ['verify-confidence', 14],
+            ['evidence-citation', 9],
             ['changelog-verification', 9],
         ]);
 
@@ -79,7 +81,8 @@ describe('runRuleFixtureChecks', () => {
         const lifecycle = report.sets[0];
         expect(lifecycle?.cases).toEqual({ total: 5, fire: 2, pass: 3 });
         expect(report.sets[2]?.cases).toEqual({ total: 14, fire: 8, pass: 6 });
-        expect(report.sets[3]?.cases).toEqual({ total: 9, fire: 4, pass: 5 });
+        expect(report.sets[3]?.cases).toEqual({ total: 9, fire: 3, pass: 6 });
+        expect(report.sets[4]?.cases).toEqual({ total: 9, fire: 4, pass: 5 });
 
         expect(JSON.parse(await readFile(reportPath, 'utf8'))).toEqual(report);
     });

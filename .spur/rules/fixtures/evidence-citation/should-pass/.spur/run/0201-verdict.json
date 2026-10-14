@@ -1,0 +1,21 @@
+{
+    "wbs": "0201",
+    "verdict": "PASS",
+    "confidence": "HIGH",
+    "proof": "Fresh verification 2026-10-13: bun test packages/ai-runner/tests → 223 pass / 0 fail; manifest re-read this run.",
+    "requirements": [
+        {
+            "id": "R1",
+            "status": "MET",
+            "evidence": "The `@typesafe-ai/sdk` dependency is pinned exactly at `packages/ai-runner/package.json:52` with no caret or tilde range (re-read this run)."
+        }
+    ],
+    "acceptanceCriteria": [
+        {
+            "id": "Scenario: pin is confined to this package",
+            "status": "MET",
+            "evidenceType": "test",
+            "evidence": "`packages/ai-runner/tests/agents/shims.test.ts:457-492` covers registry membership, resolve, and capability; boundary rule fired on a planted import."
+        }
+    ]
+}
