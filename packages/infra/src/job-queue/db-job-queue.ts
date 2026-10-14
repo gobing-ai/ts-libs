@@ -202,7 +202,10 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
 
     async cancel(jobId: string): Promise<boolean> {
         const attempt = this.activeAttempts.get(jobId);
-        if (attempt === undefined) return false;
+        // Admission ends at handler settlement (task 0112): a settled attempt is
+        // already inside its acknowledgement window and the outcome dispatch can
+        // no longer act on a cancellation — refuse instead of accepting it.
+        if (attempt === undefined || attempt.state.settled) return false;
         attempt.state.cancelled = true;
         attempt.controller.abort();
         return true;
@@ -357,14 +360,12 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
                     return;
                 }
 
-                if (outcome.outcome === 'error') {
-                    await this.failOrRetry(job, outcome.error, Number.isFinite(durationMs) ? durationMs : 0, token);
-                } else if (outcome.timedOut) {
-                    // Deadline expiry is a failure like any other, reported only after
-                    // the handler has settled — even if it ignored the abort.
-                    await this.failOrRetry(job, outcome.error, Number.isFinite(durationMs) ? durationMs : 0, token);
-                } else if (attempt.cancelled) {
-                    // Manual cancellation is terminal: settle, then fail without retry.
+                if (attempt.cancelled) {
+                    // Manual cancellation is terminal and wins over handler errors
+                    // and deadline expiry: an accepted cancel() before settlement
+                    // fails the job without retry, whatever the outcome was (0112).
+                    // Lease-loss fencing above stays first — a stale attempt mutates
+                    // nothing; the fenced write below still refuses a stolen token.
                     const message = 'job cancelled';
                     const applied = await this.dao.markFailed(record.id, job.attempts + 1, message, token);
                     if (applied) {
@@ -379,6 +380,12 @@ export class DBQueueConsumer<T = unknown> implements QueueConsumer<T> {
                             severity: 'warning',
                         });
                     }
+                } else if (outcome.outcome === 'error') {
+                    await this.failOrRetry(job, outcome.error, Number.isFinite(durationMs) ? durationMs : 0, token);
+                } else if (outcome.timedOut) {
+                    // Deadline expiry is a failure like any other, reported only after
+                    // the handler has settled — even if it ignored the abort.
+                    await this.failOrRetry(job, outcome.error, Number.isFinite(durationMs) ? durationMs : 0, token);
                 } else {
                     // Task 0086 R10: gate metric + event on the fenced write — a
                     // lost lease means another consumer owns the job now.

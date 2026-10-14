@@ -1,16 +1,18 @@
 ---
 schema_version: 1
 name: Commit embedded migration SQL and journal entries atomically
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-14T03:37:05.705Z
-updated_at: "2026-10-14T03:51:29.351Z"
+updated_at: "2026-10-14T04:30:55.549Z"
 feature_id: B
 
 priority: P2
 ac_numbering: task-local
 ac_altitude: task-local
 estimate_hours: 2
+done_forced: "false"
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0113-verdict.json
 ---
 
 ## 0113. Commit embedded migration SQL and journal entries atomically
@@ -27,9 +29,9 @@ Review reproduced a restart failure in the embedded migration fallback. `package
 
 ### Requirements
 
-- [ ] R1. Each embedded migration commits all its SQL statements and journal insertion together, or rolls all of them back on failure.
-- [ ] R2. A failed embedded migration can be retried successfully without duplicate-column errors; earlier committed migrations remain recorded and are skipped.
-- [ ] R3. Existing custom journal names, validation, logging and successful rerun behavior remain compatible without new public APIs or dependencies.
+- [x] R1. Each embedded migration commits all its SQL statements and journal insertion together, or rolls all of them back on failure.
+- [x] R2. A failed embedded migration can be retried successfully without duplicate-column errors; earlier committed migrations remain recorded and are skipped.
+- [x] R3. Existing custom journal names, validation, logging and successful rerun behavior remain compatible without new public APIs or dependencies.
 
 ### Acceptance Criteria
 
@@ -85,23 +87,98 @@ Precondition: restore locked dependencies with bun install --frozen-lockfile and
 
 ### Plan
 
-- [ ] Step 0: restore locked dependencies with bun install --frozen-lockfile; verify Bun 1.4.3 and drizzle-orm resolution from packages/db/src matches bun.lock, with no manifest or lockfile changes.
-- [ ] Add the real-SQLite journal-trigger regression for 0005, forcing embedded migration via fs.exists=false; assert all four columns and its hash are absent after rejection while prior journal rows remain (R1).
-- [ ] Build one DbBatchOp list per embedded migration, ending with its journal INSERT, call adapter.batch and update the local comment; retain existing validation/logging (R1, R3).
-- [ ] Drop the failure trigger, retry twice and assert unique migration hashes and unchanged prior rows; cover a legal custom journal name, invalid name, and mid-SQL failure through the real batch (R1-R3).
-- [ ] Run bun test packages/db/tests/migrate.test.ts, bun run spur-check and bun run build; record final results against R1-R3.
+- [x] Step 0: restore locked dependencies with bun install --frozen-lockfile; verify Bun 1.4.3 and drizzle-orm resolution from packages/db/src matches bun.lock, with no manifest or lockfile changes.
+- [x] Add the real-SQLite journal-trigger regression for 0005, forcing embedded migration via fs.exists=false; assert all four columns and its hash are absent after rejection while prior journal rows remain (R1).
+- [x] Build one DbBatchOp list per embedded migration, ending with its journal INSERT, call adapter.batch and update the local comment; retain existing validation/logging (R1, R3).
+- [x] Drop the failure trigger, retry twice and assert unique migration hashes and unchanged prior rows; cover a legal custom journal name, invalid name, and mid-SQL failure through the real batch (R1-R3).
+- [x] Run bun test packages/db/tests/migrate.test.ts, bun run spur-check and bun run build; record final results against R1-R3.
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Change-map (auto-generated — implement step did not record a Solution).
+Each entry cites the first changed line per file (`file:line`).
+
+| Change (`file:line`) |
+|----------------------|
+| `docs/features/B_ts-db.md:24` |
+| `docs/features/B_ts-db.md:32` |
+| `docs/features/B_ts-db.md:5` |
+| `docs/features/B_ts-db.md:9` |
+| `docs/features/D_ts-infra.md:24` |
+| `docs/features/D_ts-infra.md:32` |
+| `docs/features/D_ts-infra.md:5` |
+| `docs/features/D_ts-infra.md:9` |
+| `docs/features/INDEX.md:13` |
+| `docs/features/INDEX.md:17` |
+| `docs/features/INDEX.md:24` |
+| `docs/features/INDEX.md:27` |
+| `docs/features/INDEX.md:8` |
+| `docs/tasks/0112_make-manual-queue-cancellation-terminal-when-handlers-reject.md:104` |
+| `docs/tasks/0112_make-manual-queue-cancellation-terminal-when-handlers-reject.md:116` |
+| `docs/tasks/0112_make-manual-queue-cancellation-terminal-when-handlers-reject.md:138` |
+| `docs/tasks/0112_make-manual-queue-cancellation-terminal-when-handlers-reject.md:14` |
+| `docs/tasks/0112_make-manual-queue-cancellation-terminal-when-handlers-reject.md:172` |
+| `docs/tasks/0112_make-manual-queue-cancellation-terminal-when-handlers-reject.md:33` |
+| `docs/tasks/0112_make-manual-queue-cancellation-terminal-when-handlers-reject.md:4` |
+| `docs/tasks/0112_make-manual-queue-cancellation-terminal-when-handlers-reject.md:7` |
+| `docs/tasks/0112_make-manual-queue-cancellation-terminal-when-handlers-reject.md:96` |
+| `packages/db/src/migrate.ts:100` |
+| `packages/db/src/migrate.ts:4` |
+| `packages/db/src/migrate.ts:62` |
+| `packages/db/src/migrate.ts:93` |
+| `packages/db/tests/migrate.test.ts:2` |
+| `packages/db/tests/migrate.test.ts:215` |
+| `packages/infra/src/job-queue/db-job-queue.ts:205` |
+| `packages/infra/src/job-queue/db-job-queue.ts:363` |
+| `packages/infra/src/job-queue/db-job-queue.ts:383` |
+| `packages/infra/tests/job-queue/lease-consumer.test.ts:374` |
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | One `adapter.batch` per migration carries the split SQL statements plus the journal INSERT inside a single SQLite transaction (packages/db/src/migrate.ts:101-105); AC1 and AC4 tests prove both failure classes roll back (packages/db/tests/migrate.test.ts:245,294) |
+| R2 | MET | AC2 test: after dropping the failure trigger, two consecutive applyMigrations runs succeed, journal hashes are unique, and the five pre-failure rows keep their original hash+created_at (packages/db/tests/migrate.test.ts:245-278); already-applied hashes are skipped via the journal SELECT (packages/db/src/migrate.ts:74-83) |
+| R3 | MET | Journal-name validation, statement splitting, logging and custom names untouched (packages/db/src/migrate.ts:66,90-96); pre-existing default-name, invalid-name, idempotence and logger tests still pass; no new public API or dependency in the diff |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC1 — Journal failure rolls back schema changes (req: R1) | MET | test | packages/db/tests/migrate.test.ts 'AC1+AC2: journal failure rolls back 0005, retry succeeds idempotently': TEMP trigger RAISE(ABORT,'injected journal failure') on the precreated journal fires on the 0005 hash; applyMigrations rejects; PRAGMA table_info shows none of timeout_ms/timeout_unlimited/attempt_token/lease_expires_at; journal has exactly the 5 prior rows without the 0005 hash |
+| AC2 — Retry completes after a transient failure (req: R2) | MET | test | same test after DROP TRIGGER: two applyMigrations runs succeed; journal holds one row per embedded migration hash (Set size equals length); prior rows byte-identical on hash+created_at |
+| AC3 — Existing migration contracts remain supported (req: R3) | MET | test | new custom-name atomicity test (packages/db/tests/migrate.test.ts:330) plus unchanged pre-existing tests: default-name apply, invalid-name rejection before journal SQL, idempotent rerun, injected-logger routing — 16/16 in file; bun run spur-check PASS (.spur/run/0113-test-gate.log) |
+| AC4 — Mid-migration SQL failure rolls back the whole migration (req: R1) | MET | test | packages/db/tests/migrate.test.ts 'AC4: mid-migration SQL failure through the real batch rolls back the whole migration': subclass forwards the real operation list into the real transaction with a failing SELECT inserted after the first 0005 ALTER; rejection propagates; PRAGMA shows zero 0005 columns; journal keeps the 5 prior rows without the 0005 hash |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+#### Verdict
+
+PASS — the implementation satisfies R1–R3 within the declared scope: per-migration atomicity through the existing `adapter.batch` seam, no new APIs or dependencies.
+
+#### Coverage
+
+| Area | Verdict | Evidence |
+| --- | --- | --- |
+| R1 journal failure rollback (AC1) | PASS | `packages/db/tests/migrate.test.ts:245` — TEMP trigger `RAISE(ABORT)` on the 0005 journal INSERT; `PRAGMA table_info(queue_jobs)` asserts all four 0005 columns absent; five prior journal rows intact |
+| R2 retry + idempotence (AC2) | PASS | `packages/db/tests/migrate.test.ts:245` (retry half) — two post-fix runs succeed; hashes unique; prior rows byte-identical (`hash`+`created_at`) |
+| R3 compatibility (AC3) | PASS | custom journal name test `packages/db/tests/migrate.test.ts:330`; pre-existing default-name, invalid-name, idempotence and logger tests still green (16/16 in file) |
+| R1 mid-SQL failure (AC4) | PASS | `packages/db/tests/migrate.test.ts:294` — subclass forwards the real op list into the real transaction with a failing statement after the first 0005 ALTER; rollback asserted via PRAGMA + journal absence |
+| Regression safety | PASS | `bun test packages/db/tests/migrate.test.ts` 16 pass / 0 fail; `bun run spur-check` PASS (log `.spur/run/0113-test-gate.log`); `bun run build` succeeds. Attempt 1 of the gate failed on biome quote style in the new tests — fixed by format only, no test weakening |
+
+#### Findings
+
+| Priority | Finding | Disposition |
+| --- | --- | --- |
+| P4 | `applied` counting only after successful batch (`packages/db/src/migrate.ts:106`) is the guarded invariant future editors must preserve | Noted for drift awareness; no change — behavior correct |
+| P4 | AC4 test subclass relies on implicit derived-constructor arg forwarding to `BunSqliteAdapter` instead of an explicit constructor | Accepted for minimality; correctness unaffected (16/16 green) |
+| P4 | Residual risk: atomicity is per migration by design — a later migration's failure intentionally leaves earlier migrations committed | Declared task behavior; repair of already-inconsistent DBs stays out of scope |
+
+**Confidence:** HIGH
 
 ### References
 
@@ -114,4 +191,7 @@ Precondition: restore locked dependencies with bun install --frozen-lockfile and
 ### History
 
 - 2026-10-14T03:38:14.383Z backlog → todo (system)
+- 2026-10-14T04:24:35.775Z todo → wip (system)
+- 2026-10-14T04:30:35.010Z wip → testing (system)
+- 2026-10-14T04:30:55.542Z testing → done (system)
 

@@ -1,16 +1,18 @@
 ---
 schema_version: 1
 name: Make manual queue cancellation terminal when handlers reject
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-14T03:37:04.998Z
-updated_at: "2026-10-14T03:51:27.761Z"
+updated_at: "2026-10-14T04:15:44.260Z"
 feature_id: D
 
 priority: P2
 ac_numbering: task-local
 ac_altitude: task-local
 estimate_hours: 2
+done_forced: "false"
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0112-verdict.json
 ---
 
 ## 0112. Make manual queue cancellation terminal when handlers reject
@@ -28,9 +30,9 @@ Review of packages and scripts reproduced a manual-cancellation defect. In `pack
 
 ### Requirements
 
-- [ ] R1. A manual cancellation accepted before handler settlement becomes terminal failed after settlement, whether the handler resolves or rejects, without retrying. cancel() returns false once the handler is settled, including while acknowledgement is pending.
-- [ ] R2. Lost-lease fencing remains stronger than cancellation; stale attempts emit no completion, failure or retry events and do not change the replacement attempt's row.
-- [ ] R3. Ordinary handler errors and deadline expiry retain existing retry behavior; an accepted manual cancellation takes precedence over a coincident timeout. No public API or schema changes.
+- [x] R1. A manual cancellation accepted before handler settlement becomes terminal failed after settlement, whether the handler resolves or rejects, without retrying. cancel() returns false once the handler is settled, including while acknowledgement is pending.
+- [x] R2. Lost-lease fencing remains stronger than cancellation; stale attempts emit no completion, failure or retry events and do not change the replacement attempt's row.
+- [x] R3. Ordinary handler errors and deadline expiry retain existing retry behavior; an accepted manual cancellation takes precedence over a coincident timeout. No public API or schema changes.
 
 ### Acceptance Criteria
 
@@ -91,23 +93,70 @@ Precondition: Bun 1.4.3 is installed, but the audited environment resolves drizz
 
 ### Plan
 
-- [ ] Step 0: restore locked dependencies with bun install --frozen-lockfile; verify Bun 1.4.3 and drizzle-orm resolution from packages/db/src equals bun.lock, without changing manifests or lockfile.
-- [ ] Add failing regressions in packages/infra/tests/job-queue/lease-consumer.test.ts for an abort-rejecting handler and for cancellation while markCompleted is held; synchronize with promises and capture failed/retry/completed events (R1).
-- [ ] Add the settled guard in cancel and reorder processJob outcome dispatch after lease-loss fencing, retaining the cancellation persistence/event block (R1, R2).
-- [ ] Cover cancellation plus lost/replaced ownership and cancellation overlapping timeout; preserve ordinary-error, deadline and resolving-handler regressions (R2, R3).
-- [ ] Run bun test packages/infra/tests/job-queue, bun run spur-check and bun run build; record the final results against R1-R3.
+- [x] Step 0: restore locked dependencies with bun install --frozen-lockfile; verify Bun 1.4.3 and drizzle-orm resolution from packages/db/src equals bun.lock, without changing manifests or lockfile.
+- [x] Add failing regressions in packages/infra/tests/job-queue/lease-consumer.test.ts for an abort-rejecting handler and for cancellation while markCompleted is held; synchronize with promises and capture failed/retry/completed events (R1).
+- [x] Add the settled guard in cancel and reorder processJob outcome dispatch after lease-loss fencing, retaining the cancellation persistence/event block (R1, R2).
+- [x] Cover cancellation plus lost/replaced ownership and cancellation overlapping timeout; preserve ordinary-error, deadline and resolving-handler regressions (R2, R3).
+- [x] Run bun test packages/infra/tests/job-queue, bun run spur-check and bun run build; record the final results against R1-R3.
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Change-map (auto-generated — implement step did not record a Solution).
+Each entry cites the first changed line per file (`file:line`).
+
+| Change (`file:line`) |
+|----------------------|
+| `packages/infra/src/job-queue/db-job-queue.ts:205` |
+| `packages/infra/src/job-queue/db-job-queue.ts:363` |
+| `packages/infra/src/job-queue/db-job-queue.ts:383` |
+| `packages/infra/tests/job-queue/lease-consumer.test.ts:374` |
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+- Confidence: HIGH
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | Dispatch precedence: `attempt.cancelled` branch precedes `outcome.error`/`timedOut` (packages/infra/src/job-queue/db-job-queue.ts:363); `cancel()` refuses settled attempts (packages/infra/src/job-queue/db-job-queue.ts:203); AC1+AC4 tests green in packages/infra/tests/job-queue/lease-consumer.test.ts |
+| R2 | MET | `attempt.lost` fencing branch remains first (packages/infra/src/job-queue/db-job-queue.ts:348); AC2 test: token theft mid-run + accepted cancel settles → fenced markFailed refuses, replacement row and attemptToken unchanged, zero lifecycle events |
+| R3 | MET | `failOrRetry` paths for error/timedOut unchanged (packages/infra/src/job-queue/db-job-queue.ts:381-386); existing crash-retry and timeout-retry tests pass (43/43); AC5 test: cancel after deadline → terminal failed, no retry |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC1 — Rejected abort becomes terminal failure (req: R1) | MET | test | packages/infra/tests/job-queue/lease-consumer.test.ts 'AC1: a rejecting handler cannot send an accepted cancellation back to pending': cancel true pre-settlement, handler rejects on abort → row failed with 'job cancelled' reason, exactly one queue.job.failed event, no retry, second processOnce returns 0 and row stays failed |
+| AC2 — Lease loss fences cancelled attempts (req: R2) | MET | test | packages/infra/tests/job-queue/lease-consumer.test.ts 'AC2: lease loss fences a cancelled attempt acknowledgements': rival claimReady mints replacement token; cancelled attempt settles → markFailed fenced (applied false), row stays processing with replacement token, events [] |
+| AC3 — Uncancelled errors and timeouts still retry (req: R3) | MET | test | existing crash-retry (AC10) and deadline-retry tests in packages/infra/tests/job-queue/lease-consumer.test.ts pass unchanged in the full suite (43 pass / 0 fail); failOrRetry path untouched by the diff |
+| AC4 — Settled acknowledgement refuses late cancellation (req: R1) | MET | test | packages/infra/tests/job-queue/lease-consumer.test.ts 'AC4: cancelling a settled attempt while its acknowledgement is pending returns false': markCompleted held via dao proxy, cancel returns false, ack completes → row completed, exactly queue.job.completed |
+| AC5 — Accepted cancellation takes precedence over timeout (req: R3) | MET | test | packages/infra/tests/job-queue/lease-consumer.test.ts 'AC5: an accepted cancellation wins over a coincident deadline': deadline abort observed while handler held pre-settlement, cancel true, settle → row failed with 'job cancelled', single queue.job.failed, no retry |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+**Verdict: PASS** — reviewed inline (reviewer role, fresh eyes) against Requirements/AC; evidence from `git diff` at `sp/runall-0112-0113-4480` and the full test run.
+
+**Requirement coverage:**
+
+| Requirement | Evidence | Status |
+|---|---|---|
+| R1 terminal-on-reject | Dispatch precedence `attempt.cancelled` now precedes `outcome.outcome === 'error'` (`db-job-queue.ts:363`); AC1 test: rejecting handler after accepted cancel → `failed`, one `queue.job.failed`, second poll no-op | MET |
+| R2 lease-loss fencing | `attempt.lost` branch stays first (`db-job-queue.ts:348`); AC2 test: token theft mid-run + cancel → fenced `markFailed` refuses, row/`attemptToken` unchanged, zero events | MET |
+| R3 cancel beats timeout | `outcome.timedOut` moved below cancelled (`db-job-queue.ts:384`); AC5 test: deadline fired, handler held pre-settlement, cancel accepted → `failed` not retry | MET |
+| Acceptance window | `cancel()` refuses settled attempts (`db-job-queue.ts:203`); AC4 test: cancel during pending `markCompleted` → `false`, job completes | MET |
+| AC3 ordinary errors/timeouts still retry | Existing AC10 crash-retry and timeout-retry tests unchanged and green (43/43) | MET |
+
+**Findings:**
+
+| Priority | Location | Finding |
+|---|---|---|
+| P4 | packages/infra/src/job-queue/db-job-queue.ts:366 | Terminal policy intentionally discards the handler's rejection message in favor of `job cancelled`; per spec `event.error = 'job cancelled'` — by design, no action. |
+| P4 | packages/infra/tests/job-queue/lease-consumer.test.ts:376 | AC2 passes pre-fix as well (fenced write already guards); retained as regression armor for the reordered precedence. |
+
+Residual risk: none blocking. No `biome-ignore` added; no skips.
+
+**Confidence:** HIGH
 
 ### References
 
@@ -120,4 +169,7 @@ Precondition: Bun 1.4.3 is installed, but the audited environment resolves drizz
 ### History
 
 - 2026-10-14T03:38:14.089Z backlog → todo (system)
+- 2026-10-14T04:06:55.142Z todo → wip (system)
+- 2026-10-14T04:15:33.354Z wip → testing (system)
+- 2026-10-14T04:15:44.234Z testing → done (system)
 

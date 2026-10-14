@@ -1,7 +1,7 @@
 import type { FileSystem } from '@gobing-ai/ts-runtime';
 import { getProcessCwd, resolvePath } from '@gobing-ai/ts-runtime';
 
-import type { DbAdapter } from './adapter';
+import type { DbAdapter, DbBatchOp } from './adapter';
 import { embeddedMigrations } from './embedded-migrations';
 
 /**
@@ -59,7 +59,9 @@ function validateMigrationTableName(table: string): string {
  * Apply migrations from embedded SQL strings (for compiled binaries).
  *
  * Checks the journal table and applies only migrations that haven't run yet.
- * Each migration is executed with adapter.exec() for file-based or adapter.run() for journal tracking.
+ * Each migration's SQL statements and its journal INSERT run as one
+ * `adapter.batch` call — a single SQLite transaction, atomic per migration
+ * (task 0113): a journal failure rolls the schema changes back with it.
  */
 async function applyEmbeddedMigrations(
     adapter: DbAdapter,
@@ -88,18 +90,19 @@ async function applyEmbeddedMigrations(
 
         logger.info(`Applying embedded migration: ${migration.tag}`);
 
-        // Split on semicolons and execute each non-empty statement
+        // Split on semicolons; batch the migration's statements with its journal
+        // INSERT so they commit or roll back together (task 0113, ADR-020 seam).
         const statements = migration.sql
             .split(';')
             .map((s) => s.trim())
             .filter((s) => s.length > 0);
 
-        for (const stmt of statements) {
-            await adapter.exec(stmt);
-        }
-
-        // Record in journal
-        await adapter.run(`INSERT INTO "${journalTable}" (hash, created_at) VALUES (?, ?)`, migration.hash, Date.now());
+        const ops: DbBatchOp[] = statements.map((sql) => ({ sql, params: [] }));
+        ops.push({
+            sql: `INSERT INTO "${journalTable}" (hash, created_at) VALUES (?, ?)`,
+            params: [migration.hash, Date.now()],
+        });
+        await adapter.batch(ops);
         applied++;
     }
 

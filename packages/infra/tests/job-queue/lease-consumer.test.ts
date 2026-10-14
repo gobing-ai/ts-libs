@@ -371,3 +371,164 @@ describe('DBQueueConsumer execution deadlines', () => {
         expect((await dao.getById(failedId))?.status).toBe('processing');
     });
 });
+
+describe('DBQueueConsumer manual cancellation terminality (task 0112)', () => {
+    const subscribeLifecycle = (): { bus: EventBus<QueueEvents>; events: string[] } => {
+        const bus = new EventBus<QueueEvents>();
+        const events: string[] = [];
+        for (const name of ['queue.job.completed', 'queue.job.failed', 'queue.job.retrying'] as const) {
+            bus.on(name, () => events.push(name));
+        }
+        return { bus, events };
+    };
+
+    test('AC1: a rejecting handler cannot send an accepted cancellation back to pending', async () => {
+        const queue = new DBJobQueue(dao);
+        const id = await queue.enqueue('abort-reject', {}, { timeoutMs: null, maxRetries: 5 });
+        const { bus, events } = subscribeLifecycle();
+
+        const started = Promise.withResolvers<void>();
+        const consumer = new DBQueueConsumer(dao, {
+            visibilityTimeout: 60_000,
+            batchSize: 1,
+            baseDelay: 0,
+            maxDelay: 0,
+            events: bus,
+            queueName: 'cancel-terminal',
+        });
+        consumer.register('abort-reject', async (_job, ctx) => {
+            started.resolve();
+            await new Promise<void>((_, reject) => {
+                ctx.signal.addEventListener('abort', () => reject(new Error('handler aborted')));
+            });
+        });
+
+        const processing = consumer.processOnce();
+        await started.promise; // handler is live and parked on the abort signal
+        expect(await consumer.cancel(id)).toBeTrue();
+        await processing;
+
+        const row = await dao.getById(id);
+        expect(row?.status).toBe('failed');
+        expect(row?.lastError).toContain('cancelled');
+        expect(events).toEqual(['queue.job.failed']);
+
+        // Terminal: an immediate second poll cannot re-claim it.
+        expect(await consumer.processOnce()).toBe(0);
+        expect((await dao.getById(id))?.status).toBe('failed');
+    });
+
+    test("AC2: lease loss fences a cancelled attempt's acknowledgements", async () => {
+        const queue = new DBJobQueue(dao);
+        const id = await queue.enqueue('fenced-cancel', {}, { timeoutMs: null, maxRetries: 5 });
+        const { bus, events } = subscribeLifecycle();
+
+        const leaseLost = Promise.withResolvers<void>();
+        const releaseHandler = Promise.withResolvers<void>();
+        let replacementToken: string | null = null;
+        const consumer = new DBQueueConsumer(dao, {
+            visibilityTimeout: 60_000,
+            batchSize: 1,
+            baseDelay: 0,
+            maxDelay: 0,
+            events: bus,
+            queueName: 'cancel-terminal',
+        });
+        consumer.register('fenced-cancel', async (job) => {
+            // Steal the lease mid-run (R10 pattern): expire it, let a rival mint a token.
+            await adapter.run(`UPDATE queue_jobs SET lease_expires_at = ? WHERE id = ?`, Date.now() - 1, job.id);
+            const [rival] = await dao.claimReady(1, { leaseMs: 60_000 });
+            replacementToken = rival?.attemptToken ?? null;
+            leaseLost.resolve();
+            await releaseHandler.promise;
+        });
+
+        const processing = consumer.processOnce();
+        await leaseLost.promise;
+        expect(await consumer.cancel(id)).toBeTrue(); // handler not settled yet
+        releaseHandler.resolve();
+        await processing;
+
+        // Stale attempt: fenced write refused, replacement row and token untouched.
+        const row = await dao.getById(id);
+        expect(row?.status).toBe('processing');
+        expect(row?.attemptToken).toBe(replacementToken);
+        expect(events).toEqual([]);
+    });
+
+    test('AC4: cancelling a settled attempt while its acknowledgement is pending returns false', async () => {
+        const queue = new DBJobQueue(dao);
+        const id = await queue.enqueue('late-cancel', {}, { timeoutMs: null, maxRetries: 5 });
+        const { bus, events } = subscribeLifecycle();
+
+        const ackHeld = Promise.withResolvers<void>();
+        const releaseAck = Promise.withResolvers<void>();
+        const daoProxy = new Proxy(dao, {
+            get(target, prop, receiver) {
+                if (prop === 'markCompleted') {
+                    return async (...args: Parameters<QueueJobDao['markCompleted']>) => {
+                        ackHeld.resolve();
+                        await releaseAck.promise;
+                        return Reflect.get(target, prop, receiver).apply(target, args);
+                    };
+                }
+                return Reflect.get(target, prop, receiver);
+            },
+        });
+
+        const consumer = new DBQueueConsumer(daoProxy, {
+            visibilityTimeout: 60_000,
+            batchSize: 1,
+            baseDelay: 0,
+            maxDelay: 0,
+            events: bus,
+            queueName: 'cancel-terminal',
+        });
+        consumer.register('late-cancel', async () => {});
+        const processing = consumer.processOnce();
+        await ackHeld.promise;
+        expect(await consumer.cancel(id)).toBeFalse();
+        releaseAck.resolve();
+        await processing;
+
+        expect((await dao.getById(id))?.status).toBe('completed');
+        expect(events).toEqual(['queue.job.completed']);
+    });
+
+    test('AC5: an accepted cancellation wins over a coincident deadline', async () => {
+        const queue = new DBJobQueue(dao);
+        const id = await queue.enqueue('cancel-timeout', {}, { timeoutMs: 80, maxRetries: 5 });
+        const { bus, events } = subscribeLifecycle();
+
+        const deadlineFired = Promise.withResolvers<void>();
+        const releaseHandler = Promise.withResolvers<void>();
+        const consumer = new DBQueueConsumer(dao, {
+            visibilityTimeout: 60_000,
+            batchSize: 1,
+            baseDelay: 0,
+            maxDelay: 0,
+            events: bus,
+            queueName: 'cancel-terminal',
+        });
+        consumer.register('cancel-timeout', async (_job, ctx) => {
+            await new Promise<void>((resolve) => {
+                ctx.signal.addEventListener('abort', () => {
+                    deadlineFired.resolve();
+                    resolve();
+                });
+            });
+            await releaseHandler.promise; // still held before settlement
+        });
+
+        const processing = consumer.processOnce();
+        await deadlineFired.promise;
+        expect(await consumer.cancel(id)).toBeTrue();
+        releaseHandler.resolve();
+        await processing;
+
+        const row = await dao.getById(id);
+        expect(row?.status).toBe('failed');
+        expect(row?.lastError).toContain('cancelled');
+        expect(events).toEqual(['queue.job.failed']);
+    });
+});
