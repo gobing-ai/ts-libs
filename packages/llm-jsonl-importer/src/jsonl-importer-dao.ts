@@ -475,7 +475,8 @@ export function ledgerInsertOp(
 ): DbBatchOp {
     return {
         sql: `INSERT INTO history_import_ledger (record_hash, source, source_file, source_line, split_index, target_table, imported_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(record_hash) DO NOTHING`,
         params: [recordHash, source, sourceFile, sourceLine, splitIndex, targetTable, timestamp(now)],
     };
 }
@@ -640,7 +641,8 @@ async function insertLedger(
 ): Promise<void> {
     await db.run(
         `INSERT INTO history_import_ledger (record_hash, source, source_file, source_line, split_index, target_table, imported_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(record_hash) DO NOTHING`,
         recordHash,
         source,
         sourceFile,

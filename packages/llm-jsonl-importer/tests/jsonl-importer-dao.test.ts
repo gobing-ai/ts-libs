@@ -7,6 +7,7 @@ import {
     insertLedger,
     insertRecord,
     ledgerExists,
+    ledgerInsertOp,
     loadSourceCheckpoints,
     normalizeSourceFilePaths,
     readCheckpoint,
@@ -126,6 +127,27 @@ describe('ledger operations', () => {
         await insertLedger(db, recordHash, 'test-source', '/tmp/f.json', 1, 0, 'history_etl_test', undefined);
         const exists = await ledgerExists(db, recordHash);
         expect(exists).toBe(true);
+    });
+
+    test('insertLedger is idempotent for an already-ledgered hash', async () => {
+        await insertLedger(db, recordHash, 'test-source', '/tmp/f.json', 1, 0, 'history_etl_test', undefined);
+        await insertLedger(db, recordHash, 'test-source', '/tmp/f.json', 1, 0, 'history_etl_test', undefined);
+
+        const rows = await db.queryAll<{ n: number }>('SELECT COUNT(*) AS n FROM history_import_ledger');
+        expect(rows[0]?.n).toBe(1);
+    });
+
+    test('a batch replaying an already-ledgered hash is a no-op, never a source kill', async () => {
+        // 2026-10-13 knowledge-kit incident: a manual import overlapped the scheduled tick,
+        // both batches passed the ledger-existing prefilter, and the loser died with
+        // "UNIQUE constraint failed: history_import_ledger.record_hash" — losing the whole
+        // `pi` source (2967 MB) for that run. The ledger is bookkeeping: a conflict means
+        // "already recorded", never "abort the source".
+        await insertLedger(db, recordHash, 'test-source', '/tmp/f.json', 1, 0, 'history_etl_test', undefined);
+        await db.batch([ledgerInsertOp(recordHash, 'test-source', '/tmp/f.json', 1, 0, 'history_etl_test', undefined)]);
+
+        const rows = await db.queryAll<{ n: number }>('SELECT COUNT(*) AS n FROM history_import_ledger');
+        expect(rows[0]?.n).toBe(1);
     });
 });
 
