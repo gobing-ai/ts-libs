@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { BunSqliteAdapter } from '../../src/adapters/bun-sqlite';
 
 describe('BunSqliteAdapter', () => {
@@ -45,6 +48,34 @@ describe('BunSqliteAdapter', () => {
             expect(row?.timeout).toBe(10000);
         } finally {
             a.close();
+        }
+    });
+
+    test('constructor waits out a briefly locked file instead of throwing at journal_mode', async () => {
+        // Regression: busy_timeout must be applied BEFORE journal_mode — a second opener
+        // while another process holds a write lock used to die instantly with SQLITE_BUSY.
+        const dir = mkdtempSync(join(tmpdir(), 'ts-db-busy-'));
+        const dbPath = join(dir, 'locked.db');
+        // A child process takes an EXCLUSIVE write lock, commits after ~400ms, exits.
+        const holder = Bun.spawn(
+            [
+                'bun',
+                '-e',
+                `const db=new (require('bun:sqlite').Database)(${JSON.stringify(dbPath)},{create:true});` +
+                    "db.run('CREATE TABLE IF NOT EXISTS t (id INTEGER)');db.run('BEGIN EXCLUSIVE');" +
+                    "setTimeout(()=>{db.run('COMMIT');process.exit(0)},400);",
+            ],
+            { stdout: 'ignore', stderr: 'inherit' },
+        );
+        try {
+            await Bun.sleep(150); // let the child open and lock the file
+            const start = Date.now();
+            const second = new BunSqliteAdapter({ databaseUrl: dbPath });
+            expect(Date.now() - start).toBeGreaterThanOrEqual(100); // waited, not instant-failed
+            second.close();
+        } finally {
+            await holder.exited;
+            rmSync(dir, { recursive: true, force: true });
         }
     });
 

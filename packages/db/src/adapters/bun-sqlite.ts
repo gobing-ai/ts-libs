@@ -69,10 +69,14 @@ export class BunSqliteAdapter implements DbAdapter {
 
         this.sqlite = new Database(dbPath, { create: true });
 
+        // busy_timeout FIRST: the journal_mode pragma below itself blocks (and throws
+        // SQLITE_BUSY without a busy handler) when another connection holds the file —
+        // e.g. a pipeline process with the DB open while a guard child opens the same DB
+        // (spur-new gate flake 2026-10-14, FeatureLifecycleAdapter strict-check child).
+        this.sqlite.run(pragmas.busyTimeout);
         this.sqlite.run(pragmas.journalMode);
         this.sqlite.run(pragmas.synchronous);
         this.sqlite.run(pragmas.foreignKeys);
-        this.sqlite.run(pragmas.busyTimeout);
 
         this.drizzleDb = drizzle({ client: this.sqlite, schema });
     }
