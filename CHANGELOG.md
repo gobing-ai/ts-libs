@@ -8,6 +8,8 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.27] - 2026-10-13
+
 ### Added
 
 - feat(ai-runner, ai-decision, laya-mlx): disposal seam for process-backed drivers — `DecisionDriver.dispose?()`,
@@ -18,21 +20,17 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - fix(rule-engine): drop the bare `pass` keyword from the secrets-scanner `password` category. The alternation had
   no left word boundary, so it matched the ecosystem's own PASS verdict vocabulary in doc comments
-  (`PASS: \`HIGH\``) and the `bypass`/`compass` substrings in ordinary prose — a hard `--fail-on warning`
-  gate failure indistinguishable from a real leak. `passw[o]rd`, `passwd` and `pwd` still match.
+  (`PASS: \`HIGH\``) and the `bypass`/`compass`substrings in ordinary prose — a hard`--fail-on warning`gate failure indistinguishable from a real leak.`passw[o]rd`, `passwd`and`pwd` still match.
 - fix(ai-runner): send an empty string when a decision has no state. The neutral contract allows a `null`
   state, but the SDK drops the field and the API answers `422 state: Field required`, so every fully
   parameterless decision (the hub's `buildState` returns `null` when only `instructions` is declared)
   fell back to the declared value on the `typesafe` backend.
+- fix(llm-jsonl-importer): make ledger inserts idempotent on record_hash conflicts (5f343de5)
+- fix(decision-clef): send empty-string state instead of null (590e99ec)
 
 <!-- verification: 4/4 behavior claims cited to their owning source + 6 executable checks; confidence HIGH — R1 packages/ai-runner/src/decision/typesafe-driver.ts:83 (`state ?? ''`, the same null→'' normalization packages/laya-mlx/src/driver.ts:280 and packages/decision-fm/src/schema.ts:89 already applied; `SystemOneRequest.state` is an EntryType, and the wire drops a null field) + packages/ai-runner/tests/decision/typesafe-driver.test.ts:188 (null AND undefined both reach the wire as '') + packages/ai-decision/tests/hub.test.ts:593 (end to end: hub `buildState` → null → wire body `state === ''`) + live probe `bun -e` against the real backend → null 422 before / answered after; R2 packages/ai-runner/src/decision/types.ts (DecisionDriver.dispose?), packages/ai-runner/src/decision/decision-maker.ts:203 (maker.dispose() never resolves a lazy backend), packages/ai-decision/src/registry.ts:115 (dispose(name?) releases resolved makers only, resets entries, ignores unknown names), packages/laya-mlx/src/driver.ts:268 (forwards to the client) + tests packages/laya-mlx/tests/driver.test.ts:51, packages/laya-mlx/tests/worker-client.test.ts:172 (a real stub worker: the pid is gone after dispose), packages/ai-runner/tests/decision/decision-maker.test.ts:86, packages/ai-decision/tests/registry.test.ts:234; checks run: `bun run spur-check` → exit 0 (Biome 547 files, every package typecheck, 2941 pass / 0 fail across 240 files, 62 pre-check + 3 post-check rules), each new regression test re-run with its fix reverted and observed failing (hub.test.ts 26 pass / 1 fail; the laya disposal test asserts the worker pid), and `spur rule run --file .spur/rules/quality/verify-confidence.yaml` → PASS on `.spur/memory/evidence/decision-backend-hardening-verdict.json` (confidence HIGH) while FAILING on each of six mutations — level absent, level misspelled, MEDIUM without '(operator-acknowledged)', HIGH with a manual-review acceptance row, HIGH with a failing check, and a confidence check disagreeing with the level — each with its expected message; assertion coverage: (1) every behavior claim names the file:line that implements it or the command that produced it, (2) confidence HIGH is recorded and validated by the verify-confidence rule rather than self-asserted, (3) uncertainty-phrase scan over the three commit bodies and this section → 0 hits -->
 
-## [0.5.27] - 2026-10-13
-
-### Fixed
-
-- fix(llm-jsonl-importer): make ledger inserts idempotent on record_hash conflicts (5f343de5)
-- fix(decision-clef): send empty-string state instead of null (590e99ec)
+<!-- verification (second record — scoped to the two bullets above that carry short hashes, appended after the 4/4 record, which predates them): 2/2 release bullets — one per release commit in @gobing-ai/ts-ai-decision-v0.5.25..HEAD, each short hash exactly once, each bullet the commit's verbatim subject; the range's third commit (c87717f7, author Git Sync) is the commit that landed this section, self-referentially excluded. Source citations for the API/library claims the subjects carry: the ledger-idempotency bullet claims SQLite `ON CONFLICT … DO NOTHING` semantics (a conflicting insert is skipped, never an error) — implemented at packages/llm-jsonl-importer/src/jsonl-importer-dao.ts:479 (ledgerInsertOp) and :645 (insertLedger), observed by packages/llm-jsonl-importer/tests/jsonl-importer-dao.test.ts:132 (double insertLedger → 1 row) and :140 (a batch replaying an already-ledgered hash → 1 row, the 2026-10-13 knowledge-kit incident regression); the empty-state bullet claims the Clef wire body never carries null — implemented at packages/decision-clef/src/driver.ts:302 (`state: state ?? ''`, behind the assertJsonSerializable pre-check at :289), observed by packages/decision-clef/tests/driver.test.ts:197. Checks run: `bun test packages/llm-jsonl-importer/tests/jsonl-importer-dao.test.ts packages/decision-clef/tests/driver.test.ts` → 58 pass / 0 fail / 224 expect() calls across 2 files, including the three cited regression tests; `spur rule run --file .spur/rules/quality/changelog-verification-confidence.yaml` → PASS (every CHANGELOG verification record carries a correctly-spelled level). Confidence: HIGH — derivation machine-checked (git log vs grep, each hash exactly once), every API/library claim cited to the file:line that implements it or the test that observes it, and the behavior behind each claim executed in-session with zero failures; assertion coverage: (1) every bullet traced to the commit that produced it, never paraphrased — exact-subject match, (2) no API/library claim left uncited, (3) the confidence level is validated by the changelog-verification-confidence rule rather than self-asserted -->
 
 ## [0.5.23] - 2026-10-12
 
@@ -88,7 +86,7 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Other
 
-- test(decision-clef): read the __proto__ answer via its own property descriptor (c9a2ffe5)
+- test(decision-clef): read the **proto** answer via its own property descriptor (c9a2ffe5)
 - docs(tasks): file 0109 to verify the project rule fixtures (0a4a508a)
 - docs(0108): re-issue the verification record after the rebase (c1bc2e9f)
 
@@ -348,6 +346,7 @@ versioned in **lockstep** — a single version number covers every package in th
 - `docs(spur)`: feature I corpus capture (tasks 0066/0067) and README refresh.
 
 ## [0.4.62] - 2026-09-09
+
 ### Fixed
 
 - **`@gobing-ai/ts-db`: `BunSqliteAdapter.queryFirst` no longer returns `null` on no row.** `bun:sqlite`'s `Statement.get()` resolves `null` when nothing matches; the adapter passed it through with a cast to `T | undefined`, so the declared contract lied at runtime and diverged from the D1 adapter (which already normalizes). The no-row result is now `undefined`, matching `DbAdapter.queryFirst` and every call site's `=== undefined` reasoning. Repaired two test assertions that codified the `null` behavior (`adapters/bun-sqlite.test.ts`, `adapter.test.ts`) to `toBeUndefined()`.
@@ -376,7 +375,7 @@ versioned in **lockstep** — a single version number covers every package in th
   `SIGKILL` with a bounded settle), reaping owned Unix descendants that survive the leader while
   holding output pipes or a SQLite write transaction; completion is decided by group liveness,
   never by the leader exiting first. Results distinguish `outcome: 'timeout' | 'cancelled' |
-  'signal' | 'exit'` (plus `killGraceMs`, and `defaultTimeout: null` for explicit unlimited).
+'signal' | 'exit'` (plus `killGraceMs`, and `defaultTimeout: null` for explicit unlimited).
 
 ### Changed
 
@@ -884,7 +883,7 @@ versioned in **lockstep** — a single version number covers every package in th
 
 - **`ts-dual-workflow-engine` — pause/resume variable persistence (spur#0366 R1/R2/R3/R11):**
   `WorkflowPersistenceAdapter` gains `loadLatestStateSnapshot(runId): Promise<{ state: string; data:
-  Record<string, unknown> } | undefined>`, returning the most recent `workflow_states` row (DB adapter
+Record<string, unknown> } | undefined>`, returning the most recent `workflow_states` row (DB adapter
   orders by `created_at DESC, rowid DESC`) plus its parsed `data_json`. `RunLifecycle.enter`,
   `commitHop`, and `pause` each accept an optional trailing `vars?: Vars` and, when supplied, embed it
   as `effectiveVars` inside the persisted snapshot's `data`. `pause()` additionally writes a **fresh**
@@ -1406,7 +1405,6 @@ Initial public release.
 [0.4.6]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.5...HEAD
 [0.4.5]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.4...@gobing-ai/ts-libs-v0.4.5
 [0.4.4]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.4.3...@gobing-ai/ts-libs-v0.4.4
-
 [0.3.20]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.19...HEAD
 [0.3.1]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.3.0...@gobing-ai/ts-libs-v0.3.1
 [0.3.0]: https://github.com/gobing-ai/ts-libs/compare/@gobing-ai/ts-libs-v0.2.9...@gobing-ai/ts-libs-v0.3.0
