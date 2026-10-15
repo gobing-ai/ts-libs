@@ -4,6 +4,7 @@ import {
     createNodeFileSystem,
     type FileSystem,
     getProcessEnv,
+    type ReadStreamLine,
     type RuntimePaths,
     resolvePath,
     walkDir,
@@ -277,19 +278,43 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             }
         }
         let lineNumber = 0;
-        for await (const rawLine of readLines(fileSystem, file)) {
+        // Last line number whose producer newline was present. An unterminated final
+        // line is a write still in progress — the checkpoint must never advance past
+        // it, or the completed record is silently lost on the next incremental run
+        // (2026-10-14 17:40 history-refresh failure: a live session's torn tail was
+        // recorded as a parse error, degraded the source, and exited the scheduler job 2).
+        let terminatedLineNumber = 0;
+        // Lines that reached the write phase (parsed, validated, batched — including
+        // ledger dedup) are fully persisted atomically with a per-line checkpoint op,
+        // so the final stamp must never fall below the last of them even when the
+        // producer's trailing newline has not landed yet.
+        let lastWritePhaseLineNumber = 0;
+        for await (const { text: rawLine, terminated } of readLines(fileSystem, file)) {
             // Cancellation boundary between bounded per-line batches: a batch already in
             // flight settled above (its record + ledger + checkpoint writes commit
             // atomically), so rejecting here never leaves a partial line behind.
             throwIfImportAborted(options.signal);
             lineNumber += 1;
+            if (terminated) terminatedLineNumber = lineNumber;
             const line = rawLine.trim();
             if (line.length === 0 || lineNumber <= checkpoint) continue;
             processedLines += 1;
 
-            const raw = parseJsonLine(line, file, lineNumber, parseErrors, definition.corruptLinePolicy);
+            // A torn tail is not corruption: exempt it from parse/validation errors
+            // (mirrors the agy 0623 / dsh 0067 skip rulings, generalized to every live
+            // producer) and never checkpoint past it — the next run re-reads the line
+            // once the producer finishes the append.
+            const incompleteTail = !terminated;
+
+            const raw = parseJsonLine(
+                line,
+                file,
+                lineNumber,
+                incompleteTail ? [] : parseErrors,
+                definition.corruptLinePolicy,
+            );
             if (raw === undefined) {
-                if (definition.corruptLinePolicy === 'skip') skippedCorruptLines += 1;
+                if (!incompleteTail && definition.corruptLinePolicy === 'skip') skippedCorruptLines += 1;
                 continue;
             }
 
@@ -326,11 +351,13 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                 });
                 const parsed = definition.schema.safeParse(normalized);
                 if (!parsed.success) {
-                    validationErrors.push({
-                        sourceFile: file,
-                        sourceLine: lineNumber,
-                        reason: parsed.error.issues.map((issue) => issue.message).join('; '),
-                    });
+                    if (!incompleteTail) {
+                        validationErrors.push({
+                            sourceFile: file,
+                            sourceLine: lineNumber,
+                            reason: parsed.error.issues.map((issue) => issue.message).join('; '),
+                        });
+                    }
                     lineRejected = true;
                     continue;
                 }
@@ -351,6 +378,7 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
             // A rejected line is reported (validationErrors above) but never persisted — no
             // second pass, no checkpoint advance, no partial rows from this record.
             if (lineRejected) continue;
+            lastWritePhaseLineNumber = lineNumber;
 
             // E93 task 1028: bounded capability-conflict findings. A conflict is evidence,
             // not a rejection — the row persists with unknown capability facts and the
@@ -660,10 +688,16 @@ export async function runJsonlImport(source: string | SourceDefinition, options:
                 (entry.size !== (statAfter?.size ?? null) || entry.mtimeMs !== (statAfter?.mtimeMs ?? null));
             if (statAfter !== null && !identityDegraded && (entry === undefined || identityChanged)) {
                 await options.db.batch([
-                    checkpointUpsertOp(resolvedSource, file, Math.max(lineNumber, checkpoint), options.now, {
-                        size: statAfter.size,
-                        mtimeMs: statAfter.mtimeMs,
-                    }),
+                    checkpointUpsertOp(
+                        resolvedSource,
+                        file,
+                        Math.max(terminatedLineNumber, checkpoint, lastWritePhaseLineNumber),
+                        options.now,
+                        {
+                            size: statAfter.size,
+                            mtimeMs: statAfter.mtimeMs,
+                        },
+                    ),
                 ]);
                 checkpointUpdates += 1;
             }
@@ -874,6 +908,24 @@ async function safeStat(fileSystem: FileSystem, file: string): Promise<{ size: n
     }
 }
 
+/** Split an in-memory payload into terminated/unterminated lines. */
+function* splitTerminated(content: string): Generator<ReadStreamLine> {
+    const lines = content.split(/\r?\n/);
+    // A trailing separator's final '' is a split artifact, not a line — drop it so
+    // line numbers and checkpoints match the streamed branch, which never yields it.
+    // A trailing BLANK line (content ends with "\n\n") keeps one real empty entry.
+    let allTerminated = false;
+    if (lines.length > 0 && lines[lines.length - 1] === '') {
+        lines.pop();
+        allTerminated = true; // content ended with a newline: every line was terminated
+    }
+    for (let i = 0; i < lines.length; i += 1) {
+        const text = lines[i];
+        if (text === undefined) continue;
+        yield { text, terminated: allTerminated || i < lines.length - 1 };
+    }
+}
+
 /**
  * Yield lines from a file, streaming when the FileSystem supports it.
  *
@@ -881,16 +933,18 @@ async function safeStat(fileSystem: FileSystem, file: string): Promise<{ size: n
  * once. When `fileSystem.readFileStream` is available, lines are streamed from
  * disk in chunks. Otherwise, falls back to `readFile` + `split` — same behavior
  * as before, preserving parity for stubs like CF Workers.
+ *
+ * Both branches report exact newline termination (ADR-021 parity): the stream
+ * contract yields `{ text, terminated }` and the in-memory split derives it
+ * from the trailing separator.
  */
-async function* readLines(fileSystem: FileSystem, file: string): AsyncGenerator<string> {
+async function* readLines(fileSystem: FileSystem, file: string): AsyncGenerator<ReadStreamLine> {
     if (file.endsWith('.jsonl.zstd')) {
         // task 0067: checksummed Zstandard session logs decompress through the
         // system zstd CLI before line parsing; the same errors/checkpointing apply
         // to the decompressed line stream.
         const decompressed = await zstdDecompress(file);
-        for (const line of decompressed.split(/\r?\n/)) {
-            yield line;
-        }
+        yield* splitTerminated(decompressed);
         return;
     }
     if (fileSystem.readFileStream) {
@@ -898,7 +952,5 @@ async function* readLines(fileSystem: FileSystem, file: string): AsyncGenerator<
         return;
     }
     const content = await fileSystem.readFile(file);
-    for (const line of content.split(/\r?\n/)) {
-        yield line;
-    }
+    yield* splitTerminated(content);
 }

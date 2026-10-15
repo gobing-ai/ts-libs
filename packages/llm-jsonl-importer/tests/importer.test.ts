@@ -1066,7 +1066,7 @@ describe('runJsonlImport corruptLinePolicy (0623)', () => {
     test("default 'error' policy keeps recording parse errors (other sources unchanged)", async () => {
         const file = await fixtureFile([
             JSON.stringify({ id: 'ok-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'good' }),
-            '{"torn',
+            '{"torn\n',
         ]);
 
         const result = await runJsonlImport('antigravity', { db, files: [file], mode: 'full', now: fixedNow });
@@ -1074,6 +1074,105 @@ describe('runJsonlImport corruptLinePolicy (0623)', () => {
         expect(result.parseErrors).toHaveLength(1);
         expect(result.skippedCorruptLines).toBe(0);
         expect(result.importedRecords).toBe(1);
+    });
+});
+
+/**
+ * Incomplete-tail tolerance: a live producer appends to its session log while the
+ * importer reads it, so the final line can be torn (no trailing newline, partial
+ * JSON). It is a write in progress, not corruption — never a parse/validation
+ * error, never checkpointed past, re-read and imported once the append completes.
+ * Root cause of the 2026-10-14 17:40 history-refresh scheduler failure (exit 2).
+ */
+describe('runJsonlImport incomplete-tail tolerance', () => {
+    /** Fixture WITHOUT a trailing newline (fixtureFile always terminates). */
+    async function unterminatedFixture(lines: readonly string[]): Promise<string> {
+        const directory = await mkdtemp(join(tmpdir(), 'llm-jsonl-importer-torn-'));
+        const file = join(directory, 'history.jsonl');
+        await writeFile(file, lines.join('\n'));
+        return realpath(file);
+    }
+
+    const goodLine = JSON.stringify({ id: 'ok-1', timestamp: '2026-05-30T00:00:00.000Z', content: 'hello' });
+    const tornLine = '{"id":"two","timestamp":"2026-05-30T00:01:00.000Z","content":"two';
+    const completedLine = JSON.stringify({ id: 'two', timestamp: '2026-05-30T00:01:00.000Z', content: 'two' });
+
+    test('a torn final line is not a parse error and the checkpoint stays below it', async () => {
+        const file = await unterminatedFixture([goodLine, tornLine]);
+
+        const result = await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental', now: fixedNow });
+
+        expect(result.importedRecords).toBe(1);
+        expect(result.parseErrors).toHaveLength(0);
+        expect(result.validationErrors).toHaveLength(0);
+        const checkpoint = await db.queryFirst<{ last_imported_line: number }>(
+            'SELECT last_imported_line FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
+            'antigravity',
+            file,
+        );
+        expect(checkpoint?.last_imported_line).toBe(1);
+    });
+
+    test('once the producer completes the append, the next run imports the torn record (self-heal)', async () => {
+        const file = await unterminatedFixture([goodLine, tornLine]);
+        await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental', now: fixedNow });
+
+        // Producer finishes the append: torn tail completed + newline + one more record.
+        await writeFile(file, `${goodLine}\n${completedLine}\n`);
+
+        const result = await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental', now: fixedNow });
+
+        expect(result.importedRecords).toBe(1);
+        expect(result.parseErrors).toHaveLength(0);
+        const contents = await db.queryAll<{ payload_json: string }>(
+            'SELECT payload_json FROM history_etl_antigravity ORDER BY source_line',
+        );
+        expect(contents).toHaveLength(2);
+        expect(contents[1]?.payload_json).toContain('two');
+    });
+
+    test('an unterminated but complete record still imports and checkpoints past itself', async () => {
+        // Newline not flushed yet, but the JSON is whole — the record is persisted
+        // atomically with its checkpoint, and a later re-read (if any) dedups by hash.
+        const file = await unterminatedFixture([goodLine, completedLine]);
+
+        const result = await runJsonlImport('antigravity', { db, files: [file], mode: 'incremental', now: fixedNow });
+
+        expect(result.importedRecords).toBe(2);
+        expect(result.parseErrors).toHaveLength(0);
+        const checkpoint = await db.queryFirst<{ last_imported_line: number }>(
+            'SELECT last_imported_line FROM history_import_checkpoint WHERE source = ? AND source_file = ?',
+            'antigravity',
+            file,
+        );
+        expect(checkpoint?.last_imported_line).toBe(2);
+    });
+
+    test('torn-tail behavior is identical through the streaming and readFile branches (ADR-021)', async () => {
+        for (const fileSystem of [createNodeFileSystem(), undefined]) {
+            const localDb = await createDbAdapter({ driver: 'bun-sqlite', url: ':memory:' });
+            const file = await unterminatedFixture([goodLine, tornLine]);
+            const first = await runJsonlImport('antigravity', {
+                db: localDb,
+                files: [file],
+                mode: 'incremental',
+                now: fixedNow,
+                ...(fileSystem ? { fileSystem } : {}),
+            });
+            expect(first.parseErrors).toHaveLength(0);
+            expect(first.importedRecords).toBe(1);
+
+            await writeFile(file, `${goodLine}\n${completedLine}\n`);
+            const second = await runJsonlImport('antigravity', {
+                db: localDb,
+                files: [file],
+                mode: 'incremental',
+                now: fixedNow,
+                ...(fileSystem ? { fileSystem } : {}),
+            });
+            expect(second.parseErrors).toHaveLength(0);
+            expect(second.importedRecords).toBe(1);
+        }
     });
 });
 

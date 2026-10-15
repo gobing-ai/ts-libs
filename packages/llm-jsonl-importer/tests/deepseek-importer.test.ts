@@ -183,7 +183,10 @@ describe('deepseek importer (task 0067)', () => {
         const result = await runJsonlImport('deepseek', { db, files: [file], mode: 'full' });
 
         expect(result.importedRecords).toBe(3);
-        expect(result.skippedCorruptLines).toBe(1);
+        // The fixture's final line is an unterminated torn tail: since the incomplete-tail
+        // fix it is exempted as a write in progress (re-read next run), not counted as a
+        // policy-skipped corrupt line.
+        expect(result.skippedCorruptLines).toBe(0);
         expect(result.parseErrors).toHaveLength(0);
         expect(result.validationErrors).toHaveLength(0);
     });

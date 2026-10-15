@@ -6,6 +6,13 @@ export interface FileStat {
     mtimeMs: number;
 }
 
+/** One streamed line plus whether the producer's newline terminator was present. */
+export interface ReadStreamLine {
+    text: string;
+    /** False only for the file's final segment when the file lacks a trailing newline. */
+    terminated: boolean;
+}
+
 /**
  * Runtime-agnostic file system abstraction.
  *
@@ -25,15 +32,18 @@ export interface FileSystem {
     /**
      * Read file contents as a stream of UTF-8 text lines.
      *
-     * Returns an async iterable yielding one line per iteration (without
-     * trailing newline). This is the streaming counterpart of `readFile`
-     * for large files that should not be loaded into memory all at once.
+     * Yields one {@link ReadStreamLine} per iteration. `terminated` reports
+     * whether the producer's newline was present: false only for a file's final
+     * segment when the file does not end with a newline — a write still in
+     * progress or a crash-teared tail. Consumers (e.g. the JSONL importer) use
+     * it to keep checkpoints below an incomplete line instead of recording a
+     * parse error for it.
      *
      * Optional: Cloudflare Workers and other stubs may omit this method.
      * Callers must check for its presence before use and fall back to
      * `readFile` + `split` when unavailable.
      */
-    readFileStream?(path: string): AsyncIterable<string>;
+    readFileStream?(path: string): AsyncIterable<ReadStreamLine>;
 
     /** Write file contents, creating parent directories as needed. */
     writeFile(path: string, content: string): void | Promise<void>;

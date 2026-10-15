@@ -27,7 +27,7 @@ import {
 } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 
-import type { FileSystem } from './file-system';
+import type { FileSystem, ReadStreamLine } from './file-system';
 import type { RuntimePaths } from './runtime-paths';
 
 /**
@@ -48,10 +48,12 @@ export function createNodeFileSystem(root?: string, paths?: RuntimePaths): FileS
 
         readFile: (path: string) => readFileSync(path, 'utf-8'),
 
-        readFileStream: async function* (path: string): AsyncIterable<string> {
+        readFileStream: async function* (path: string): AsyncIterable<ReadStreamLine> {
             // WHY: large JSONL history files (100MB+) must not be loaded into memory
             // all at once. createReadStream + manual line splitting lets the importer
-            // process records incrementally with constant memory.
+            // process records incrementally with constant memory. The final buffer is
+            // yielded with terminated:false when non-empty so consumers can tell a
+            // torn/unterminated tail from a newline-terminated line.
             const stream = createReadStream(path, { encoding: 'utf-8' });
             let buffer = '';
             for await (const chunk of stream) {
@@ -60,10 +62,10 @@ export function createNodeFileSystem(root?: string, paths?: RuntimePaths): FileS
                 // Keep the last (possibly partial) line in the buffer.
                 buffer = lines.pop() ?? '';
                 for (const line of lines) {
-                    yield line;
+                    yield { text: line, terminated: true };
                 }
             }
-            if (buffer.length > 0) yield buffer;
+            if (buffer.length > 0) yield { text: buffer, terminated: false };
         },
 
         writeFile: (path: string, content: string) => {
