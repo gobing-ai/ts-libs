@@ -24,7 +24,7 @@ import {
  * 'fail' policy (the caller must halt); `completed` means the step ran (possibly
  * a failure that the 'continue' policy logged past) and the loop may proceed.
  */
-export type ActionStepOutcome = 'completed' | 'terminal' | 'fail';
+export type ActionStepOutcome = 'completed' | 'terminal' | 'fail' | 'paused';
 
 /** Result of running one or more action steps: last result, a control-flow discriminator, and the accumulated `setVars` of every step in the sequence. */
 export interface ActionStepResult {
@@ -37,6 +37,8 @@ export interface ActionStepResult {
      * the sequence settles.
      */
     readonly setVars?: Vars;
+    /** Index of the first unexecuted action when a sequence pauses. */
+    readonly nextAction?: number;
 }
 
 /**
@@ -132,7 +134,7 @@ export async function runActionStep(
         if (policy === 'fail') return { outcome: 'fail', result };
         lifecycle.warnActionFailed(stateOrNodeId, deps.transitionsTaken, result.error);
     }
-    return { outcome: 'completed', result };
+    return { outcome: result.ok && result.pause === true ? 'paused' : 'completed', result };
 }
 
 /**
@@ -154,7 +156,7 @@ export async function runActionSequence(
 ): Promise<ActionStepResult> {
     let last: ActionResult | undefined;
     let acc: Vars | undefined;
-    for (const action of actions) {
+    for (const [index, action] of actions.entries()) {
         const step = await runActionStep(action, vars, deps);
         if (step.result !== undefined) last = step.result;
         if (step.result?.setVars) {
@@ -163,6 +165,7 @@ export async function runActionSequence(
         }
         if (step.outcome === 'terminal') return { outcome: 'terminal', result: last, setVars: acc };
         if (step.outcome === 'fail') return { outcome: 'fail', result: last, setVars: acc };
+        if (step.outcome === 'paused') return { outcome: 'paused', result: last, setVars: acc, nextAction: index + 1 };
     }
     return { outcome: 'completed', result: last, setVars: acc };
 }

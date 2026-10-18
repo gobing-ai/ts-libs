@@ -1,7 +1,13 @@
 import { runActionSequence } from './action-step';
 import { FSMError } from './errors';
 import type { WorkflowEngineHost } from './host';
-import { allowedEnv, RunLifecycle, snapshotActionResult, snapshotTransitions } from './run-lifecycle';
+import {
+    type ActionResumeCursor,
+    allowedEnv,
+    RunLifecycle,
+    snapshotActionResult,
+    snapshotTransitions,
+} from './run-lifecycle';
 import type {
     ActionResult,
     StateMachineWorkflowDef,
@@ -76,6 +82,8 @@ export class StateMachineDriver {
         const iterationBound = workflow.iterationBound ?? 50;
         const defaultOnError = workflow.defaultOnError;
         let resumeMode = resumeFromState !== undefined ? (options.resumeMode ?? 'skip-enter') : undefined;
+        let actionResume =
+            resumeMode === 'skip-enter' ? (snapshot?.data.actionResume as ActionResumeCursor | undefined) : undefined;
         // When `commitHop` has already persisted the new state's snapshot +
         // phase atomically (every iteration after the first), `enter` must skip
         // the persist half to avoid duplicate INSERT rows (ADR-020).
@@ -89,9 +97,22 @@ export class StateMachineDriver {
             const label = entryState ?? workflow.initialState;
             throw new FSMError(`State "${label}" is not declared`);
         }
+        if (actionResume !== undefined) {
+            const actions = actionResume.phase === 'enter' ? current.onEnter : current.onExit;
+            const transition = workflow.transitions[actionResume.transitionIndex ?? -1];
+            if (
+                (actionResume.phase !== 'enter' && actionResume.phase !== 'exit') ||
+                !Number.isInteger(actionResume.nextAction) ||
+                actionResume.nextAction < 0 ||
+                actionResume.nextAction > (actions?.length ?? 0) ||
+                (actionResume.phase === 'exit' && transition?.from !== current.id)
+            ) {
+                throw new FSMError(`Invalid action resume cursor for state "${current.id}"`);
+            }
+        }
 
         while (true) {
-            if (resumeMode === 'skip-enter') {
+            if (resumeMode === 'skip-enter' && actionResume?.phase !== 'enter') {
                 // Resume: skip enter actions on the first iteration (already ran before pause).
                 resumeMode = undefined;
                 persistedViaHop = true; // state already persisted before the pause
@@ -114,9 +135,14 @@ export class StateMachineDriver {
                 await lifecycle.enter(current.id, transitionsTaken, !persistedViaHop, vars);
 
                 // 2. Execute this state's on-enter actions in declaration order.
+                const enterOffset = actionResume?.phase === 'enter' ? actionResume.nextAction : 0;
+                if (actionResume?.phase === 'enter') {
+                    resumeMode = undefined;
+                    actionResume = undefined;
+                }
                 const enter = options.dryRun
                     ? EMPTY_OUTCOME
-                    : await runActionSequence(current.onEnter ?? [], vars, {
+                    : await runActionSequence((current.onEnter ?? []).slice(enterOffset), vars, {
                           host: this.options.host,
                           persistence: this.options.persistence,
                           lifecycle,
@@ -144,6 +170,12 @@ export class StateMachineDriver {
                 if (enter.outcome === 'fail') {
                     return await lifecycle.fail(current.id, transitionsTaken, lastActionResult?.error);
                 }
+                if (enter.outcome === 'paused') {
+                    return await lifecycle.pause(current.id, transitionsTaken, vars, lastActionResult, undefined, {
+                        phase: 'enter',
+                        nextAction: enterOffset + (enter.nextAction ?? 0),
+                    });
+                }
 
                 // Pause: if the state declares pause, stop advancing and persist the paused position.
                 if (current.pause === true) {
@@ -161,30 +193,35 @@ export class StateMachineDriver {
             }
 
             // 5. Evaluate transition guards in declaration order and pick the first passing transition.
-            const nextTransition = await firstPassingTransition(
-                outbound,
-                this.options.host,
-                {
-                    runId,
-                    current: current.id,
-                    vars,
-                    env,
-                    lastActionResult,
-                    // Shell guards use relative paths (e.g. .spur/run/${vars.__runId}-*) —
-                    // must share the run's workdir with actions or they read the process cwd.
-                    workdir: options.workdir,
-                },
-                lifecycle,
-            );
+            const nextTransition =
+                actionResume?.phase === 'exit'
+                    ? workflow.transitions[actionResume.transitionIndex ?? -1]
+                    : await firstPassingTransition(
+                          outbound,
+                          this.options.host,
+                          {
+                              runId,
+                              current: current.id,
+                              vars,
+                              env,
+                              lastActionResult,
+                              // Shell guards use relative paths (e.g. .spur/run/${vars.__runId}-*) —
+                              // must share the run's workdir with actions or they read the process cwd.
+                              workdir: options.workdir,
+                          },
+                          lifecycle,
+                      );
 
             if (nextTransition === undefined) {
                 return await lifecycle.fail(current.id, transitionsTaken, 'no-passing-transition');
             }
 
             // 6. Execute this state's on-exit actions before changing state.
+            const exitOffset = actionResume?.phase === 'exit' ? actionResume.nextAction : 0;
+            actionResume = undefined;
             const exit = options.dryRun
                 ? EMPTY_OUTCOME
-                : await runActionSequence(current.onExit ?? [], vars, {
+                : await runActionSequence((current.onExit ?? []).slice(exitOffset), vars, {
                       host: this.options.host,
                       persistence: this.options.persistence,
                       lifecycle,
@@ -205,6 +242,13 @@ export class StateMachineDriver {
                     : await lifecycle.done(current.id, transitionsTaken);
             }
             if (exit.outcome === 'fail') return await lifecycle.fail(current.id, transitionsTaken, exit.result?.error);
+            if (exit.outcome === 'paused') {
+                return await lifecycle.pause(current.id, transitionsTaken, vars, lastActionResult, undefined, {
+                    phase: 'exit',
+                    nextAction: exitOffset + (exit.nextAction ?? 0),
+                    transitionIndex: workflow.transitions.indexOf(nextTransition),
+                });
+            }
 
             // 7. Atomically commit the transition + new state snapshot + phase in a
             //    single batch (ADR-020). The next iteration's `enter` becomes

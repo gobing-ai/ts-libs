@@ -418,7 +418,7 @@ export class DagDriver {
             // its audit chain first, persists its accepted delta as a 'paused'
             // row, and only then surfaces the pause result. Fail outcomes and
             // thrown guard/persistence exceptions still outrank pause.
-            const isPauseNode = node.pause === true && node.id !== rerunPauseBypass;
+            let isPauseNode = node.pause === true && node.id !== rerunPauseBypass;
 
             let acceptedDelta: Vars | undefined;
             if (!options.dryRun && node.action) {
@@ -451,6 +451,7 @@ export class DagDriver {
                 if (step.result?.setVars) {
                     acceptedDelta = pickStringEntries(step.result.setVars);
                 }
+                if (step.outcome === 'paused') isPauseNode = true;
             }
 
             // Task 0104 R1: persist the accepted string setVars delta through

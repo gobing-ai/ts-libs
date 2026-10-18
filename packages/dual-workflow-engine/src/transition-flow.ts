@@ -140,6 +140,9 @@ export class TransitionFlowDriver {
                     if (step.outcome === 'fail') {
                         return await lifecycle.fail(current.id, transitionsTaken, step.result?.error);
                     }
+                    if (step.outcome === 'paused') {
+                        return await lifecycle.pause(current.id, transitionsTaken, vars, lastActionResult);
+                    }
                 }
 
                 // Pause: if the node declares pause, stop advancing and persist the paused position.
@@ -262,6 +265,7 @@ export class TransitionFlowDriver {
                                             ownerAttempt: lifecycle.ownerAttemptId,
                                         },
                                     );
+                                    let actionPaused = false;
                                     if (branchCurrent.action !== undefined) {
                                         const step = await runActionStep(branchCurrent.action, branchVars, {
                                             host: this.options.host,
@@ -324,9 +328,10 @@ export class TransitionFlowDriver {
                                         if (step.outcome === 'terminal') {
                                             break;
                                         }
+                                        actionPaused = step.outcome === 'paused';
                                     }
 
-                                    if (branchCurrent.pause === true) {
+                                    if (branchCurrent.pause === true || actionPaused) {
                                         lifecycle.branchPaused(parallelNode.id, branch.id, branchCurrent.id);
                                         await this.options.persistence.saveBranchFinalize(
                                             runId,

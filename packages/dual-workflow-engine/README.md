@@ -960,6 +960,12 @@ marked `resumeRerun: true`; anything else is refused loudly with `FSMError` befo
 resume with `skip-enter` by default (pause-point actions treated as complete, execution advances past the
 pause). Both modes accept an explicit `resumeMode` override.
 
+A successful action may return `{ ok: true, pause: true }` to suspend immediately after that action.
+State-machine snapshots retain the next action index and, for exit actions, the selected transition.
+The default resume runs only the unexecuted suffix, preserving earlier side effects and variables.
+Transition-flow and DAG nodes acknowledge the completed action before continuing to dependent nodes.
+An action failure takes precedence over a pause request.
+
 Concurrent resumes are settled by the adapter's `claimRunOwnership` CAS: exactly one attempt flips the run
 to `running` and records its `owner_attempt`/`owner_pid`; losers receive `WorkflowResumeError` naming the
 winner. Never retry a lost claim blindly — interrupt the stale owner first.

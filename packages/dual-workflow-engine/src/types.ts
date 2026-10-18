@@ -273,6 +273,8 @@ export interface ActionResult {
     readonly data?: Record<string, unknown>;
     readonly error?: string;
     readonly terminal?: boolean;
+    /** Suspend after this successful action; resume continues after it without replay. */
+    readonly pause?: boolean;
     /** Variables to merge into the run's vars for subsequent steps. Shallow string→string override. */
     readonly setVars?: Vars;
 }

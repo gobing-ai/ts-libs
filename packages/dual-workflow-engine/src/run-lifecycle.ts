@@ -22,6 +22,13 @@ import type {
 /** Workflow dialect carried on every run, span, and persisted record. */
 export type WorkflowMode = WorkflowRunResult['mode'];
 
+/** Persisted continuation for an action-requested state-machine pause. */
+export interface ActionResumeCursor {
+    phase: 'enter' | 'exit';
+    nextAction: number;
+    transitionIndex?: number;
+}
+
 /** Keys of the runtime builtin namespace, single-sourced for resolver + validator. */
 export const RUNTIME_BUILTIN_KEYS = [
     'workflow',
@@ -401,8 +408,10 @@ export class RunLifecycle {
         vars?: Vars,
         lastActionResult?: ActionResult,
         reason?: string,
+        actionResume?: ActionResumeCursor,
     ): Promise<WorkflowRunResult> {
         const data: Record<string, unknown> = { transitionsTaken };
+        if (actionResume !== undefined) data.actionResume = actionResume;
         if (vars !== undefined) data.effectiveVars = vars;
         // Only persist the control bit: raw action data must not bypass result redaction.
         if (lastActionResult !== undefined) data.lastActionResult = { ok: lastActionResult.ok };
