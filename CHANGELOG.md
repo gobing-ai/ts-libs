@@ -8,6 +8,51 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.29] - 2026-10-18
+
+### Added
+
+- feat(dual-workflow-engine): pause after an action and resume mid-sequence (c23c2c56) — an action may return
+  `{ ok: true, pause: true }` to suspend immediately after completing; the state-machine snapshot keeps an
+  `actionResume` cursor (`phase`, `nextAction`, `transitionIndex`) so the default resume runs only the unexecuted
+  suffix, reusing the already-chosen transition instead of re-evaluating its guard; transition-flow and DAG nodes
+  settle the completed action before continuing to dependent nodes, and a failed action still outranks a pause
+  request.
+  <!-- src: packages/dual-workflow-engine/src/types.ts:277 (ActionResult.pause) + src/action-step.ts:137 ('paused' only when `result.ok && result.pause === true`) and :168 (nextAction = index + 1); src/run-lifecycle.ts:26 (ActionResumeCursor) + :414 (persisted as snapshot data.actionResume); src/state-machine.ts:145/:224 (`slice(enterOffset)` / `slice(exitOffset)`) + :197 (exit resume reuses `workflow.transitions[transitionIndex]` without calling firstPassingTransition) + :100 (cursor validation); src/transition-flow.ts:143 and :331/:334; src/dag.ts:454; tests packages/dual-workflow-engine/tests/action-pause.test.ts:23, :57, :91, :108 -->
+
+### Fixed
+
+- fix(llm-jsonl-importer): tolerate torn tails from live session files (fe2acde3) — an unterminated final line, which
+  a live agent session exposes while still appending, is treated as a write in progress rather than a parse error;
+  the file checkpoint never advances past it, so the record imports on the next run instead of failing the job.
+  Unterminated-but-complete records still import, corrupt terminated lines still error, and `readFileStream` now
+  yields `ReadStreamLine { text, terminated }` so streaming and fallback branches agree on the last line.
+  <!-- src: packages/runtime/src/file-system.ts:10 (ReadStreamLine) + :46 (readFileStream contract) + packages/runtime/src/file-system-node.ts:65/:68 (terminated derived at the final buffer); packages/llm-jsonl-importer/src/importer.ts:307 (`incompleteTail = !terminated`, parse/validation errors suppressed) + :694 (checkpoint = max(terminatedLineNumber, checkpoint, lastWritePhaseLineNumber)) + :912 (splitTerminated drops the phantom trailing ''); tests packages/llm-jsonl-importer/tests/importer.test.ts:1100, :1116, :1134, :1151 -->
+
+<!-- verification: 2/2 bullets — one per commit in @gobing-ai/ts-ai-decision-v0.5.28..HEAD, each short hash
+present exactly once, each summary the commit's verbatim subject (machine-checked with `git log --oneline` against
+`grep` over this section). Both bullets are API/library claims; each carries exactly one anchor comment, and the
+authoritative citations are restated here so this record stands alone. Claim 1 (action pause/resume):
+packages/dual-workflow-engine/src/types.ts:277 (ActionResult.pause), src/action-step.ts:137 (paused only when
+`result.ok && result.pause === true`) and :168 (nextAction), src/run-lifecycle.ts:26 (ActionResumeCursor) and :414
+(persisted as snapshot data.actionResume), src/state-machine.ts:100 (cursor validation), :145/:224 (`slice(enterOffset)`
+/ `slice(exitOffset)`), :197 (exit resume reuses the chosen transition without re-running its guard), :175/:247 (pause
+cursor writes), src/transition-flow.ts:143 and :331/:334, src/dag.ts:454; observed by
+packages/dual-workflow-engine/tests/action-pause.test.ts:23 (repeated pauses), :57 (guard not repeated), :91 (failure
+outranks pause), :108 (transition-flow and DAG). Claim 2 (torn tails): packages/runtime/src/file-system.ts:10
+(ReadStreamLine) and :46 (readFileStream contract), packages/runtime/src/file-system-node.ts:65/:68 (terminated
+derived at the final buffer), packages/llm-jsonl-importer/src/importer.ts:307 (`incompleteTail = !terminated`,
+parse/validation errors suppressed), :694 (checkpoint never passes an unterminated line) and :912 (splitTerminated
+drops the phantom trailing empty line); observed by packages/llm-jsonl-importer/tests/importer.test.ts:1100 (torn tail
+is not an error, checkpoint stays below), :1116 (self-heal on the next run), :1134 (unterminated-but-complete still
+imports), :1151 (streaming and fallback agree).
+Every anchor was read back from the working tree in this session; no quality gate was run, because `changelog`
+produces text rather than code (dev-operations §8), so the evidence here is the cited source anchors and the two
+commit diffs, not an executed suite. Confidence: HIGH — both claims are documented contracts with a named
+implementation site and a test per behavior, and every anchor resolves. Assertion coverage: (1) every bullet traced
+to the commit that produced it, never paraphrased, (2) no API/library claim left uncited, (3) the level is spelled
+exactly one of HIGH/MEDIUM/LOW as `.spur/rules/quality/changelog-verification-confidence.yaml` requires. -->
+
 ## [0.5.27] - 2026-10-13
 
 ### Added
