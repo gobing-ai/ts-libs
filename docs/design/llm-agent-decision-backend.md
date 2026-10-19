@@ -108,6 +108,8 @@ answers and identical error classes/messages.
 
 ## Agent driver (`ts-ai-decision/src/agent-driver.ts`)
 
+Status: **shipped** in task 0115 (the `llm-agent` registry built-in landed with it).
+
 ```typescript
 export interface AgentDriverOptions {
     /** Agent to sample. Default: first available agent in TIER1_PRIORITY (fm is never auto-picked, ADR-031). */

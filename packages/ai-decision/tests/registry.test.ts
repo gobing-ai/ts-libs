@@ -40,9 +40,9 @@ async function resolveFailure(promise: Promise<DecisionMaker>): Promise<unknown>
 }
 
 describe('DecisionMakerRegistry (AC1: makers registered by name)', () => {
-    test('pre-registers the three built-in names', () => {
+    test('pre-registers the four built-in names', () => {
         const registry = new DecisionMakerRegistry();
-        expect(registry.names()).toEqual(['typesafe', 'fm-local', 'laya-local']);
+        expect(registry.names()).toEqual(['typesafe', 'fm-local', 'laya-local', 'llm-agent']);
         expect(registry.has('typesafe')).toBe(true);
         expect(registry.has('fm-local')).toBe(true);
         expect(registry.has('laya-local')).toBe(true);
@@ -56,7 +56,7 @@ describe('DecisionMakerRegistry (AC1: makers registered by name)', () => {
             driverOptions: { 'fm-local': { platform: 'win32', arch: 'x64', executor: new UnusedExecutor() } },
         };
         const registry = new DecisionMakerRegistry({ builtins });
-        expect(registry.names()).toEqual(['typesafe', 'fm-local', 'laya-local']);
+        expect(registry.names()).toEqual(['typesafe', 'fm-local', 'laya-local', 'llm-agent']);
     });
 
     test('built-in factory errors propagate unchanged, not as registry errors', async () => {
@@ -212,6 +212,23 @@ describe('DecisionMakerRegistry (AC1: makers registered by name)', () => {
         const maker = await registry.resolve('laya-local');
         expect(maker.driver).toBe('laya-local');
         expect(await registry.resolve('laya-local')).toBe(maker);
+    });
+
+    test('llm-agent resolves lazily on injected driver options and keeps its driver identity', async () => {
+        const registry = new DecisionMakerRegistry({
+            builtins: {
+                driverOptions: {
+                    'llm-agent': {
+                        agent: 'claude',
+                        runner: { runPromptCommand: () => Promise.reject(new Error('registry tests must not sample')) },
+                        detector: { detectOne: () => Promise.reject(new Error('a configured agent is never probed')) },
+                    },
+                },
+            },
+        });
+        const maker = await registry.resolve('llm-agent');
+        expect(maker.driver).toBe('llm-agent');
+        expect(await registry.resolve('llm-agent')).toBe(maker); // memoised built-in
     });
 
     test('typesafe resolves through createDecisionMaker and is memoised', async () => {

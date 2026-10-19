@@ -95,9 +95,9 @@ describe('decision-clef registry and hub composition (R6)', () => {
 
     test('registering clef does not change built-in maker names', () => {
         const registry = new DecisionMakerRegistry();
-        expect(registry.names()).toEqual(['typesafe', 'fm-local', 'laya-local']);
+        expect(registry.names()).toEqual(['typesafe', 'fm-local', 'laya-local', 'llm-agent']);
         registry.register('clef-hosted', () => createDecisionMaker({ driver: clefDriverWithStubFetch({ calls: 0 }) }));
-        expect(registry.names()).toEqual(['typesafe', 'fm-local', 'laya-local', 'clef-hosted']);
+        expect(registry.names()).toEqual(['typesafe', 'fm-local', 'laya-local', 'llm-agent', 'clef-hosted']);
         expect(registry.has('clef')).toBe(false); // no built-in clef maker is added
     });
 

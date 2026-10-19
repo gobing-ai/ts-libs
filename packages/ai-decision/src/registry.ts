@@ -1,17 +1,22 @@
 import { createDecisionMaker, type DecisionMaker, type DecisionMakerOptions } from '@gobing-ai/ts-ai-runner';
 import { createFmDriver, type FmDriverOptions } from '@gobing-ai/ts-decision-fm';
 import { createLayaDriver, type LayaDriverOptions } from '@gobing-ai/ts-laya-mlx';
+import { type AgentDriverOptions, createAgentDriver } from './agent-driver';
 import { DecisionRegistryError, UnknownDecisionMakerError } from './errors';
 
 /** A maker, or a lazy factory for one (sync or async). Factories run on first `resolve` and are memoised on success. */
 export type MakerSource = DecisionMaker | (() => DecisionMaker | Promise<DecisionMaker>);
 
-/** Options for the three built-in makers pre-registered by {@link DecisionMakerRegistry} (task 0091 R2). */
+/** Options for the four built-in makers pre-registered by {@link DecisionMakerRegistry} (task 0091 R2, task 0115 R8). */
 export interface BuiltinMakerOptions {
     /** Forwarded to `createDecisionMaker` for every built-in (env, apiKey, baseURL, timeoutMs, ...). */
     readonly makerOptions?: Omit<DecisionMakerOptions, 'driver' | 'backend' | 'model'>;
-    /** Driver options for the bundled local drivers; the fm platform check runs at first resolve, not registration. */
-    readonly driverOptions?: { readonly 'fm-local'?: FmDriverOptions; readonly 'laya-local'?: LayaDriverOptions };
+    /** Driver options for the bundled drivers; the fm platform check runs at first resolve, not registration. */
+    readonly driverOptions?: {
+        readonly 'fm-local'?: FmDriverOptions;
+        readonly 'laya-local'?: LayaDriverOptions;
+        readonly 'llm-agent'?: AgentDriverOptions;
+    };
 }
 
 const NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -31,7 +36,7 @@ export class DecisionMakerRegistry {
         { source: MakerSource; maker?: DecisionMaker; pending?: Promise<DecisionMaker> }
     >();
 
-    /** Pre-registers `typesafe`, `fm-local` and `laya-local` unless `builtins: false`. */
+    /** Pre-registers `typesafe`, `fm-local`, `laya-local` and `llm-agent` unless `builtins: false`. */
     constructor(options?: { builtins?: BuiltinMakerOptions | false }) {
         if (options?.builtins === false) return;
         const { makerOptions = {}, driverOptions = {} } = options?.builtins ?? {};
@@ -51,6 +56,11 @@ export class DecisionMakerRegistry {
                 ...makerOptions,
             });
         });
+        // Lazy like the rest: `names()`/`has()` construct nothing, and agent detection
+        // runs inside the first `ask`, so an unavailable agent surfaces as a fallback.
+        this.register('llm-agent', () =>
+            createDecisionMaker({ driver: createAgentDriver(driverOptions['llm-agent'] ?? {}), ...makerOptions }),
+        );
     }
 
     /** Register a maker or factory under `name`; chains. Throws on a bad or already-registered name. */

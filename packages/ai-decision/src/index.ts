@@ -1,3 +1,4 @@
+export * from './agent-driver';
 export * from './catalog';
 export * from './errors';
 export * from './hub';

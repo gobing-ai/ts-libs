@@ -28,6 +28,7 @@ create a cycle with the bundled built-ins.
 | `typesafe` | TypeSafe Jev (hosted) | `ts-ai-runner` (`@typesafe-ai/sdk` 0.6.0) | built-in, lazy; hub default | `TYPESAFE_API_KEY` | from the API |
 | `fm-local` | Apple Foundation Models via `fm` (ADR-029/030) | `ts-decision-fm` | built-in, lazy | macOS on Apple silicon, `fm` CLI | k-sample frequencies |
 | `laya-local` | Laya on MLX, warm Python worker (ADR-027/028) | `ts-laya-mlx` | built-in, lazy | Apple silicon, Laya model + Python env | from the local model |
+| `llm-agent` | Any `ts-ai-runner` coding agent / model (ADR-038) | this package (`ts-ai-runner` surface) | built-in, lazy | an installed agent CLI | k-sample frequencies |
 | `clef` | Cloudflare Workers AI Clef (ADR-037) | `ts-decision-clef` | consumer-registered | Cloudflare account ID + API token | from the API |
 
 Built-ins are registered lazily: naming, listing and describing makers never constructs a driver,
@@ -154,7 +155,7 @@ registry.register('clef', () =>
 
 registry.has('fm-local');                          // true — nothing was constructed yet
 const maker = await registry.resolve('fm-local');  // factory runs here, once, and is memoised
-registry.names();                                  // ['typesafe', 'fm-local', 'laya-local', 'clef']
+registry.names();                                  // ['typesafe', 'fm-local', 'laya-local', 'llm-agent', 'clef']
 ```
 
 Registering builds nothing; the first `resolve` runs a factory and memoises the maker, and a
@@ -162,7 +163,47 @@ factory that throws is not memoised, so a later `resolve` retries. Invalid or du
 throw `DecisionRegistryError`; unknown names throw `UnknownDecisionMakerError { name }`; factory
 errors propagate unchanged. Pass `builtins: { makerOptions, driverOptions }` to tune the
 built-ins (env/keys/timeouts via `makerOptions`; executor/client injection via
-`driverOptions['fm-local']` / `driverOptions['laya-local']`).
+`driverOptions['fm-local']` / `driverOptions['laya-local']` / `driverOptions['llm-agent']`).
+
+### Configuring `llm-agent`
+
+`llm-agent` turns any installed coding agent or model into a decision model. It samples the agent
+`k` times per ask, enum-checks every sample against the question's declared options, and reports
+empirical sample frequencies — the agent is never asked for a confidence (ADR-030).
+
+```ts
+import { createAgentDriver } from '@gobing-ai/ts-ai-decision';
+import { createDecisionMaker } from '@gobing-ai/ts-ai-runner';
+
+const registry = new DecisionMakerRegistry({
+    builtins: {
+        driverOptions: { 'llm-agent': { agent: 'claude', model: 'haiku', samples: 3 } },
+    },
+});
+// Extra instances under their own names, e.g. a cheap second opinion:
+registry.register('llm-haiku', () =>
+    createDecisionMaker({ driver: createAgentDriver({ agent: 'claude', model: 'haiku' }) }),
+);
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `agent` | first installed agent in `TIER1_PRIORITY` | Agent to sample. A configured agent is used as-is with no probe; a missing CLI then fails the sample. |
+| `model` | agent default | Model id forwarded to the agent; a per-ask `model` overrides it. |
+| `samples` | `3` | Agent invocations per ask — **cost is k runs per ask**, and answer resolution is 1/k. |
+| `deterministic` | `false` | One greedy sample; probabilities are one-hot. |
+| `concurrency` | `1` | Max samples in flight (sequential by default). |
+| `timeoutMs` | `120000` | Budget for one sample; expiry raises `DecisionTimeoutError`. |
+
+**Isolation.** Every ask samples in a fresh scratch directory under the runtime temp dir, removed
+when the ask ends — success or failure. This is load-bearing, not tidiness: the claude one-shot shim
+grants `--permission-mode acceptEdits --allowedTools Write Edit`, so the scratch directory is what
+stops a decision from editing the caller's workspace. The driver never passes `continue`, `sessionId`
+or `sessionDir`.
+
+**Availability.** Detection runs on the first `ask` (never at registration), so an agent installed
+later is picked up without rebuilding the maker; no agent at all raises `DecisionConfigError` with
+code `AGENT`, which the hub reports as `reason: 'no-backend'` so the decision uses its fallback.
 
 `dispose(name?)` releases the resources of already-`resolve`d makers — a `laya-local` maker holds
 a warm Python worker whose open pipes keep the calling process alive until it is closed
@@ -197,15 +238,11 @@ lifecycle) belong in this package.
 
 ADR-038 / ADR-039, design `docs/design/llm-agent-decision-backend.md`:
 
-- **`llm-agent` built-in maker** — treats any `ts-ai-runner` coding agent / model as a decision
-  model: k samples per ask (default 3) in an isolated scratch directory, answers estimated from
-  sample frequencies with entropy confidence, on a shared sampled-driver core that
-  `ts-decision-fm` is rebuilt on.
 - **TypeSafe moves here** — `createTypesafeDriver` and `@typesafe-ai/sdk` (upgraded to 0.7.0)
   move from `ts-ai-runner` into this package; `createDecisionMaker({ backend: 'typesafe' })`
   keeps working for one release through a deprecated dynamic-import bridge.
 
-The maker table above is updated when those tasks ship.
+The `llm-agent` maker is now shipped (see the maker table and "Configuring `llm-agent`").
 
 ## References
 
