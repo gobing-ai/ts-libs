@@ -847,6 +847,41 @@ errors from its own boundary. Driver-local concerns the neutral validators do no
 question/option counts, JSON-serializability of `state`, provider response caps) stay in the
 driver — see [`@gobing-ai/ts-decision-clef`](../decision-clef/README.md) for a worked example.
 
+### Sampled-driver core
+
+Every backend that answers by drawing k samples from a model shares one
+engine-agnostic core in this package (`src/decision/sampled-driver.ts`). It
+imports nothing — no SDK, no workspace package, no platform API — so a driver
+package outside `ts-ai-runner` can build on it without a cycle. A backend
+supplies only the per-ask session hook; rendering, enum enforcement, parsing
+and frequency estimation come from the core.
+
+```ts
+import { createSampledDriver, extractJsonAnswer } from '@gobing-ai/ts-ai-runner';
+
+const driver = createSampledDriver({
+    name: 'my-backend',
+    samples: 5, // k draws per ask; collapsed to 1 when deterministic
+    concurrency: 1, // max draws in flight
+    sampleLabel: 'my-backend', // prefix in enum-violation messages
+    async open({ instructions, prompt, questions }) {
+        const scratch = await openScratchDir();
+        return {
+            sample: async () => extractJsonAnswer(await runModel(instructions, prompt, scratch)),
+            close: () => removeScratchDir(scratch),
+        };
+    },
+});
+```
+
+`ask` validates the map (nonempty, at least two options per question) **before**
+calling `open`, draws k samples at most `concurrency` at a time, enum-checks
+every sample against `declaredOptions`, and always runs `close` — then reduces
+the draws to empirical frequencies (ADR-030). The exported helpers are
+`DECISION_INSTRUCTIONS`, `buildPrompt`, `buildEnumSchema`, `declaredOptions`,
+`formatDesc`, `requireEnumValue`, `extractJsonAnswer`, `entropyConfidence`,
+`estimateChoice`, `estimateScore` and `estimateNoul`.
+
 ### Adding a backend driver
 
 Additional backend drivers are the intended extension point. A driver implements only `ask` —
