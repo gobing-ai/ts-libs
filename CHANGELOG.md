@@ -8,9 +8,11 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.31] - 2026-10-19
+
 ### Added
 
-- feat(rule-engine): `hedge-phrases` evaluator — flags uncertainty phrasing in the files a rule
+- feat(rule-engine) (4ce199c1): `hedge-phrases` evaluator — flags uncertainty phrasing in the files a rule
   scopes in, so a claim that hedges ("it may", "presumably") is reported instead of read as evidence.
   Config: `phrases` (required, literal text), `caseSensitive` (default false), `wholeWord`
   (default true, edge-aware so a phrase like `(b) may?` still matches). One finding per file per
@@ -21,9 +23,25 @@ versioned in **lockstep** — a single version number covers every package in th
   <!-- src: packages/rule-engine/src/evaluators/hedge-phrases-evaluator.ts (evaluate + toPattern), registered at packages/rule-engine/src/host/builtins.ts; rules packages/rule-engine/rules/quality/no-hedged-claims.yaml; README § Built-in Evaluators; tests packages/rule-engine/tests/evaluators/hedge-phrases-evaluator.test.ts -->
   <!-- verification: workspace gate `bun run spur-check` — rule-engine 353 pass / 0 fail including the 8 new evaluator cases, project rules green with the disabled rule excluded from the count. Confidence: HIGH -->
 
+- feat(ai-decision) (1f2c70fd): shadow maker evaluation in the decision hub (ADR-040) — a decision or a
+  `DecideOptions` call names one `shadow` maker beside the served `maker`. It is asked on the same Jev
+  question without being awaited, so it costs latency only when it is the slower path, and it never
+  changes what `decide` returns: its own outcome lands in `shadow` on the result (`maker`, `value`,
+  `confidence`, `reason`, `durationMs`, `error?`) — `value` only when the shadow itself answered. A shadow
+  is validated like a maker name: an unregistered catalog shadow fails `load`, an unregistered per-call
+  shadow throws `UnknownDecisionMakerError` before any backend call.
+  <!-- src: packages/ai-decision/src/hub.ts:85 (`ShadowOutcome`), :110 (`shadow` on the result envelope), :324 (catalog shadow validated at `load`), :402 (per-call shadow validated before any ask), :422 (started beside the chain, unawaited); packages/ai-decision/src/types.ts:49 (`DecisionDefinition.shadow`); packages/ai-decision/schemas/decision-catalog.schema.json (shadow field); tests packages/ai-decision/tests/hub.test.ts (shadow cases) -->
+
+- feat(ai-decision) (6db82526): failure fallbacks carry the caught error — results whose reason is
+  `no-backend`, `timeout` or `error` gain `error?: DecisionErrorInfo` (a `name` and a `message` truncated
+  to 500 characters), so a fallback says what went wrong instead of forcing the caller to re-run the ask.
+  A non-`Error` throw maps to name `NonError`, a class-set `name` wins over the constructor name, and no
+  stack, cause or request text is recorded. Accepted and `low-confidence` results carry no `error` key.
+  <!-- src: packages/ai-decision/src/hub.ts:52 (`DecisionErrorInfo`), :45 (`DECISION_ERROR_MESSAGE_MAX = 500`), :61-67 (`toErrorInfo`), :77 (`error` on `DecisionResultBase`); tests packages/ai-decision/tests/hub.test.ts (failure modes 1-8) -->
+
 ### Changed
 
-- feat(ai-decision): maker fallback chains in the decision hub (feature O2, ADR-040) — `maker` on a
+- feat(ai-decision) (695583d8): maker fallback chains in the decision hub (feature O2, ADR-040) — `maker` on a
   decision, on catalog `defaults` and on `DecideOptions` accepts a name **or** a non-empty ordered
   list of names. The chain advances only on backend failure (`no-backend`/`timeout`/`error`); a
   `low-confidence` answer stops it, and an exhausted chain returns the declared fallback with the
@@ -34,7 +52,7 @@ versioned in **lockstep** — a single version number covers every package in th
   <!-- src: packages/ai-decision/src/hub.ts (toChain, askOne, attempts), packages/ai-decision/src/types.ts (MakerRef), packages/ai-decision/src/schema.ts (MakerRefSchema), schemas/decision-catalog.schema.json (maker oneOf); design docs/design/ai-decision-catalog.md § Maker chains, shadow and diagnostics; tests packages/ai-decision/tests/hub.test.ts (chain cases) -->
   <!-- verification: task 0118 pipeline run — `bun run spur-check` and `bun run build` green, the recorded hub transcript gained only the new chain cases. Confidence: HIGH -->
 
-- feat(ai-decision): sampled-driver core in ai-runner, `llm-agent` maker, TypeSafe relocation (feature O1)
+- feat(ai-decision) (d4ac55c6, 86352578, 4237c41a, 2f0fe9cc): sampled-driver core in ai-runner, `llm-agent` maker, TypeSafe relocation (feature O1)
   — the engine-agnostic sampling half of the `fm` driver (prompt rendering, enum schema, answer parsing,
   frequency estimation) now lives in `@gobing-ai/ts-ai-runner` as `createSampledDriver`;
   `@gobing-ai/ts-decision-fm` is a thin sampler over it with byte-identical answers and exports (pinned by a
@@ -48,6 +66,39 @@ versioned in **lockstep** — a single version number covers every package in th
   Node floor is now 22.
   <!-- src: packages/ai-runner/src/decision/sampled-driver.ts:360 (`createSampledDriver`); packages/ai-decision/src/agent-driver.ts:100 (`createAgentDriver`); packages/ai-decision/src/typesafe-driver.ts:49 (`createTypesafeDriver`); packages/ai-runner/src/decision/decision-maker.ts:141 (`resolveTypesafeDriver`); packages/ai-runner/package.json (SDK dropped), packages/ai-decision/package.json (`@typesafe-ai/sdk` 0.7.0); docs/00_ADR.md ADR-038/ADR-039 (Accepted, built 2026-10-19) -->
   <!-- verification: feature O1 batch `dev-runall --feature O1` (tasks 0114-0116) — `bun run spur-check` 3072 pass / 0 fail with all rules and rule fixtures green, `bun run build` 12/12 packages; parity and e2e transcript artifacts committed. Confidence: HIGH -->
+
+### Fixed
+
+- fix(ai-decision) (2f08d902): time the shadow from its own start — a rejected shadow ask restamped its
+  end when the outcome was mapped, so the recorded shadow `durationMs` also covered the mapping hop.
+  `shadowStart` is now read once and passed both into the ask and into the failure result.
+  <!-- src: packages/ai-decision/src/hub.ts:422 (`const shadowStart = this.now()`), :426 and :434 (the same value reaches the ask and the mapped failure) -->
+
+- fix(ai-runner) (0424d663): the deprecated TypeSafe bridge resolves workspace source — added the
+  `@gobing-ai/ts-ai-decision` tsconfig path (ADR-012) so the bridge loads `ai-decision/src/index.ts` like
+  the `fm` and `laya` bridges instead of a stale or mid-rebuild `dist/`, with a regression assertion in
+  the bridge suite.
+  <!-- src: packages/ai-runner/tsconfig.json:5 (`@gobing-ai/ts-ai-decision` path entry); packages/ai-runner/tests/decision/typesafe-bridge.test.ts:53 (`import.meta.resolve` ends at `/ai-decision/src/index.ts`) -->
+
+- fix(laya-mlx) (53a4b9c4): resolve the worker script from an injected env — `workerScript` now falls
+  back to `env.LAYA_WORKER_SCRIPT` before the packaged `worker/laya_worker.py`, and a missing script
+  surfaces as `DecisionConfigError` (`LAYA_WORKER_SCRIPT`) on the ask instead of an opaque worker exit.
+  That is what a bundled host needs: bundling relocates the module, so the packaged default path does not
+  resolve.
+  <!-- src: packages/laya-mlx/src/worker-client.ts:527-534 (env fallback), :615 (missing script throws before spawn) -->
+
+### Other
+
+- docs (1aa692f5, 7e7e6b27, 6286c4bd, 2fa935a7, 3a97c162, fa8c40bd, cd8e6fe6): README and design notes
+  synced with chain, shadow and noul behaviour; ADR-038/ADR-039 recorded; feature-status summaries, O2
+  planning and the 0114-0119 evidence and verification records kept in step with the tree.
+  <!-- src: packages/ai-decision/README.md:113-131 (maker chains), :160-172 (throw contract), :184-187 (sampled granularity); docs/design/ai-decision-catalog.md:301-315 (unknown-maker and per-step wording); docs/design/llm-agent-decision-backend.md:184-186 (noul rows) -->
+- chore (727b966d, 14dd6332, 6795eb09, 1d437e5f): O1/O2 wrap close-outs, formatting and local ignore
+  hygiene.
+- chore (9b071ea6, 9a8e7a2a, cecb2ed6): project-only Spur tooling — a feature verify pass that exits
+  non-zero no longer stamps its `RUNNING` receipt, an explicit `--cmd` reaches the seam path, and the
+  receipt confidence contract covers only passes this project drives.
+  <!-- src: .spur/scripts/feature-verify.mjs:92 (a non-zero pass throws), :104 (`overrideCmd` used on the seam path); .spur/rules/quality/verify-confidence.yaml -->
 
 ## [0.5.30] - 2026-10-18
 
