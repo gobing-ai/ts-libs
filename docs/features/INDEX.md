@@ -27,5 +27,5 @@
     └── [done] **N1**: Decision hub answer validation ([N1_decision-hub-answer-validation.md](./N1_decision-hub-answer-validation.md))
 [backlog] **O**: Decision models and decision makers ([O_decision-models-and-decision-makers.md](./O_decision-models-and-decision-makers.md))
     ├── [done] **O1**: LLM agents as decision makers and decision-backend boundary cleanup ([O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md](./O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md))
-    └── [active] **O2**: Decision maker fallback chains, shadow makers and fallback diagnostics ([O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md](./O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md))
+    └── [done] **O2**: Decision maker fallback chains, shadow makers and fallback diagnostics ([O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md](./O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md))
 <!-- END AUTO-GENERATED -->

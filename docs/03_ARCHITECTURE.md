@@ -94,16 +94,22 @@ Invariants:
   must sit in the answer vocabulary, every `${...}` must be `${params.<declared or instructions>}`
   (never `${env.*}`), defaults must match their types, ids must be unique across the hub, and every
   `maker` name must be registered when the catalog enters a hub.
-- `decide` asks exactly one question per call and never rejects because of the backend. Failures and
-  low confidence resolve to the declared fallback with `source: 'default'` and a closed `reason`.
+- `decide` asks one question per call and never rejects because of the backend. Failures and low
+  confidence resolve to the declared fallback with `source: 'default'` and a closed `reason`, and
+  every failure reason carries the caught cause as `error: { name, message }` (ADR-040).
 - Caller mistakes (unknown id, invalid input, unregistered per-call maker) throw named errors before
   any backend call.
 - Every resolved maker's answers are validated against the rendered request inside `DecisionHub.decide`
   — directly registered makers included — before the confidence gate; a malformed answer resolves to the
   declared fallback with `reason: 'error'`, never to an accepted answer.
 - Maker precedence: per-call `maker` → decision `maker` → catalog `defaults.maker` → hub
-  `defaultMaker` (`typesafe`). Registry factories run lazily and are memoised on success, so
-  `list`/`describe` never touch a backend.
+  `defaultMaker` (`typesafe`). Each of those may be a name or an ordered chain (`MakerRef`): the hub
+  asks the chain in order and advances only on a backend failure, so a `low-confidence` answer stops
+  it; an exhausted chain returns the last failure and reports `attempts` (ADR-040).
+- A decision or a call may name a `shadow`: one maker asked concurrently on the identical request and
+  reported as `result.shadow`, never served and never able to reject `decide` (ADR-040).
+- Registry factories run lazily and are memoised on success, so `list`/`describe` never touch a
+  backend, and makers a chain or shadow never reached stay unbuilt.
 
 ## Decision backends (built 2026-10-19 — ADR-038/ADR-039)
 
