@@ -1,0 +1,98 @@
+# Sourced-claims rules (docs corpus) — an API/library claim in this project's
+# markdown must be verifiable. A bare version string or a time-anchored API
+# claim ("deprecated since", "added in 0.5.x") on a line with no citation anchor
+# (http(s) URL or a repo path:line reference) is an unverifyable claim: a reader
+# cannot tell a measured fact from model memory.
+#
+# Why this lives here: the same rule ships in the global install
+# (`~/.config/spur/rules/docs/sourced-api-claims.yaml`), but the `docs` category
+# is in no preset — globally or in this project — so nothing read this repo's
+# documentation corpus. The SECUA pre-completion checklist
+# (sp-code-verification/references/secu-review.md) names the semantic contract
+# ("every API/library claim carries a source citation AND an earned
+# HIGH|MEDIUM|LOW level") and points at the deterministic citation half as the
+# advisory backstop. This file is that backstop, scoped to this repo's docs.
+#
+# The deterministic scan is line-level and heuristic: code fences and command
+# examples legitimately carry bare versions, and `docs/design/` tables cite
+# versions that a neighbouring line anchors. Severity is therefore `info` and
+# the rule is deliberately in NO preset — `recommended-pre-check` runs
+# `--fail-on warning`, so findings surface for review without reddening the
+# gate; changed-file enforcement stays with SECUA review. To promote it, add
+# `- docs` to `.spur/rules/recommended-pre-check.yaml`'s `extends` once the
+# residual below is triaged.
+#
+# The confidence half (HIGH|MEDIUM|LOW must be EARNED: HIGH cites a URL,
+# path:line or a path with a code/doc extension; MEDIUM/LOW cite or name what is
+# unverified) is a claim-table contract owned by the sp-source-driven-development
+# skill and checked in SECUA review — it is not asserted here, because a
+# line-level regex cannot tell a level from a column heading. ADR-138 separately
+# forbids a self-assigned confidence label on a verdict or verify answer, where
+# the citation is the evidence.
+#
+# Calibration (2026-10-19, `spur rule run --file .spur/rules/docs/sourced-api-claims.yaml
+# --json`, unsuppressed): 43 raw findings over the 20 documents the globs match.
+# 14 were the release runbook's placeholder versions (now excluded), 8 were
+# document frontmatter `version:` keys and 1 a manifest snippet (now skipped by
+# the YAML/JSON key lookahead), and 1 was the `cited-api-claims` false positive
+# "exclusions, added in the same change" (now narrowed away) — leaving 20, all
+# `cited-version-strings`. The residual classes: a version claim in docs/design
+# or an ADR (playwright `^1.55.0`, `@typesafe-ai/sdk` `0.7.0`, zod, Bun 1.4.3)
+# whose anchor sits in a neighbouring line or section, and structural shapes that
+# carry a version without asserting one (`## SDK 0.7.0 upgrade`, `| 0.7.0 change |`).
+# That residual is why severity is `info` and no preset includes this category.
+# The two patterns were also checked against ten sample lines covering both
+# directions (bare version, anchored version, IP, path:line, frontmatter key,
+# sentence-initial and version-shaped claim phrasings) before landing.
+include:
+  - "docs/**/*.md"
+exclude:
+  # The task corpus is a historical record — retro-citing hundreds of closed
+  # task files is make-work; the tripwire targets active authoring surfaces
+  # (docs/design, docs/plans, docs/reviews, the numbered docs).
+  - "docs/tasks/"
+  - "docs/features/"
+  # The release runbook is a procedure with PLACEHOLDER versions (`bump-ver 0.1.5`
+  # in twelve command examples) — calibration measured 14 of the scan's 43 raw
+  # findings there, none of them an external API/library claim.
+  - "docs/PACKAGE_RELEASE.md"
+  - "**/node_modules/**"
+rules:
+  - id: cited-version-strings
+    description: >
+      A markdown line asserting a version string (x.y.z) without a citation
+      anchor on the same line — http(s) URL or repo path reference like
+      packages/ai-runner/src/decision/decision-maker.ts:141 — is unverifyable.
+      Add the anchor, or drop the version if it is not load-bearing. The
+      confidence level (HIGH/MEDIUM/LOW) is part of the same claim contract; see
+      sp-source-driven-development.
+    severity: info
+    evaluator:
+      type: regex
+      config:
+        mode: forbid
+        # Fires when the line has NO anchor AND contains a semver-ish token.
+        # Lookarounds exclude IPs (127.0.0.1) and longer dotted numerics; the
+        # leading one skips a YAML/JSON key line (document frontmatter
+        # `version: 1.6.0`, a manifest snippet), which is not a claim.
+        pattern: "^(?!\\s*\"?[\\w.@-]+\"?:)(?!.*(?:https?://|(?:[\\w.-]+/)+[\\w.-]+:\\d+)).*(?<![\\d.])\\d+\\.\\d+\\.\\d+(?!\\.\\d)"
+  - id: cited-api-claims
+    description: >
+      A markdown line making a time- or version-anchored external API claim
+      ("deprecated since 1.2", "introduced in v3", "added in 0.5", "available
+      since Python 3.11") must carry a citation anchor on the same line — URL or
+      repo path:line. Add the source and the earned confidence level
+      (HIGH/MEDIUM/LOW); contract in sp-source-driven-development.
+    severity: info
+    evaluator:
+      type: regex
+      config:
+        mode: forbid
+        # `i` so a sentence-initial claim ("Available since Python 3.11") is read
+        # as the claim it is.
+        flags: "i"
+        # The release context must be version-shaped (a digit) or a named
+        # runtime, so ordinary prose ("added in the same change") is not a
+        # claim: calibration measured that exact line as the pattern's only
+        # finding before this narrowing.
+        pattern: "^(?!.*(?:https?://|(?:[\\w.-]+/)+[\\w.-]+:\\d+)).*\\b(?:deprecated (?:since|in|as of)|introduced in|added in|available since|stable since)\\s+(?:v?\\d|Python|Node|Bun|Deno|Go|Rust|Java|Ruby|PHP)\\b"
