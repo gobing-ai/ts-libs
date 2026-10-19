@@ -48,6 +48,9 @@ const options = (extra: DecisionMakerOptions = {}): DecisionMakerOptions => ({
 
 describe('typesafe bridge (task 0116 R5, R8)', () => {
     it('a. answers end to end through the real workspace @gobing-ai/ts-ai-decision', async () => {
+        // The bridge must load workspace source like the fm/laya bridges, never a stale or
+        // mid-rebuild dist/ (tsconfig paths, ADR-012).
+        expect(import.meta.resolve('@gobing-ai/ts-ai-decision')).toEndWith('/ai-decision/src/index.ts');
         const maker = createDecisionMaker({ fetch: okFetch, env: {}, apiKey: 'test-key' });
         expect(maker.driver).toBe('typesafe');
         const answer = await maker.choice('state', 'Pick', { a: 'A', b: 'B' });
