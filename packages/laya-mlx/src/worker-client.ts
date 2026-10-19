@@ -44,7 +44,11 @@ export interface LayaWorkerClientOptions {
     pythonPath?: string;
     /** Runtime module the worker imports. Default: `'laya_mlx'`. */
     module?: string;
-    /** Worker script path. Default: `worker/laya_worker.py` in this package. */
+    /**
+     * Worker script path. Default: `env.LAYA_WORKER_SCRIPT`, else `worker/laya_worker.py` in this
+     * package. Hosts that bundle this package into one file must ship the script and set one of these:
+     * the default resolves relative to the module, which a bundle relocates.
+     */
     workerScript?: string;
     /** Working directory for the spawn. Default: this package root. */
     cwd?: string;
@@ -498,6 +502,7 @@ export function resolvePythonPath(
 export class LayaWorkerClient {
     private readonly pythonPath: string;
     private readonly args: string[];
+    private readonly workerScript: string;
     private readonly cwd: string;
     private readonly startupTimeoutMs: number;
     private readonly requestTimeoutMs: number;
@@ -519,7 +524,13 @@ export class LayaWorkerClient {
         this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
         this.forwardedEnv = resolveForwardedEnv(options.env);
         this.executor = executor;
-        this.args = [options.workerScript ?? joinPath(packageRoot, 'worker', 'laya_worker.py')];
+        const envScript = options.env?.LAYA_WORKER_SCRIPT;
+        this.workerScript =
+            options.workerScript ??
+            (envScript !== undefined && envScript.length > 0
+                ? envScript
+                : joinPath(packageRoot, 'worker', 'laya_worker.py'));
+        this.args = [this.workerScript];
         this.args.push('--module', options.module ?? 'laya_mlx');
         const resolvedModelPath = options.modelPath ?? options.env?.LAYA_MODEL_PATH;
         const resolvedCacheDir = options.cacheDir ?? options.env?.LAYA_CACHE_DIR;
@@ -602,6 +613,14 @@ export class LayaWorkerClient {
     }
 
     private spawn(): WorkerHandle {
+        // Checked here, not in the constructor: a missing script must surface as a config error on
+        // the ask, the same channel as a missing interpreter, instead of an opaque worker exit.
+        if (!nodeBunFactory.createFileSystem().exists(this.workerScript)) {
+            throw new DecisionConfigError(
+                `laya worker script '${this.workerScript}' not found; a bundled host must ship worker/laya_worker.py and pass workerScript or set LAYA_WORKER_SCRIPT`,
+                'LAYA_WORKER_SCRIPT',
+            );
+        }
         let proc: PipeProcess;
         try {
             proc = this.executor.runStreaming({

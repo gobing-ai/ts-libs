@@ -85,6 +85,41 @@ describe('Host prerequisites and decision taxonomy (task 0077)', () => {
             client.dispose();
         });
 
+        it('reports a missing worker script (e.g. a bundled host) as DecisionConfigError naming LAYA_WORKER_SCRIPT', async () => {
+            const client = new LayaWorkerClient({
+                workerScript: '/nonexistent/bundle/worker/laya_worker.py',
+                platform: 'darwin',
+                arch: 'arm64',
+            });
+            const err = await client.ask('s', { q1: q('fine') }).catch((caught) => caught);
+            expect(err).toBeInstanceOf(DecisionConfigError);
+            expect((err as DecisionConfigError).variable).toBe('LAYA_WORKER_SCRIPT');
+            expect((err as DecisionConfigError).message).toContain('/nonexistent/bundle/worker/laya_worker.py');
+            client.dispose();
+        });
+
+        it('resolves the worker script from injected env.LAYA_WORKER_SCRIPT', async () => {
+            const missing = new LayaWorkerClient({
+                env: { LAYA_WORKER_SCRIPT: '/nonexistent/env/laya_worker.py' },
+                platform: 'darwin',
+                arch: 'arm64',
+            });
+            const err = await missing.ask('s', { q1: q('fine') }).catch((caught) => caught);
+            expect((err as DecisionConfigError).message).toContain('/nonexistent/env/laya_worker.py');
+            missing.dispose();
+
+            // A valid override is spawned: the run gets past the script check to the runtime import.
+            const valid = new LayaWorkerClient({
+                env: { LAYA_WORKER_SCRIPT: new URL('../worker/laya_worker.py', import.meta.url).pathname },
+                module: 'nonexistent_laya_runtime_module',
+                platform: 'darwin',
+                arch: 'arm64',
+            });
+            const runtimeErr = await valid.ask('s', { q1: q('fine') }).catch((caught) => caught);
+            expect((runtimeErr as DecisionConfigError).message).toContain('pip install laya-mlx');
+            valid.dispose();
+        });
+
         it('reports missing laya-mlx runtime import as DecisionConfigError naming pip install laya-mlx', async () => {
             const client = new LayaWorkerClient({
                 module: 'nonexistent_laya_runtime_module',
