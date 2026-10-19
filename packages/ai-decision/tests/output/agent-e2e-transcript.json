@@ -31,6 +31,10 @@
       "reason": "error",
       "maker": "llm-agent",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "no JSON object in sample output"
+      },
       "type": "choice",
       "value": "account"
     },
@@ -42,6 +46,10 @@
       "reason": "error",
       "maker": "llm-agent",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "llm-agent sample for 'triage_route' violates the schema enum: 'sales'"
+      },
       "type": "choice",
       "value": "account"
     },
@@ -53,6 +61,10 @@
       "reason": "error",
       "maker": "llm-agent",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "llm-agent sample failed (pi exit 2): boom: first line"
+      },
       "type": "choice",
       "value": "account"
     },
@@ -64,6 +76,10 @@
       "reason": "timeout",
       "maker": "llm-agent",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionTimeoutError",
+        "message": "llm-agent sample timed out after 120000ms"
+      },
       "type": "choice",
       "value": "account"
     },
@@ -75,6 +91,10 @@
       "reason": "no-backend",
       "maker": "llm-agent",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionConfigError",
+        "message": "no coding agent available for llm-agent; install one of: pi, omp, codex, antigravity-cli, claude, hermes, opencode, grok, deepseek"
+      },
       "type": "choice",
       "value": "account"
     },

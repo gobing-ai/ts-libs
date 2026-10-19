@@ -178,6 +178,10 @@
       "reason": "no-backend",
       "maker": "keyless",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionConfigError",
+        "message": "Missing TYPESAFE_API_KEY — set it in the environment or pass options.apiKey."
+      },
       "type": "choice",
       "value": "a"
     },
@@ -189,6 +193,10 @@
       "reason": "no-backend",
       "maker": "boom",
       "durationMs": 0,
+      "error": {
+        "name": "Error",
+        "message": "driver construction failed"
+      },
       "type": "choice",
       "value": "b"
     },
@@ -200,6 +208,10 @@
       "reason": "timeout",
       "maker": "laya-local",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionTimeoutError",
+        "message": "driver timed out"
+      },
       "type": "score",
       "value": 1
     },
@@ -211,6 +223,10 @@
       "reason": "error",
       "maker": "typesafe",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: answer names do not match questions"
+      },
       "type": "choice",
       "value": "account"
     },
@@ -222,6 +238,10 @@
       "reason": "error",
       "maker": "typesafe",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: category"
+      },
       "type": "choice",
       "value": "account"
     },
@@ -233,6 +253,10 @@
       "reason": "error",
       "maker": "typesafe",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: category"
+      },
       "type": "choice",
       "value": "account"
     },
@@ -277,6 +301,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -288,6 +316,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -299,6 +331,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -310,6 +346,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -321,6 +361,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -332,6 +376,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -343,6 +391,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: answer names do not match questions"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -354,6 +406,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: answer names do not match questions"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -365,6 +421,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -376,6 +436,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -387,6 +451,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -398,6 +466,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -409,6 +481,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -420,6 +496,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -431,6 +511,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: pick"
+      },
       "type": "choice",
       "value": "beta"
     },
@@ -453,6 +537,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: grade"
+      },
       "type": "score",
       "value": 1
     },
@@ -464,6 +552,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: grade"
+      },
       "type": "score",
       "value": 1
     },
@@ -475,6 +567,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: grade"
+      },
       "type": "score",
       "value": 1
     },
@@ -486,6 +582,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: grade"
+      },
       "type": "score",
       "value": 1
     },
@@ -497,6 +597,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: ship"
+      },
       "type": "noul",
       "value": false,
       "probability": null
@@ -509,6 +613,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: ship"
+      },
       "type": "noul",
       "value": false,
       "probability": null
@@ -521,6 +629,10 @@
       "reason": "error",
       "maker": "custom",
       "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: ship"
+      },
       "type": "noul",
       "value": false,
       "probability": null
@@ -558,6 +670,133 @@
       "type": "noul",
       "value": true,
       "probability": 0.9
+    },
+    {
+      "case": "diagnostics: factory throws",
+      "id": "only",
+      "confidence": null,
+      "source": "default",
+      "reason": "no-backend",
+      "maker": "broken",
+      "durationMs": 0,
+      "error": {
+        "name": "DecisionConfigError",
+        "message": "LAYA_WORKER_SCRIPT missing"
+      },
+      "type": "choice",
+      "value": "a"
+    },
+    {
+      "case": "diagnostics: timeout",
+      "id": "category",
+      "confidence": null,
+      "source": "default",
+      "reason": "timeout",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "error": {
+        "name": "DecisionTimeoutError",
+        "message": "fm timed out after 30000ms"
+      },
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "diagnostics: plain error",
+      "id": "category",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "error": {
+        "name": "Error",
+        "message": "boom"
+      },
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "diagnostics: non-error throw",
+      "id": "category",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "error": {
+        "name": "NonError",
+        "message": "boom"
+      },
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "diagnostics: invalid answer",
+      "id": "category",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: category"
+      },
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "diagnostics: missing answer",
+      "id": "category",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: answer names do not match questions"
+      },
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "diagnostics: long message",
+      "id": "category",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "error": {
+        "name": "Error",
+        "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "diagnostics: accepted has no error",
+      "id": "category",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "billing"
+    },
+    {
+      "case": "diagnostics: low-confidence has no error",
+      "id": "category",
+      "confidence": 0.5,
+      "source": "default",
+      "reason": "low-confidence",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
     }
   ]
 }

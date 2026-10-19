@@ -264,6 +264,7 @@ interface ResultBase {
     reason: 'accepted' | 'low-confidence' | 'no-backend' | 'timeout' | 'error';
     maker: string;                  // registry name that was selected
     durationMs: number;
+    error?: DecisionErrorInfo;      // only for no-backend | timeout | error; { name, message } <= 500 chars
 }
 ```
 

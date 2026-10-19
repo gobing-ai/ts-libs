@@ -40,6 +40,31 @@ export const DEFAULT_MIN_CONFIDENCE = 0.7;
 /** Hub default when neither the per-call options, the decision nor the catalog names a maker. */
 export const DEFAULT_MAKER = 'typesafe';
 
+/** Upper bound on a carried error message, in characters (ADR-040). */
+export const DECISION_ERROR_MESSAGE_MAX = 500;
+
+/**
+ * The caught failure, carried on a fallback result so a consumer can persist it (Spur stores
+ * `decision_logs.error`). Only `name` and `message`: a stack, a `cause` chain or the failing
+ * request would leak prompt text and internals into logs.
+ */
+export interface DecisionErrorInfo {
+    readonly name: string;
+    readonly message: string;
+}
+
+/**
+ * Reduce a thrown value to {@link DecisionErrorInfo}. Subclasses of `DecisionError` set their own
+ * `name`; a subclass that does not is named by its constructor rather than by `'Error'`.
+ */
+function toErrorInfo(error: unknown): DecisionErrorInfo {
+    if (!(error instanceof Error)) {
+        return { name: 'NonError', message: String(error).slice(0, DECISION_ERROR_MESSAGE_MAX) };
+    }
+    const named = error.name !== 'Error' ? error.name : (error.constructor?.name ?? error.name);
+    return { name: named, message: error.message.slice(0, DECISION_ERROR_MESSAGE_MAX) };
+}
+
 /** Shared envelope of every {@link DecisionResult} variant. */
 export interface DecisionResultBase {
     readonly id: string;
@@ -51,6 +76,8 @@ export interface DecisionResultBase {
     /** Registry name of the maker that was selected. */
     readonly maker: string;
     readonly durationMs: number;
+    /** The caught failure. Present only for `no-backend`, `timeout` and `error`. */
+    readonly error?: DecisionErrorInfo;
 }
 
 /** The fallback-guaranteed result of one `decide` call, shaped by the decision type. */
@@ -296,7 +323,12 @@ export class DecisionHub {
             validateAnswers(request.questions, answers);
             const answer: Answer | undefined = answers[definition.id];
             if (answer === undefined || answer.kind !== definition.type) {
-                return this.fallbackResult(definition, makerName, 'error', null, start);
+                // Nothing was thrown here, so the failure is synthesized: every `error` reason
+                // must carry a cause a consumer can log (ADR-040).
+                return this.fallbackResult(definition, makerName, 'error', null, start, undefined, {
+                    name: 'DecisionBackendError',
+                    message: `Maker returned no answer of type ${definition.type} for "${definition.id}"`,
+                });
             }
             const observed = observedAnswer(answer);
             if (observed.confidence < effectiveMinConfidence(definition, defaults)) {
@@ -337,7 +369,7 @@ export class DecisionHub {
                     : error instanceof DecisionTimeoutError
                       ? 'timeout'
                       : 'error';
-            return this.fallbackResult(definition, makerName, reason, null, start);
+            return this.fallbackResult(definition, makerName, reason, null, start, undefined, toErrorInfo(error));
         }
     }
 
@@ -370,6 +402,7 @@ export class DecisionHub {
         confidence: number | null,
         start: number,
         probability?: number,
+        error?: DecisionErrorInfo,
     ): DecisionResult {
         const base = {
             id: definition.id,
@@ -378,6 +411,7 @@ export class DecisionHub {
             reason,
             maker: makerName,
             durationMs: this.now() - start,
+            ...(error !== undefined ? { error } : {}),
         };
         switch (definition.type) {
             case 'choice':

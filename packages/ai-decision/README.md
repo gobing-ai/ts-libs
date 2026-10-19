@@ -136,7 +136,9 @@ Backend outcomes map to the declared fallback with `source: 'default'`:
 
 Values: choice returns a string label, score the (possibly fractional) expected score, and noul
 `p >= 0.5` with `probability` and confidence `max(p, 1 - p)`. Every result names the selected
-`maker`.
+`maker`. Every failure reason (`no-backend`, `timeout`, `error`) also carries the caught cause as
+`error: { name, message }`, with the message truncated to 500 characters — persist it verbatim
+(Spur writes it to `decision_logs.error`); accepted and `low-confidence` results never carry one.
 
 Confidence is only as graded as the maker. Probability-native makers (`typesafe`, `laya-local`,
 `clef`) return a model distribution; **sampled** makers (`fm-local`, and the planned `llm-agent`)

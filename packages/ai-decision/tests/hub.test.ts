@@ -6,6 +6,7 @@ import {
     type AnswersFor,
     type ChoiceAnswer,
     createDecisionMaker,
+    DecisionConfigError,
     type DecisionDriver,
     type DecisionMaker,
     type DecisionState,
@@ -726,6 +727,10 @@ decisions:
             reason: 'no-backend',
             maker: 'keyless',
             durationMs: 0,
+            error: {
+                name: 'DecisionConfigError',
+                message: 'Missing TYPESAFE_API_KEY — set it in the environment or pass options.apiKey.',
+            },
         });
     });
 
@@ -757,6 +762,7 @@ decisions:
             reason: 'no-backend',
             maker: 'boom',
             durationMs: 0,
+            error: { name: 'Error', message: 'driver construction failed' },
         });
 
         fixed = true;
@@ -778,6 +784,7 @@ decisions:
             reason: 'timeout',
             maker: 'laya-local',
             durationMs: 0,
+            error: { name: 'DecisionTimeoutError', message: 'driver timed out' },
         });
     });
 
@@ -794,6 +801,10 @@ decisions:
             reason: 'error',
             maker: 'typesafe',
             durationMs: 0,
+            error: {
+                name: 'DecisionBackendError',
+                message: 'Invalid decision response: answer names do not match questions',
+            },
         });
 
         typesafe.requests.length = 0;
@@ -1016,6 +1027,7 @@ describe('DecisionHub.decide — directly registered makers are validated at the
                 reason: 'error',
                 maker: 'custom',
                 durationMs: 0,
+                error: { name: 'DecisionBackendError', message: 'Invalid decision response: pick' },
             },
         );
         expect(maker.requests).toHaveLength(1);
@@ -1159,6 +1171,7 @@ describe('DecisionHub.decide — directly registered makers are validated at the
                 reason: 'error',
                 maker: 'custom',
                 durationMs: 0,
+                error: { name: 'DecisionBackendError', message: 'Invalid decision response: ship' },
             });
         }
         expect(maker.requests).toHaveLength(3);
@@ -1214,5 +1227,122 @@ describe('DecisionHub.decide — directly registered makers are validated at the
             UnknownDecisionMakerError,
         );
         expect(maker.requests).toHaveLength(0);
+    });
+});
+
+describe('fallback diagnostics (ADR-040) — failure results carry the caught error', () => {
+    /** The examples catalog's choice decision and its declared fallback. */
+    const CATEGORY_LABELS = ['bug_report', 'billing', 'feature_request', 'account'] as const;
+
+    test('1. a maker factory that throws yields no-backend with the error name', async () => {
+        const registry = new DecisionMakerRegistry({ builtins: false });
+        registry.register('broken', () => {
+            throw new DecisionConfigError('LAYA_WORKER_SCRIPT missing', 'LAYA_WORKER_SCRIPT');
+        });
+        const hub = new DecisionHub({ registry, defaultMaker: 'broken', now: () => 0 });
+        await loadInline(
+            hub,
+            `version: 1
+decisions:
+  only:
+    type: choice
+    criteria: { a: First, b: Second }
+    fallback: a
+`,
+        );
+        const result = await decideAndRecord('diagnostics: factory throws', hub, 'only');
+        expect(result.reason).toBe('no-backend');
+        expect(result.error).toEqual({ name: 'DecisionConfigError', message: 'LAYA_WORKER_SCRIPT missing' });
+        expect(Object.keys(result.error ?? {})).toEqual(['name', 'message']);
+    });
+
+    test('2. a timeout keeps its class name and message', async () => {
+        const { hub, typesafe } = await examplesHub();
+        typesafe.respond = () => {
+            throw new DecisionTimeoutError('fm timed out after 30000ms', 30000);
+        };
+        const result = await decideAndRecord('diagnostics: timeout', hub, 'category', { instructions: 'x' });
+        expect(result).toMatchObject({
+            reason: 'timeout',
+            error: { name: 'DecisionTimeoutError', message: 'fm timed out after 30000ms' },
+        });
+    });
+
+    test('3. a plain Error is reported by its own name', async () => {
+        const { hub, typesafe } = await examplesHub();
+        typesafe.respond = () => {
+            throw new Error('boom');
+        };
+        const result = await decideAndRecord('diagnostics: plain error', hub, 'category', { instructions: 'x' });
+        expect(result).toMatchObject({ reason: 'error', error: { name: 'Error', message: 'boom' } });
+    });
+
+    test('4. a non-Error throw becomes NonError', async () => {
+        const { hub, typesafe } = await examplesHub();
+        typesafe.respond = () => {
+            throw 'boom';
+        };
+        const result = await decideAndRecord('diagnostics: non-error throw', hub, 'category', { instructions: 'x' });
+        expect(result).toMatchObject({ reason: 'error', error: { name: 'NonError', message: 'boom' } });
+    });
+
+    test('5. an invalid answer carries the validator error', async () => {
+        const { hub, typesafe } = await examplesHub();
+        typesafe.respond = () => ({
+            category: {
+                kind: 'choice',
+                label: 'billing',
+                confidence: 0.5,
+                // Mass 0.4: validateAnswers rejects the distribution.
+                probabilities: { bug_report: 0.2, billing: 0.2, feature_request: 0, account: 0 },
+            },
+        });
+        const result = await decideAndRecord('diagnostics: invalid answer', hub, 'category', { instructions: 'x' });
+        expect(result.reason).toBe('error');
+        expect(result.error?.name).toBe('DecisionBackendError');
+        expect(result.error?.message).toContain('Invalid decision response');
+    });
+
+    test('6. an answer of the wrong kind fails through the hub validator', async () => {
+        const { hub, typesafe } = await examplesHub();
+        typesafe.respond = () => ({
+            something_else: { kind: 'choice', label: 'a', confidence: 1, probabilities: { a: 1 } },
+        });
+        // `validateAnswers` rejects the name mismatch before the hub's own defensive
+        // `answer === undefined || kind !== type` branch can synthesize an error, so the
+        // reachable contract is "an error reason always carries a DecisionBackendError".
+        const result = await decideAndRecord('diagnostics: missing answer', hub, 'category', { instructions: 'x' });
+        expect(result.reason).toBe('error');
+        expect(result.error).toEqual({
+            name: 'DecisionBackendError',
+            message: 'Invalid decision response: answer names do not match questions',
+        });
+    });
+
+    test('7. a long message is truncated to the documented maximum', async () => {
+        const { hub, typesafe } = await examplesHub();
+        typesafe.respond = () => {
+            throw new Error('x'.repeat(2000));
+        };
+        const result = await decideAndRecord('diagnostics: long message', hub, 'category', { instructions: 'x' });
+        expect(result.error?.message).toHaveLength(500);
+        expect(result.error?.message).toBe('x'.repeat(500));
+    });
+
+    test('8. accepted and low-confidence results never carry an error', async () => {
+        const { hub, typesafe } = await examplesHub();
+        typesafe.respond = () => choiceAnswer('category', 'billing', 0.9, CATEGORY_LABELS);
+        const accepted = await decideAndRecord('diagnostics: accepted has no error', hub, 'category', {
+            instructions: 'x',
+        });
+        expect(accepted.reason).toBe('accepted');
+        expect('error' in accepted).toBe(false);
+
+        typesafe.respond = () => choiceAnswer('category', 'billing', 0.5, CATEGORY_LABELS);
+        const weak = await decideAndRecord('diagnostics: low-confidence has no error', hub, 'category', {
+            instructions: 'x',
+        });
+        expect(weak.reason).toBe('low-confidence');
+        expect('error' in weak).toBe(false);
     });
 });
