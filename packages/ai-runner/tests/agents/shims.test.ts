@@ -230,6 +230,34 @@ describe('new agent shims', () => {
         expect(shim.getHelpCommand()).toEqual({ command: 'grok', args: ['--help'] });
         expect(shim.getVersionCommand()).toEqual({ command: 'grok', args: ['--version'] });
     });
+
+    test('opencode shim builds run -m/--format argv with --auto (tier 1)', () => {
+        const shim = getAgentShim('opencode');
+        expect(shim.command).toBe('opencode');
+        expect(shim.tier).toBe(1);
+        // one-shot defaults mode text → no --format
+        expect(shim.getPromptCommand({ input: 'ship it' })).toEqual({
+            command: 'opencode',
+            args: ['run', 'ship it', '--auto'],
+        });
+        // continue + model + json
+        expect(
+            shim.getPromptCommand({
+                input: 'x',
+                continue: true,
+                model: 'opencode/glm-5.3-flash-free',
+                mode: 'json',
+            }),
+        ).toEqual({
+            command: 'opencode',
+            args: ['run', 'x', '--auto', '-c', '-m', 'opencode/glm-5.3-flash-free', '--format', 'json'],
+        });
+        // headless opencode auto-rejects `ask` permissions, so --auto is not optional
+        expect(shim.getPromptCommand({ input: 'x' }).args).toContain('--auto');
+        expect(shim.getAuthCommand()).toEqual({ command: 'opencode', args: ['providers'] });
+        expect(shim.getHelpCommand()).toEqual({ command: 'opencode', args: ['--help'] });
+        expect(shim.getVersionCommand()).toEqual({ command: 'opencode', args: ['--version'] });
+    });
 });
 
 describe('deprecation metadata', () => {

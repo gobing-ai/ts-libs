@@ -255,7 +255,15 @@ const opencodeShim: AgentShim = {
     getHelpCommand: () => ({ command: 'opencode', args: ['--help'] }),
     getVersionCommand: () => ({ command: 'opencode', args: ['--version'] }),
     getPromptCommand: (options) => {
-        const args = ['run', options.input ?? ''];
+        // `opencode run` is non-interactive and auto-REJECTS any permission the
+        // operator's config declares `ask` — there is no user to prompt, so the
+        // tool call dead-ends (probed 2026-10-18 on opencode 2.0.32: fsWrite
+        // landed, shell was rejected with "this non-interactive run cannot ask
+        // the user for permission"). `--auto` auto-approves exactly the
+        // permissions that are not explicitly denied, so an operator `deny`
+        // rule still holds; without it any non-default permission policy makes
+        // the shim unusable for tool-using work.
+        const args = ['run', options.input ?? '', '--auto'];
         if (options.continue === true) args.push('-c');
         if (options.model !== undefined) args.push('-m', options.model);
         if ((options.mode ?? 'text') === 'json') args.push('--format', 'json');

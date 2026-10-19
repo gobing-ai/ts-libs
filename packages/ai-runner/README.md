@@ -500,7 +500,7 @@ Agent-specific behavior:
 | `gemini` *(deprecated)* | `gemini` | 1 | env-only | `-p`, `-r latest` (resume), `-m`, `-o` |
 | `pi` | `pi` | 1 | `pi --list-models` | `--no-session`, `-p`, `-c` (resume), `--model`, `--mode` |
 | `omp` | `omp` | 1 | `omp --list-models` | `--no-session`, `-p`, `-c` (resume), `--model`, `--mode` |
-| `opencode` | `opencode` | 1 | `opencode providers` | `run`, `-c`, `-m`, `--format json` |
+| `opencode` | `opencode` | 1 | `opencode providers` | `run`, `--auto` (headless `ask` auto-rejects otherwise), `-c`, `-m`, `--format json` |
 | `antigravity-cli` | `agy` | 1 | env-only | `-p`, `--continue`, `--model` |
 | `openclaw` | `openclaw` | 2 | `openclaw health` | `agent --local -m` |
 | `hermes` | `hermes` | 1 | `hermes doctor` | `chat -q`, `--continue`, `-m` |
