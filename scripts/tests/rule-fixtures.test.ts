@@ -13,6 +13,7 @@ const RULE_FILES = [
     '.spur/rules/quality/verify-confidence.yaml',
     '.spur/rules/quality/evidence-citation.yaml',
     '.spur/rules/quality/changelog-verification-confidence.yaml',
+    '.spur/rules/quality/changelog-claim-citation.yaml',
 ] as const;
 
 /** Fixture paths whose content is asserted to be read-only for the gate. */
@@ -21,6 +22,7 @@ const CHECKED_IN_FIXTURES = [
     '.spur/rules/fixtures/decision-boundaries/should-pass/packages/ai-runner/src/no-clef.ts',
     '.spur/rules/fixtures/verify-confidence/should-pass/.spur/run/0201-verdict.json',
     '.spur/rules/fixtures/changelog-verification/should-pass/0201-high/CHANGELOG.md',
+    '.spur/rules/fixtures/changelog-claim-citation/should-pass/0203-non-claim-bullet/CHANGELOG.md',
 ] as const;
 
 const scratchRoots: string[] = [];
@@ -60,14 +62,14 @@ afterEach(async () => {
 });
 
 describe('runRuleFixtureChecks', () => {
-    test('asserts every current case in all five sets and writes a passing report', async () => {
+    test('asserts every current case in all six sets and writes a passing report', async () => {
         const reportPath = await makeReportPath();
         const report = await runRuleFixtureChecks(repoRoot, reportPath);
 
         expect(report.error).toBeUndefined();
         expect(report.pass).toBe(true);
-        expect(report.totals.sets).toBe(5);
-        expect(report.totals.cases).toEqual({ total: 53, fire: 26, pass: 27 });
+        expect(report.totals.sets).toBe(6);
+        expect(report.totals.cases).toEqual({ total: 62, fire: 29, pass: 33 });
         expect(report.totals.failed).toEqual({ total: 0, fire: 0, pass: 0 });
         expect(report.sets.map((set) => [set.set, set.cases.total])).toEqual([
             ['lifecycle-bus-propagation', 5],
@@ -75,6 +77,7 @@ describe('runRuleFixtureChecks', () => {
             ['verify-confidence', 24],
             ['evidence-citation', 9],
             ['changelog-verification', 9],
+            ['changelog-claim-citation', 9],
         ]);
 
         // Per-set and per-expectation counts are reported, not only a global pass.
@@ -83,6 +86,7 @@ describe('runRuleFixtureChecks', () => {
         expect(report.sets[2]?.cases).toEqual({ total: 24, fire: 14, pass: 10 });
         expect(report.sets[3]?.cases).toEqual({ total: 9, fire: 3, pass: 6 });
         expect(report.sets[4]?.cases).toEqual({ total: 9, fire: 4, pass: 5 });
+        expect(report.sets[5]?.cases).toEqual({ total: 9, fire: 3, pass: 6 });
 
         expect(JSON.parse(await readFile(reportPath, 'utf8'))).toEqual(report);
     });
@@ -162,6 +166,27 @@ describe('runRuleFixtureChecks', () => {
         expect(failed[0]?.error).toContain('expected pass but exit');
         // The gate only ever reads checked-in fixtures.
         expect(await readFile(join(repoRoot, CHECKED_IN_FIXTURES[3]))).toEqual(before);
+    });
+
+    test('fails a mutated changelog-claim-citation case', async () => {
+        const root = await makeTempRepo();
+        const setDir = '.spur/rules/fixtures/changelog-claim-citation';
+        await invertFixture(
+            root,
+            `${setDir}/should-pass/0203-non-claim-bullet/CHANGELOG.md`,
+            `${setDir}/should-fire/0101-claim-without-citation/CHANGELOG.md`,
+        );
+        const before = await readFile(join(repoRoot, CHECKED_IN_FIXTURES[4]));
+        const report = await runRuleFixtureChecks(root, await makeReportPath());
+
+        expect(report.pass).toBe(false);
+        const failed = report.results.filter((row) => !row.pass);
+        expect(failed.map((row) => [row.source, row.ruleId, row.expect])).toEqual([
+            ['should-pass/0203-non-claim-bullet', 'changelog-claim-citation', 'pass'],
+        ]);
+        expect(failed[0]?.error).toContain('expected pass but exit');
+        // The gate only ever reads checked-in fixtures.
+        expect(await readFile(join(repoRoot, CHECKED_IN_FIXTURES[4]))).toEqual(before);
     });
 
     test('fails rather than skips when a declared directory is deleted, and still writes a report', async () => {

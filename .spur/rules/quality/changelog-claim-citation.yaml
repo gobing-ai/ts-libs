@@ -1,0 +1,134 @@
+# CHANGELOG claim-citation gate — a release bullet that asserts an API/library
+# claim must carry exactly one `<!-- src: … -->` citation holding an anchor a
+# reader can open.
+#
+# Why this exists: the changelog procedure (dev-operations §8, step 7) requires
+# one `<!-- src: … -->` comment per claim bullet, and that requirement was
+# model-attested — the writer's own promise, verified by nothing. The recorded
+# plane has the sibling rule `.spur/rules/quality/evidence-citation.yaml` for
+# verdict evidence cells; the release plane had only
+# `.spur/rules/quality/changelog-verification-confidence.yaml`, which asserts the
+# confidence *enum* of a verification record and deliberately says nothing about
+# citations ("Whether a HIGH claim is earned is not checked" — that rule's own
+# known limits). So a bullet reading "the SDK drops the field" could ship with no
+# anchor at all and read as proven.
+#
+# Contract, per bullet:
+#   1. Subject — a bullet that asserts an API/library claim, detected by the
+#      same closed marker set the verdict-plane rule uses: a scoped-package
+#      mention (`@scope/name`), a `node_modules/` reference, a semver claim
+#      (`x.y.z`), or a backticked function-call-shaped token (`name(...)`).
+#      A bullet asserting no such fact (a status move, a filing, a wrap
+#      close-out) needs no citation and passes untouched.
+#   2. Presence — the bullet's block must carry exactly one `<!-- src: … -->`
+#      comment. None is reported; more than one is reported, because "one
+#      anchor per claim" is the contract and a second comment dilutes which
+#      anchor proved what.
+#   3. Anchor — the comment body must hold an openable anchor: an http(s) URL, a
+#      repo path (with its line or line range), or a backticked root-file name.
+#      `<!-- src: see the implementation -->` is the shape that reads as
+#      evidence while pinning nothing.
+#
+# Scope: sections that fall under the citation contract — `## [Unreleased]`
+# (always the current work) and every release heading dated 2026-10-19 or later.
+# Sections dated earlier are historical records written before this contract, and
+# enforcing today's rule on them would report a decade of entries instead of
+# describing the current one; `should-pass/0204-pre-contract-section` pins that
+# boundary. The rule is scoped to CHANGELOG.md, the file the changelog operation
+# writes; the verdict plane has its own rule.
+#
+# Known limits (each pinned by a fixture where decidable):
+#   - Presence-only: a wrong or decorative citation still clears the bullet;
+#     which citation proves which claim is not deterministically decidable. The
+#     marker set is the CLI's closed set, so a claim phrased outside it ("the
+#     retry helper changed") is not detected.
+#   - The comment must be written inside the bullet's own block: a citation in
+#     another bullet does not clear it.
+#   - A file carrying no in-contract section has nothing to check and passes.
+include:
+  - "CHANGELOG.md"
+
+rules:
+  - id: changelog-claim-citation
+    description: >-
+      Every bullet of a contract-bound CHANGELOG section (## [Unreleased] or a
+      release dated 2026-10-19 or later) that asserts an API/library claim — a
+      scoped-package mention (@scope/name), a node_modules/ reference, a semver
+      claim (x.y.z), or a backticked function-call-shaped token — must carry
+      exactly one `<!-- src: … -->` citation whose body holds an openable anchor:
+      an http(s) URL, a repo path with a :line or :line-line, or a backticked
+      root-file name. A claim bullet with no citation, with more than one, or
+      with a citation that names no anchor is reported. Mirrors the evidence-cell
+      contract of the verdict plane so a release note and the verification behind
+      it assert the same thing.
+    severity: error
+    evaluator:
+      type: exit-code
+      config:
+        command: sh
+        args:
+          - -c
+          - |
+            if [ ! -f CHANGELOG.md ]; then
+              echo "changelog-claim-citation: CHANGELOG.md is missing"
+              exit 1
+            fi
+            awk '
+              function emit(msg) {
+                printf "changelog-claim-citation: CHANGELOG.md:%d: %s\n", itemline, msg
+                violations++
+              }
+              function judge(   n, pos, rest, end, body) {
+                if (initem) {
+                  if (item ~ MARK) {
+                    n = gsub(/<!--[[:space:]]*src:/, "&", item)
+                    if (n == 0) {
+                      emit("bullet asserts an API/library claim without a `<!-- src: … -->` citation")
+                    } else if (n > 1) {
+                      emit("bullet carries " n " `<!-- src: … -->` citations; exactly one is expected")
+                    } else {
+                      pos = match(item, /<!--[[:space:]]*src:/)
+                      rest = substr(item, pos + RLENGTH)
+                      end = index(rest, "-->")
+                      body = end > 0 ? substr(rest, 1, end - 1) : rest
+                      if (body !~ CITE) {
+                        emit("`<!-- src: … -->` citation carries no openable anchor (repo path, path:line, or URL)")
+                      }
+                    }
+                  }
+                }
+                initem = 0; item = ""; itemline = 0
+              }
+              BEGIN {
+                violations = 0; insection = 0; initem = 0; item = ""; itemline = 0
+                CUTOVER = 20261019
+                # Claim markers: the closed set the verdict-plane evidence-citation rule uses.
+                MARK = "@[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*|node_modules/|[0-9]+\\.[0-9]+\\.[0-9]+|`[A-Za-z_][A-Za-z0-9_.-]*\\([^`]*\\)`"
+                # Accepted anchors: an http(s) URL, a repo path (optionally path:line), or a
+                # backticked root-file name.
+                CITE = "https?://[^[:space:]]+|[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]*\\.[A-Za-z]{1,5}(:[0-9]+(-[0-9]+)?)?|`[A-Za-z0-9_-]+\\.[A-Za-z]{1,5}(:[0-9]+(-[0-9]+)?)?`"
+              }
+              /^## / {
+                judge()
+                if ($0 ~ /^## \[Unreleased\]/) { insection = 1; next }
+                if ($0 ~ /^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) {
+                  d = $0
+                  sub(/^.* - /, "", d)
+                  gsub(/-/, "", d)
+                  insection = (d + 0 >= CUTOVER) ? 1 : 0
+                  next
+                }
+                insection = 0
+                next
+              }
+              /^### / { judge(); next }
+              /^- / {
+                judge()
+                if (insection) { initem = 1; item = $0; itemline = NR }
+                next
+              }
+              { if (initem) item = item " " $0 }
+              END { judge(); exit (violations > 0 ? 1 : 0) }
+            ' CHANGELOG.md
+        message: "a CHANGELOG claim bullet has no, a duplicate, or an anchorless `<!-- src: … -->` citation (see stdout)"
+        timeout: 30000

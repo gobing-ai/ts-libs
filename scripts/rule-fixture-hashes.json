@@ -1,4 +1,13 @@
 {
+    "changelog-claim-citation/should-fire/0101-claim-without-citation/CHANGELOG.md": "ac32ab2894a1eadf23702920f88faf8391e195746cf15f4708267882582f0901",
+    "changelog-claim-citation/should-fire/0102-citation-without-anchor/CHANGELOG.md": "d47b0a90631ad003a7338e9ca71e74293cb7052b611626fd8ace4ec94b60325b",
+    "changelog-claim-citation/should-fire/0103-duplicate-citation/CHANGELOG.md": "b4da8f24d558c75f91473f76d2aa33494b1fa7affc873dcca1e306e68f7735cd",
+    "changelog-claim-citation/should-pass/0201-path-line-anchor/CHANGELOG.md": "a01421f3528c7b1b25121a2c11060328f6fddd092ee10f2ceedd07d9dbfecee6",
+    "changelog-claim-citation/should-pass/0202-url-anchor/CHANGELOG.md": "19e35cfb728b51481f257d4d79df967d4bd1167bcfd3e3d3f9645ab468aa45b6",
+    "changelog-claim-citation/should-pass/0203-non-claim-bullet/CHANGELOG.md": "61d1b3bf00961b704966d76f1a40d904c02d595b01cd1e8f649e130362f3df36",
+    "changelog-claim-citation/should-pass/0204-pre-contract-section/CHANGELOG.md": "b9572748339008ea6344d36843e895c6086371dbc8155d58e3813cbf54ee25c1",
+    "changelog-claim-citation/should-pass/0205-whole-file-anchor/CHANGELOG.md": "55d0bb4fce4cd049dda92a981d685b0dfd69d84f2982a9018483f36af442b585",
+    "changelog-claim-citation/should-pass/0206-multiline-citation/CHANGELOG.md": "a2af17b4a9129d07b73b0bbc599b0d6fc1ac0b49755596cad32f17111522bde1",
     "changelog-verification/should-fire/0101-level-absent/CHANGELOG.md": "a76bff046693d740a3deb4cb14fe89a7bbba7003f8ddc72740b287a16893fe9d",
     "changelog-verification/should-fire/0102-level-lowercase/CHANGELOG.md": "49b72aed5c558f038cd19b9ac3137333c5d1e386348485b0f03667d20628faf3",
     "changelog-verification/should-fire/0103-level-non-enum/CHANGELOG.md": "d77f85b52674543da6cdf4c2561c46f30865afa2952a911a1223965bae0a5522",

@@ -51,7 +51,10 @@ const EVIDENCE_CITATION_RULE_ID = 'evidence-citation';
 /** Rule ID backing the changelog-verification fixture set. */
 const CHANGELOG_RULE_ID = 'changelog-verification-confidence';
 
-/** File every changelog-verification case stages at its workdir root. */
+/** Rule ID backing the changelog-claim-citation fixture set. */
+const CHANGELOG_CLAIM_RULE_ID = 'changelog-claim-citation';
+
+/** File every changelog-plane case stages at its workdir root. */
 const CHANGELOG_FIXTURE_FILE = 'CHANGELOG.md';
 
 /**
@@ -82,7 +85,7 @@ interface FixtureSetDeclaration {
     expected: Readonly<Record<Expectation, number>>;
 }
 
-/** The three fixture sets this gate asserts, with their declared case inventory. */
+/** The declared fixture sets this gate asserts, with their declared case inventory. */
 const FIXTURE_SETS: readonly FixtureSetDeclaration[] = [
     {
         set: 'lifecycle-bus-propagation',
@@ -108,6 +111,11 @@ const FIXTURE_SETS: readonly FixtureSetDeclaration[] = [
         set: 'changelog-verification',
         ruleFile: '.spur/rules/quality/changelog-verification-confidence.yaml',
         expected: { fire: 4, pass: 5 },
+    },
+    {
+        set: 'changelog-claim-citation',
+        ruleFile: '.spur/rules/quality/changelog-claim-citation.yaml',
+        expected: { fire: 3, pass: 6 },
     },
 ];
 
@@ -367,10 +375,15 @@ async function planVerdictPlaneCases(
     });
 }
 
-/** Plan the changelog-verification set: each case is a directory holding one whole CHANGELOG.md. */
-async function planChangelogVerificationCases(setDir: string, expect: Expectation): Promise<PlannedCase[]> {
+/** Plan a changelog-plane set: each case is a directory holding one whole CHANGELOG.md. */
+async function planChangelogCases(
+    set: string,
+    ruleId: string,
+    setDir: string,
+    expect: Expectation,
+): Promise<PlannedCase[]> {
     const expectDirName = EXPECTATION_DIRS[expect];
-    const label = `changelog-verification/${expectDirName}`;
+    const label = `${set}/${expectDirName}`;
     const expectDir = join(setDir, expectDirName);
     const entries = await readdir(expectDir, { withFileTypes: true });
     entries.sort((left, right) => left.name.localeCompare(right.name));
@@ -383,12 +396,12 @@ async function planChangelogVerificationCases(setDir: string, expect: Expectatio
         const contents = entry.isDirectory() ? await readdir(join(expectDir, entry.name)) : [];
         if (!contents.includes(CHANGELOG_FIXTURE_FILE)) {
             throw new Error(
-                `unrecognized fixture shape "${label}/${entry.name}": a changelog-verification case is a directory holding "${CHANGELOG_FIXTURE_FILE}"`,
+                `unrecognized fixture shape "${label}/${entry.name}": a ${set} case is a directory holding "${CHANGELOG_FIXTURE_FILE}"`,
             );
         }
         planned.push({
             source: `${expectDirName}/${entry.name}`,
-            ruleIds: [CHANGELOG_RULE_ID],
+            ruleIds: [ruleId],
             expect,
             files: [
                 { relative: CHANGELOG_FIXTURE_FILE, absolute: join(expectDir, entry.name, CHANGELOG_FIXTURE_FILE) },
@@ -407,7 +420,10 @@ const SET_PLANNERS: Readonly<Record<string, (setDir: string, expect: Expectation
         planVerdictPlaneCases('verify-confidence', VERIFY_CONFIDENCE_RULE_ID, setDir, expect),
     'evidence-citation': (setDir, expect) =>
         planVerdictPlaneCases('evidence-citation', EVIDENCE_CITATION_RULE_ID, setDir, expect),
-    'changelog-verification': planChangelogVerificationCases,
+    'changelog-verification': (setDir, expect) =>
+        planChangelogCases('changelog-verification', CHANGELOG_RULE_ID, setDir, expect),
+    'changelog-claim-citation': (setDir, expect) =>
+        planChangelogCases('changelog-claim-citation', CHANGELOG_CLAIM_RULE_ID, setDir, expect),
 };
 
 /** Stage one planned case into a scratch workdir and return its engine declaration. */
