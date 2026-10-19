@@ -67,12 +67,12 @@ describe('runRuleFixtureChecks', () => {
         expect(report.error).toBeUndefined();
         expect(report.pass).toBe(true);
         expect(report.totals.sets).toBe(5);
-        expect(report.totals.cases).toEqual({ total: 43, fire: 20, pass: 23 });
+        expect(report.totals.cases).toEqual({ total: 52, fire: 26, pass: 26 });
         expect(report.totals.failed).toEqual({ total: 0, fire: 0, pass: 0 });
         expect(report.sets.map((set) => [set.set, set.cases.total])).toEqual([
             ['lifecycle-bus-propagation', 5],
             ['decision-boundaries', 6],
-            ['verify-confidence', 14],
+            ['verify-confidence', 23],
             ['evidence-citation', 9],
             ['changelog-verification', 9],
         ]);
@@ -80,7 +80,7 @@ describe('runRuleFixtureChecks', () => {
         // Per-set and per-expectation counts are reported, not only a global pass.
         const lifecycle = report.sets[0];
         expect(lifecycle?.cases).toEqual({ total: 5, fire: 2, pass: 3 });
-        expect(report.sets[2]?.cases).toEqual({ total: 14, fire: 8, pass: 6 });
+        expect(report.sets[2]?.cases).toEqual({ total: 23, fire: 14, pass: 9 });
         expect(report.sets[3]?.cases).toEqual({ total: 9, fire: 3, pass: 6 });
         expect(report.sets[4]?.cases).toEqual({ total: 9, fire: 4, pass: 5 });
 
@@ -376,7 +376,7 @@ describe('runRuleFixtureChecks — the declared case inventory', () => {
 
         expect(report.pass).toBe(false);
         expect(report.error).toContain('declared case inventory mismatch for "verify-confidence/should-fire"');
-        expect(report.error).toContain('declared 8 case(s), found 0');
+        expect(report.error).toContain('declared 14 case(s), found 0');
     });
 
     test('fails when a single declared case source is deleted', async () => {

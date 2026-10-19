@@ -1,0 +1,17 @@
+{
+    "schemaVersion": 1,
+    "featureId": "0209",
+    "runId": "run-0209",
+    "workdir": "/repo",
+    "verifier": {
+        "name": "feature-lifecycle",
+        "sourcePath": ".spur/workflows/feature-verification.yaml",
+        "layer": "project",
+        "definitionDigest": "sha256:dddd"
+    },
+    "verificationCmd": "bun run spur-check-feature",
+    "inputDigest": "sha256:aaaa",
+    "status": "PASS",
+    "startedAt": "2026-09-24T05:10:48Z",
+    "completedAt": "2026-09-24T05:11:27Z"
+}

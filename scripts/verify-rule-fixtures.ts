@@ -97,7 +97,7 @@ const FIXTURE_SETS: readonly FixtureSetDeclaration[] = [
     {
         set: 'verify-confidence',
         ruleFile: '.spur/rules/quality/verify-confidence.yaml',
-        expected: { fire: 8, pass: 6 },
+        expected: { fire: 14, pass: 9 },
     },
     {
         set: 'evidence-citation',

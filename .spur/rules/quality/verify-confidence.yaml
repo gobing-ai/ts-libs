@@ -18,6 +18,15 @@
 #      '(operator-acknowledged)' only when someone actually accepted the weaker
 #      level, so its absence means nobody signed off.
 #
+#   4. Feature-verification receipts — the feature-scoped pass records the
+#      project's own level for what it proved: HIGH only when the pass ran the
+#      full gate, MEDIUM when it ran a narrowed command, LOW when it did not
+#      pass. The level is written by the project driver
+#      (.spur/scripts/feature-verify.mjs), never self-assigned, and this rule
+#      checks it against the receipt's own status and command. Pre-contract
+#      receipts (no `confidenceContract` marker) are historical records and keep
+#      their pass, exactly like non-proof-bound verdicts below.
+#
 # Scope differs per check, deliberately:
 #   - the vocabulary check runs on EVERY verdict artifact. It costs nothing,
 #     needs no proof block, and it catches malformed tokens in artifacts written
@@ -37,6 +46,8 @@
 include:
   - ".spur/run/*-verdict.json"
   - ".spur/memory/evidence/*-verdict.json"
+  - ".spur/run/*-feature-verification.json"
+  - ".spur/memory/evidence/*-feature-verification.json"
 
 rules:
   - id: verify-confidence-level
@@ -153,6 +164,72 @@ rules:
                   printf '%s\n' "$weak" | sed "s|^|verify-confidence-level: $f: confidence HIGH but acceptance row '|; s|\$|' is not backed by executable evidence (test/command)|"
                   violations=$((violations + $(printf '%s\n' "$weak" | grep -c .)))
                 fi
+              fi
+            done
+
+            # --- (4) feature-verification receipts under the confidence contract ---
+            FULLGATE="bun run spur-check-feature bun run spur-check spur self exec check-feature"
+            for f in .spur/run/*-feature-verification.json .spur/memory/evidence/*-feature-verification.json; do
+              [ -f "$f" ] || continue
+
+              if ! jq -e . "$f" >/dev/null 2>&1; then
+                echo "verify-confidence-level: $f: unreadable JSON — refusing to skip a feature receipt silently"
+                violations=$((violations + 1))
+                continue
+              fi
+
+              # A receipt is written RUNNING before the gate runs and completed after it, so the
+              # in-flight copy cannot carry a level yet — the pass would fail its own gate otherwise.
+              [ "$(jq -r '.status // ""' "$f" 2>/dev/null)" = "RUNNING" ] && continue
+
+              # Every pass from the contract date on must record its level; earlier receipts are
+              # historical records with no level to verify.
+              if [ "$(jq -r '.confidenceContract // 0' "$f" 2>/dev/null)" != "1" ]; then
+                fstart=$(jq -r '.startedAt // ""' "$f" 2>/dev/null)
+                # Portable date compare: YYYY-MM-DD as a number; an absent/odd stamp counts as 0.
+                fday=$(printf '%s' "$fstart" | tr -cd '0-9' | cut -c1-8)
+                [ -n "$fday" ] || fday=0
+                if [ "$fday" -ge 20261019 ]; then
+                  echo "verify-confidence-level: $f: feature pass started $fstart carries no confidence level — run it through the project pass (bun .spur/scripts/feature-verify.mjs verify --feature-id <id>) so the receipt records what it proved"
+                  violations=$((violations + 1))
+                fi
+                continue
+              fi
+
+              flevel=$(jq -r '.confidence // ""' "$f" 2>/dev/null)
+              fbasis=$(jq -r '.confidenceBasis // ""' "$f" 2>/dev/null)
+              fstatus=$(jq -r '.status // ""' "$f" 2>/dev/null)
+              fcmd=$(jq -r '.verificationCmd // ""' "$f" 2>/dev/null | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+
+              case "$flevel" in
+                HIGH|MEDIUM|LOW) ;;
+                *)
+                  echo "verify-confidence-level: $f: confidence must be HIGH, MEDIUM or LOW (got '${flevel:-<absent>}')"
+                  violations=$((violations + 1))
+                  continue
+                  ;;
+              esac
+
+              [ -n "$fbasis" ] || {
+                echo "verify-confidence-level: $f: confidence $flevel carries no confidenceBasis (state what the pass proved)"
+                violations=$((violations + 1))
+              }
+
+              # A pass that did not pass certifies nothing.
+              if [ "$fstatus" != "PASS" ] && [ "$flevel" != "LOW" ]; then
+                echo "verify-confidence-level: $f: status $fstatus cannot carry confidence $flevel"
+                violations=$((violations + 1))
+              fi
+
+              # HIGH is earned only by the full gate; a narrowed command proves less.
+              if [ "$fstatus" = "PASS" ] && [ "$flevel" = "HIGH" ]; then
+                case " $FULLGATE " in
+                  *" $fcmd "*) ;;
+                  *)
+                    echo "verify-confidence-level: $f: confidence HIGH but the pass ran a narrowed command '$fcmd'"
+                    violations=$((violations + 1))
+                    ;;
+                esac
               fi
             done
 
