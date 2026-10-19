@@ -137,6 +137,13 @@ Values: choice returns a string label, score the (possibly fractional) expected 
 `p >= 0.5` with `probability` and confidence `max(p, 1 - p)`. Every result names the selected
 `maker`.
 
+Confidence is only as graded as the maker. Probability-native makers (`typesafe`, `laya-local`,
+`clef`) return a model distribution; **sampled** makers (`fm-local`, and the planned `llm-agent`)
+return entropy over k sample frequencies, so with k ≤ 5 any disagreement lands far below a 0.7
+floor (two options: 2-of-3 → 0.08, 4-of-5 → 0.28). For a sampled maker, `accepted` effectively
+means "all samples agreed", and a constant answer at confidence 1.0 is unanimity, not calibration.
+Choose a probability-native maker where the floor must discriminate.
+
 ## Maker registry
 
 `DecisionMakerRegistry` maps plain names to `DecisionMaker`s — the built-ins above plus anything

@@ -139,6 +139,17 @@ then `extractJsonAnswer(stdout)`. Non-zero exit or `exitCode === null` → `Deci
 the exact keys and allowed option strings and demands a single JSON object with no prose; it never
 asks for confidence (ADR-030).
 
+**Confidence granularity (consumer guidance).** `entropyConfidence` is `1 − H(p)/ln(n)` over the
+n declared options, so with small k a sampled driver's confidence takes only a few values. Two
+options: unanimous → 1.0, 2-of-3 → 0.08, 4-of-5 → 0.28. Three options, 2-of-3 → 0.42. Against the hub
+floor (0.7 default; Spur's catalogs use 0.8), a sampled maker — `llm-agent` and `fm-local` alike —
+is accepted **only when every sample agrees**: in practice a unanimity vote, not a graded score.
+Observed downstream (2026-10-19): Spur `review-failure-class` on `fm-local` answered `fix` at
+confidence 1.0 in 15/15 runs, and knowledge-kit `kk-item-importance` answered `2` for 116/153 items.
+Unanimous samples from a low-temperature model therefore read as certainty without being
+calibrated. Consumers that need graded confidence should prefer a probability-native maker
+(`typesafe`, `laya-local`, `clef`), or treat a sampled maker's accept as "the samples agreed".
+
 ## Registry
 
 `DecisionMakerRegistry` built-ins become `typesafe`, `fm-local`, `laya-local`, `llm-agent`.

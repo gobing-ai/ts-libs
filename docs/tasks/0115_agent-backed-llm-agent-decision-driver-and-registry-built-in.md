@@ -4,7 +4,7 @@ name: Agent-backed llm-agent decision driver and registry built-in in ts-ai-deci
 status: todo
 template: feature-impl
 created_at: 2026-10-19T06:34:09.538Z
-updated_at: "2026-10-19T17:12:21.160Z"
+updated_at: "2026-10-19T17:58:22.541Z"
 feature_id: O1
 priority: P2
 tags:
@@ -100,6 +100,8 @@ Answers the operator's Q3: treat normal LLM models (any `ts-ai-runner` agent/mod
 10. The prompt `input` contains every key and every allowed option, and never contains "confidence" or "schema".
 11. `new DecisionMakerRegistry().names()` includes `llm-agent` and spawns nothing (the fake runner records zero calls).
 12. The detection result is memoised across two asks (a single `detectOne` sequence), and a failed detection is retried on the next ask.
+
+**Confidence granularity (added 2026-10-19 from downstream evidence).** With default k=3 over a two-option choice, `entropyConfidence` yields 1.0 (unanimous) or 0.08 (2-of-3); no non-unanimous result clears the hub floor (0.7; Spur catalogs 0.8). `llm-agent` therefore accepts only unanimous samples. That is intended (ADR-030: no invented confidence) but must be documented in the README maker table ("accepted = all samples agreed") and is NOT a reason to raise default k. Evidence: Spur `review-failure-class` on fm-local answered `fix` at 1.0 in 15/15 runs; see `docs/design/llm-agent-decision-backend.md` § Agent driver, "Confidence granularity".
 
 ### Plan
 
