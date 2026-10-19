@@ -25,4 +25,6 @@
 [done] **M**: Reusable browser profile automation ([M_reusable-browser-profile-automation.md](./M_reusable-browser-profile-automation.md))
 [active] **N**: Declarative AI decision catalog and hub in ts-ai-decision ([N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md](./N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md))
     └── [done] **N1**: Decision hub answer validation ([N1_decision-hub-answer-validation.md](./N1_decision-hub-answer-validation.md))
+[backlog] **O**: Decision models and decision makers ([O_decision-models-and-decision-makers.md](./O_decision-models-and-decision-makers.md))
+    └── [backlog] **O1**: LLM agents as decision makers and decision-backend boundary cleanup ([O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md](./O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md))
 <!-- END AUTO-GENERATED -->

@@ -103,6 +103,29 @@ Invariants:
   `defaultMaker` (`typesafe`). Registry factories run lazily and are memoised on success, so
   `list`/`describe` never touch a backend.
 
+## Decision backends (accepted design — ADR-038/ADR-039; not yet built)
+
+Feature O1 reshapes the decision packages so `ts-ai-runner` holds only the provider-neutral contract
+and every concrete backend sits outside it. Shapes: `docs/design/llm-agent-decision-backend.md`.
+
+- `ts-ai-runner/src/decision` = types, errors, validators, `createDecisionMaker`, and the pure
+  sampled-driver core (prompt rendering, enum options, answer parsing, ADR-030 frequency estimation).
+  It imports no SDK and no workspace package.
+- `ts-decision-fm` is an fm sampler over the core; `ts-ai-decision` holds the TypeSafe driver and the
+  agent-backed `llm-agent` driver beside the catalog hub; `ts-laya-mlx` and `ts-decision-clef` are
+  unchanged.
+
+Invariants (to become spur rules in feature O1):
+
+- No file under `packages/ai-runner/src` imports `@typesafe-ai/sdk`; only
+  `packages/ai-decision/src/typesafe-driver.ts` may.
+- `packages/ai-runner/src/decision/sampled-driver.ts` imports nothing outside `./types` and `./errors`.
+- No driver package (`decision-fm`, `decision-clef`, `laya-mlx`) imports `@gobing-ai/ts-ai-decision`.
+- The agent driver never runs an agent in the caller's working directory: every sample's `cwd` is a
+  per-ask scratch directory removed when the ask settles.
+- Every probability a sampled driver returns is a sample frequency over declared options; no driver
+  asks the model for its own confidence.
+
 ## ai-runner
 
 `@gobing-ai/ts-ai-runner` owns coding-agent shims, installation and health detection, prompt execution,

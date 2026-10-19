@@ -1,15 +1,52 @@
 # @gobing-ai/ts-ai-decision
 
-Declarative YAML **decision catalogs** over the `DecisionMaker` surface of
-`@gobing-ai/ts-ai-runner`, served through a fallback-guaranteed **`DecisionHub`** (ADR-033). A
-catalog declares named, static decision points whose shape follows TypeSafe AI's Jev question
-spec (`type` / `instructions` / `criteria`), with a required `fallback` so every decision always
-has a concrete answer.
+The home of the **decision family** in ts-libs: declarative YAML **decision catalogs**, the
+**`DecisionMakerRegistry`** that names every decision maker, and the fallback-guaranteed
+**`DecisionHub`** that serves them (ADR-033). Applications depend on this package; the concrete
+decision backends stay in their own packages and are bundled or registered here.
 
-The package owns three layers: the strict catalog schema and loader (JSON Schema + zod,
-`${params.*}` template validation/rendering, load-time consistency checks), the
-`DecisionMakerRegistry` (makers picked by name), and the `DecisionHub` (one Jev question per
-`decide`, declared fallback on every backend outcome).
+A catalog declares named, static decision points whose shape follows TypeSafe AI's Jev question
+spec (`type` / `instructions` / `criteria`), with a required `fallback`, so every decision always
+has a concrete answer no matter which backend is configured or available.
+
+## The decision family at a glance
+
+| Layer | Package | Owns |
+|-------|---------|------|
+| Contract | `@gobing-ai/ts-ai-runner` | Neutral `Question` / `Answer` types, `DecisionDriver`, `createDecisionMaker`, `validateQuestions` / `validateAnswers`, the `Decision*Error` taxonomy |
+| Hub (this package) | `@gobing-ai/ts-ai-decision` | Catalog schema + loader, parameter rendering, `DecisionMakerRegistry`, `DecisionHub`, `createDecisionHub` |
+| Backends | `ts-decision-fm`, `ts-laya-mlx`, `ts-decision-clef` (+ TypeSafe via ts-ai-runner today) | One `DecisionDriver` each; they depend only on the contract, never on this package |
+
+The dependency direction is fixed: backends → contract, hub → contract + bundled backends. That is
+why backends live outside this package (ADR-033, ADR-037) — a backend that imported the hub would
+create a cycle with the bundled built-ins.
+
+### Decision makers
+
+| Maker name | Backend | Package | Registered | Needs | Probabilities |
+|------------|---------|---------|------------|-------|---------------|
+| `typesafe` | TypeSafe Jev (hosted) | `ts-ai-runner` (`@typesafe-ai/sdk` 0.6.0) | built-in, lazy; hub default | `TYPESAFE_API_KEY` | from the API |
+| `fm-local` | Apple Foundation Models via `fm` (ADR-029/030) | `ts-decision-fm` | built-in, lazy | macOS on Apple silicon, `fm` CLI | k-sample frequencies |
+| `laya-local` | Laya on MLX, warm Python worker (ADR-027/028) | `ts-laya-mlx` | built-in, lazy | Apple silicon, Laya model + Python env | from the local model |
+| `clef` | Cloudflare Workers AI Clef (ADR-037) | `ts-decision-clef` | consumer-registered | Cloudflare account ID + API token | from the API |
+
+Built-ins are registered lazily: naming, listing and describing makers never constructs a driver,
+so a host without a backend's prerequisites only notices when a decision actually routes to it —
+and then gets the declared fallback (`reason: 'no-backend'` or `'error'`), not an exception.
+
+## Quick start
+
+```ts
+import { createDecisionHub } from '@gobing-ai/ts-ai-decision';
+
+const hub = await createDecisionHub({ catalogs: ['decisions/support.yaml'] });
+
+const r = await hub.decide('category', { instructions: ticketText, channel: 'chat' });
+// { id, type, value, confidence, source, reason, maker, durationMs }
+```
+
+`createDecisionHub` composes registry + catalogs in one call and never returns a partially built
+hub. See `examples/decisions.yaml` for a complete catalog.
 
 ## Catalog format
 
@@ -56,9 +93,6 @@ answer vocabulary stays static. `${env.*}` and any other namespace are rejected 
 
 ## DecisionHub
 
-`DecisionHub` loads catalogs and serves `decide(id, input)` with a guaranteed concrete answer —
-see `examples/decisions.yaml` for a complete catalog:
-
 ```ts
 import { DecisionHub } from '@gobing-ai/ts-ai-decision';
 
@@ -68,15 +102,17 @@ await hub.loadFile('decisions/support.yaml');  // or hub.load(loadedCatalog)
 hub.list();                                    // [{ id, type, description, source }] — pure discovery
 hub.describe('category');                      // parameters (incl. instructions), criteria, fallback,
                                                // effective minConfidence, maker and model
-const r = await hub.decide('category', { instructions: ticketText, channel: 'chat' });
-// { id, type, value, confidence, source, reason, maker, durationMs }
-const r2 = await hub.decide('category', { instructions: ticketText }, { maker: 'fm-local' });
+const r = await hub.decide('category', { instructions: ticketText }, { maker: 'fm-local' });
 ```
 
 `load` is all-or-nothing per catalog: a duplicate decision id across catalogs, or a `maker`
 name (decision or `defaults.maker`) that is not registered, throws `DecisionCatalogError` and
 registers nothing from the offending catalog. `list` and `describe` never construct a maker or
 driver.
+
+The hub picks a maker purely by name — per-call `options.maker` → the decision's `maker` → the
+catalog's `defaults.maker` → the hub's `defaultMaker` (default `typesafe`). Catalog names are
+checked at `load`; a misspelled per-call name fails loudly instead of falling back.
 
 ### The fallback contract
 
@@ -103,46 +139,76 @@ Values: choice returns a string label, score the (possibly fractional) expected 
 
 ## Maker registry
 
-`DecisionMakerRegistry` maps plain names to `DecisionMaker`s — the three built-ins (`typesafe`,
-`fm-local`, `laya-local`) pre-registered lazily, plus anything consumers register (ADR-033):
+`DecisionMakerRegistry` maps plain names to `DecisionMaker`s — the built-ins above plus anything
+consumers register:
 
 ```ts
 import { createDecisionMaker } from '@gobing-ai/ts-ai-runner';
 import { DecisionMakerRegistry } from '@gobing-ai/ts-ai-decision';
+import { createClefDriver } from '@gobing-ai/ts-decision-clef';
 
 const registry = new DecisionMakerRegistry(); // pass `builtins: false` to start empty
-registry.register('scripted-judge', () => createDecisionMaker({ driver: myDriver }));
+registry.register('clef', () =>
+    createDecisionMaker({ driver: createClefDriver({ accountId, apiToken }) }),
+);
 
 registry.has('fm-local');                          // true — nothing was constructed yet
 const maker = await registry.resolve('fm-local');  // factory runs here, once, and is memoised
-registry.names();                                  // ['typesafe', 'fm-local', 'laya-local', 'scripted-judge']
+registry.names();                                  // ['typesafe', 'fm-local', 'laya-local', 'clef']
 ```
 
 Registering builds nothing; the first `resolve` runs a factory and memoises the maker, and a
 factory that throws is not memoised, so a later `resolve` retries. Invalid or duplicate names
 throw `DecisionRegistryError`; unknown names throw `UnknownDecisionMakerError { name }`; factory
-errors propagate unchanged. Pass `builtins: { makerOptions, driverOptions }` to tune the built-ins
-(env/keys/timeouts, or executor/client injection for the local drivers).
+errors propagate unchanged. Pass `builtins: { makerOptions, driverOptions }` to tune the
+built-ins (env/keys/timeouts via `makerOptions`; executor/client injection via
+`driverOptions['fm-local']` / `driverOptions['laya-local']`).
 
-`dispose(name?)` releases the resources of already-`resolve`d makers — a `laya-local` maker holds a
-warm Python worker whose open pipes keep the calling process alive until it is closed (reachable from
-a hub as `hub.registry.dispose()`). It never runs an unresolved factory just to close it, ignores
-unknown names, and returns each entry to its unresolved state, so a later `resolve` builds a fresh
-maker instead of handing back a closed one.
+`dispose(name?)` releases the resources of already-`resolve`d makers — a `laya-local` maker holds
+a warm Python worker whose open pipes keep the calling process alive until it is closed
+(reachable from a hub as `hub.registry.dispose()`). It never runs an unresolved factory just to
+close it, ignores unknown names, and returns each entry to its unresolved state, so a later
+`resolve` builds a fresh maker instead of handing back a closed one.
 
-The hub picks a maker purely by name — no new driver code per routing:
-per-call `options.maker` → the decision's `maker` → the catalog's `defaults.maker` → the hub's
-`defaultMaker` (default `typesafe`). Catalog names are checked at `load`; a misspelled per-call
-name fails loudly instead of falling back. `createDecisionHub` composes the whole thing in one
-call and never returns a partially built hub:
+The same registry can be handed to `createDecisionHub({ registry })` or extended through
+`createDecisionHub({ makers: { name: factory } })`.
 
-```ts
-import { createDecisionHub } from '@gobing-ai/ts-ai-decision';
+## Adding a decision backend
 
-const hub = await createDecisionHub({
-    catalogs: ['decisions/support.yaml'],
-    makers: { 'scripted-judge': () => createDecisionMaker({ driver: myDriver }) },
-});
-```
+New backends follow the existing pattern rather than landing inside this package:
 
-See `docs/design/ai-decision-catalog.md` for the full field reference.
+1. Implement `DecisionDriver` from `@gobing-ai/ts-ai-runner` in its own package
+   (`packages/decision-<name>`, published as `@gobing-ai/ts-decision-<name>`). Depend only on the
+   contract (and ts-runtime / ts-infra seams for platform or HTTP access); never import
+   `@gobing-ai/ts-ai-decision`.
+2. Return answers that pass `validateAnswers`, translate every transport failure into the
+   `Decision*Error` taxonomy, and never invent a confidence the backend does not produce
+   (ADR-030: sampled backends report empirical frequencies only).
+3. Make it reachable by name: consumers register it (`clef` pattern), or — when it should be
+   available out of the box — add a lazy built-in to `DecisionMakerRegistry` with its options
+   under `builtins.driverOptions`.
+4. Add the boundary to `.spur/rules/typescript/decision-boundaries.yaml` and an ADR entry in
+   `docs/00_ADR.md`.
+
+Capabilities every maker benefits from (routing, fallback, catalog features, registry
+lifecycle) belong in this package.
+
+## Planned (feature O1 — accepted design, not yet released)
+
+ADR-038 / ADR-039, design `docs/design/llm-agent-decision-backend.md`:
+
+- **`llm-agent` built-in maker** — treats any `ts-ai-runner` coding agent / model as a decision
+  model: k samples per ask (default 3) in an isolated scratch directory, answers estimated from
+  sample frequencies with entropy confidence, on a shared sampled-driver core that
+  `ts-decision-fm` is rebuilt on.
+- **TypeSafe moves here** — `createTypesafeDriver` and `@typesafe-ai/sdk` (upgraded to 0.7.0)
+  move from `ts-ai-runner` into this package; `createDecisionMaker({ backend: 'typesafe' })`
+  keeps working for one release through a deprecated dynamic-import bridge.
+
+The maker table above is updated when those tasks ship.
+
+## References
+
+- `docs/design/ai-decision-catalog.md` — full catalog field reference, hub and registry design.
+- `docs/00_ADR.md` — ADR-027/028 (Laya), ADR-029/030/031 (fm), ADR-033 (catalog + hub),
+  ADR-037 (Clef), ADR-038/039 (llm-agent, TypeSafe relocation).

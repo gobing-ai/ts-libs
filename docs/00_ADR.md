@@ -537,6 +537,10 @@ across the workspace graph.
 
 **Detail:** `docs/03_ARCHITECTURE.md` § laya-mlx; boundary rule under `.spur/rules/typescript/`.
 
+**Amendment (2026-10-18, ADR-039).** The `typesafe` selector joins the dynamically resolved backends:
+its driver moves to `ts-ai-decision`, and `ts-ai-runner` keeps no concrete driver. Why: the contract
+package carries no vendor SDK. Detail: ADR-039.
+
 ---
 
 ## ADR-029: Apple `fm` Decision Backend Ships as `ts-decision-fm` over a One-Shot Process Bridge
@@ -664,6 +668,10 @@ should route any decision to any maker, built-in or the consumer's own.
 **Detail:** `docs/03_ARCHITECTURE.md` § ai-decision; `docs/design/ai-decision-catalog.md`;
 feature N.
 
+**Amendment (2026-10-18, ADR-038/ADR-039).** The registry pre-registers a fourth lazy built-in,
+`llm-agent`, and `ts-ai-decision` now holds driver code: the TypeSafe driver and the agent-backed
+driver. Why: the hub is already the one package that bundles every backend. Detail: ADR-038, ADR-039.
+
 ---
 
 ## ADR-034: Static Dependency DAG Workflow Mode
@@ -769,3 +777,46 @@ SDK boundary. No direct-fetch exception is needed.
 
 **Detail:** `docs/03_ARCHITECTURE.md` § decision-clef;
 `docs/design/decision-clef-backend.md`; feature A3.
+
+---
+
+## ADR-038: A Sampled-Driver Core Lives in `ts-ai-runner`; the Agent-Backed LLM Decision Driver Lives in `ts-ai-decision`
+
+**Status:** Accepted (design) · **Date:** 2026-10-18 · **Targets:** `ts-ai-runner`, `ts-decision-fm`, `ts-ai-decision` (feature O1)
+
+**Decision.** The engine-agnostic half of the `fm-local` driver — prompt rendering, declared options,
+JSON answer parsing, k-sample frequency estimation and entropy confidence (ADR-030) — moves into a
+pure, dependency-free `createSampledDriver` core under `ts-ai-runner/src/decision`. `ts-decision-fm`
+becomes an fm sampler over that core with unchanged answers and exports. A new agent-backed driver,
+`createAgentDriver`, samples any `ts-ai-runner` agent/model through `AiRunner.runPromptCommand` in an
+isolated scratch directory, ships in `ts-ai-decision`, and is pre-registered as the lazy built-in
+maker `llm-agent`.
+
+**Why.** `ts-ai-decision` already depends on `ts-decision-fm`, so a shared core can only sit below
+both, beside the validators ADR-037 already exports to external drivers.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § Decision backends (accepted design — ADR-038/ADR-039);
+`docs/design/llm-agent-decision-backend.md`; feature O1.
+
+---
+
+## ADR-039: `ts-ai-runner` Owns Only the Neutral Decision Contract; the TypeSafe Driver Moves to `ts-ai-decision`
+
+**Status:** Accepted (design) · **Date:** 2026-10-18 · **Targets:** `ts-ai-runner`, `ts-ai-decision` (feature O1)
+
+**Decision.** `createTypesafeDriver` and the pinned `@typesafe-ai/sdk` dependency move from
+`ts-ai-runner` to `ts-ai-decision`. `ts-ai-runner` keeps the neutral types, errors, validators,
+sampled-driver core and `createDecisionMaker`; its `typesafe` backend selector survives one release as
+a deprecated dynamic import of `@gobing-ai/ts-ai-decision` under ADR-028's one-way rule, then is
+removed. The `packages/laya-mlx` directory is not renamed.
+
+**Why.** A coding-agent runner should not carry a pre-1.0 vendor decision SDK for consumers that never
+decide, and every other concrete backend already lives outside it.
+
+**Consequences.** Direct `createDecisionMaker()` callers relying on the `typesafe` default (Spur) must
+install `ts-ai-decision` or inject a driver before the bridge is removed. A directory-only rename of
+`laya-mlx` was rejected: it would break the `dir == name − "ts-"` mapping every other package keeps,
+and a real publish rename (ADR-029 kept `ts-laya-mlx`) costs a new npm bootstrap for no functional gain.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § Decision backends (accepted design — ADR-038/ADR-039);
+`docs/design/llm-agent-decision-backend.md` § TypeSafe relocation; feature O1.
