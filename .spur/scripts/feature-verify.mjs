@@ -88,6 +88,8 @@ function verifyViaCli(featureId, runId, cmd) {
     if (runId !== '') args.push('--run-id', runId);
     const pass = spawnSync('spur', args, { stdio: 'inherit' });
     if (pass.error) throw pass.error;
+    // Exit 1 means the pass could not run; stamping its RUNNING receipt would mask the failure.
+    if (pass.status !== 0) throw new Error(`spur feature verify exited ${pass.status}`);
     return pass;
 }
 
@@ -98,7 +100,8 @@ async function verify(featureId, runId, spurModule, cmd, overrideCmd) {
         mod = await loadSeams(spurModule);
     } catch (err) {
         if (spurModule !== '') throw err; // an explicit module that cannot load is a caller error
-        verifyViaCli(featureId, runId, cmd);
+        // Same rule as the seam path: only an explicit `--cmd` overrides the configured definition.
+        verifyViaCli(featureId, runId, overrideCmd);
         stampReceipts(evidenceDir, featureId, cmd);
         return;
     }
