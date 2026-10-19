@@ -14,8 +14,8 @@ has a concrete answer no matter which backend is configured or available.
 | Layer | Package | Owns |
 |-------|---------|------|
 | Contract | `@gobing-ai/ts-ai-runner` | Neutral `Question` / `Answer` types, `DecisionDriver`, `createDecisionMaker`, `validateQuestions` / `validateAnswers`, the `Decision*Error` taxonomy |
-| Hub (this package) | `@gobing-ai/ts-ai-decision` | Catalog schema + loader, parameter rendering, `DecisionMakerRegistry`, `DecisionHub`, `createDecisionHub` |
-| Backends | `ts-decision-fm`, `ts-laya-mlx`, `ts-decision-clef` (+ TypeSafe via ts-ai-runner today) | One `DecisionDriver` each; they depend only on the contract, never on this package |
+| Hub (this package) | `@gobing-ai/ts-ai-decision` | Catalog schema + loader, parameter rendering, `DecisionMakerRegistry`, `DecisionHub`, `createDecisionHub`, the TypeSafe and `llm-agent` drivers |
+| Backends | `ts-decision-fm`, `ts-laya-mlx`, `ts-decision-clef` | One `DecisionDriver` each; they depend only on the contract, never on this package |
 
 The dependency direction is fixed: backends → contract, hub → contract + bundled backends. That is
 why backends live outside this package (ADR-033, ADR-037) — a backend that imported the hub would
@@ -28,7 +28,7 @@ create a cycle with the bundled built-ins.
 | `typesafe` | TypeSafe Jev (hosted) | this package (`@typesafe-ai/sdk` 0.7.0) | built-in, lazy; hub default | `TYPESAFE_API_KEY` | from the API |
 | `fm-local` | Apple Foundation Models via `fm` (ADR-029/030) | `ts-decision-fm` | built-in, lazy | macOS on Apple silicon, `fm` CLI | k-sample frequencies |
 | `laya-local` | Laya on MLX, warm Python worker (ADR-027/028) | `ts-laya-mlx` | built-in, lazy | Apple silicon, Laya model + Python env | from the local model |
-| `llm-agent` | Any `ts-ai-runner` coding agent / model (ADR-038) | this package (`ts-ai-runner` surface) | built-in, lazy | an installed agent CLI | k-sample frequencies |
+| `llm-agent` | Any `ts-ai-runner` coding agent / model (ADR-038) | this package (`ts-ai-runner` surface) | built-in, lazy | an installed agent CLI | k-sample frequencies (accepted = all samples agreed) |
 | `clef` | Cloudflare Workers AI Clef (ADR-037) | `ts-decision-clef` | consumer-registered | Cloudflare account ID + API token | from the API |
 
 Built-ins are registered lazily: naming, listing and describing makers never constructs a driver,
@@ -159,11 +159,13 @@ checked at `load`; a misspelled per-call name fails loudly instead of falling ba
 
 `decide` never rejects for backend outcomes — only caller mistakes throw (`UnknownDecisionError`
 for an unknown id, `DecisionInputError` for input breaking the parameter contract,
-`UnknownDecisionMakerError` for an unregistered per-call maker; the constructor throws for an
-unregistered `defaultMaker`). Every throw happens before any backend call.
+`UnknownDecisionMakerError` for an unregistered, empty or repeating per-call maker chain or an
+unregistered per-call shadow; the constructor throws for an unregistered `defaultMaker`). Every
+throw happens before any backend call.
 
-Exactly one Jev question keyed by the decision id goes through a single
-`maker.ask({ state, questions, model })`; `model` resolves decision → catalog default → omitted.
+Exactly one Jev question keyed by the decision id goes through
+`maker.ask({ state, questions, model })` — once per maker a chain tries, plus once for a shadow;
+`model` resolves decision → catalog default → omitted.
 Backend outcomes map to the declared fallback with `source: 'default'`:
 
 | Outcome | `reason` |
@@ -181,7 +183,7 @@ Values: choice returns a string label, score the (possibly fractional) expected 
 (Spur writes it to `decision_logs.error`); accepted and `low-confidence` results never carry one.
 
 Confidence is only as graded as the maker. Probability-native makers (`typesafe`, `laya-local`,
-`clef`) return a model distribution; **sampled** makers (`fm-local`, and the planned `llm-agent`)
+`clef`) return a model distribution; **sampled** makers (`fm-local`, `llm-agent`)
 return entropy over k sample frequencies, so with k ≤ 5 any disagreement lands far below a 0.7
 floor (two options: 2-of-3 → 0.08, 4-of-5 → 0.28). For a sampled maker, `accepted` effectively
 means "all samples agreed", and a constant answer at confidence 1.0 is unanimity, not calibration.

@@ -181,8 +181,8 @@ tarball). Task 0116 R4 owns the changes.
 
 | 0.7.0 change | Effect on the driver | Action |
 |---|---|---|
-| `noul` overloads require non-null instructions or criteria | `noul(question.prompt ?? null, …)` fails tsc | branch on `prompt`; no cast |
-| Client-side noul check ("neither instructions nor criteria") | unreachable: neutral noul always sends `{ true, false }` criteria | none |
+| `noul` overloads require non-null instructions or criteria | `noul(question.prompt ?? null, …)` fails tsc | superseded by the undescribed-noul row below (object built directly; no cast) |
+| Client-side noul check ("neither instructions nor criteria") | reachable: a neutral noul with no `yes`/`no` descriptions sends no criteria, so a bare noul trips it | see the undescribed-noul row below |
 | `state` typed `NonNullable`, null rejected client-side | driver already sends `''` for null | none |
 | Request compression defaults to zstd when `node:zlib.zstdCompress` exists (Bun 1.4.3: yes) | test fake fetch must decode `content-encoding: zstd` bodies | decode in the test helper; keep zstd in production |
 | `Question` union adds `box` | `fromSdkAnswer` default branch already throws | none |

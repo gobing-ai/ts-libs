@@ -298,8 +298,8 @@ const r2 = await hub.decide('category', { instructions: ticketText }, { maker: '
 
 ## `decide` algorithm
 
-1. An unknown id throws `UnknownDecisionError`, and an unregistered per-call maker throws
-   `UnknownDecisionMakerError`. Input that breaks the parameter contract throws
+1. An unknown id throws `UnknownDecisionError`, and an unregistered per-call maker or shadow (or
+   an empty or repeating per-call chain) throws `UnknownDecisionMakerError`. Input that breaks the parameter contract throws
    `DecisionInputError { decisionId, param, message }`. Neither case makes a backend call.
 2. Resolve parameters: declared defaults, overlaid by input, plus `instructions` (default `""`).
 3. Render `instructions` and `criteria` (§ Variable replacement), then build one question of the
@@ -310,6 +310,8 @@ const r2 = await hub.decide('category', { instructions: ticketText }, { maker: '
    Catalog names were already checked at load. `registry.resolve(name)` builds lazily, and a
    factory or construction failure is a `no-backend` outcome, not a throw.
 5. `maker.ask({ state, questions: { [id]: question }, model })`, with exactly one question per call.
+   A maker chain repeats steps 4–7 per name until one answers, and a shadow asks the same request
+   beside it (§ Maker chains, shadow and diagnostics).
 6. Confidence and value:
    - choice / score: `confidence` comes from the answer.
    - noul: `p` is the yes-probability, `confidence = max(p, 1 - p)`, and the value is `p >= 0.5`.
