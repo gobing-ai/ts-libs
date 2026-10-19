@@ -372,6 +372,26 @@ Built-in fixer providers (`RegexFixerProvider`, `PathFixerProvider`, `TestStubFi
 | `test-location` | Enforce test placement and matching source/test pairs. | Uses named test-path resolvers. |
 | `schema-artifact` | Validate JSON schema artifact structure. | Checks existence, JSON validity, title, properties, defs, required array. |
 | `sg` | Run an ast-grep pattern. | Requires the `sg` CLI in the execution environment. |
+| `hedge-phrases` | Flag uncertainty phrasing ("it may", "presumably") in scoped files. | Literal phrases, one finding per file per phrase with its first matching line; `caseSensitive` (default false) and `wholeWord` (default true). |
+
+Hedge phrases (a claim that hedges states nothing verifiable):
+
+```yaml
+rules:
+  - id: no-hedged-claims
+    severity: warning
+    include: ["docs/tasks*/**/*.md"]
+    evaluator:
+      type: hedge-phrases
+      config:
+        phrases: ["it may", "presumably"]
+        # wholeWord: true      # default: "it may" does not match inside "it maybe"
+        # caseSensitive: false # default
+```
+
+A finding reads `uncertainty phrases detected: it may` and carries the first matching line.
+Enable it only where evidence prose must stay factual — design docs may legitimately hedge.
+Bundled as `rules/quality/no-hedged-claims.yaml` (shipped disabled).
 
 ### Common Evaluator Examples
 

@@ -3,6 +3,7 @@ import { AgentDetectionEvaluator } from '../evaluators/agent-detection-evaluator
 import { CoverageGateEvaluator } from '../evaluators/coverage-gate-evaluator';
 import { ExitCodeEvaluator } from '../evaluators/exit-code-evaluator';
 import { ForbiddenImportEvaluator } from '../evaluators/forbidden-import-evaluator';
+import { HedgePhrasesEvaluator } from '../evaluators/hedge-phrases-evaluator';
 import { ImportBoundaryEvaluator } from '../evaluators/import-boundary-evaluator';
 import { PathEvaluator } from '../evaluators/path-evaluator';
 import { RegexEvaluator } from '../evaluators/regex-evaluator';
@@ -45,6 +46,7 @@ export function registerBuiltins(host: RuleEngineHost, executor?: ProcessExecuto
     host.evaluators.register('sg', new SgEvaluator(executor), 'builtin');
     host.evaluators.register('schema-artifact', new SchemaArtifactEvaluator(), 'builtin');
     host.evaluators.register('import-boundary', new ImportBoundaryEvaluator(), 'builtin');
+    host.evaluators.register('hedge-phrases', new HedgePhrasesEvaluator(), 'builtin');
     host.formatters.register('text', new TextFormatter(), 'builtin');
     host.formatters.register('json', new JsonFormatter(), 'builtin');
 }

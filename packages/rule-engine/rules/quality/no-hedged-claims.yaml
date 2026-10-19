@@ -1,0 +1,32 @@
+# Uncertainty-phrase gate — a claim that hedges states nothing a reader can verify.
+#
+# SHIPPED DISABLED. Hedging is style, not a correctness contract for every consumer, and the
+# scope below is this project's task-file plane: enable it per project (and adjust `include`)
+# where evidence prose must stay factual. A runner whose engine predates `hedge-phrases` reports
+# `Unknown evaluator: hedge-phrases` as an error finding, so keep it disabled there.
+#
+# Plane: task files carry the evidence a reviewer trusts, so a hedged claim there ("it may be
+# stale") reads as proof while pinning nothing. Prose in design docs may legitimately hedge.
+include:
+  - "docs/tasks*/**/*.md"
+
+rules:
+  - id: no-hedged-claims
+    description: "Task evidence must state what was observed; an uncertainty phrase (\"it may\") is reported instead of read as proof."
+    severity: warning
+    enabled: false
+    evaluator:
+      type: hedge-phrases
+      config:
+        phrases:
+          - "it may"
+          - "it might"
+          - "might be"
+          - "may be"
+          - "possibly"
+          - "presumably"
+          - "probably"
+          - "seems to"
+          - "appears to"
+        wholeWord: true
+        caseSensitive: false

@@ -8,6 +8,19 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+### Added
+
+- feat(rule-engine): `hedge-phrases` evaluator — flags uncertainty phrasing in the files a rule
+  scopes in, so a claim that hedges ("it may", "presumably") is reported instead of read as evidence.
+  Config: `phrases` (required, literal text), `caseSensitive` (default false), `wholeWord`
+  (default true, edge-aware so a phrase like `(b) may?` still matches). One finding per file per
+  phrase carrying its first matching line, message `uncertainty phrases detected: <phrase>`.
+  Shipped as `rules/quality/no-hedged-claims.yaml` **disabled**: hedging is style rather than a
+  correctness contract for every consumer, and a runner whose engine predates the evaluator reports
+  `Unknown evaluator: hedge-phrases` as an error finding.
+  <!-- src: packages/rule-engine/src/evaluators/hedge-phrases-evaluator.ts (evaluate + toPattern), registered at packages/rule-engine/src/host/builtins.ts; rules packages/rule-engine/rules/quality/no-hedged-claims.yaml; README § Built-in Evaluators; tests packages/rule-engine/tests/evaluators/hedge-phrases-evaluator.test.ts -->
+  <!-- verification: workspace gate `bun run spur-check` — rule-engine 353 pass / 0 fail including the 8 new evaluator cases, project rules green with the disabled rule excluded from the count. Confidence: HIGH -->
+
 ### Changed
 
 - feat(ai-decision): maker fallback chains in the decision hub (feature O2, ADR-040) — `maker` on a

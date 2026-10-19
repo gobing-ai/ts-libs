@@ -1,0 +1,34 @@
+# Uncertainty-phrase gate — a claim that hedges states nothing a reader can verify.
+#
+# DISABLED ON PURPOSE. The `hedge-phrases` evaluator lives in this workspace's
+# `@gobing-ai/ts-rule-engine` (packages/rule-engine/src/evaluators/hedge-phrases-evaluator.ts),
+# but the gate runs rules through the *published* engine bundled in @gobing-ai/spur, which
+# reports `Unknown evaluator: hedge-phrases` as an error finding. Flip `enabled` to true once
+# spur bundles a ts-rule-engine release that contains it; until then this rule documents the
+# contract without failing every gate on a capability the runner does not have.
+#
+# Plane: task files carry the evidence a reviewer trusts, so a hedged claim there ("it may be
+# stale") reads as proof while pinning nothing. Prose in design docs may legitimately hedge.
+include:
+  - "docs/tasks*/**/*.md"
+
+rules:
+  - id: no-hedged-claims
+    description: "Task evidence must state what was observed; an uncertainty phrase (\"it may\") is reported instead of read as proof."
+    severity: warning
+    enabled: false
+    evaluator:
+      type: hedge-phrases
+      config:
+        phrases:
+          - "it may"
+          - "it might"
+          - "might be"
+          - "may be"
+          - "possibly"
+          - "presumably"
+          - "probably"
+          - "seems to"
+          - "appears to"
+        wholeWord: true
+        caseSensitive: false
