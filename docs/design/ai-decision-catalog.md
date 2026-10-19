@@ -102,7 +102,7 @@ Decision:
 | `criteria` | choice: yes; score: yes; noul: no | choice: map label → entry\|null (≥ 2); score: list of entry\|null (≥ 2); noul: `{ true?, false? }` | Description strings are templated; labels are not |
 | `fallback` | yes | choice: a label; score: integer level; noul: boolean | Required, so `decide` always has a concrete answer |
 | `minConfidence` | no | number 0..1 | Overrides `defaults.minConfidence` |
-| `maker` | no | maker name, `^[a-z][a-z0-9-]*$` | Overrides `defaults.maker`. It must be registered when the catalog is loaded into a hub |
+| `maker` | no | maker name, or a non-empty ordered list of names (ADR-040), each `^[a-z][a-z0-9-]*$` | Overrides `defaults.maker`. Every name must be registered when the catalog is loaded into a hub |
 | `model` | no | string | Overrides `defaults.model` |
 
 Unknown keys are rejected at every level (`additionalProperties: false` / zod `.strict()`).
@@ -328,8 +328,9 @@ Fallback results carry `source: 'default'`, the declared fallback `value`, and w
 
 ## Maker chains, shadow and diagnostics (ADR-040)
 
-Accepted design for feature O2; not yet built. All three keep the fallback contract: `decide` never
-rejects for backend outcomes.
+Accepted design for feature O2. **Maker chains are built** (task 0118); shadow makers and the
+`attempts`-based diagnostics remain. All three keep the fallback contract: `decide` never rejects
+for backend outcomes.
 
 ### Surface changes
 

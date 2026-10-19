@@ -113,3 +113,30 @@ describe('DecisionCatalogSchema', () => {
         expect(DecisionCatalogSchema.safeParse(structured).success).toBeTrue();
     });
 });
+
+describe('maker as a string or an ordered fallback list (ADR-040)', () => {
+    test('a single name and a non-empty list both parse; the authored form is preserved', () => {
+        const single = DecisionCatalogSchema.parse(catalog({}, { maker: 'fm-local' }));
+        expect(single.decisions.ship_it?.maker).toBe('fm-local');
+
+        const list = DecisionCatalogSchema.parse(catalog({}, { maker: ['fm-local', 'typesafe'] }));
+        expect(list.decisions.ship_it?.maker).toEqual(['fm-local', 'typesafe']);
+
+        const defaults = DecisionCatalogSchema.parse(catalog({ defaults: { maker: ['laya-local', 'typesafe'] } }));
+        expect(defaults.defaults?.maker).toEqual(['laya-local', 'typesafe']);
+    });
+
+    test('an empty list and a repeated name are rejected', () => {
+        expect(() => DecisionCatalogSchema.parse(catalog({}, { maker: [] }))).toThrow();
+        expect(() => DecisionCatalogSchema.parse(catalog({}, { maker: ['fm-local', 'fm-local'] }))).toThrow(
+            /maker list repeats 'fm-local'/,
+        );
+        expect(() => DecisionCatalogSchema.parse(catalog({ defaults: { maker: ['a', 'a'] } }))).toThrow(
+            /maker list repeats 'a'/,
+        );
+    });
+
+    test('a list element still has to be a valid maker name', () => {
+        expect(() => DecisionCatalogSchema.parse(catalog({}, { maker: ['fm-local', 'Bad Name'] }))).toThrow();
+    });
+});

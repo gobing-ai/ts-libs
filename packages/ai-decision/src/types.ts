@@ -43,14 +43,21 @@ export interface DecisionDefinition {
     readonly fallback: string | number | boolean;
     /** Overrides `defaults.minConfidence` (0..1). */
     readonly minConfidence?: number;
-    /** Registry name, checked at hub load, not by the catalog loader. */
-    readonly maker?: string;
+    /** Registry name, or an ordered fallback chain of names (ADR-040); checked at hub load, not by the loader. */
+    readonly maker?: MakerRef;
     readonly model?: string;
 }
 
+/**
+ * A maker reference: one registry name, or an ordered fallback chain of names (ADR-040). The
+ * authored form is preserved (`string` stays `string`), so a single-name catalog round-trips
+ * byte-identically; the hub resolves the chain per call.
+ */
+export type MakerRef = string | readonly string[];
+
 /** Catalog-wide maker/model/minConfidence defaults; every key optional. */
 export interface CatalogDefaults {
-    readonly maker?: string;
+    readonly maker?: MakerRef;
     readonly model?: string;
     readonly minConfidence?: number;
 }

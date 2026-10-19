@@ -108,7 +108,26 @@ const r = await hub.decide('category', { instructions: ticketText }, { maker: 'f
 
 `load` is all-or-nothing per catalog: a duplicate decision id across catalogs, or a `maker`
 name (decision or `defaults.maker`) that is not registered, throws `DecisionCatalogError` and
-registers nothing from the offending catalog. `list` and `describe` never construct a maker or
+registers nothing from the offending catalog.
+
+### Maker chains
+
+`maker` accepts a name or a non-empty ordered list — the first maker that does not fail as a
+backend answers, which is how "local first, hosted when the local backend is unavailable" is spelled:
+
+```yaml
+decisions:
+  triage:
+    maker: [fm-local, typesafe]   # ask fm-local, advance to typesafe only if it fails
+```
+
+The chain advances only on backend failure (`no-backend`, `timeout`, `error`). A `low-confidence`
+answer is an answer: it is returned from the maker that produced it and later makers stay
+unresolved, so their lazy factories never run. When every maker fails, the result is the declared
+fallback carrying the last failure's `reason`, `maker` and `error`, plus `attempts` — one
+`{ maker, reason, durationMs, error? }` per maker tried, present only when more than one ran.
+`describe` reports the effective chain as `makers`, with `maker` still the first name; a
+single-name decision's result carries no `attempts`, so nothing changes for existing catalogs. `list` and `describe` never construct a maker or
 driver.
 
 The hub picks a maker purely by name — per-call `options.maker` → the decision's `maker` → the

@@ -21,6 +21,7 @@ import type {
     DecisionType,
     JevEntry,
     JevQuestion,
+    MakerRef,
 } from './types';
 
 /**
@@ -65,6 +66,17 @@ function toErrorInfo(error: unknown): DecisionErrorInfo {
     return { name: named, message: error.message.slice(0, DECISION_ERROR_MESSAGE_MAX) };
 }
 
+/**
+ * One maker's attempt inside a chain: what it was, how it ended, and how long it took. Present only
+ * when more than one maker was tried, so a single-name decision's result is unchanged.
+ */
+export interface DecisionAttempt {
+    readonly maker: string;
+    readonly reason: DecisionResultBase['reason'];
+    readonly durationMs: number;
+    readonly error?: DecisionErrorInfo;
+}
+
 /** Shared envelope of every {@link DecisionResult} variant. */
 export interface DecisionResultBase {
     readonly id: string;
@@ -78,6 +90,8 @@ export interface DecisionResultBase {
     readonly durationMs: number;
     /** The caught failure. Present only for `no-backend`, `timeout` and `error`. */
     readonly error?: DecisionErrorInfo;
+    /** Every maker tried, in order. Present only when a chain tried more than one. */
+    readonly attempts?: readonly DecisionAttempt[];
 }
 
 /** The fallback-guaranteed result of one `decide` call, shaped by the decision type. */
@@ -106,8 +120,10 @@ export interface DecisionDescriptor {
     readonly fallback: string | number | boolean;
     /** decision → catalog defaults → {@link DEFAULT_MIN_CONFIDENCE}. */
     readonly minConfidence: number;
-    /** decision → catalog defaults → hub defaultMaker. */
+    /** First name of the effective chain (decision → catalog defaults → hub defaultMaker). */
     readonly maker: string;
+    /** The full effective chain; a single name yields a one-element list. */
+    readonly makers: readonly string[];
     /** decision → catalog defaults; absent when neither declares one. */
     readonly model?: string;
 }
@@ -124,8 +140,37 @@ export interface DecisionHubOptions {
 
 /** Per-call options for {@link DecisionHub.decide}. */
 export interface DecideOptions {
-    /** Per-call maker name; wins over the decision's, the catalog's and the hub default. */
-    readonly maker?: string;
+    /**
+     * Per-call maker name or ordered fallback chain (ADR-040); wins over the decision's, the
+     * catalog's and the hub default. Validated before any backend call.
+     */
+    readonly maker?: MakerRef;
+}
+
+/** The one-question request handed to a maker — the shape of `DecisionMaker.ask`. */
+interface AskRequest {
+    state: DecisionState;
+    questions: Record<string, Question>;
+    model?: string;
+}
+
+/**
+ * Normalize a {@link MakerRef} to an ordered chain. Empty and duplicate lists are caller errors
+ * here, not at load: the loader's schema already rejects them in a catalog.
+ */
+function toChain(ref: MakerRef): readonly string[] {
+    if (typeof ref === 'string') return [ref];
+    if (ref.length === 0) {
+        throw new UnknownDecisionMakerError('A maker chain must name at least one maker', '');
+    }
+    const seen = new Set<string>();
+    for (const name of ref) {
+        if (seen.has(name)) {
+            throw new UnknownDecisionMakerError(`Maker chain repeats '${name}'`, name);
+        }
+        seen.add(name);
+    }
+    return [...ref];
 }
 
 /** One registered decision plus the catalog defaults it loaded under. */
@@ -209,14 +254,17 @@ export class DecisionHub {
      */
     load(catalog: DecisionCatalog): void {
         const defaultsMaker = catalog.defaults.maker;
-        if (defaultsMaker !== undefined && !this.registry.has(defaultsMaker)) {
-            throw new DecisionCatalogError(
-                `Catalog "${catalog.source}" defaults.maker '${defaultsMaker}' is not registered in the hub registry ` +
-                    `(registered: ${this.registry.names().join(', ') || 'none'})`,
-                catalog.source,
-                undefined,
-                'maker',
-            );
+        const defaultsChain = defaultsMaker === undefined ? undefined : toChain(defaultsMaker);
+        for (const name of defaultsChain ?? []) {
+            if (!this.registry.has(name)) {
+                throw new DecisionCatalogError(
+                    `Catalog "${catalog.source}" defaults.maker '${name}' is not registered in the hub registry ` +
+                        `(registered: ${this.registry.names().join(', ') || 'none'})`,
+                    catalog.source,
+                    undefined,
+                    'maker',
+                );
+            }
         }
         // Stage first, commit only when every decision passed the cross-catalog checks.
         const staged: RegisteredDecision[] = [];
@@ -231,14 +279,16 @@ export class DecisionHub {
                     'id',
                 );
             }
-            if (definition.maker !== undefined && !this.registry.has(definition.maker)) {
-                throw new DecisionCatalogError(
-                    `Decision "${id}" in catalog "${catalog.source}" names maker '${definition.maker}' that is not ` +
-                        `registered in the hub registry (registered: ${this.registry.names().join(', ') || 'none'})`,
-                    catalog.source,
-                    id,
-                    'maker',
-                );
+            for (const name of definition.maker === undefined ? [] : toChain(definition.maker)) {
+                if (!this.registry.has(name)) {
+                    throw new DecisionCatalogError(
+                        `Decision "${id}" in catalog "${catalog.source}" names maker '${name}' that is not ` +
+                            `registered in the hub registry (registered: ${this.registry.names().join(', ') || 'none'})`,
+                        catalog.source,
+                        id,
+                        'maker',
+                    );
+                }
             }
             staged.push({ definition, defaults: catalog.defaults });
         }
@@ -263,6 +313,7 @@ export class DecisionHub {
     /** Pure read of one decision's served contract; throws UnknownDecisionError for an unknown id. */
     describe(id: string): DecisionDescriptor {
         const { definition, defaults } = this.mustGet(id);
+        const chain = this.effectiveChain(definition, defaults);
         const model = definition.model ?? defaults.model;
         return {
             id: definition.id,
@@ -273,7 +324,8 @@ export class DecisionHub {
             criteria: definition.criteria,
             fallback: definition.fallback,
             minConfidence: effectiveMinConfidence(definition, defaults),
-            maker: this.effectiveMakerName(definition, defaults),
+            maker: chain[0] ?? DEFAULT_MAKER,
+            makers: chain,
             ...(model !== undefined ? { model } : {}),
         };
     }
@@ -291,15 +343,17 @@ export class DecisionHub {
         const { definition, defaults } = this.mustGet(id); // UnknownDecisionError — caller error
         const params = resolveDecisionInput(definition, input); // DecisionInputError — caller error
 
-        const makerName = options.maker ?? definition.maker ?? defaults.maker ?? this.defaultMaker;
-        if (!this.registry.has(makerName)) {
-            // Reachable only for a per-call name: catalog and hub default names are checked at
-            // load/construct. It is a caller error, thrown before any backend interaction.
-            throw new UnknownDecisionMakerError(
-                `Decision "${id}" was asked on maker '${makerName}' that is not registered in the hub registry ` +
-                    `(registered: ${this.registry.names().join(', ') || 'none'})`,
-                makerName,
-            );
+        const chain = options.maker === undefined ? this.effectiveChain(definition, defaults) : toChain(options.maker);
+        for (const name of chain) {
+            // Reachable only for a per-call chain: catalog and hub default names are checked at
+            // load/construct. A caller error, thrown before any backend interaction.
+            if (!this.registry.has(name)) {
+                throw new UnknownDecisionMakerError(
+                    `Decision "${id}" was asked on maker '${name}' that is not registered in the hub registry ` +
+                        `(registered: ${this.registry.names().join(', ') || 'none'})`,
+                    name,
+                );
+            }
         }
 
         const state: DecisionState = buildState(definition, params);
@@ -309,6 +363,53 @@ export class DecisionHub {
             questions: { [definition.id]: buildJevQuestion(renderQuestion(definition, params)) },
             ...(model !== undefined ? { model } : {}),
         };
+
+        // Chain rule (ADR-040): ask makers in order and stop at the first that did not fail as a
+        // backend — `accepted` and `low-confidence` both answer. Every maker after the answering one
+        // stays unresolved, so its lazy factory never runs.
+        const attempts: DecisionAttempt[] = [];
+        let last: { result: DecisionResult; failed: boolean } | undefined;
+        for (const makerName of chain) {
+            const attemptStart = this.now();
+            last = await this.askOne(makerName, definition, defaults, request, attemptStart);
+            attempts.push({
+                maker: makerName,
+                reason: last.result.reason,
+                durationMs: this.now() - attemptStart,
+                ...(last.result.error !== undefined ? { error: last.result.error } : {}),
+            });
+            if (!last.failed) break;
+        }
+
+        // `toChain` rejects an empty list, so the loop always ran at least once.
+        const final = last?.result;
+        if (final === undefined) {
+            throw new UnknownDecisionMakerError(`Decision "${id}" has no maker to ask`, id);
+        }
+        // `durationMs` covers the whole call; a single-maker call keeps its exact previous shape.
+        return {
+            ...final,
+            durationMs: this.now() - start,
+            ...(attempts.length > 1 ? { attempts } : {}),
+        };
+    }
+
+    /**
+     * Ask one maker and classify its outcome. `failed` is true exactly for `no-backend`, `timeout`
+     * and `error` — the reasons a chain advances past (ADR-040); `accepted` and `low-confidence`
+     * answer, so the chain stops there.
+     */
+    private async askOne(
+        makerName: string,
+        definition: DecisionDefinition,
+        defaults: CatalogDefaults,
+        request: AskRequest,
+        start: number,
+    ): Promise<{ result: DecisionResult; failed: boolean }> {
+        const outcome = (result: DecisionResult): { result: DecisionResult; failed: boolean } => ({
+            result,
+            failed: result.reason === 'no-backend' || result.reason === 'timeout' || result.reason === 'error',
+        });
 
         // The one auditable try/catch for steps 4–5: a resolve failure is a construction
         // failure (no-backend); ask failures map per the error taxonomy. Neither rejects.
@@ -325,20 +426,24 @@ export class DecisionHub {
             if (answer === undefined || answer.kind !== definition.type) {
                 // Nothing was thrown here, so the failure is synthesized: every `error` reason
                 // must carry a cause a consumer can log (ADR-040).
-                return this.fallbackResult(definition, makerName, 'error', null, start, undefined, {
-                    name: 'DecisionBackendError',
-                    message: `Maker returned no answer of type ${definition.type} for "${definition.id}"`,
-                });
+                return outcome(
+                    this.fallbackResult(definition, makerName, 'error', null, start, undefined, {
+                        name: 'DecisionBackendError',
+                        message: `Maker returned no answer of type ${definition.type} for "${definition.id}"`,
+                    }),
+                );
             }
             const observed = observedAnswer(answer);
             if (observed.confidence < effectiveMinConfidence(definition, defaults)) {
-                return this.fallbackResult(
-                    definition,
-                    makerName,
-                    'low-confidence',
-                    observed.confidence,
-                    start,
-                    observed.probability,
+                return outcome(
+                    this.fallbackResult(
+                        definition,
+                        makerName,
+                        'low-confidence',
+                        observed.confidence,
+                        start,
+                        observed.probability,
+                    ),
                 );
             }
             const base = {
@@ -351,16 +456,16 @@ export class DecisionHub {
             };
             switch (answer.kind) {
                 case 'choice':
-                    return { ...base, type: 'choice', value: answer.label };
+                    return outcome({ ...base, type: 'choice', value: answer.label });
                 case 'score':
-                    return { ...base, type: 'score', value: answer.score };
+                    return outcome({ ...base, type: 'score', value: answer.score });
                 case 'noul':
-                    return {
+                    return outcome({
                         ...base,
                         type: 'noul',
                         value: answer.probability >= 0.5,
                         probability: answer.probability,
-                    };
+                    });
             }
         } catch (error) {
             const reason =
@@ -369,13 +474,16 @@ export class DecisionHub {
                     : error instanceof DecisionTimeoutError
                       ? 'timeout'
                       : 'error';
-            return this.fallbackResult(definition, makerName, reason, null, start, undefined, toErrorInfo(error));
+            return outcome(
+                this.fallbackResult(definition, makerName, reason, null, start, undefined, toErrorInfo(error)),
+            );
         }
     }
 
-    /** Maker-name precedence for discovery results: decision → catalog defaults → hub default. */
-    private effectiveMakerName(definition: DecisionDefinition, defaults: CatalogDefaults): string {
-        return definition.maker ?? defaults.maker ?? this.defaultMaker;
+    /** Maker-chain precedence for discovery results: decision → catalog defaults → hub default. */
+    private effectiveChain(definition: DecisionDefinition, defaults: CatalogDefaults): readonly string[] {
+        const ref = definition.maker ?? defaults.maker;
+        return ref === undefined ? [this.defaultMaker] : toChain(ref);
     }
 
     private mustGet(id: string): RegisteredDecision {

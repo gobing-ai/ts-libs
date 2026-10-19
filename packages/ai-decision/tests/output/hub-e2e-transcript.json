@@ -797,6 +797,125 @@
       "durationMs": 0,
       "type": "choice",
       "value": "account"
+    },
+    {
+      "case": "chain: first factory throws",
+      "id": "route_chain",
+      "confidence": 1,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "b",
+      "attempts": [
+        {
+          "maker": "fm-local",
+          "reason": "no-backend",
+          "durationMs": 0,
+          "error": {
+            "name": "DecisionConfigError",
+            "message": "worker script missing"
+          }
+        },
+        {
+          "maker": "typesafe",
+          "reason": "accepted",
+          "durationMs": 0
+        }
+      ]
+    },
+    {
+      "case": "chain: low confidence stops",
+      "id": "route_chain",
+      "confidence": 0.5,
+      "source": "default",
+      "reason": "low-confidence",
+      "maker": "fm-local",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a"
+    },
+    {
+      "case": "chain: exhausted",
+      "id": "route_chain",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "b",
+      "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "b is down"
+      },
+      "type": "choice",
+      "value": "a",
+      "attempts": [
+        {
+          "maker": "a",
+          "reason": "error",
+          "durationMs": 0,
+          "error": {
+            "name": "DecisionBackendError",
+            "message": "a is down"
+          }
+        },
+        {
+          "maker": "b",
+          "reason": "error",
+          "durationMs": 0,
+          "error": {
+            "name": "DecisionBackendError",
+            "message": "b is down"
+          }
+        }
+      ]
+    },
+    {
+      "case": "chain: timeout then invalid",
+      "id": "route_chain",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "b",
+      "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "Invalid decision response: route_chain"
+      },
+      "type": "choice",
+      "value": "a",
+      "attempts": [
+        {
+          "maker": "a",
+          "reason": "timeout",
+          "durationMs": 0,
+          "error": {
+            "name": "DecisionTimeoutError",
+            "message": "a timed out"
+          }
+        },
+        {
+          "maker": "b",
+          "reason": "error",
+          "durationMs": 0,
+          "error": {
+            "name": "DecisionBackendError",
+            "message": "Invalid decision response: route_chain"
+          }
+        }
+      ]
+    },
+    {
+      "case": "chain: single name unchanged",
+      "id": "category",
+      "confidence": 0.9,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "billing"
     }
   ]
 }

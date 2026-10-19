@@ -6,6 +6,7 @@ import {
     type AnswersFor,
     type ChoiceAnswer,
     createDecisionMaker,
+    DecisionBackendError,
     DecisionConfigError,
     type DecisionDriver,
     type DecisionMaker,
@@ -1344,5 +1345,176 @@ decisions:
         });
         expect(weak.reason).toBe('low-confidence');
         expect('error' in weak).toBe(false);
+    });
+});
+
+describe('maker fallback chains (ADR-040)', () => {
+    /** A decision whose maker is `[first, second]`, over scripted drivers with factory spies. */
+    async function chainHub(
+        first: ScriptedDriver,
+        second: ScriptedDriver,
+        options: { maker?: string | readonly string[] } = {},
+    ): Promise<{ hub: DecisionHub; builds: Record<string, number> }> {
+        const builds: Record<string, number> = { [first.name]: 0, [second.name]: 0 };
+        const registry = new DecisionMakerRegistry({ builtins: false });
+        for (const driver of [first, second]) {
+            registry.register(driver.name, () => {
+                builds[driver.name] = (builds[driver.name] ?? 0) + 1;
+                return createDecisionMaker({ driver });
+            });
+        }
+        const hub = new DecisionHub({ registry, defaultMaker: first.name, now: () => 0 });
+        await loadInline(
+            hub,
+            `version: 1
+decisions:
+  route_chain:
+    type: choice
+    criteria: { a: First, b: Second }
+    fallback: a
+    maker: ${JSON.stringify(options.maker ?? [first.name, second.name])}
+`,
+        );
+        return { hub, builds };
+    }
+
+    test('1. a chain advances past a maker whose factory throws', async () => {
+        const second = new ScriptedDriver('typesafe');
+        const registry = new DecisionMakerRegistry({ builtins: false });
+        registry.register('fm-local', () => {
+            throw new DecisionConfigError('worker script missing', 'LAYA_WORKER_SCRIPT');
+        });
+        registry.register('typesafe', () => createDecisionMaker({ driver: second }));
+        const hub = new DecisionHub({ registry, defaultMaker: 'typesafe', now: () => 0 });
+        await loadInline(
+            hub,
+            `version: 1
+decisions:
+  route_chain:
+    type: choice
+    criteria: { a: First, b: Second }
+    fallback: a
+    maker: [fm-local, typesafe]
+`,
+        );
+        second.respond = () => choiceAnswer('route_chain', 'b', 1, ['a', 'b']);
+
+        const result = await decideAndRecord('chain: first factory throws', hub, 'route_chain');
+        expect(result).toMatchObject({ reason: 'accepted', maker: 'typesafe', value: 'b', source: 'model' });
+        expect(result.attempts).toEqual([
+            {
+                maker: 'fm-local',
+                reason: 'no-backend',
+                durationMs: 0,
+                error: { name: 'DecisionConfigError', message: 'worker script missing' },
+            },
+            { maker: 'typesafe', reason: 'accepted', durationMs: 0 },
+        ]);
+    });
+
+    test('2. low confidence does not advance the chain', async () => {
+        const first = new ScriptedDriver('fm-local');
+        const second = new ScriptedDriver('typesafe');
+        const { hub, builds } = await chainHub(first, second);
+        first.respond = () => choiceAnswer('route_chain', 'a', 0.5, ['a', 'b']);
+
+        const result = await decideAndRecord('chain: low confidence stops', hub, 'route_chain');
+        expect(result).toMatchObject({ reason: 'low-confidence', maker: 'fm-local', source: 'default' });
+        expect(result.attempts).toBeUndefined();
+        expect(builds.typesafe).toBe(0); // the second maker's factory never ran
+        expect(second.requests).toHaveLength(0);
+    });
+
+    test('3. an exhausted chain returns the declared fallback with the last failure', async () => {
+        const first = new ScriptedDriver('a');
+        const second = new ScriptedDriver('b');
+        const { hub } = await chainHub(first, second);
+        first.respond = () => {
+            throw new DecisionBackendError('a is down', undefined);
+        };
+        second.respond = () => {
+            throw new DecisionBackendError('b is down', undefined);
+        };
+
+        const result = await decideAndRecord('chain: exhausted', hub, 'route_chain');
+        expect(result).toMatchObject({
+            reason: 'error',
+            maker: 'b',
+            value: 'a',
+            source: 'default',
+            error: { name: 'DecisionBackendError', message: 'b is down' },
+        });
+        expect(result.attempts?.map((entry) => [entry.maker, entry.reason])).toEqual([
+            ['a', 'error'],
+            ['b', 'error'],
+        ]);
+    });
+
+    test('4. a timeout then an invalid answer still advances and reports the last failure', async () => {
+        const first = new ScriptedDriver('a');
+        const second = new ScriptedDriver('b');
+        const { hub } = await chainHub(first, second);
+        first.respond = () => {
+            throw new DecisionTimeoutError('a timed out', 1000);
+        };
+        second.respond = () => ({ route_chain: { kind: 'choice', label: 'a', confidence: 1, probabilities: {} } });
+
+        const result = await decideAndRecord('chain: timeout then invalid', hub, 'route_chain');
+        expect(result).toMatchObject({ reason: 'error', maker: 'b', source: 'default' });
+        expect(result.error?.name).toBe('DecisionBackendError');
+        expect(result.attempts?.map((entry) => entry.reason)).toEqual(['timeout', 'error']);
+    });
+
+    test('5. a single-name decision is byte-identical: no attempts key', async () => {
+        const { hub, typesafe } = await examplesHub();
+        typesafe.respond = () =>
+            choiceAnswer('category', 'billing', 0.9, ['bug_report', 'billing', 'feature_request', 'account']);
+        const result = await decideAndRecord('chain: single name unchanged', hub, 'category', { instructions: 'x' });
+        expect('attempts' in result).toBe(false);
+        expect(result.maker).toBe('typesafe');
+    });
+
+    test('6. a catalog chain naming an unregistered maker is rejected at load', async () => {
+        const registry = new DecisionMakerRegistry({ builtins: false });
+        registry.register('fm-local', () => createDecisionMaker({ driver: new ScriptedDriver('fm-local') }));
+        const hub = new DecisionHub({ registry, defaultMaker: 'fm-local', now: () => 0 });
+        const catalog = await parseDecisionCatalog(
+            `version: 1
+decisions:
+  route_chain:
+    type: choice
+    criteria: { a: First, b: Second }
+    fallback: a
+    maker: [fm-local, nope]
+`,
+            'chain.yaml',
+        );
+        expect(() => hub.load(catalog)).toThrow(DecisionCatalogError);
+        expect(() => hub.load(catalog)).toThrow(/nope/);
+        expect(hub.list()).toHaveLength(0);
+    });
+
+    test('9. a per-call chain is validated before any ask', async () => {
+        const { hub, typesafe } = await examplesHub();
+        await expect(
+            hub.decide('category', { instructions: 'x' }, { maker: ['typesafe', 'nope'] }),
+        ).rejects.toBeInstanceOf(UnknownDecisionMakerError);
+        await expect(hub.decide('category', { instructions: 'x' }, { maker: [] })).rejects.toBeInstanceOf(
+            UnknownDecisionMakerError,
+        );
+        await expect(
+            hub.decide('category', { instructions: 'x' }, { maker: ['typesafe', 'typesafe'] }),
+        ).rejects.toBeInstanceOf(UnknownDecisionMakerError);
+        expect(typesafe.requests).toHaveLength(0);
+    });
+
+    test('10. describe reports the chain with the first name as maker', async () => {
+        const { hub } = await chainHub(new ScriptedDriver('fm-local'), new ScriptedDriver('typesafe'));
+        const descriptor = hub.describe('route_chain');
+        expect(descriptor.maker).toBe('fm-local');
+        expect(descriptor.makers).toEqual(['fm-local', 'typesafe']);
+
+        const single = await examplesHub();
+        expect(single.hub.describe('category').makers).toEqual(['typesafe']);
     });
 });

@@ -10,6 +10,17 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Changed
 
+- feat(ai-decision): maker fallback chains in the decision hub (feature O2, ADR-040) — `maker` on a
+  decision, on catalog `defaults` and on `DecideOptions` accepts a name **or** a non-empty ordered
+  list of names. The chain advances only on backend failure (`no-backend`/`timeout`/`error`); a
+  `low-confidence` answer stops it, and an exhausted chain returns the declared fallback with the
+  last failure plus `attempts`. `DecisionDefinition.maker` and `CatalogDefaults.maker` widen to
+  `MakerRef` (`string | readonly string[]`), a type-level change for code that reads catalogs
+  directly — `describe().maker` stays `string` and gains `makers`. Single-name catalogs produce
+  byte-identical results.
+  <!-- src: packages/ai-decision/src/hub.ts (toChain, askOne, attempts), packages/ai-decision/src/types.ts (MakerRef), packages/ai-decision/src/schema.ts (MakerRefSchema), schemas/decision-catalog.schema.json (maker oneOf); design docs/design/ai-decision-catalog.md § Maker chains, shadow and diagnostics; tests packages/ai-decision/tests/hub.test.ts (chain cases) -->
+  <!-- verification: task 0118 pipeline run — `bun run spur-check` and `bun run build` green, the recorded hub transcript gained only the new chain cases. Confidence: HIGH -->
+
 - feat(ai-decision): sampled-driver core in ai-runner, `llm-agent` maker, TypeSafe relocation (feature O1)
   — the engine-agnostic sampling half of the `fm` driver (prompt rendering, enum schema, answer parsing,
   frequency estimation) now lives in `@gobing-ai/ts-ai-runner` as `createSampledDriver`;

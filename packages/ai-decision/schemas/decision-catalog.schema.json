@@ -18,9 +18,16 @@
             "additionalProperties": false,
             "properties": {
                 "maker": {
-                    "type": "string",
-                    "pattern": "^[a-z][a-z0-9-]*$",
-                    "description": "Registered maker name (built-ins: typesafe | fm-local | laya-local)."
+                    "oneOf": [
+                        { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+                        {
+                            "type": "array",
+                            "minItems": 1,
+                            "uniqueItems": true,
+                            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+                        }
+                    ],
+                    "description": "Registered maker name, or an ordered fallback list (ADR-040). Built-ins: typesafe | fm-local | laya-local | llm-agent."
                 },
                 "model": {
                     "type": "string",
@@ -213,9 +220,16 @@
                     "maximum": 1
                 },
                 "maker": {
-                    "type": "string",
-                    "pattern": "^[a-z][a-z0-9-]*$",
-                    "description": "Registered maker name; checked by the hub, not the loader."
+                    "oneOf": [
+                        { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+                        {
+                            "type": "array",
+                            "minItems": 1,
+                            "uniqueItems": true,
+                            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+                        }
+                    ],
+                    "description": "Registered maker name, or an ordered fallback list (ADR-040); checked by the hub, not the loader."
                 },
                 "model": {
                     "type": "string"

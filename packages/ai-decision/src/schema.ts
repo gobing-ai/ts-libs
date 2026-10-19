@@ -15,6 +15,24 @@ export const PARAM_NAME_PATTERN = /^[a-z][a-zA-Z0-9_]*$/;
 /** Maker registry names: lowercase kebab-case. */
 export const MAKER_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 
+/** One maker name, or an ordered fallback chain of distinct names (ADR-040). */
+const MakerRefSchema = z.union([
+    z.string().regex(MAKER_NAME_PATTERN),
+    z
+        .array(z.string().regex(MAKER_NAME_PATTERN))
+        .min(1)
+        .superRefine((names, ctx) => {
+            const seen = new Set<string>();
+            for (const name of names) {
+                if (seen.has(name)) {
+                    ctx.addIssue({ code: 'custom', message: `maker list repeats '${name}'` });
+                    return;
+                }
+                seen.add(name);
+            }
+        }),
+]);
+
 const JsonValueSchema: z.ZodType<Json> = z.lazy(() =>
     z.union([
         z.string(),
@@ -60,7 +78,7 @@ export const DecisionSchema = z
         criteria: z.union([NoulCriteriaSchema, ChoiceCriteriaSchema, ScoreCriteriaSchema]).optional(),
         fallback: z.union([z.string(), z.number(), z.boolean()]),
         minConfidence: z.number().min(0).max(1).optional(),
-        maker: z.string().regex(MAKER_NAME_PATTERN).optional(),
+        maker: MakerRefSchema.optional(),
         model: z.string().optional(),
     })
     .strict();
@@ -72,7 +90,7 @@ export const DecisionCatalogSchema = z
         version: z.literal(1),
         defaults: z
             .object({
-                maker: z.string().regex(MAKER_NAME_PATTERN).optional(),
+                maker: MakerRefSchema.optional(),
                 model: z.string().optional(),
                 minConfidence: z.number().min(0).max(1).optional(),
             })
