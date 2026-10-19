@@ -1518,3 +1518,183 @@ decisions:
         expect(single.hub.describe('category').makers).toEqual(['typesafe']);
     });
 });
+
+describe('shadow maker (ADR-040) — observed, never served', () => {
+    /** A hub whose single decision shadows `shadow` and is served by `primary`, whose factory may throw. */
+    async function shadowHub(
+        primary: ScriptedDriver,
+        shadow: ScriptedDriver,
+        options: { shadow?: string; primaryFails?: boolean } = {},
+    ): Promise<{ hub: DecisionHub; builds: Record<string, number> }> {
+        const builds: Record<string, number> = { [primary.name]: 0, [shadow.name]: 0 };
+        const registry = new DecisionMakerRegistry({ builtins: false });
+        registry.register(primary.name, () => {
+            builds[primary.name] = (builds[primary.name] ?? 0) + 1;
+            return createDecisionMaker({ driver: primary });
+        });
+        registry.register(shadow.name, () => {
+            builds[shadow.name] = (builds[shadow.name] ?? 0) + 1;
+            if (options.primaryFails === true && shadow.name === 'broken') {
+                throw new DecisionConfigError('shadow backend missing', 'SHADOW');
+            }
+            return createDecisionMaker({ driver: shadow });
+        });
+        const hub = new DecisionHub({ registry, defaultMaker: primary.name, now: () => 0 });
+        await loadInline(
+            hub,
+            `version: 1
+decisions:
+  route_shadow:
+    type: choice
+    criteria: { a: First, b: Second }
+    fallback: a
+    maker: ${primary.name}
+    shadow: ${options.shadow ?? shadow.name}
+`,
+        );
+        return { hub, builds };
+    }
+
+    test('1. the served answer is the primary’s, the shadow’s own value rides beside it', async () => {
+        const primary = new ScriptedDriver('typesafe');
+        const shadow = new ScriptedDriver('laya-local');
+        const { hub } = await shadowHub(primary, shadow);
+        primary.respond = () => choiceAnswer('route_shadow', 'a', 1, ['a', 'b']);
+        shadow.respond = () => choiceAnswer('route_shadow', 'b', 0.8, ['a', 'b']);
+
+        const result = await decideAndRecord('shadow: accepted beside accepted', hub, 'route_shadow');
+        expect(result).toMatchObject({ value: 'a', maker: 'typesafe', source: 'model', reason: 'accepted' });
+        expect(result.shadow).toEqual({
+            maker: 'laya-local',
+            value: 'b',
+            confidence: 0.8,
+            reason: 'accepted',
+            durationMs: 0,
+        });
+    });
+
+    test('2. a shadow whose factory throws reports no-backend and changes nothing served', async () => {
+        const primary = new ScriptedDriver('typesafe');
+        const broken = new ScriptedDriver('broken');
+        const { hub } = await shadowHub(primary, broken, { shadow: 'broken', primaryFails: true });
+        primary.respond = () => choiceAnswer('route_shadow', 'a', 1, ['a', 'b']);
+
+        const result = await decideAndRecord('shadow: factory throws', hub, 'route_shadow');
+        expect(result).toMatchObject({ value: 'a', maker: 'typesafe', reason: 'accepted' });
+        expect(result.shadow).toMatchObject({
+            maker: 'broken',
+            reason: 'no-backend',
+            confidence: null,
+            error: { name: 'DecisionConfigError', message: 'shadow backend missing' },
+        });
+        expect(result.shadow?.value).toBeUndefined();
+    });
+
+    test('3. a low-confidence shadow keeps its value', async () => {
+        const primary = new ScriptedDriver('typesafe');
+        const shadow = new ScriptedDriver('laya-local');
+        const { hub } = await shadowHub(primary, shadow);
+        primary.respond = () => choiceAnswer('route_shadow', 'a', 1, ['a', 'b']);
+        shadow.respond = () => choiceAnswer('route_shadow', 'b', 0.5, ['a', 'b']);
+
+        const result = await decideAndRecord('shadow: low confidence', hub, 'route_shadow');
+        expect(result.shadow).toMatchObject({ reason: 'low-confidence', value: 'b', confidence: 0.5 });
+    });
+
+    test('4. a shadow backend failure carries no value', async () => {
+        const primary = new ScriptedDriver('typesafe');
+        const shadow = new ScriptedDriver('laya-local');
+        const { hub } = await shadowHub(primary, shadow);
+        primary.respond = () => choiceAnswer('route_shadow', 'a', 1, ['a', 'b']);
+        shadow.respond = () => {
+            throw new DecisionBackendError('shadow is down', undefined);
+        };
+
+        const result = await decideAndRecord('shadow: backend error', hub, 'route_shadow');
+        expect(result.shadow).toMatchObject({
+            reason: 'error',
+            error: { name: 'DecisionBackendError', message: 'shadow is down' },
+        });
+        expect(result.shadow?.value).toBeUndefined();
+    });
+
+    test('5. a primary that falls back is still the served result', async () => {
+        const primary = new ScriptedDriver('typesafe');
+        const shadow = new ScriptedDriver('laya-local');
+        const { hub } = await shadowHub(primary, shadow);
+        primary.respond = () => {
+            throw new DecisionBackendError('primary is down', undefined);
+        };
+        shadow.respond = () => choiceAnswer('route_shadow', 'b', 1, ['a', 'b']);
+
+        const result = await decideAndRecord('shadow: primary falls back', hub, 'route_shadow');
+        expect(result).toMatchObject({ value: 'a', reason: 'error', maker: 'typesafe', source: 'default' });
+        expect(result.shadow).toMatchObject({ maker: 'laya-local', reason: 'accepted', value: 'b' });
+    });
+
+    test('6. both makers receive the identical request object', async () => {
+        const primary = new ScriptedDriver('typesafe');
+        const shadow = new ScriptedDriver('laya-local');
+        const { hub } = await shadowHub(primary, shadow);
+        primary.respond = () => choiceAnswer('route_shadow', 'a', 1, ['a', 'b']);
+        shadow.respond = () => choiceAnswer('route_shadow', 'a', 1, ['a', 'b']);
+
+        await hub.decide('route_shadow');
+        expect(primary.requests).toHaveLength(1);
+        expect(shadow.requests).toHaveLength(1);
+        expect(shadow.requests[0]).toBe(primary.requests[0] as AskRequest);
+    });
+
+    test('7. an unregistered shadow is a caller error before any ask', async () => {
+        const primary = new ScriptedDriver('typesafe');
+        const shadow = new ScriptedDriver('laya-local');
+        const { hub } = await shadowHub(primary, shadow);
+        primary.respond = () => choiceAnswer('route_shadow', 'a', 1, ['a', 'b']);
+
+        const registry = new DecisionMakerRegistry({ builtins: false });
+        registry.register('typesafe', () => createDecisionMaker({ driver: primary }));
+        const strict = new DecisionHub({ registry, defaultMaker: 'typesafe', now: () => 0 });
+        const catalog = await parseDecisionCatalog(
+            `version: 1
+decisions:
+  ghost_shadow:
+    type: choice
+    criteria: { a: First, b: Second }
+    fallback: a
+    shadow: nope
+`,
+            'shadow.yaml',
+        );
+        expect(() => strict.load(catalog)).toThrow(DecisionCatalogError);
+        expect(() => strict.load(catalog)).toThrow(/shadow 'nope'/);
+
+        await expect(hub.decide('route_shadow', {}, { shadow: 'nope' })).rejects.toBeInstanceOf(
+            UnknownDecisionMakerError,
+        );
+        expect(primary.requests).toHaveLength(0);
+        expect(shadow.requests).toHaveLength(0);
+    });
+
+    test('8. a per-call shadow wins over the decision’s shadow', async () => {
+        const primary = new ScriptedDriver('typesafe');
+        const configured = new ScriptedDriver('laya-local');
+        const override = new ScriptedDriver('fm-local');
+        const { hub } = await shadowHub(primary, configured);
+        // Register the override on the same registry the hub already holds.
+        hub.registry.register('fm-local', () => createDecisionMaker({ driver: override }));
+        primary.respond = () => choiceAnswer('route_shadow', 'a', 1, ['a', 'b']);
+        override.respond = () => choiceAnswer('route_shadow', 'b', 1, ['a', 'b']);
+
+        const result = await decideAndRecord(
+            'shadow: per-call override',
+            hub,
+            'route_shadow',
+            {},
+            {
+                shadow: 'fm-local',
+            },
+        );
+        expect(result.shadow).toMatchObject({ maker: 'fm-local', value: 'b' });
+        expect(configured.requests).toHaveLength(0);
+    });
+});

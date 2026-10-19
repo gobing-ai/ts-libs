@@ -140,3 +140,19 @@ describe('maker as a string or an ordered fallback list (ADR-040)', () => {
         expect(() => DecisionCatalogSchema.parse(catalog({}, { maker: ['fm-local', 'Bad Name'] }))).toThrow();
     });
 });
+
+describe('shadow maker (ADR-040)', () => {
+    test('a decision accepts one shadow name; defaults do not', () => {
+        const parsed = DecisionCatalogSchema.parse(catalog({}, { shadow: 'laya-local' }));
+        expect(parsed.decisions.ship_it?.shadow).toBe('laya-local');
+
+        // ADR-040 scopes a shadow to the decision and the call: a catalog-wide shadow would double
+        // every decision's cost silently.
+        expect(() => DecisionCatalogSchema.parse(catalog({ defaults: { shadow: 'laya-local' } }))).toThrow();
+    });
+
+    test('a shadow has to be a valid single maker name', () => {
+        expect(() => DecisionCatalogSchema.parse(catalog({}, { shadow: 'Bad Name' }))).toThrow();
+        expect(() => DecisionCatalogSchema.parse(catalog({}, { shadow: ['a', 'b'] }))).toThrow();
+    });
+});

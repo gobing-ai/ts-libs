@@ -127,7 +127,28 @@ unresolved, so their lazy factories never run. When every maker fails, the resul
 fallback carrying the last failure's `reason`, `maker` and `error`, plus `attempts` — one
 `{ maker, reason, durationMs, error? }` per maker tried, present only when more than one ran.
 `describe` reports the effective chain as `makers`, with `maker` still the first name; a
-single-name decision's result carries no `attempts`, so nothing changes for existing catalogs. `list` and `describe` never construct a maker or
+single-name decision's result carries no `attempts`, so nothing changes for existing catalogs.
+
+### Shadow makers
+
+`shadow` names a second maker to ask **beside** the primary on live traffic — the same rendered
+request, started at the same time — so a candidate can be evaluated without risking the decision:
+
+```yaml
+decisions:
+  triage:
+    maker: typesafe
+    shadow: fm-local        # asked on every call, reported, never served
+```
+
+Every served field (`value`, `source`, `reason`, `maker`, `confidence`, `error`, `attempts`) still
+comes from the primary chain; the shadow's own outcome rides beside it as `result.shadow` — its
+`maker`, the `value` it actually produced (absent when it fell back), `confidence`, `reason`,
+`durationMs` and `error?`. A failing or unregistered-at-call shadow never rejects `decide`.
+
+**Cost:** a shadow doubles the backend calls for that decision and the call's latency becomes the
+slower of the two, so it is a per-decision or per-call decision, not a catalog default (there is no
+`defaults.shadow`). Pass `shadow` per call to sample rather than shadow every request. `list` and `describe` never construct a maker or
 driver.
 
 The hub picks a maker purely by name — per-call `options.maker` → the decision's `maker` → the

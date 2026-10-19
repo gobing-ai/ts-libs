@@ -829,7 +829,7 @@ and a real publish rename (ADR-029 kept `ts-laya-mlx`) costs a new npm bootstrap
 
 ## ADR-040: The Hub Owns Maker Fallback Chains, Shadow Makers and Fallback Diagnostics
 
-**Status:** Accepted (design) · **Date:** 2026-10-19 · **Targets:** `ts-ai-decision` (feature O2) · **Amends:** ADR-033
+**Status:** Accepted · **Date:** 2026-10-19 · **Built:** 2026-10-19 (tasks 0117-0119) · **Targets:** `ts-ai-decision` (feature O2) · **Amends:** ADR-033
 
 **Decision.** `DecisionHub` gains three routing capabilities while keeping ADR-033's contract that
 `decide` never rejects for backend outcomes and the declared `fallback` is the last resort:

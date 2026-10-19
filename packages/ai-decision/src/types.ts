@@ -45,6 +45,8 @@ export interface DecisionDefinition {
     readonly minConfidence?: number;
     /** Registry name, or an ordered fallback chain of names (ADR-040); checked at hub load, not by the loader. */
     readonly maker?: MakerRef;
+    /** One maker asked beside the primary on live traffic and reported, never served (ADR-040). */
+    readonly shadow?: string;
     readonly model?: string;
 }
 

@@ -77,6 +77,20 @@ export interface DecisionAttempt {
     readonly error?: DecisionErrorInfo;
 }
 
+/**
+ * What a shadow maker did with the same request. Observed only: it rides beside the served answer and
+ * never changes it (ADR-040). `value` is the answer the shadow itself produced, so it is absent when
+ * the shadow fell back.
+ */
+export interface ShadowOutcome {
+    readonly maker: string;
+    readonly value?: string | number | boolean;
+    readonly confidence: number | null;
+    readonly reason: DecisionResultBase['reason'];
+    readonly durationMs: number;
+    readonly error?: DecisionErrorInfo;
+}
+
 /** Shared envelope of every {@link DecisionResult} variant. */
 export interface DecisionResultBase {
     readonly id: string;
@@ -92,6 +106,8 @@ export interface DecisionResultBase {
     readonly error?: DecisionErrorInfo;
     /** Every maker tried, in order. Present only when a chain tried more than one. */
     readonly attempts?: readonly DecisionAttempt[];
+    /** The shadow's outcome. Present only when the decision or the call named a shadow. */
+    readonly shadow?: ShadowOutcome;
 }
 
 /** The fallback-guaranteed result of one `decide` call, shaped by the decision type. */
@@ -124,6 +140,8 @@ export interface DecisionDescriptor {
     readonly maker: string;
     /** The full effective chain; a single name yields a one-element list. */
     readonly makers: readonly string[];
+    /** The decision's configured shadow; a per-call shadow is not visible to `describe`. */
+    readonly shadow?: string;
     /** decision → catalog defaults; absent when neither declares one. */
     readonly model?: string;
 }
@@ -145,6 +163,18 @@ export interface DecideOptions {
      * catalog's and the hub default. Validated before any backend call.
      */
     readonly maker?: MakerRef;
+    /** Per-call shadow maker (ADR-040); wins over the decision's. Validated before any backend call. */
+    readonly shadow?: string;
+}
+
+/**
+ * One maker's outcome: its result, whether the chain should advance past it, and the answer it
+ * actually produced (absent when it fell back), which a shadow reports as its own value.
+ */
+interface AskOutcome {
+    result: DecisionResult;
+    failed: boolean;
+    answered?: string | number | boolean;
 }
 
 /** The one-question request handed to a maker — the shape of `DecisionMaker.ask`. */
@@ -290,6 +320,15 @@ export class DecisionHub {
                     );
                 }
             }
+            if (definition.shadow !== undefined && !this.registry.has(definition.shadow)) {
+                throw new DecisionCatalogError(
+                    `Decision "${id}" in catalog "${catalog.source}" names shadow '${definition.shadow}' that is not ` +
+                        `registered in the hub registry (registered: ${this.registry.names().join(', ') || 'none'})`,
+                    catalog.source,
+                    id,
+                    'shadow',
+                );
+            }
             staged.push({ definition, defaults: catalog.defaults });
         }
         for (const entry of staged) this.decisions.set(entry.definition.id, entry);
@@ -326,6 +365,7 @@ export class DecisionHub {
             minConfidence: effectiveMinConfidence(definition, defaults),
             maker: chain[0] ?? DEFAULT_MAKER,
             makers: chain,
+            ...(definition.shadow !== undefined ? { shadow: definition.shadow } : {}),
             ...(model !== undefined ? { model } : {}),
         };
     }
@@ -356,6 +396,16 @@ export class DecisionHub {
             }
         }
 
+        const shadowName = options.shadow ?? definition.shadow;
+        if (shadowName !== undefined && !this.registry.has(shadowName)) {
+            // Same caller-error rule as a per-call maker name: before any backend interaction.
+            throw new UnknownDecisionMakerError(
+                `Decision "${id}" was asked with shadow '${shadowName}' that is not registered in the hub registry ` +
+                    `(registered: ${this.registry.names().join(', ') || 'none'})`,
+                shadowName,
+            );
+        }
+
         const state: DecisionState = buildState(definition, params);
         const model = definition.model ?? defaults.model;
         const request = {
@@ -363,6 +413,28 @@ export class DecisionHub {
             questions: { [definition.id]: buildJevQuestion(renderQuestion(definition, params)) },
             ...(model !== undefined ? { model } : {}),
         };
+
+        // Shadow rule (ADR-040): start the shadow on the SAME request object, without awaiting it, so
+        // both paths run concurrently and latency is the slower of the two. It never rejects `decide`
+        // and never touches a served field — a rejected or failed ask maps to its own outcome.
+        const shadowTask: Promise<AskOutcome> | undefined =
+            shadowName === undefined
+                ? undefined
+                : this.askOne(shadowName, definition, defaults, request, this.now()).then(
+                      (settled): AskOutcome => settled,
+                      (error: unknown): AskOutcome => ({
+                          result: this.fallbackResult(
+                              definition,
+                              shadowName,
+                              'error',
+                              null,
+                              this.now(),
+                              undefined,
+                              toErrorInfo(error),
+                          ),
+                          failed: true,
+                      }),
+                  );
 
         // Chain rule (ADR-040): ask makers in order and stop at the first that did not fail as a
         // backend — `accepted` and `low-confidence` both answer. Every maker after the answering one
@@ -386,11 +458,31 @@ export class DecisionHub {
         if (final === undefined) {
             throw new UnknownDecisionMakerError(`Decision "${id}" has no maker to ask`, id);
         }
-        // `durationMs` covers the whole call; a single-maker call keeps its exact previous shape.
+        // `durationMs` covers the whole call, shadow wait included; a single-maker call without a
+        // shadow keeps its exact previous shape.
+        const shadowOutcome = shadowTask === undefined ? undefined : this.toShadowOutcome(await shadowTask);
         return {
             ...final,
             durationMs: this.now() - start,
             ...(attempts.length > 1 ? { attempts } : {}),
+            ...(shadowOutcome !== undefined ? { shadow: shadowOutcome } : {}),
+        };
+    }
+
+    /**
+     * Project a shadow's own result onto {@link ShadowOutcome}. `value` is carried only when the shadow
+     * actually answered — a served-model answer or a low-confidence one — never its declared fallback.
+     */
+    private toShadowOutcome(outcome: AskOutcome): ShadowOutcome {
+        const { result } = outcome;
+        const answered = result.source === 'model' || result.reason === 'low-confidence';
+        return {
+            maker: result.maker,
+            ...(answered && outcome.answered !== undefined ? { value: outcome.answered } : {}),
+            confidence: result.confidence,
+            reason: result.reason,
+            durationMs: result.durationMs,
+            ...(result.error !== undefined ? { error: result.error } : {}),
         };
     }
 
@@ -405,10 +497,11 @@ export class DecisionHub {
         defaults: CatalogDefaults,
         request: AskRequest,
         start: number,
-    ): Promise<{ result: DecisionResult; failed: boolean }> {
-        const outcome = (result: DecisionResult): { result: DecisionResult; failed: boolean } => ({
+    ): Promise<AskOutcome> {
+        const outcome = (result: DecisionResult, answered?: string | number | boolean): AskOutcome => ({
             result,
             failed: result.reason === 'no-backend' || result.reason === 'timeout' || result.reason === 'error',
+            ...(answered !== undefined ? { answered } : {}),
         });
 
         // The one auditable try/catch for steps 4–5: a resolve failure is a construction
@@ -434,6 +527,12 @@ export class DecisionHub {
                 );
             }
             const observed = observedAnswer(answer);
+            const answered =
+                answer.kind === 'choice'
+                    ? answer.label
+                    : answer.kind === 'score'
+                      ? answer.score
+                      : answer.probability >= 0.5;
             if (observed.confidence < effectiveMinConfidence(definition, defaults)) {
                 return outcome(
                     this.fallbackResult(
@@ -444,6 +543,7 @@ export class DecisionHub {
                         start,
                         observed.probability,
                     ),
+                    answered,
                 );
             }
             const base = {
@@ -456,16 +556,19 @@ export class DecisionHub {
             };
             switch (answer.kind) {
                 case 'choice':
-                    return outcome({ ...base, type: 'choice', value: answer.label });
+                    return outcome({ ...base, type: 'choice', value: answer.label }, answered);
                 case 'score':
-                    return outcome({ ...base, type: 'score', value: answer.score });
+                    return outcome({ ...base, type: 'score', value: answer.score }, answered);
                 case 'noul':
-                    return outcome({
-                        ...base,
-                        type: 'noul',
-                        value: answer.probability >= 0.5,
-                        probability: answer.probability,
-                    });
+                    return outcome(
+                        {
+                            ...base,
+                            type: 'noul',
+                            value: answer.probability >= 0.5,
+                            probability: answer.probability,
+                        },
+                        answered,
+                    );
             }
         } catch (error) {
             const reason =

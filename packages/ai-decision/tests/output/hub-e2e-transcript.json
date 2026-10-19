@@ -916,6 +916,124 @@
       "durationMs": 0,
       "type": "choice",
       "value": "billing"
+    },
+    {
+      "case": "shadow: accepted beside accepted",
+      "id": "route_shadow",
+      "confidence": 1,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a",
+      "shadow": {
+        "maker": "laya-local",
+        "value": "b",
+        "confidence": 0.8,
+        "reason": "accepted",
+        "durationMs": 0
+      }
+    },
+    {
+      "case": "shadow: factory throws",
+      "id": "route_shadow",
+      "confidence": 1,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a",
+      "shadow": {
+        "maker": "broken",
+        "confidence": null,
+        "reason": "no-backend",
+        "durationMs": 0,
+        "error": {
+          "name": "DecisionConfigError",
+          "message": "shadow backend missing"
+        }
+      }
+    },
+    {
+      "case": "shadow: low confidence",
+      "id": "route_shadow",
+      "confidence": 1,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a",
+      "shadow": {
+        "maker": "laya-local",
+        "value": "b",
+        "confidence": 0.5,
+        "reason": "low-confidence",
+        "durationMs": 0
+      }
+    },
+    {
+      "case": "shadow: backend error",
+      "id": "route_shadow",
+      "confidence": 1,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a",
+      "shadow": {
+        "maker": "laya-local",
+        "confidence": null,
+        "reason": "error",
+        "durationMs": 0,
+        "error": {
+          "name": "DecisionBackendError",
+          "message": "shadow is down"
+        }
+      }
+    },
+    {
+      "case": "shadow: primary falls back",
+      "id": "route_shadow",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "error": {
+        "name": "DecisionBackendError",
+        "message": "primary is down"
+      },
+      "type": "choice",
+      "value": "a",
+      "shadow": {
+        "maker": "laya-local",
+        "value": "b",
+        "confidence": 1,
+        "reason": "accepted",
+        "durationMs": 0
+      }
+    },
+    {
+      "case": "shadow: per-call override",
+      "id": "route_shadow",
+      "confidence": 1,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "typesafe",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "a",
+      "shadow": {
+        "maker": "fm-local",
+        "value": "b",
+        "confidence": 1,
+        "reason": "accepted",
+        "durationMs": 0
+      }
     }
   ]
 }

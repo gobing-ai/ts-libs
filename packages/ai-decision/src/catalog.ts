@@ -354,6 +354,7 @@ function checkDecision(id: string, raw: ParsedDecision, source: string): Decisio
         fallback: raw.fallback,
         ...(raw.minConfidence !== undefined ? { minConfidence: raw.minConfidence } : {}),
         ...(raw.maker !== undefined ? { maker: raw.maker } : {}),
+        ...(raw.shadow !== undefined ? { shadow: raw.shadow } : {}),
         ...(raw.model !== undefined ? { model: raw.model } : {}),
     };
 }

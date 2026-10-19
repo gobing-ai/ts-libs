@@ -79,6 +79,7 @@ export const DecisionSchema = z
         fallback: z.union([z.string(), z.number(), z.boolean()]),
         minConfidence: z.number().min(0).max(1).optional(),
         maker: MakerRefSchema.optional(),
+        shadow: z.string().regex(MAKER_NAME_PATTERN).optional(),
         model: z.string().optional(),
     })
     .strict();

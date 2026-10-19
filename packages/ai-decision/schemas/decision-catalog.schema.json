@@ -29,6 +29,11 @@
                     ],
                     "description": "Registered maker name, or an ordered fallback list (ADR-040). Built-ins: typesafe | fm-local | laya-local | llm-agent."
                 },
+                "shadow": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$",
+                    "description": "Maker asked beside the primary and reported on the result, never served (ADR-040)."
+                },
                 "model": {
                     "type": "string",
                     "description": "Forwarded as the ask-level model; omit for the backend default."
@@ -230,6 +235,11 @@
                         }
                     ],
                     "description": "Registered maker name, or an ordered fallback list (ADR-040); checked by the hub, not the loader."
+                },
+                "shadow": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$",
+                    "description": "Maker asked beside the primary and reported on the result, never served (ADR-040)."
                 },
                 "model": {
                     "type": "string"
