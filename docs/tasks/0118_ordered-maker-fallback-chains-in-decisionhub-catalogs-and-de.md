@@ -4,7 +4,7 @@ name: Ordered maker fallback chains in DecisionHub catalogs and decide options
 status: done
 template: feature-impl
 created_at: 2026-10-19T18:42:30.719Z
-updated_at: "2026-10-19T21:13:43.397Z"
+updated_at: "2026-10-19T21:44:01.407Z"
 feature_id: O2
 
 dependencies: ["0117", "0116"]
@@ -128,21 +128,21 @@ The chain reuses the single-maker body unchanged, so there is exactly one place 
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `MakerRef` at `packages/ai-decision/src/types.ts:56`, applied to `DecisionDefinition.maker` and `CatalogDefaults.maker`; the string case is preserved by the loader (`packages/ai-decision/src/catalog.ts:355`), asserted at `packages/ai-decision/tests/schema.test.ts:120-126`. |
-| R2 | MET | `MakerRefSchema` (union of a name / a non-empty distinct-name array) at `packages/ai-decision/src/schema.ts:19-38`, used at `:74` and `:86`; JSON schema `oneOf` at `packages/ai-decision/schemas/decision-catalog.schema.json:20-33` and `:224-237`. The duplicate refine names the offender, asserted at `packages/ai-decision/tests/schema.test.ts:128-136`. |
-| R3 | MET | `toChain` at `packages/ai-decision/src/hub.ts:161-179`; `load` checks every name of `defaults.maker` and each decision's `maker` at `:249-290`, keeping the same `DecisionCatalogError` and `field: 'maker'`; all-or-nothing staging untouched. |
-| R4 | MET | `DecideOptions.maker?: MakerRef` at `packages/ai-decision/src/hub.ts:140-148`; `decide` validates the whole chain before any backend call at `:346-357`, with `toChain` rejecting empty and repeated chains — asserted at `packages/ai-decision/tests/hub.test.ts:1490-1503` with a request spy at zero. |
-| R5 | MET | The single-maker body moved verbatim into `askOne` at `packages/ai-decision/src/hub.ts:402-482` returning `{ result, failed }`; the loop at `:359-380` stops at the first non-failed outcome and otherwise returns the last failure with `durationMs` restamped. |
-| R6 | MET | `DecisionAttempt` at `packages/ai-decision/src/hub.ts:73-79` and `attempts?` on the base at `:94`; populated per maker at `:366-374` and attached only when more than one ran at `:386`. |
-| R7 | MET | `DecisionDescriptor.makers` at `packages/ai-decision/src/hub.ts:126`; `effectiveChain` at `:484-490`; `describe` reports `maker = chain[0]` at `:316-320`, asserted at `packages/ai-decision/tests/hub.test.ts:1505-1515`. |
-| R8 | MET | Chain cases at `packages/ai-decision/tests/hub.test.ts:1330-1520` (failure modes 1-6, 9, 10) recorded through `decideAndRecord`; the regenerated `packages/ai-decision/tests/output/hub-e2e-transcript.json` gained exactly five `chain:` cases with zero existing entries changed or removed. |
-| R9 | MET | README "Maker chains" at `packages/ai-decision/README.md:113-133`; field reference and the built-status line at `docs/design/ai-decision-catalog.md:105` and `:331-333`; the `MakerRef` widening note at `CHANGELOG.md:13-22`. |
+| R1 | MET | MakerRef at `packages/ai-decision/src/types.ts:58` on decision and defaults maker at `packages/ai-decision/src/types.ts:47` and `packages/ai-decision/src/types.ts:62`; authored form preserved, asserted at `packages/ai-decision/tests/schema.test.ts:118-127` |
+| R2 | MET | MakerRefSchema at `packages/ai-decision/src/schema.ts:19` used at `packages/ai-decision/src/schema.ts:81` and `packages/ai-decision/src/schema.ts:94`; JSON schema minItems/uniqueItems at `packages/ai-decision/schemas/decision-catalog.schema.json:25-30` and `packages/ai-decision/schemas/decision-catalog.schema.json:232-237`; loader copy at `packages/ai-decision/src/catalog.ts:356` |
+| R3 | MET | toChain at `packages/ai-decision/src/hub.ts:191-205`; load checks every chain name with field maker at `packages/ai-decision/src/hub.ts:286-322` |
+| R4 | MET | DecideOptions.maker MakerRef at `packages/ai-decision/src/hub.ts:160-167`; whole chain validated before any ask at `packages/ai-decision/src/hub.ts:388-399`; asserted at `packages/ai-decision/tests/hub.test.ts:1497` |
+| R5 | MET | askOne at `packages/ai-decision/src/hub.ts:497-587`; chain loop stops at first non-failed at `packages/ai-decision/src/hub.ts:445-456`; durationMs restamped at `packages/ai-decision/src/hub.ts:467-470` |
+| R6 | MET | DecisionAttempt at `packages/ai-decision/src/hub.ts:73-78`, attempts at `packages/ai-decision/src/hub.ts:108`, attached only when more than one maker ran at `packages/ai-decision/src/hub.ts:470` |
+| R7 | MET | DecisionDescriptor.makers at `packages/ai-decision/src/hub.ts:142`; effectiveChain at `packages/ai-decision/src/hub.ts:590-593`; describe at `packages/ai-decision/src/hub.ts:354-371`; asserted at `packages/ai-decision/tests/hub.test.ts:1511` |
+| R8 | MET | chain cases at `packages/ai-decision/tests/hub.test.ts:1351-1520` (modes 1-6, 9, 10) plus schema modes 7-8 at `packages/ai-decision/tests/schema.test.ts:129-141` |
+| R9 | MET | README Maker chains at `packages/ai-decision/README.md:113-131`; design field row at `docs/design/ai-decision-catalog.md:105` and built status at `docs/design/ai-decision-catalog.md:332-334`; MakerRef widening note at `CHANGELOG.md:18` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 — A maker chain advances only on backend failure | MET | test | failure modes 1-4 at `packages/ai-decision/tests/hub.test.ts:1381-1470`, including the factory-spy assertion that a `low-confidence` answer leaves the second maker unbuilt. |
-| AC2 — An exhausted chain returns the declared fallback with the last failure | MET | test | `packages/ai-decision/tests/hub.test.ts:1424-1446` asserts the fallback value, `reason: 'error'`, `maker: 'b'`, the last `error`, and `attempts` in order. |
-| AC3 — Chains are validated like single names | MET | test | `packages/ai-decision/tests/hub.test.ts:1472-1503` (catalog chain with an unregistered name at load, per-call chain before any ask) and `packages/ai-decision/tests/schema.test.ts:128-140` (empty list, repeated name, bad element). |
+| R2 — A maker chain advances only on backend failure | MET | test | `packages/ai-decision/tests/hub.test.ts:1381` (advance past a throwing factory) and `packages/ai-decision/tests/hub.test.ts:1415` (low confidence does not advance; second factory never built); `bun test packages/ai-decision` 176 pass / 0 fail this run (hub 60, schema 16); `packages/ai-decision/tests/output/hub-e2e-transcript.json` unchanged by this run (git diff empty), 70 entries |
+| R3 — An exhausted chain returns the declared fallback with the last failure | MET | test | `packages/ai-decision/tests/hub.test.ts:1428` and `packages/ai-decision/tests/hub.test.ts:1453` assert fallback value, reason error, last maker, last error and ordered attempts |
+| R4 — Chains are validated like single names | MET | test | `packages/ai-decision/tests/hub.test.ts:1477` (load rejects an unregistered chain name), `packages/ai-decision/tests/hub.test.ts:1497` (per-call chain before any ask), `packages/ai-decision/tests/schema.test.ts:129-141` (empty, repeated, bad element) |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

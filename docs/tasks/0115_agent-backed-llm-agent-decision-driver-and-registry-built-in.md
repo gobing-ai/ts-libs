@@ -4,7 +4,7 @@ name: Agent-backed llm-agent decision driver and registry built-in in ts-ai-deci
 status: done
 template: feature-impl
 created_at: 2026-10-19T06:34:09.538Z
-updated_at: "2026-10-19T20:55:41.758Z"
+updated_at: "2026-10-19T21:32:50.111Z"
 feature_id: O1
 priority: P2
 tags:
@@ -152,21 +152,21 @@ Isolation is the load-bearing invariant: every sample runs with `cwd` set to a f
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/ai-decision/src/agent-driver.ts:44-164` exports `AgentDriverOptions`, `AgentDecisionDriver` and `createAgentDriver`, which delegates to `createSampledDriver` with `name: 'llm-agent'`, `samples: options.samples ?? 3`, `concurrency: options.concurrency ?? 1` and `instructions: AGENT_INSTRUCTIONS`; barrel export at `packages/ai-decision/src/index.ts:1`. |
-| R2 | MET | `AGENT_INSTRUCTIONS` at `packages/ai-decision/src/agent-driver.ts:68-72`; the suite asserts the rendered prompt contains no `schema` at `packages/ai-decision/tests/agent-driver.test.ts:239-249`. |
-| R3 | MET | `JSON_REPLY_SUFFIX` at `packages/ai-decision/src/agent-driver.ts:78-94` lists each key with its `declaredOptions` and one example object built from each key's first option; it carries no probability or confidence field, asserted at `packages/ai-decision/tests/agent-driver.test.ts:244-249`. |
-| R4 | MET | agent resolution (configured agent without probe, sequential `TIER1_PRIORITY` probing, success-only memoisation, `DecisionConfigError` code `AGENT`) at `packages/ai-decision/src/agent-driver.ts:105-124`; scratch dir `llm-agent-<uuid>` under `TMPDIR` via `fs.ensureDir` at `:126-130`; session `sample`/`close` at `:132-160`. |
-| R5 | MET | null exit to `DecisionTimeoutError` at `packages/ai-decision/src/agent-driver.ts:139-141`, non-zero exit to `DecisionBackendError` naming the agent, code and first stderr line at `:142-149`, zero exit to `extractJsonAnswer` at `:150`. |
-| R6 | MET | `cwd: scratch` is the only workspace passed at `packages/ai-decision/src/agent-driver.ts:151-154` and `continue`/`sessionId`/`sessionDir` are never set; the isolation case asserts a non-caller cwd that is gone afterwards, on success and failure, at `packages/ai-decision/tests/agent-driver.test.ts:196-215`. |
-| R7 | MET | defaults at `packages/ai-decision/src/agent-driver.ts:101-108`; the runner and detector are constructed inside the factory only when not injected, so construction spawns nothing; the registry test resolves the built-in without any process at `packages/ai-decision/tests/registry.test.ts:217-235`. |
-| R8 | MET | `driverOptions['llm-agent']` at `packages/ai-decision/src/registry.ts:13-19`, lazy registration after `laya-local` at `:59-63`, constructor doc updated at `:34`; name assertions at `packages/ai-decision/tests/registry.test.ts:45` and `packages/decision-clef/tests/registry.test.ts:98-100`. |
-| R9 | MET | maker-table row at `packages/ai-decision/README.md:31`, `registry.names()` example at `:157`, "Configuring `llm-agent`" (options table, k-per-ask cost, scratch-dir isolation, extra instances) at `:168-205`, and the "Planned" section shrank to the TypeSafe move at `:239-245`. |
+| R1 | MET | factory at `packages/ai-decision/src/agent-driver.ts:100`, sampled-core delegation with name/samples 3/concurrency 1/AGENT_INSTRUCTIONS at `packages/ai-decision/src/agent-driver.ts:127-132`; barrel `packages/ai-decision/src/index.ts:1` |
+| R2 | MET | AGENT_INSTRUCTIONS constant with no "schema" wording at `packages/ai-decision/src/agent-driver.ts:68-71`; asserted at `packages/ai-decision/tests/agent-driver.test.ts:234` |
+| R3 | MET | reply suffix lists keys with declared options and one example at `packages/ai-decision/src/agent-driver.ts:78-91`; no confidence key asserted at `packages/ai-decision/tests/agent-driver.test.ts:234` |
+| R4 | MET | configured agent without probe at `packages/ai-decision/src/agent-driver.ts:112`, TIER1_PRIORITY scan with success-only memo at `packages/ai-decision/src/agent-driver.ts:113-119`, AGENT config error at `packages/ai-decision/src/agent-driver.ts:121-124`, scratch dir at `packages/ai-decision/src/agent-driver.ts:135-136`, close deletes at `packages/ai-decision/src/agent-driver.ts:160` |
+| R5 | MET | null exit → timeout at `packages/ai-decision/src/agent-driver.ts:148-149`, non-zero exit → backend error with first stderr line at `packages/ai-decision/src/agent-driver.ts:151-155`, zero exit → JSON extraction at `packages/ai-decision/src/agent-driver.ts:158` |
+| R6 | MET | every sample passes `cwd: scratch` at `packages/ai-decision/src/agent-driver.ts:144-146`; no continue/sessionId/sessionDir set anywhere in the file; isolation test `packages/ai-decision/tests/agent-driver.test.ts:188` |
+| R7 | MET | timeout default and lazy runner/detector inside the factory at `packages/ai-decision/src/agent-driver.ts:101-107`; registry resolves without spawning at `packages/ai-decision/tests/agent-driver.test.ts:249` |
+| R8 | MET | driverOptions key at `packages/ai-decision/src/registry.ts:24`, doc comments at `packages/ai-decision/src/registry.ts:16` and `packages/ai-decision/src/registry.ts:45`, lazy registration at `packages/ai-decision/src/registry.ts:85-86`; names asserted at `packages/ai-decision/tests/registry.test.ts:45` |
+| R9 | MET | maker-table row with unanimity note at `packages/ai-decision/README.md:31`, sampled-maker granularity prose at `packages/ai-decision/README.md:183-187`, Configuring section at `packages/ai-decision/README.md:217` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 — Agent decision driver samples an ai-runner agent in an isolated directory | MET | command | `bun test packages/ai-decision/tests/agent-driver.test.ts` — 17 pass / 0 fail, covering the isolated-directory sampling, the prompt shape and every failure mapping; driver coverage 100% lines / 100% functions. |
-| AC2 — Agent maker is a lazy built-in in the decision registry | MET | test | `packages/ai-decision/tests/agent-driver.test.ts:251-253` asserts `names()` equals the four built-ins including `llm-agent`, and `packages/ai-decision/tests/registry.test.ts:217-235` resolves it from injected options without constructing anything at registration. |
-| AC3 — Deterministic agent sampling is one sample with one-hot probabilities | MET | test | `packages/ai-decision/tests/agent-driver.test.ts:217-228` asserts `deterministic: true` makes exactly one `runPromptCommand` call and yields one-hot probabilities with confidence 1. |
+| R5 — Agent decision driver samples an ai-runner agent in an isolated directory | MET | test | `packages/ai-decision/tests/agent-driver.test.ts:188` scratch dir fresh and removed; failure mappings at `packages/ai-decision/tests/agent-driver.test.ts:138-162`; focused run 35 pass / 0 fail this run |
+| R6 — Agent maker is a lazy built-in in the decision registry | MET | test | `packages/ai-decision/tests/agent-driver.test.ts:249` and `packages/ai-decision/tests/registry.test.ts:217` lazy resolve + memoised identity |
+| R10 — Deterministic agent sampling is one sample with one-hot probabilities | MET | test | `packages/ai-decision/tests/agent-driver.test.ts:209` one call, one-hot probabilities |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

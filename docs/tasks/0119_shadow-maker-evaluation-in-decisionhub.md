@@ -4,7 +4,7 @@ name: Shadow maker evaluation in DecisionHub
 status: done
 template: feature-impl
 created_at: 2026-10-19T18:43:09.964Z
-updated_at: "2026-10-19T21:21:36.604Z"
+updated_at: "2026-10-19T21:44:02.095Z"
 feature_id: O2
 
 dependencies: ["0118"]
@@ -136,20 +136,20 @@ The shadow reuses `askOne`, so it inherits the same reason mapping, the same val
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `DecisionDefinition.shadow?: string` at `packages/ai-decision/src/types.ts:48-52`; the strict decision schema accepts it at `packages/ai-decision/src/schema.ts:82`; the JSON schema documents it beside `maker`; the loader copies it at `packages/ai-decision/src/catalog.ts:357`; `defaults` stays closed (asserted at `packages/ai-decision/tests/schema.test.ts:149-151`). |
-| R2 | MET | `load` rejects an unregistered shadow with `DecisionCatalogError` `field: 'shadow'` at `packages/ai-decision/src/hub.ts:320-335`, keeping the all-or-nothing staging; asserted at `packages/ai-decision/tests/hub.test.ts:1616-1630`. |
-| R3 | MET | `DecideOptions.shadow?: string` at `packages/ai-decision/src/hub.ts:140-150`; the per-call check throws `UnknownDecisionMakerError` before any ask at `:380-395`, asserted with zero recorded requests at `packages/ai-decision/tests/hub.test.ts:1628-1630`. |
-| R4 | MET | `ShadowOutcome` at `packages/ai-decision/src/hub.ts:80-99` and `DecisionResultBase.shadow?` at `:110`. |
-| R5 | MET | The shadow is started unawaited on the same `request` object at `packages/ai-decision/src/hub.ts:415-437` and awaited beside the chain at `:463`; the mapping at `:472-490` carries `value` only when the shadow answered, sourced from the answer `askOne` observed, and a rejected ask maps to `reason: 'error'` with `toErrorInfo`. |
-| R6 | MET | The served fields are built by the chain alone (`packages/ai-decision/src/hub.ts:455-470`); `durationMs` is restamped over the whole call; the regenerated transcript's 64 existing entries are unchanged. |
-| R7 | MET | `DecisionDescriptor.shadow?: string` at `packages/ai-decision/src/hub.ts:165-170`, populated from the decision only at `:340`, asserted at `packages/ai-decision/tests/hub.test.ts:1640-1650`. |
-| R8 | MET | Failure modes 1-8 at `packages/ai-decision/tests/hub.test.ts:1522-1650` recorded through `decideAndRecord`, plus the schema cases at `packages/ai-decision/tests/schema.test.ts:144-158`; the regenerated `packages/ai-decision/tests/output/hub-e2e-transcript.json` gained six `shadow:` cases with zero existing entries changed. |
-| R9 | MET | README "Shadow makers" at `packages/ai-decision/README.md:132-153`; the `shadow` field row and built status at `docs/design/ai-decision-catalog.md:106` and `:331-332`; ADR-040 Accepted with the build date at `docs/00_ADR.md:832`. |
+| R1 | MET | DecisionDefinition.shadow at `packages/ai-decision/src/types.ts:49`; zod at `packages/ai-decision/src/schema.ts:82`; JSON schema at `packages/ai-decision/schemas/decision-catalog.schema.json:239`; loader copy at `packages/ai-decision/src/catalog.ts:357`; defaults rejects shadow at `packages/ai-decision/tests/schema.test.ts:145-152` |
+| R2 | MET | load rejects an unregistered shadow with field shadow at `packages/ai-decision/src/hub.ts:324-332`; asserted at `packages/ai-decision/tests/hub.test.ts:1648` |
+| R3 | MET | DecideOptions.shadow at `packages/ai-decision/src/hub.ts:167`; per-call wins and an unregistered one throws before any ask at `packages/ai-decision/src/hub.ts:401-409` |
+| R4 | MET | ShadowOutcome at `packages/ai-decision/src/hub.ts:85-92`; DecisionResultBase.shadow at `packages/ai-decision/src/hub.ts:110` |
+| R5 | MET | shadow started unawaited on the same request at `packages/ai-decision/src/hub.ts:419-440`, awaited at `packages/ai-decision/src/hub.ts:466`; value only when the shadow answered at `packages/ai-decision/src/hub.ts:479-490`; rejection maps to reason error via toErrorInfo |
+| R6 | MET | served fields come from the chain result only at `packages/ai-decision/src/hub.ts:467-472`; durationMs covers the whole call including the shadow wait |
+| R7 | MET | DecisionDescriptor.shadow at `packages/ai-decision/src/hub.ts:144`, populated from the decision only at `packages/ai-decision/src/hub.ts:369` |
+| R8 | MET | modes 1-8 at `packages/ai-decision/tests/hub.test.ts:1522-1700` via decideAndRecord; schema cases at `packages/ai-decision/tests/schema.test.ts:144-158` |
+| R9 | MET | README Shadow makers with cost note at `packages/ai-decision/README.md:132-151`; design field row at `docs/design/ai-decision-catalog.md:106`; ADR-040 Accepted + Built at `docs/00_ADR.md:832` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 — A shadow maker is observed but never served | MET | test | `packages/ai-decision/tests/hub.test.ts:1544-1566` (the served value is the primary's while `shadow.value` is the shadow's) and `:1596-1615` (a falling-back primary still serves its fallback while the shadow reports its accept). |
-| AC2 — Single-maker decisions are unchanged | MET | command | the regenerated `packages/ai-decision/tests/output/hub-e2e-transcript.json` keeps all 64 pre-existing entries byte-identical (only the six `shadow:` cases were appended), and `bun test packages/ai-decision/tests/hub.test.ts` passes 60 cases. |
+| R5 — A shadow maker is observed but never served | MET | test | `packages/ai-decision/tests/hub.test.ts:1558` (served value is the primary's, shadow value rides beside), `packages/ai-decision/tests/hub.test.ts:1621` (falling-back primary still served), `packages/ai-decision/tests/hub.test.ts:1635` (identical request object); `bun test packages/ai-decision` 176 pass / 0 fail this run (hub 60, schema 16); `packages/ai-decision/tests/output/hub-e2e-transcript.json` unchanged by this run (git diff empty), 70 entries |
+| R6 — Single-maker decisions are unchanged | MET | test | `packages/ai-decision/tests/hub.test.ts:1468` (single name has no attempts key) and the afterAll containment check at `packages/ai-decision/tests/hub.test.ts:41-46` pinning all pre-existing transcript entries |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

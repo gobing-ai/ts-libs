@@ -4,7 +4,7 @@ name: Carry the caught error on DecisionHub failure fallback results
 status: done
 template: feature-impl
 created_at: 2026-10-19T18:41:27.404Z
-updated_at: "2026-10-19T21:06:38.765Z"
+updated_at: "2026-10-19T21:44:00.687Z"
 feature_id: O2
 
 done_forced: "false"
@@ -108,18 +108,18 @@ The failure object is a plain record, not the `Error`: an `Error` does not survi
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `DecisionErrorInfo` at `packages/ai-decision/src/hub.ts:51-54` and `readonly error?: DecisionErrorInfo` on `DecisionResultBase` at `:80`, documented as present only for the three failure reasons; both reach the barrel through the existing `export * from './hub'`. |
-| R2 | MET | `DECISION_ERROR_MESSAGE_MAX = 500` at `packages/ai-decision/src/hub.ts:44`; `toErrorInfo` at `:60-66` truncates to the constant, maps a non-`Error` throw to `NonError`, prefers a class-set `name` over the constructor name, and touches no stack, cause or request text. |
-| R3 | MET | `fallbackResult` takes the optional trailing `error` and spreads it only when defined at `packages/ai-decision/src/hub.ts:356-372`; the catch passes `toErrorInfo(error)` at `:372`. |
-| R4 | MET | The missing/wrong-kind branch synthesizes `{ name: 'DecisionBackendError', message: 'Maker returned no answer of type <type> for "<id>"' }` at `packages/ai-decision/src/hub.ts:325-336`. |
-| R5 | MET | The spread is conditional, so accepted and `low-confidence` results carry no key — asserted by failure mode 8 at `packages/ai-decision/tests/hub.test.ts:1309-1329`; no other field or the reason mapping changed. |
-| R6 | MET | `describe('fallback diagnostics (ADR-040)')` at `packages/ai-decision/tests/hub.test.ts:1233-1330` covers modes 1-8 through `decideAndRecord`, so each result also lands in the transcript. |
-| R7 | MET | `packages/ai-decision/tests/output/hub-e2e-transcript.json` regenerated: `git diff --stat` reports 239 insertions and 0 deletions, and a slot-by-slot comparison shows 28 existing entries gained only `error` plus 9 new diagnostics cases. |
-| R8 | MET | README § The fallback contract at `packages/ai-decision/README.md:139-142`; `docs/design/ai-decision-catalog.md:267` documents `error?: DecisionErrorInfo` on `ResultBase`. |
+| R1 | MET | `DecisionErrorInfo` at `packages/ai-decision/src/hub.ts:52-55`; `error?` on `DecisionResultBase` with the three-reason TSDoc at `packages/ai-decision/src/hub.ts:105-106` |
+| R2 | MET | `DECISION_ERROR_MESSAGE_MAX = 500` at `packages/ai-decision/src/hub.ts:45`; toErrorInfo at `packages/ai-decision/src/hub.ts:61-67` (NonError, class name fallback, no stack/cause) |
+| R3 | MET | fallbackResult trailing error param and conditional spread at `packages/ai-decision/src/hub.ts:612-628`; catch passes the mapped error at `packages/ai-decision/src/hub.ts:584` |
+| R4 | MET | synthesized DecisionBackendError for a missing/wrong-kind answer at `packages/ai-decision/src/hub.ts:522-530` |
+| R5 | MET | spread only when defined at `packages/ai-decision/src/hub.ts:628`; mode 8 at `packages/ai-decision/tests/hub.test.ts:1333` asserts accepted/low-confidence carry no error |
+| R6 | MET | modes 1-8 via decideAndRecord at `packages/ai-decision/tests/hub.test.ts:1234-1350` |
+| R7 | MET | transcript `packages/ai-decision/tests/output/hub-e2e-transcript.json` pinned by the afterAll containment check at `packages/ai-decision/tests/hub.test.ts:41-46` |
+| R8 | MET | README fallback contract sentence at `packages/ai-decision/README.md:181-184`; design ResultBase `error?` at `docs/design/ai-decision-catalog.md:268` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 — Failure fallbacks carry the caught error | MET | command | `bun test packages/ai-decision/tests/hub.test.ts` — 44 pass / 0 fail, including failure modes 1-8 at `packages/ai-decision/tests/hub.test.ts:1233-1330`; the committed transcript pins the recorded results at `packages/ai-decision/tests/output/hub-e2e-transcript.json`. |
+| R1 — Failure fallbacks carry the caught error | MET | test | failure modes 1-8 at `packages/ai-decision/tests/hub.test.ts:1238-1350`; `bun test packages/ai-decision` 176 pass / 0 fail this run (hub 60, schema 16); `packages/ai-decision/tests/output/hub-e2e-transcript.json` unchanged by this run (git diff empty), 70 entries |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review

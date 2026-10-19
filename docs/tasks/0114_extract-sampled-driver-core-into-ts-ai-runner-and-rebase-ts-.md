@@ -4,7 +4,7 @@ name: Extract sampled-driver core into ts-ai-runner and rebase ts-decision-fm on
 status: done
 template: feature-impl
 created_at: 2026-10-19T06:34:09.533Z
-updated_at: "2026-10-19T17:37:51.316Z"
+updated_at: "2026-10-19T21:30:57.872Z"
 feature_id: O1
 priority: P2
 tags:
@@ -171,22 +171,22 @@ existing test import path is untouched (task R9).
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | `packages/ai-runner/src/decision/sampled-driver.ts:29-80` declares `DECISION_INSTRUCTIONS`, `EnumSchema`, `SampleSession`, `SampledDriverOptions`, `SampledDecisionDriver`; `:261` `requireEnumValue`, `:325` `extractJsonAnswer`, `:360` `createSampledDriver`; barrel re-export at `packages/ai-runner/src/index.ts:8`. |
-| R2 | MET | `packages/ai-runner/src/decision/sampled-driver.ts:12-22` are the only imports (`./errors`, `./types`); a scan for `node:`, `Bun.`, `process.` and `@gobing-ai` over the file returns nothing. |
-| R3 | MET | `buildEnumSchema` keeps the original per-kind switch with `x-order` at `packages/ai-runner/src/decision/sampled-driver.ts:84-115`; `formatDesc`/`declaredOptions`/`buildPrompt` at `:118-176`; estimators at `:181-256`; `requireEnumValue` at `:261-275` differs only by the 4th `label = 'sample'` parameter. |
-| R4 | MET | samples/concurrency guards at `packages/ai-runner/src/decision/sampled-driver.ts:365-374`; `const k = deterministic ? 1 : samples` at `:375`; declared estimator at `:380`. |
-| R5 | MET | The `ask` body implements the contract in order at `packages/ai-runner/src/decision/sampled-driver.ts:389-450`: map and option validation before `open`, `open` at `:407`, per-batch `Promise.allSettled` with first-rejection rethrow at `:413-421`, per-key enum check at `:427-431`, and `finally { await session.close?.() }` at `:448-450`. |
-| R6 | MET | attempt order (whole text then fence then balanced scan) at `packages/ai-runner/src/decision/sampled-driver.ts:325-355`; `'no JSON object in sample output'` at `:339`; a non-string value names the key at `:349`; every throw uses `new DecisionBackendError(message, undefined)`. |
-| R7 | MET | model guard first in the fm wrapper at `packages/decision-fm/src/driver.ts:148-160`; samples guard then PLATFORM at `:88-101`; `createSampledDriver({ name: 'fm-local', sampleLabel: 'fm', ... })` at `:112-118`; `open` does probe, budget, schema write, and a failed write deletes then rethrows at `:160-166`. |
-| R8 | MET | `packages/decision-fm/src/index.ts` untouched; `packages/decision-fm/src/schema.ts:7-14` aliases `FM_INSTRUCTIONS`/`buildFmSchema`/`FmSchema`; `packages/decision-fm/src/estimate.ts:6` re-exports the four estimators; `packages/decision-fm/src/fm-process.ts:203-210` keeps `requireEnumValue` 3-arg with `label = 'fm'`. |
-| R9 | MET | The parity harness at `packages/decision-fm/tests/parity.test.ts:1-184` records or compares `packages/decision-fm/tests/output/fm-parity.json`, which was generated on the pre-refactor driver and compares equal after the refactor. No existing fm test file was edited: `git status` lists only the two new parity paths. |
+| R1 | MET | `packages/ai-runner/src/decision/sampled-driver.ts:261` requireEnumValue, `packages/ai-runner/src/decision/sampled-driver.ts:325` extractJsonAnswer, `packages/ai-runner/src/decision/sampled-driver.ts:360` createSampledDriver; barrel `packages/ai-runner/src/index.ts:8` |
+| R2 | MET | only imports are `./errors` and `./types` at `packages/ai-runner/src/decision/sampled-driver.ts:12-13`; grep for node:/Bun./process./@gobing-ai in the file returns nothing |
+| R3 | MET | label-generalised enum message at `packages/ai-runner/src/decision/sampled-driver.ts:270`; fm keeps label 'fm' at `packages/decision-fm/src/fm-process.ts:203-209` |
+| R4 | MET | k derivation at `packages/ai-runner/src/decision/sampled-driver.ts:375`, declared estimator at `packages/ai-runner/src/decision/sampled-driver.ts:380`; tests `packages/ai-runner/tests/decision/sampled-driver.test.ts:58-100` |
+| R5 | MET | empty map `packages/ai-runner/src/decision/sampled-driver.ts:393`, option count `packages/ai-runner/src/decision/sampled-driver.ts:399`, open `packages/ai-runner/src/decision/sampled-driver.ts:409`, allSettled `packages/ai-runner/src/decision/sampled-driver.ts:417`, enum check `packages/ai-runner/src/decision/sampled-driver.ts:429`, close in finally `packages/ai-runner/src/decision/sampled-driver.ts:450` |
+| R6 | MET | fence scan `packages/ai-runner/src/decision/sampled-driver.ts:330`, no-object error `packages/ai-runner/src/decision/sampled-driver.ts:338`; parser cases `packages/ai-runner/tests/decision/sampled-driver.test.ts:262-320` |
+| R7 | MET | samples check then PLATFORM `packages/decision-fm/src/driver.ts:86-92`; core delegation `packages/decision-fm/src/driver.ts:105`; probe `packages/decision-fm/src/driver.ts:113`; budget `packages/decision-fm/src/driver.ts:119`; failed write deletes `packages/decision-fm/src/driver.ts:143-146`; model guard before core `packages/decision-fm/src/driver.ts:168-175` |
+| R8 | MET | `packages/decision-fm/src/schema.ts:7-14` aliases FM_INSTRUCTIONS/buildFmSchema/FmSchema; `packages/decision-fm/src/estimate.ts:7` re-exports estimators; barrel names unchanged at `packages/decision-fm/src/index.ts:8-21` |
+| R9 | MET | `git diff d4ac55c6^ d4ac55c6 --stat -- packages/decision-fm/tests` lists only the two new parity files; parity compare at `packages/decision-fm/tests/parity.test.ts:182`; `git diff --exit-code packages/decision-fm/tests/output/fm-parity.json` clean |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC-1 | MET | command | `bun test packages/ai-runner/tests/decision/sampled-driver.test.ts` (24 pass / 0 fail) covers construction, validation order and the session lifecycle at `packages/ai-runner/tests/decision/sampled-driver.test.ts:14-120`; `bun run build` exits 0 for `@gobing-ai/ts-ai-runner`. |
-| AC-2 | MET | test | `packages/ai-runner/tests/decision/sampled-driver.test.ts:200-247` asserts 0.4/0.6 probabilities, the lower-level score tie-break, the declaration-order choice tie-break and `confidence` near 0 on a uniform tie. |
-| AC-3 | MET | test | failure modes 4-7 at `packages/ai-runner/tests/decision/sampled-driver.test.ts:129-190` plus the eleven parser cases at `:250-326`; the fm messages are pinned at `packages/decision-fm/tests/output/fm-parity.json:59-88`. |
-| AC-4 | MET | command | `bun test` in `packages/decision-fm`: 61 pass / 0 fail, including the byte-for-byte parity comparison in `packages/decision-fm/tests/parity.test.ts:180-184` against the pre-refactor fixture. |
+| R1 — ts-ai-runner exports a dependency-free sampled-driver core | MET | command | `bun test packages/ai-runner/tests/decision/sampled-driver.test.ts packages/decision-fm` 85 pass / 0 fail this run; imports `packages/ai-runner/src/decision/sampled-driver.ts:12-13`; `bun run build` exit 0 |
+| R2 — Sampled answers use empirical frequencies and entropy confidence | MET | test | `packages/ai-runner/tests/decision/sampled-driver.test.ts:224` (0.4/0.6), `packages/ai-runner/tests/decision/sampled-driver.test.ts:226` (noul 0.6), `packages/ai-runner/tests/decision/sampled-driver.test.ts:240` (uniform tie confidence 0) |
+| R3 — Malformed sample output fails through the decision error taxonomy | MET | test | failure modes 4-7 at `packages/ai-runner/tests/decision/sampled-driver.test.ts:133-161`; parser cases at `packages/ai-runner/tests/decision/sampled-driver.test.ts:262-320` |
+| R4 — decision-fm answers are unchanged after moving onto the shared core | MET | test | `packages/decision-fm/tests/parity.test.ts:182` toEqual against recorded `packages/decision-fm/tests/output/fm-parity.json`; fixture unchanged per git diff --exit-code |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
