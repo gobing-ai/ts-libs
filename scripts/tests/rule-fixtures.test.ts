@@ -67,12 +67,12 @@ describe('runRuleFixtureChecks', () => {
         expect(report.error).toBeUndefined();
         expect(report.pass).toBe(true);
         expect(report.totals.sets).toBe(5);
-        expect(report.totals.cases).toEqual({ total: 52, fire: 26, pass: 26 });
+        expect(report.totals.cases).toEqual({ total: 53, fire: 26, pass: 27 });
         expect(report.totals.failed).toEqual({ total: 0, fire: 0, pass: 0 });
         expect(report.sets.map((set) => [set.set, set.cases.total])).toEqual([
             ['lifecycle-bus-propagation', 5],
             ['decision-boundaries', 6],
-            ['verify-confidence', 23],
+            ['verify-confidence', 24],
             ['evidence-citation', 9],
             ['changelog-verification', 9],
         ]);
@@ -80,7 +80,7 @@ describe('runRuleFixtureChecks', () => {
         // Per-set and per-expectation counts are reported, not only a global pass.
         const lifecycle = report.sets[0];
         expect(lifecycle?.cases).toEqual({ total: 5, fire: 2, pass: 3 });
-        expect(report.sets[2]?.cases).toEqual({ total: 23, fire: 14, pass: 9 });
+        expect(report.sets[2]?.cases).toEqual({ total: 24, fire: 14, pass: 10 });
         expect(report.sets[3]?.cases).toEqual({ total: 9, fire: 3, pass: 6 });
         expect(report.sets[4]?.cases).toEqual({ total: 9, fire: 4, pass: 5 });
 

@@ -1,0 +1,17 @@
+{
+    "schemaVersion": 1,
+    "featureId": "0210",
+    "runId": "run-0210",
+    "workdir": "/repo",
+    "verifier": {
+        "name": "feature-lifecycle",
+        "sourcePath": "/usr/lib/node_modules/@gobing-ai/spur/config/workflows/feature-lifecycle.yaml",
+        "layer": "shared",
+        "definitionDigest": "sha256:dddd"
+    },
+    "verificationCmd": "spur self exec check-feature",
+    "inputDigest": "sha256:aaaa",
+    "status": "PASS",
+    "startedAt": "2026-10-19T10:00:00Z",
+    "completedAt": "2026-10-19T10:01:00Z"
+}

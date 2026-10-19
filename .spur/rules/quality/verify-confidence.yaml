@@ -182,8 +182,19 @@ rules:
               # in-flight copy cannot carry a level yet — the pass would fail its own gate otherwise.
               [ "$(jq -r '.status // ""' "$f" 2>/dev/null)" = "RUNNING" ] && continue
 
-              # Every pass from the contract date on must record its level; earlier receipts are
-              # historical records with no level to verify.
+              # Only a pass this project drives can record the contract: the bundled
+              # `feature-lifecycle` verifier that `spur feature sync` runs is spur-owned and writes no
+              # project fields, so requiring a level there would fail the gate for a pass the project
+              # cannot change. Those receipts are out of scope, like history — and are the documented
+              # limit of this rule (a sync-driven pass therefore carries no verified level).
+              fowner="$(jq -r '.verifier.layer // ""' "$f" 2>/dev/null)"
+              fname="$(jq -r '.verifier.name // ""' "$f" 2>/dev/null)"
+              if [ "$fowner" != "project" ] && [ "$fname" != "feature-verification" ]; then
+                continue
+              fi
+
+              # Every project-owned pass from the contract date on must record its level; earlier
+              # receipts are historical records with no level to verify.
               if [ "$(jq -r '.confidenceContract // 0' "$f" 2>/dev/null)" != "1" ]; then
                 fstart=$(jq -r '.startedAt // ""' "$f" 2>/dev/null)
                 # Portable date compare: YYYY-MM-DD as a number; an absent/odd stamp counts as 0.
