@@ -24,7 +24,7 @@ Provide the feature-tree home for this package's public capabilities and mainten
 | WBS | Task | Status |
 | --- | ---- | ------ |
 | 0106 | Reject fractional scores and unnormalized decision distributions | cancelled |
-| 0107 | Reject unnormalized decision answer distributions | testing |
+| 0107 | Reject unnormalized decision answer distributions | done |
 <!-- END AUTO-GENERATED -->
 
 ## Notes

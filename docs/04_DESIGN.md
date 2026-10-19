@@ -26,7 +26,7 @@ API; generated declarations are the compile-time contract.
 | Laya local decision backend (`ts-laya-mlx`) | built 2026-09-21 — ADR-027/ADR-028 | [`laya-local-decision-backend.md`](design/laya-local-decision-backend.md) |
 | Apple `fm` decision backend (`ts-decision-fm`) and `fm` agent | built 2026-09-23 — ADR-029/ADR-030/ADR-031 | [`decision-fm-backend.md`](design/decision-fm-backend.md) |
 | Browser profile sessions (`ts-browser-automation`) | built 2026-09-26 — ADR-032 | [`browser-profile-sessions.md`](design/browser-profile-sessions.md) |
-| AI decision catalog and hub (`ts-ai-decision`) | built 2026-10-03 — `packages/ai-decision`; catalog loader, `DecisionMakerRegistry`, `DecisionHub` (ADR-033) | [`ai-decision-catalog.md`](design/ai-decision-catalog.md) |
+| AI decision catalog and hub (`ts-ai-decision`) | built 2026-10-03, extended 2026-10-19 — `packages/ai-decision`; catalog loader, `DecisionMakerRegistry`, `DecisionHub` (ADR-033, ADR-040) | [`ai-decision-catalog.md`](design/ai-decision-catalog.md) |
 | Hosted Clef decision backend (`ts-decision-clef`) | built 2026-10-09 — ADR-037 | [`decision-clef-backend.md`](design/decision-clef-backend.md) |
 | LLM agent decision backend + sampled-driver core; TypeSafe relocation | built 2026-10-19 — ADR-038/ADR-039, feature O1 | [`llm-agent-decision-backend.md`](design/llm-agent-decision-backend.md) |
 
