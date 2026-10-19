@@ -5,6 +5,7 @@ export * from './agents/shims';
 export * from './ai-runner';
 export * from './decision/decision-maker';
 export * from './decision/errors';
+export * from './decision/sampled-driver';
 export * from './decision/types';
 export * from './decision/validation';
 export * from './doctor-runner';

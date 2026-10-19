@@ -740,11 +740,31 @@ shared state and get typed, discriminated answers back. Questions are built with
 answers are decoded into neutral `ChoiceAnswer` / `ScoreAnswer` / `NoulAnswer` types — no SDK type
 crosses this boundary.
 
-Named backends are selected with `backend:`: `typesafe` (the default, reads `TYPESAFE_API_KEY`),
-`laya-local` (`@gobing-ai/ts-laya-mlx`), and `fm-local` (`@gobing-ai/ts-decision-fm`). Both local
-backends resolve their driver by dynamic import on first use — this package declares no dependency
-on either driver package (ADR-028); install the one you select. For typed, non-default driver
-options, construct the driver yourself and pass it as `driver:`.
+Named backends are selected with `backend:`: `laya-local` (`@gobing-ai/ts-laya-mlx`), `fm-local`
+(`@gobing-ai/ts-decision-fm`) and — deprecated — `typesafe` (`@gobing-ai/ts-ai-decision`). All three
+resolve their driver by dynamic import on first use: this package declares no dependency on any
+driver package (ADR-028/ADR-039); install the one you select. For typed, non-default driver options,
+construct the driver yourself and pass it as `driver:`.
+
+**TypeSafe moved out (ADR-039, 2026-10-19).** `createTypesafeDriver` and the pinned
+`@typesafe-ai/sdk` dependency now live in `@gobing-ai/ts-ai-decision`; this package keeps only the
+neutral contract, the validators, the sampled-driver core and `createDecisionMaker`.
+
+```ts
+import { createDecisionMaker } from '@gobing-ai/ts-ai-runner';
+import { createTypesafeDriver } from '@gobing-ai/ts-ai-decision'; // preferred
+
+const decisions = createDecisionMaker({ driver: createTypesafeDriver({ apiKey }) });
+```
+
+The `typesafe` backend name — including the implicit default — still works for one release through a
+deprecated dynamic import, so it now **requires `@gobing-ai/ts-ai-decision` to be installed**:
+
+- missing key → `DecisionConfigError` `TYPESAFE_API_KEY` (unchanged, and checked before the import);
+- package not installed → `DecisionConfigError` `TYPESAFE_BACKEND` naming the `bun add` command.
+
+The bridge is removed in the next minor. `resolveApiKey` stays exported here and is what both the
+bridge and the `ts-ai-decision` registry use, so `TYPESAFE_API_KEY` precedence is unchanged.
 
 ### Batch `ask` — many questions, one request
 
@@ -846,6 +866,41 @@ The facade already runs both around every `ask`, so a driver that also calls the
 errors from its own boundary. Driver-local concerns the neutral validators do not cover (provider
 question/option counts, JSON-serializability of `state`, provider response caps) stay in the
 driver — see [`@gobing-ai/ts-decision-clef`](../decision-clef/README.md) for a worked example.
+
+### Sampled-driver core
+
+Every backend that answers by drawing k samples from a model shares one
+engine-agnostic core in this package (`src/decision/sampled-driver.ts`). It
+imports nothing — no SDK, no workspace package, no platform API — so a driver
+package outside `ts-ai-runner` can build on it without a cycle. A backend
+supplies only the per-ask session hook; rendering, enum enforcement, parsing
+and frequency estimation come from the core.
+
+```ts
+import { createSampledDriver, extractJsonAnswer } from '@gobing-ai/ts-ai-runner';
+
+const driver = createSampledDriver({
+    name: 'my-backend',
+    samples: 5, // k draws per ask; collapsed to 1 when deterministic
+    concurrency: 1, // max draws in flight
+    sampleLabel: 'my-backend', // prefix in enum-violation messages
+    async open({ instructions, prompt, questions }) {
+        const scratch = await openScratchDir();
+        return {
+            sample: async () => extractJsonAnswer(await runModel(instructions, prompt, scratch)),
+            close: () => removeScratchDir(scratch),
+        };
+    },
+});
+```
+
+`ask` validates the map (nonempty, at least two options per question) **before**
+calling `open`, draws k samples at most `concurrency` at a time, enum-checks
+every sample against `declaredOptions`, and always runs `close` — then reduces
+the draws to empirical frequencies (ADR-030). The exported helpers are
+`DECISION_INSTRUCTIONS`, `buildPrompt`, `buildEnumSchema`, `declaredOptions`,
+`formatDesc`, `requireEnumValue`, `extractJsonAnswer`, `entropyConfidence`,
+`estimateChoice`, `estimateScore` and `estimateNoul`.
 
 ### Adding a backend driver
 

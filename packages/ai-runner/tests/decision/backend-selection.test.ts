@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { ProcessExecutor, ProcessOptions, ProcessResult } from '@gobing-ai/ts-runtime';
 import { createDecisionMaker, DecisionConfigError, type DecisionDriver, q } from '../../src';
+import { streamedJson } from '../helpers/sdk-fetch';
 
 describe('Named backend selector in DecisionMaker (task 0080)', () => {
     const fakeDriver: DecisionDriver = {
@@ -26,19 +27,16 @@ describe('Named backend selector in DecisionMaker (task 0080)', () => {
                 backend: 'typesafe',
                 apiKey: 'test-key-xyz',
                 fetch: (async () =>
-                    new Response(
-                        JSON.stringify({
-                            answers: {
-                                question: {
-                                    type: 'choice',
-                                    choice: 'yes',
-                                    confidence: 0.99,
-                                    probabilities: { yes: 0.99, no: 0.01 },
-                                },
+                    streamedJson({
+                        answers: {
+                            question: {
+                                type: 'choice',
+                                choice: 'yes',
+                                confidence: 0.99,
+                                probabilities: { yes: 0.99, no: 0.01 },
                             },
-                        }),
-                        { headers: { 'content-type': 'application/json' } },
-                    )) as unknown as typeof fetch,
+                        },
+                    })) as unknown as typeof fetch,
             });
             expect(dm.driver).toBe('typesafe');
             const res = await dm.choice('state', 'Deploy?', { yes: 'Yes', no: 'No' });
@@ -49,19 +47,16 @@ describe('Named backend selector in DecisionMaker (task 0080)', () => {
             const dm = createDecisionMaker({
                 apiKey: 'test-key-xyz',
                 fetch: (async () =>
-                    new Response(
-                        JSON.stringify({
-                            answers: {
-                                question: {
-                                    type: 'choice',
-                                    choice: 'yes',
-                                    confidence: 0.99,
-                                    probabilities: { yes: 0.99, no: 0.01 },
-                                },
+                    streamedJson({
+                        answers: {
+                            question: {
+                                type: 'choice',
+                                choice: 'yes',
+                                confidence: 0.99,
+                                probabilities: { yes: 0.99, no: 0.01 },
                             },
-                        }),
-                        { headers: { 'content-type': 'application/json' } },
-                    )) as unknown as typeof fetch,
+                        },
+                    })) as unknown as typeof fetch,
             });
             expect(dm.driver).toBe('typesafe');
             const res = await dm.choice('state', 'Deploy?', { yes: 'Yes', no: 'No' });

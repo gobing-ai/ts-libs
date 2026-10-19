@@ -1,0 +1,88 @@
+{
+  "mixed-map-with-tie": {
+    "answers": {
+      "dept": {
+        "kind": "choice",
+        "label": "billing",
+        "confidence": 0.03977028213923883,
+        "probabilities": {
+          "billing": 0.4,
+          "tech": 0.4,
+          "ops": 0.2
+        }
+      },
+      "urgency": {
+        "kind": "score",
+        "score": 1,
+        "confidence": 0.1350264792820728,
+        "legend": {
+          "0": "Low",
+          "1": "Medium",
+          "2": "High"
+        },
+        "probabilities": {
+          "0": 0.2,
+          "1": 0.6,
+          "2": 0.2
+        }
+      },
+      "refund": {
+        "kind": "noul",
+        "probability": 0.6
+      }
+    }
+  },
+  "deterministic": {
+    "answers": {
+      "dept": {
+        "kind": "choice",
+        "label": "tech",
+        "confidence": 1,
+        "probabilities": {
+          "billing": 0,
+          "tech": 1,
+          "ops": 0
+        }
+      },
+      "urgency": {
+        "kind": "score",
+        "score": 2,
+        "confidence": 1,
+        "legend": {
+          "0": "Low",
+          "1": "Medium",
+          "2": "High"
+        },
+        "probabilities": {
+          "0": 0,
+          "1": 0,
+          "2": 1
+        }
+      },
+      "refund": {
+        "kind": "noul",
+        "probability": 0
+      }
+    }
+  },
+  "enum-violation": {
+    "errorClass": "DecisionBackendError",
+    "message": "fm sample for 'dept' violates the schema enum: 'sales'"
+  },
+  "non-json-stdout": {
+    "errorClass": "DecisionBackendError",
+    "message": "fm respond printed non-JSON output: I think billing."
+  },
+  "over-budget": {
+    "errorClass": "DecisionRequestError",
+    "message": "prompt is 7001 tokens, above the maxPromptTokens budget of 6000"
+  },
+  "bad-model": {
+    "errorClass": "DecisionRequestError",
+    "message": "fm-local supports only the 'system' model (or undefined); got 'gpt-4'"
+  },
+  "empty-map": {
+    "errorClass": "DecisionRequestError",
+    "message": "expected a nonempty question map"
+  }
+}

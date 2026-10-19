@@ -1,10 +1,10 @@
 ---
 schema_version: 1
 name: Relocate TypeSafe driver to ts-ai-decision with deprecated ai-runner bridge and finalize decision docs
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-10-19T06:34:09.539Z
-updated_at: "2026-10-19T17:12:21.648Z"
+updated_at: "2026-10-19T18:58:32.912Z"
 feature_id: O1
 priority: P2
 tags:
@@ -14,6 +14,8 @@ tags:
   - docs
 
 dependencies: ["0115"]
+done_forced: "false"
+done_reason: unforced close; PASS artifact at .spur/memory/evidence/0116-verdict.json
 ---
 
 ## 0116. Relocate TypeSafe driver to ts-ai-decision with deprecated ai-runner bridge and finalize decision docs
@@ -26,22 +28,22 @@ Answers the operator's Q1 (TypeSafe Jev is provided by `ts-ai-runner` today — 
 
 ### Requirements
 
-- [ ] R1. `git mv packages/ai-runner/src/decision/typesafe-driver.ts packages/ai-decision/src/typesafe-driver.ts`, and move `packages/ai-runner/tests/decision/typesafe-driver.test.ts` the same way.
+- [x] R1. `git mv packages/ai-runner/src/decision/typesafe-driver.ts packages/ai-decision/src/typesafe-driver.ts`, and move `packages/ai-runner/tests/decision/typesafe-driver.test.ts` the same way.
   - Rewrite the relative imports (`./errors`, `./types`, `./validation`) to `@gobing-ai/ts-ai-runner`. All of them are exported from the barrel; verify `validateAnswers` and `validateQuestions` are.
   - Export `createTypesafeDriver` and `TypesafeDriverConfig` from `packages/ai-decision/src/index.ts`.
-- [ ] R2. Key resolution: `resolveApiKey` (`packages/ai-runner/src/decision/decision-maker.ts:78`) **stays** in ts-ai-runner and is exported. The barrel already does `export * from './decision/decision-maker'`, so adding `export` to the function is enough. Precedence is unchanged.
-- [ ] R3. Dependencies:
+- [x] R2. Key resolution: `resolveApiKey` (`packages/ai-runner/src/decision/decision-maker.ts:78`) **stays** in ts-ai-runner and is exported. The barrel already does `export * from './decision/decision-maker'`, so adding `export` to the function is enough. Precedence is unchanged.
+- [x] R3. Dependencies:
   - Remove `"@typesafe-ai/sdk": "0.6.0"` from `packages/ai-runner/package.json:52`.
   - Add `"@typesafe-ai/sdk": "0.7.0"` (exact pin, same policy) to `packages/ai-decision/package.json` `dependencies`.
   - Run `bun install` and commit the `bun.lock` change.
   - No tsconfig `paths` change: the SDK is an npm dependency, and the bridge's dynamic import uses a variable specifier, which resolves to `any` without a path entry.
-- [ ] R4. SDK 0.7.0 adaptations in the moved driver (see design doc § SDK 0.7.0 upgrade):
+- [x] R4. SDK 0.7.0 adaptations in the moved driver (see design doc § SDK 0.7.0 upgrade):
   - (a) `noul(question.prompt ?? null, outcomes)` (`typesafe-driver.ts:115`) no longer type-checks under 0.7.0's overloads. Branch instead: `question.prompt === undefined ? noul(null, outcomes) : noul(question.prompt, outcomes)`, or whatever form tsc accepts.
     - Keep the runtime semantics. Every neutral noul has non-null criteria `{ true, false }`, so 0.7.0's client-side "Noul question … has neither instructions nor criteria" check cannot fire. Don't add a cast.
   - (b) Constructor: add `compression: false`? **No.** Keep the SDK default (zstd on Bun 1.4.3) and teach the test fetch to decode it (R8). Production traffic gets compressed bodies and the test proves the server-visible payload.
   - (c) Update the stale comment at `typesafe-driver.ts:~50` ("SDK 0.6.0 exports no default base-URL constant"). Recheck it against the 0.7.0 `.d.ts` in `node_modules/@typesafe-ai/sdk` and rewrite or drop it.
   - (d) The `fromSdkAnswer` default branch already throws for unknown result types, which covers the new `box`. No `box` support is added; the neutral contract has no box kind.
-- [ ] R5. Bridge in `packages/ai-runner/src/decision/decision-maker.ts`:
+- [x] R5. Bridge in `packages/ai-runner/src/decision/decision-maker.ts`:
   - Remove the static `import { createTypesafeDriver } from './typesafe-driver'` (`:20`).
   - Add `resolveTypesafeDriver(options, importModule = (s) => import(s))`, mirroring `resolveLayaDriver` (`:90-122`):
     - `const TYPESAFE_DRIVER_PACKAGE = '@gobing-ai/ts-ai-decision'`.
@@ -51,15 +53,15 @@ Answers the operator's Q1 (TypeSafe Jev is provided by `ts-ai-runner` today — 
     - Construction errors propagate unchanged.
   - `getDriver` (`:160-169`) calls it.
   - Mark `backend: 'typesafe'`, and the implicit default, `@deprecated` in the `DecisionMakerOptions.backend` JSDoc (`:58`): "pass `driver: createTypesafeDriver(…)` from @gobing-ai/ts-ai-decision".
-- [ ] R6. Registry `typesafe` built-in (`packages/ai-decision/src/registry.ts:40`): `this.register('typesafe', () => createDecisionMaker({ driver: createTypesafeDriver({ apiKey: resolveApiKey(makerOptions), model: undefined, baseURL: makerOptions.baseURL, timeoutMs: makerOptions.timeoutMs, maxRetries: makerOptions.maxRetries, fetch: makerOptions.fetch }), ...makerOptions }))`. A missing key throws inside the lazy factory, so the hub reports `reason: 'no-backend'`, the same as today. Check `resolveApiKey`'s parameter type: `makerOptions` omits only `driver`/`backend`/`model`, so it fits.
-- [ ] R7. Spur rules in `.spur/rules/typescript/decision-boundaries.yaml`:
+- [x] R6. Registry `typesafe` built-in (`packages/ai-decision/src/registry.ts:40`): `this.register('typesafe', () => createDecisionMaker({ driver: createTypesafeDriver({ apiKey: resolveApiKey(makerOptions), model: undefined, baseURL: makerOptions.baseURL, timeoutMs: makerOptions.timeoutMs, maxRetries: makerOptions.maxRetries, fetch: makerOptions.fetch }), ...makerOptions }))`. A missing key throws inside the lazy factory, so the hub reports `reason: 'no-backend'`, the same as today. Check `resolveApiKey`'s parameter type: `makerOptions` omits only `driver`/`backend`/`model`, so it fits.
+- [x] R7. Spur rules in `.spur/rules/typescript/decision-boundaries.yaml`:
   - Rename `no-typesafe-sdk-import-outside-ai-runner` → `no-typesafe-sdk-import-outside-ai-decision`, with exclude `packages/ai-decision/src/typesafe-driver.ts`, and update its description: pin 0.7.0, ADR-039.
   - Keep `no-ai-decision-import-in-ai-runner` **unchanged**. The bridge holds the specifier in a `const` and calls `importModule(TYPESAFE_DRIVER_PACKAGE)`, the same shape as the laya/fm bridges, which coexist with `no-laya-driver-import-in-ai-runner` / `no-fm-driver-import-in-ai-runner` today. Prove it: `bun run spur-check` stays clean. If the evaluator does flag the literal, scope an `exclude` for `packages/ai-runner/src/decision/decision-maker.ts` with a description pointing to ADR-039; don't weaken the rule globally.
   - Fixtures: the adapter asserts **one rule per package dir** (`scripts/verify-rule-fixtures.ts:61-64`, `DECISION_BOUNDARY_RULES`), and `ai-runner` is already mapped to the clef rule. Map a new dir, `'decision-fm': 'no-typesafe-sdk-import-outside-ai-decision'`.
     - Add `should-fire/packages/decision-fm/src/imports-typesafe-sdk.ts` (a static `import … from '@typesafe-ai/sdk'`) and `should-pass/packages/decision-fm/src/no-sdk.ts`.
     - Bump the decision-boundaries set's declared `expected` counts in the same file (`:82+`); the inventory gate at `:500-503` fails otherwise.
     - Update `.spur/rules/fixtures/decision-boundaries/README.md`'s rule list.
-- [ ] R8. Tests:
+- [x] R8. Tests:
   - The moved `typesafe-driver.test.ts` fake fetch (`:32`, `JSON.parse(String(init.body))`) must decode zstd. When `init.headers` carries `content-encoding: zstd`, decompress `init.body` (Uint8Array/ArrayBuffer) with `Bun.zstdDecompressSync` before parsing. Tests are exempt from the platform rule; check that `tests/**` is excluded in the ts-runtime boundary rules.
   - Add `packages/ai-runner/tests/decision/typesafe-bridge.test.ts` with these cases:
     - (a) `createDecisionMaker()` with an injected `fetch` answers through the bridge, end to end via the real workspace `@gobing-ai/ts-ai-decision`.
@@ -67,7 +69,7 @@ Answers the operator's Q1 (TypeSafe Jev is provided by `ts-ai-runner` today — 
     - (c) A module without the export → `TYPESAFE_BACKEND`.
     - (d) A missing key → the same `DecisionConfigError` as before, with **no import attempted** (spy on `importModule`).
   - Extend `driver-resolution-errors.test.ts` with the typesafe mirror of its laya/fm cases if a test seam is needed: export `resolveTypesafeDriver` for tests only, the same way the laya/fm resolvers are reached today.
-- [ ] R9. Docs:
+- [x] R9. Docs:
   - ADR-038/039: Proposed → Accepted, with the built date.
   - `docs/03_ARCHITECTURE.md:108-118`: promote to current.
   - `docs/04_DESIGN.md:31`: status.
@@ -80,9 +82,9 @@ Answers the operator's Q1 (TypeSafe Jev is provided by `ts-ai-runner` today — 
 
 ### Acceptance Criteria
 
-- [ ] AC1 — TypeSafe driver lives in ts-ai-decision and ts-ai-runner drops the SDK
-- [ ] AC2 — Legacy typesafe backend selection keeps working through a deprecated bridge
-- [ ] AC3 — Decision architecture records and docs describe the new boundary
+- [x] AC1 — TypeSafe driver lives in ts-ai-decision and ts-ai-runner drops the SDK
+- [x] AC2 — Legacy typesafe backend selection keeps working through a deprecated bridge
+- [x] AC3 — Decision architecture records and docs describe the new boundary
 
 ### Q&A
 
@@ -160,15 +162,98 @@ Answers the operator's Q1 (TypeSafe Jev is provided by `ts-ai-runner` today — 
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+| File | Lines | Change |
+| --- | --- | --- |
+| `packages/ai-decision/src/typesafe-driver.ts` | 1-212 | Moved verbatim from `packages/ai-runner/src/decision/typesafe-driver.ts`; the three relative imports became one `@gobing-ai/ts-ai-runner` import. `createTypesafeDriver` at `:58`; the noul mapping now builds the `NoulQuestion` object directly (`:129`) because 0.7.0's `noul()` overloads cannot express an undescribed noul; `legendOf` (`:142`) narrows the legend past the SDK's un-instantiably deep `ScoreLegend` conditional; the stale base-URL comment was rewritten against the 0.7.0 `.d.ts`. |
+| `packages/ai-decision/src/index.ts` | 9 | Exports `createTypesafeDriver` and `TypesafeDriverConfig`. |
+| `packages/ai-decision/src/registry.ts` | 1-10, 47-66 | The `typesafe` built-in now constructs the driver directly (no deprecated bridge) from `resolveApiKey(makerOptions)`; a missing key still throws inside the lazy factory. |
+| `packages/ai-decision/package.json`, `packages/ai-decision/tsconfig.json` | — | `@typesafe-ai/sdk` `0.7.0` added as a dependency; `@gobing-ai/ts-utils` as a devDependency for the moved test's env helpers, plus its tsconfig path. |
+| `packages/ai-runner/src/decision/decision-maker.ts` | 84, 131-171, 211 | `resolveApiKey` is now exported; `resolveTypesafeDriver` (`:141`) resolves the key FIRST, then dynamically imports `@gobing-ai/ts-ai-decision` (install hint → `TYPESAFE_BACKEND`, missing export → `TYPESAFE_BACKEND`, construction errors propagate); `getDriver` uses it; the `backend` JSDoc is marked `@deprecated`. |
+| `packages/ai-runner/package.json` | — | `@typesafe-ai/sdk` removed. |
+| `packages/ai-decision/tests/typesafe-driver.test.ts` | 1-363 | Moved with the driver; imports rewritten to the barrels; fixtures are stream-backed responses and the recorded request body is zstd-decoded (`helpers/sdk-fetch.ts`) because 0.7.0 compresses bodies ≥ 1 KiB and buffers every attempt through a clone; the bare-noul case now asserts the SDK's client-side rejection. |
+| `packages/ai-decision/tests/typesafe-validation.test.ts` | 1-146 | The four wire-validation cases that drove the real TypeSafe driver moved here with it (ai-runner can no longer import it). |
+| `packages/ai-runner/tests/decision/typesafe-bridge.test.ts` | 1-102 | New: end-to-end answer through the real workspace package, import failure → install hint, missing export → `TYPESAFE_BACKEND`, missing key → `TYPESAFE_API_KEY` with no import attempted, construction errors unchanged, `resolveApiKey` precedence. |
+| `packages/ai-runner/tests/decision/backend-selection.test.ts`, `validation.test.ts`, `packages/ai-decision/tests/hub.test.ts` | — | Fake fetches return stream-backed responses (and decode a compressed request body where they inspect it); `validation.test.ts` drops the moved driver import. |
+| `.spur/rules/typescript/decision-boundaries.yaml` | 11-27 | `no-typesafe-sdk-import-outside-ai-runner` → `no-typesafe-sdk-import-outside-ai-decision`, exempting `packages/ai-decision/src/typesafe-driver.ts`; `no-ai-decision-import-in-ai-runner` is unchanged and still clean (the bridge holds the specifier in a `const`). |
+| `scripts/verify-rule-fixtures.ts` | 61-70, 84-88 | Adapter maps `decision-fm` to the renamed rule; declared inventory for the set is 3 fire / 3 pass. |
+| `.spur/rules/fixtures/decision-boundaries/{should-fire,should-pass}/packages/decision-fm/src/*` | — | New SDK-import fixture pair plus `scripts/rule-fixture-hashes.json` hashes. |
+| `scripts/tests/rule-fixtures.test.ts` | 70-76, 401-403 | Totals and the per-set inventory expectation follow the new case count. |
+| `bunfig.toml` | 12 | `coveragePathIgnorePatterns` also skips `**/dist/**` (the bridge imports the built package in-workspace) and `**/tests/helpers/**`. |
+| `docs/00_ADR.md` | 785, 805 | ADR-038/ADR-039 are Accepted with a build date of 2026-10-19. |
+| `docs/03_ARCHITECTURE.md` | 106-125 | Decision-backends section promoted to built; the SDK invariant now names the ai-decision rule. |
+| `docs/04_DESIGN.md` | 31 | Design row records the build. |
+| `docs/design/llm-agent-decision-backend.md` | 2-6 | `status: implemented`, dated. |
+| `packages/ai-runner/README.md` | 743-770 | Backend list without a static TypeSafe driver, plus the deprecation/bridge note and the preferred `createTypesafeDriver` usage. |
+| `packages/ai-decision/README.md` | 30, 237-255 | Maker row now points at this package with SDK 0.7.0; the "Planned" section became a "TypeSafe driver" section. |
+| `CHANGELOG.md` | 11-27 | Feature-O1 entry with the Spur migration note and evidence records. |
+
+**Dependency direction.** There is no static ai-runner → ai-decision edge: the bridge keeps the package specifier in a `const` and hands it to an injectable `importModule`, exactly as the laya/fm bridges do, so `no-ai-decision-import-in-ai-runner` stays clean. The runtime cycle is lazy — ai-decision evaluates first, the dynamic import happens inside `getDriver`.
+
+**Key precedence is unchanged.** `resolveTypesafeDriver` calls `resolveApiKey` before importing, so a missing key is the same `DecisionConfigError` (`TYPESAFE_API_KEY`) as before and no import is attempted; the registry built-in constructs the driver directly with the same helper.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 | MET | `git mv` moved `packages/ai-decision/src/typesafe-driver.ts:1-212` and its suite (`packages/ai-decision/tests/typesafe-driver.test.ts:1-363`); the imports are one `@gobing-ai/ts-ai-runner` import (`:8-20`) and the barrel exports both `createTypesafeDriver` and `TypesafeDriverConfig` at `packages/ai-decision/src/index.ts:9`. |
+| R2 | MET | `resolveApiKey` is exported at `packages/ai-runner/src/decision/decision-maker.ts:84` and is used by both the bridge (`:145`) and the registry built-in (`packages/ai-decision/src/registry.ts:57`), so `TYPESAFE_API_KEY` precedence is unchanged. |
+| R3 | MET | The dependency moved: `packages/ai-runner/package.json:50-52` lists only ts-infra and ts-runtime, and `packages/ai-decision/package.json:58` pins the SDK, with `bun.lock:22` and `:452` agreeing; no tsconfig `paths` entry was added (the bridge's specifier is a runtime variable). |
+| R4 | MET | noul now builds the `NoulQuestion` directly at `packages/ai-decision/src/typesafe-driver.ts:129` (0.7.0's overloads cannot express an undescribed noul) with criteria unchanged for described questions; compression is untouched (the test decodes zstd at `packages/ai-decision/tests/helpers/sdk-fetch.ts:25-32`); the base-URL comment was rewritten against the 0.7.0 `.d.ts` at `:70-76`; the `fromSdkAnswer` default branch still throws for the new `box` kind at `:186`. |
+| R5 | MET | `resolveTypesafeDriver` at `packages/ai-runner/src/decision/decision-maker.ts:141-171` resolves the key first, maps import failure to `TYPESAFE_BACKEND` with the `bun add` hint, maps a missing export separately, and propagates construction errors; `getDriver` calls it at `:211`; the `backend` option carries the `@deprecated` note at `:56-65`. |
+| R6 | MET | the registry built-in constructs the driver directly from `resolveApiKey` at `packages/ai-decision/src/registry.ts:47-66`, so a missing key still throws inside the lazy factory and the hub keeps `reason: 'no-backend'`. |
+| R7 | MET | the rule is renamed with the ai-decision exemption at `.spur/rules/typescript/decision-boundaries.yaml:11-27`; `no-ai-decision-import-in-ai-runner` is untouched and the full rule run is clean; the adapter maps `decision-fm` to the renamed rule at `scripts/verify-rule-fixtures.ts:61-70` with the inventory bumped to 3 fire / 3 pass at `:84-88`, and the two new fixtures plus their hashes are committed. |
+| R8 | MET | the moved suite's fixtures are stream-backed and zstd-aware (`packages/ai-decision/tests/helpers/sdk-fetch.ts:1-32`); the new bridge suite covers the four branches at `packages/ai-runner/tests/decision/typesafe-bridge.test.ts:60-102`; the wire-validation cases moved with the driver (`packages/ai-decision/tests/typesafe-validation.test.ts:1-146`), and `packages/ai-decision/tests/output/hub-e2e-transcript.json` is unchanged. |
+| R9 | MET | ADR-038/ADR-039 are Accepted with a build date (`docs/00_ADR.md:785`, `:805`); `docs/03_ARCHITECTURE.md:106-125` is promoted to built; `docs/04_DESIGN.md:31` records the build; the design doc header is `status: implemented` (`docs/design/llm-agent-decision-backend.md:2-6`); both READMEs are updated (`packages/ai-runner/README.md:743-770`, `packages/ai-decision/README.md:237-255`) and `CHANGELOG.md:11-27` carries the Spur migration note. |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC1 — TypeSafe driver lives in ts-ai-decision and ts-ai-runner drops the SDK | MET | command | `rg -n "@typesafe-ai/sdk" packages/ai-runner/src` finds no import (only the neutral-types comment at `packages/ai-runner/src/decision/types.ts:3`), `packages/ai-runner/package.json:50-52` declares no SDK, and `bun test packages/ai-decision/tests/typesafe-driver.test.ts` runs 16 passing cases from the new location (`packages/ai-decision/src/typesafe-driver.ts:1-212`). |
+| AC2 — Legacy typesafe backend selection keeps working through a deprecated bridge | MET | test | `packages/ai-runner/tests/decision/typesafe-bridge.test.ts:60-102` — end-to-end answer through the real workspace package, install hint, missing export, missing key before any import, and unchanged construction errors; `backend-selection.test.ts` and the ai-decision hub suite pass unmodified in behaviour. |
+| AC3 — Decision architecture records and docs describe the new boundary | MET | command | `rg -n 'Built:\*\* 2026-10-19' docs/00_ADR.md` returns `docs/00_ADR.md:785` and `:805`, and `rg -n "built 2026-10-19" docs/03_ARCHITECTURE.md docs/04_DESIGN.md` returns `docs/03_ARCHITECTURE.md:106` and `docs/04_DESIGN.md:31`; the design header reads `status: implemented` at `docs/design/llm-agent-decision-backend.md:2-6`. |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+**Scope.** The 0116 diff on `sp/runall-o1-3ecd`: the TypeSafe driver and its suite moved package, a
+deprecated dynamic-import bridge replaced the static import, the SDK dependency moved and was pinned to
+0.7.0, the SDK boundary rule was renamed with new fixtures, and the decision docs were promoted to
+built. `bun run spur-check` (3075 pass / 0 fail, 62 pre + 5 post rules, rule fixtures 43/43) and
+`bun run build` (12/12 packages) were re-run on the final tree.
+
+**Functional traceability.** R1-R9 MET, each row carrying a `path:line` anchor in the run's review
+answer (`.spur/run/a774ca41-c2ba-42c4-8dbd-da295d1e7638-review-answer.txt`); AC1-AC3 MET with
+executable (`test`/`command`) evidence. `spur task verdict --from-answer` derives PASS and writes
+`.spur/run/0116-verdict.json`.
+
+**SECUA.** Security: no new credential path — `resolveApiKey` still runs before any import and the
+unchanged `translateError` keeps every SDK failure inside the taxonomy; the SDK stays confined to one
+file by a rule whose scope moved with it. Errors: the bridge distinguishes a missing key, an
+unimportable package and a missing export, and lets construction errors through untouched.
+Correctness: the driver is a verbatim move plus two 0.7.0 type adaptations, and the recorded e2e/hub
+transcripts are unchanged. Usability: both READMEs document the new home, the preferred import and the
+one-release bridge with its exact error codes; the CHANGELOG carries the Spur migration note.
+Architecture: no static ai-runner → ai-decision edge exists — the specifier lives in a `const` handed
+to an injectable importer, the same shape as the laya/fm bridges — and the lazy runtime cycle is proven
+by the end-to-end case.
+
+**Architectural depth.** `ts-ai-runner` is now the contract package the ADR describes: types, errors,
+validators, the sampled core and `createDecisionMaker`, with one deprecated import seam. Every concrete
+driver sits outside it and the registry stays the single composition point.
+
+**Findings.**
+
+| Priority | Finding | Location | Disposition |
+| --- | --- | --- | --- |
+| P4 | A noul with no prompt and no outcome descriptions is now rejected client-side by SDK 0.7.0 instead of reaching the API for a 422 — same taxonomy, one round trip earlier, and unreachable from a catalog path because the hub always renders instructions. | `packages/ai-decision/src/typesafe-driver.ts:129` | RESOLVED (intentional, asserted by the moved suite) |
+| P4 | The legend hand-off narrows past the SDK's recursive `ScoreLegend` conditional, which the compiler cannot instantiate for the neutral question union; `validateAnswers` still checks the shape at runtime. | `packages/ai-decision/src/typesafe-driver.ts:142` | RESOLVED (type-level only, runtime-validated) |
+| P4 | `coveragePathIgnorePatterns` gained `**/dist/**` and `**/tests/helpers/**`: the bridge imports the built package in-workspace, and instrumented build output fails the per-file coverage threshold. | `bunfig.toml:12` | RESOLVED (build output is not source) |
+
+Verdict: PASS
+Confidence: HIGH
 
 ### References
 
@@ -178,4 +263,7 @@ Answers the operator's Q1 (TypeSafe Jev is provided by `ts-ai-runner` today — 
 
 - 2026-10-19T17:03:08.435Z feature_id O → P1 (system)
 - 2026-10-19T17:03:11.500Z feature_id P1 → O1 (system)
+- 2026-10-19T18:52:59.190Z todo → wip (system)
+- 2026-10-19T18:58:31.837Z wip → testing (system)
+- 2026-10-19T18:58:32.907Z testing → done (system)
 

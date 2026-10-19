@@ -1,13 +1,17 @@
 /**
- * The Apple `fm` decision driver (task 0084 R2, R8, R9; design § Main export).
- * Satisfies the same {@link DecisionDriver} contract as the other backends over
- * one-shot `fm` processes: one schema per ask answers the whole question map,
- * probabilities come from k sample frequencies (ADR-030), and every failure
- * surfaces through the decision error taxonomy — never as an answer.
+ * The Apple `fm` decision driver (task 0084 R2, R8, R9; task 0114 R7). Satisfies
+ * the same {@link DecisionDriver} contract as the other backends over one-shot
+ * `fm` processes, built on the shared sampled-driver core: one schema per ask
+ * answers the whole question map, probabilities come from k sample frequencies
+ * (ADR-030), and every failure surfaces through the decision error taxonomy —
+ * never as an answer.
  */
 
 import {
     type Answer,
+    buildEnumSchema,
+    createSampledDriver,
+    DECISION_INSTRUCTIONS,
     DecisionConfigError,
     type DecisionDriver,
     DecisionRequestError,
@@ -21,17 +25,14 @@ import {
     nodeBunFactory,
     type ProcessExecutor,
 } from '@gobing-ai/ts-runtime';
-import { estimateChoice, estimateNoul, estimateScore } from './estimate';
 import {
     countPromptTokens,
     type FmGuardrails,
     parseFmRespond,
     probeFmAvailability,
-    requireEnumValue,
     respondArgv,
     runFmRespond,
 } from './fm-process';
-import { buildFmSchema, buildPrompt, declaredOptions, FM_INSTRUCTIONS } from './schema';
 
 /** Configuration options for {@link createFmDriver}. */
 export interface FmDriverOptions {
@@ -80,10 +81,10 @@ export function createFmDriver(options: FmDriverOptions = {}): FmDecisionDriver 
         arch = process.arch,
     } = options;
 
+    // Order kept from the pre-refactor driver: the samples error precedes PLATFORM.
     if (!Number.isInteger(samples) || samples < 1) {
         throw new DecisionRequestError(`samples must be a positive integer; got ${samples}`, undefined, undefined);
     }
-    const k = deterministic ? 1 : samples;
 
     if (platform !== 'darwin' || arch !== 'arm64') {
         throw new DecisionConfigError(
@@ -101,52 +102,15 @@ export function createFmDriver(options: FmDriverOptions = {}): FmDecisionDriver 
         availabilityVerified = true;
     }
 
-    return {
+    const inner = createSampledDriver({
         name: 'fm-local',
-        estimator: { kind: 'sample-frequency', samples: k, greedy: deterministic },
-
-        async ask({
-            state,
-            questions,
-            model,
-        }: {
-            state: DecisionState;
-            questions: Record<string, Question>;
-            model?: string;
-        }): Promise<Record<string, Answer>> {
-            // R9: only the on-device system model exists (design: fm CLI facts).
-            if (model !== undefined && model !== 'system') {
-                throw new DecisionRequestError(
-                    `fm-local supports only the 'system' model (or undefined); got '${model}'`,
-                    undefined,
-                    undefined,
-                );
-            }
-            const entries = Object.entries(questions);
-            if (entries.length === 0) {
-                throw new DecisionRequestError('expected a nonempty question map', undefined, undefined);
-            }
-            for (const [key, question] of entries) {
-                const optionCount =
-                    question.kind === 'choice'
-                        ? Object.keys(question.labels).length
-                        : question.kind === 'score'
-                          ? question.rubric.length
-                          : 2; // noul is binary by type
-                if (optionCount < 2) {
-                    throw new DecisionRequestError(
-                        `question '${key}' has fewer than two options (${optionCount})`,
-                        undefined,
-                        undefined,
-                    );
-                }
-            }
-
+        sampleLabel: 'fm',
+        samples,
+        deterministic,
+        instructions: DECISION_INSTRUCTIONS,
+        async open({ instructions, prompt, questions }) {
             // R8: prerequisite probe before the first sample; cached per driver.
             await ensureFmAvailable();
-
-            const instructions = FM_INSTRUCTIONS;
-            const prompt = buildPrompt(state, questions);
 
             // R4: pre-flight budget — over budget rejects before any `fm respond`.
             const tokens = await countPromptTokens(executor, fmPath, instructions, prompt, requestTimeoutMs);
@@ -159,48 +123,56 @@ export function createFmDriver(options: FmDriverOptions = {}): FmDecisionDriver 
             }
 
             // R3: one schema per ask over the whole question map, in a uniquely
-            // named temp file, deleted in `finally` on success and failure.
+            // named temp file, deleted by `close` on success and failure.
             const schemaPath = joinPath(getProcessEnv().TMPDIR ?? '/tmp', `fm-schema-${crypto.randomUUID()}.json`);
-            try {
-                fs.writeFile(schemaPath, JSON.stringify(buildFmSchema(questions)));
-
-                // R5: k sequential samples; each stdout parsed as JSON, read by key.
-                const allowed = new Map(entries.map(([key, question]) => [key, declaredOptions(question)]));
-                const samplesByKey = new Map(entries.map(([key]) => [key, [] as string[]]));
-                for (let i = 0; i < k; i++) {
+            const session = {
+                async sample(): Promise<Record<string, string>> {
                     const stdout = await runFmRespond(
                         executor,
                         fmPath,
                         respondArgv({ schemaPath, instructions, prompt, greedy: deterministic, guardrails }),
                         requestTimeoutMs,
                     );
-                    const parsed = parseFmRespond(stdout);
-                    for (const [key, values] of samplesByKey) {
-                        values.push(requireEnumValue(parsed, key, allowed.get(key) ?? []));
-                    }
-                }
-
-                // R6: frequencies over the declared labels/levels, argmax with
-                // declaration-order / lower-level tie-break, entropy confidence.
-                const answers: Record<string, Answer> = {};
-                for (const [key, question] of entries) {
-                    const values = samplesByKey.get(key) ?? [];
-                    switch (question.kind) {
-                        case 'choice':
-                            answers[key] = estimateChoice(Object.keys(question.labels), values);
-                            break;
-                        case 'score':
-                            answers[key] = estimateScore(question.rubric, values);
-                            break;
-                        case 'noul':
-                            answers[key] = estimateNoul(values);
-                            break;
-                    }
-                }
-                return answers;
-            } finally {
+                    return parseFmRespond(stdout);
+                },
+                close(): void {
+                    fs.deleteFile(schemaPath);
+                },
+            };
+            try {
+                fs.writeFile(schemaPath, JSON.stringify(buildEnumSchema(questions)));
+            } catch (error) {
+                // Mirrors the pre-refactor `finally`: a failed write still deletes.
                 fs.deleteFile(schemaPath);
+                throw error;
             }
+            return session;
+        },
+    });
+
+    return {
+        name: 'fm-local',
+        estimator: inner.estimator,
+
+        // R9: only the on-device system model exists (design: fm CLI facts). The
+        // guard runs before the core so the model error keeps today's precedence.
+        async ask({
+            state,
+            questions,
+            model,
+        }: {
+            state: DecisionState;
+            questions: Record<string, Question>;
+            model?: string;
+        }): Promise<Record<string, Answer>> {
+            if (model !== undefined && model !== 'system') {
+                throw new DecisionRequestError(
+                    `fm-local supports only the 'system' model (or undefined); got '${model}'`,
+                    undefined,
+                    undefined,
+                );
+            }
+            return inner.ask({ state, questions, model });
         },
     };
 }

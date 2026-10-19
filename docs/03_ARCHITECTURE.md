@@ -80,10 +80,12 @@ decision catalogs served by an in-process `DecisionHub` (`load`/`list`/`describe
 makers picked by name from a `DecisionMakerRegistry` (built-ins plus consumer registrations). Surface
 shapes: `docs/design/ai-decision-catalog.md`.
 
-Dependencies run one way: `ts-ai-decision` → `ts-ai-runner` (decision surface, `createDecisionMaker`,
-`typesafe`), → `ts-decision-fm` and `ts-laya-mlx` (bundled local drivers, injected as
-`createDecisionMaker({ driver })`), and → `ts-runtime` (`parseStructuredConfig`, `FileSystem`). It
-holds no driver code of its own and imports no platform API. Catalogs are YAML only, follow the Jev
+Dependencies run one way: `ts-ai-decision` → `ts-ai-runner` (neutral decision surface,
+`createDecisionMaker`, `resolveApiKey`), → `ts-decision-fm` and `ts-laya-mlx` (bundled local
+drivers, injected as `createDecisionMaker({ driver })`), and → `ts-runtime`
+(`parseStructuredConfig`, `FileSystem`). Since ADR-039 it also holds driver code of its own — the
+TypeSafe driver (`@typesafe-ai/sdk`, the only package allowed to import it) and the agent-backed
+`llm-agent` driver — and still imports no platform API outside the sanctioned seams. Catalogs are YAML only, follow the Jev
 question shape (`type` / `instructions` / `criteria`), and template with `${params.<name>}`.
 
 Invariants:
@@ -103,7 +105,7 @@ Invariants:
   `defaultMaker` (`typesafe`). Registry factories run lazily and are memoised on success, so
   `list`/`describe` never touch a backend.
 
-## Decision backends (accepted design — ADR-038/ADR-039; not yet built)
+## Decision backends (built 2026-10-19 — ADR-038/ADR-039)
 
 Feature O1 reshapes the decision packages so `ts-ai-runner` holds only the provider-neutral contract
 and every concrete backend sits outside it. Shapes: `docs/design/llm-agent-decision-backend.md`.
@@ -115,10 +117,10 @@ and every concrete backend sits outside it. Shapes: `docs/design/llm-agent-decis
   agent-backed `llm-agent` driver beside the catalog hub; `ts-laya-mlx` and `ts-decision-clef` are
   unchanged.
 
-Invariants (to become spur rules in feature O1):
+Invariants (enforced by `.spur/rules/typescript/decision-boundaries.yaml`):
 
-- No file under `packages/ai-runner/src` imports `@typesafe-ai/sdk`; only
-  `packages/ai-decision/src/typesafe-driver.ts` may.
+- No file outside `packages/ai-decision/src` imports `@typesafe-ai/sdk`; only
+  `packages/ai-decision/src/typesafe-driver.ts` may (`no-typesafe-sdk-import-outside-ai-decision`).
 - `packages/ai-runner/src/decision/sampled-driver.ts` imports nothing outside `./types` and `./errors`.
 - No driver package (`decision-fm`, `decision-clef`, `laya-mlx`) imports `@gobing-ai/ts-ai-decision`.
 - The agent driver never runs an agent in the caller's working directory: every sample's `cwd` is a

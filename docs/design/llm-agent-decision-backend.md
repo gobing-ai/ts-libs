@@ -1,16 +1,15 @@
 ---
 name: LLM agent decision backend and sampled-driver core
-status: accepted design
-updated_at: 2026-10-18
+status: implemented
+updated_at: 2026-10-19
 adr: ADR-038, ADR-039
 feature: O1
 ---
 
 # LLM agent decision backend and sampled-driver core
 
-Accepted design for feature O1 (ADR-038, ADR-039); not yet built. Packages: `packages/ai-runner`
-(core), `packages/decision-fm` (refactor), `packages/ai-decision` (agent driver, TypeSafe driver,
-registry).
+Built for feature O1 (ADR-038, ADR-039; tasks 0114-0116). Packages: `packages/ai-runner` (core),
+`packages/decision-fm` (refactor), `packages/ai-decision` (agent driver, TypeSafe driver, registry).
 
 ## Package graph after feature O1
 
@@ -108,6 +107,8 @@ answers and identical error classes/messages.
 
 ## Agent driver (`ts-ai-decision/src/agent-driver.ts`)
 
+Status: **shipped** in task 0115 (the `llm-agent` registry built-in landed with it).
+
 ```typescript
 export interface AgentDriverOptions {
     /** Agent to sample. Default: first available agent in TIER1_PRIORITY (fm is never auto-picked, ADR-031). */
@@ -160,6 +161,9 @@ more instances under their own names, e.g. `registry.register('llm-haiku', () =>
 
 ## TypeSafe relocation
 
+Built in task 0116 (2026-10-19): the table is the shipped state, and the two type adaptations the
+0.7.0 upgrade forced are recorded under § SDK 0.7.0 upgrade.
+
 | Item | Before | After |
 |------|--------|-------|
 | `createTypesafeDriver` | `ts-ai-runner/src/decision/typesafe-driver.ts` (not exported) | `ts-ai-decision/src/typesafe-driver.ts`, exported |
@@ -183,6 +187,9 @@ tarball). Task 0116 R4 owns the changes.
 | Request compression defaults to zstd when `node:zlib.zstdCompress` exists (Bun 1.4.3: yes) | test fake fetch must decode `content-encoding: zstd` bodies | decode in the test helper; keep zstd in production |
 | `Question` union adds `box` | `fromSdkAnswer` default branch already throws | none |
 | `usage.input_tokens` nullable | not surfaced | none |
+| `noul()` overloads reject an undescribed noul at the type level **and** client-side | a bare neutral noul (no prompt, no outcome descriptions) is now a `DecisionRequestError` instead of an API 422 | build the `NoulQuestion` object directly (no cast) and keep the described cases' wire shape |
+| `ScoreLegend<T>` threads a recursive `SentContent` conditional | `ResultFor<Question>` no longer instantiates (TS2589) | read the legend through the non-generic `ScoreResponse` and hand it over via one documented helper; `validateAnswers` still checks the shape |
+| Default request compression is zstd, and every attempt is buffered through `response.clone()` | a string/`Response.json()` fixture body is disturbed on Bun 1.4.3 ("Body already used") and a ≥1 KiB request body is compressed | test fixtures are stream-backed and the recorded body is zstd-decoded |
 | `engines.node >= 22` (was `>= 20`) | Node 20 consumers of `ts-ai-decision` | CHANGELOG note |
 
 ## Not changed

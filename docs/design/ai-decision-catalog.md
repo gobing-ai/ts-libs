@@ -15,8 +15,8 @@ Feature: [N](../features/N_declarative-ai-decision-catalog-and-hub-in-ts-ai-deci
 | Item | Value |
 |------|-------|
 | Name / source | `@gobing-ai/ts-ai-decision` / `packages/ai-decision` |
-| Dependencies (`workspace:*`) | `ts-ai-runner` (neutral surface + `typesafe` / Jev), `ts-decision-fm` (`fm-local`), `ts-laya-mlx` (`laya-local`), `ts-runtime` |
-| Other dependencies | `zod` |
+| Dependencies (`workspace:*`) | `ts-ai-runner` (neutral surface, `createDecisionMaker`, `resolveApiKey`), `ts-decision-fm` (`fm-local`), `ts-laya-mlx` (`laya-local`), `ts-runtime` |
+| Other dependencies | `zod`, `@typesafe-ai/sdk` 0.7.0 (the `typesafe` driver; ADR-039 keeps it inside this package) |
 | Shipped files | `dist`, `src`, `schemas/decision-catalog.schema.json`, `README.md` |
 | Exports | `.`, `./schemas/*` and `./package.json`. ts-runtime resolves a `$schema` package specifier through `<pkg>/package.json`, which Bun allows without an export but Node's `require.resolve` rejects (`ERR_PACKAGE_PATH_NOT_EXPORTED`). `./schemas/*` lets editors and other standard resolvers reach the schema directly. rule-engine got the same two exports. |
 
@@ -40,7 +40,7 @@ YAML dependency and no platform-API import.
 $schema: "@gobing-ai/ts-ai-decision/schemas/decision-catalog.schema.json"
 version: 1
 defaults:                       # optional; every key optional
-  maker: typesafe               # a registered maker name (built-ins: typesafe | fm-local | laya-local)
+  maker: typesafe               # a registered maker name (built-ins: typesafe | fm-local | laya-local | llm-agent)
   model: jev-latest             # forwarded as the ask-level model; omit for the backend default
   minConfidence: 0.7            # 0..1; package default 0.7 when absent everywhere
 

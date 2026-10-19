@@ -28,6 +28,7 @@ import {
     UnknownDecisionError,
     UnknownDecisionMakerError,
 } from '../src';
+import { requestBodyText, streamedJson } from './helpers/sdk-fetch';
 
 const EXAMPLES_PATH = joinPath(import.meta.dir, '..', 'examples', 'decisions.yaml');
 const OUTPUT_DIR = joinPath(import.meta.dir, 'output');
@@ -670,16 +671,13 @@ describe('DecisionHub.decide fallbacks (AC5/AC6) — never rejects for backend o
         // whole composition — hub state → driver → wire body — not just the driver.
         const bodies: Record<string, unknown>[] = [];
         const recordingFetch = (async (_input: unknown, init?: RequestInit) => {
-            bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-            return new Response(
-                JSON.stringify({
-                    model: 'stub',
-                    answers: {
-                        plain: { type: 'choice', choice: 'a', confidence: 0.9, probabilities: { a: 0.9, b: 0.1 } },
-                    },
-                }),
-                { status: 200, headers: { 'content-type': 'application/json' } },
-            );
+            bodies.push(JSON.parse(requestBodyText(init)) as Record<string, unknown>);
+            return streamedJson({
+                model: 'stub',
+                answers: {
+                    plain: { type: 'choice', choice: 'a', confidence: 0.9, probabilities: { a: 0.9, b: 0.1 } },
+                },
+            });
         }) as unknown as typeof fetch;
         const registry = new DecisionMakerRegistry({ builtins: false });
         registry.register('typesafe', () =>

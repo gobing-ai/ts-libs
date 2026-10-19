@@ -8,6 +8,23 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+### Changed
+
+- feat(ai-decision): sampled-driver core in ai-runner, `llm-agent` maker, TypeSafe relocation (feature O1)
+  — the engine-agnostic sampling half of the `fm` driver (prompt rendering, enum schema, answer parsing,
+  frequency estimation) now lives in `@gobing-ai/ts-ai-runner` as `createSampledDriver`;
+  `@gobing-ai/ts-decision-fm` is a thin sampler over it with byte-identical answers and exports (pinned by a
+  recorded parity fixture), and the new `llm-agent` maker treats any installed coding agent as a decision model
+  (k samples per ask in a per-ask scratch directory). **Migration note (Spur):**
+  `createDecisionMaker()`'s default `typesafe` backend now requires `@gobing-ai/ts-ai-decision` to be
+  installed — its driver and `@typesafe-ai/sdk` 0.7.0 moved there. Prefer
+  `driver: createTypesafeDriver(...)` imported from `@gobing-ai/ts-ai-decision`; the backend name keeps working
+  for one release through a deprecated dynamic-import bridge (a missing package reports
+  `DecisionConfigError` `TYPESAFE_BACKEND` with an install hint) and is removed in the next minor. The SDK's
+  Node floor is now 22.
+  <!-- src: packages/ai-runner/src/decision/sampled-driver.ts:360 (`createSampledDriver`); packages/ai-decision/src/agent-driver.ts:100 (`createAgentDriver`); packages/ai-decision/src/typesafe-driver.ts:49 (`createTypesafeDriver`); packages/ai-runner/src/decision/decision-maker.ts:141 (`resolveTypesafeDriver`); packages/ai-runner/package.json (SDK dropped), packages/ai-decision/package.json (`@typesafe-ai/sdk` 0.7.0); docs/00_ADR.md ADR-038/ADR-039 (Accepted, built 2026-10-19) -->
+  <!-- verification: feature O1 batch `dev-runall --feature O1` (tasks 0114-0116) — `bun run spur-check` 3072 pass / 0 fail with all rules and rule fixtures green, `bun run build` 12/12 packages; parity and e2e transcript artifacts committed. Confidence: HIGH -->
+
 ## [0.5.30] - 2026-10-18
 
 ### Fixed

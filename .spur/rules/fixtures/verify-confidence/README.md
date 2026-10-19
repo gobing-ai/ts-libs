@@ -32,6 +32,22 @@ unrecognized fixture shape.
 | `should-pass/0204` | the durable `.spur/memory/evidence/` plane is scanned too |
 | `should-pass/0205` | a **valid** compound (`static-ref+test`) is accepted — the check rejects bad tokens, not compounds |
 | `should-pass/0206` | `HIGH` earned by `test`/`command` rows, with an explicit `n/a` row correctly excluded |
+| `should-fire/0109` | a contract-bound **feature-verification receipt** with no `confidence` key is rejected |
+| `should-fire/0110` | a misspelled feature level (`"high"`) is rejected, not coerced |
+| `should-fire/0111` | `HIGH` on a feature receipt whose pass ran a **narrowed** command is rejected |
+| `should-fire/0112` | a `FAIL` feature receipt carrying `MEDIUM` is rejected (a non-pass certifies nothing) |
+| `should-fire/0113` | `HIGH` with no `confidenceBasis` is rejected — the level must say what it proved |
+| `should-fire/0114` | a feature pass **started on or after 2026-10-19** with no confidence level is rejected (the cutover is the migration boundary) |
+| `should-pass/0207` | a feature receipt at `HIGH` from the full gate is accepted |
+| `should-pass/0208` | `MEDIUM` is the honest level for a narrowed command, and is accepted |
+| `should-pass/0209` | a pre-cutover receipt (no `confidenceContract`, started 2026-09-24) is historical — out of scope, not suppressed |
+
+Feature-receipt cases (`0109`-`0114`, `0207`-`0209`) pin the second subject plane, and `0114`/`0209`
+are its scope pair: post-cutover passes must record a level, earlier ones are history. The level there is
+written by the project driver (`.spur/scripts/feature-verify.mjs`) from what the pass actually ran —
+`HIGH` only for the full gate, `MEDIUM` for a narrowed `--cmd`, `LOW` for a non-pass — so the rule
+checks a derived claim rather than a self-assignment. `0209` is the scope fixture, `0111`/`0112` are
+the two ways a level can overstate a receipt.
 
 `0203` is the load-bearing one for scope, and `0105`/`0205` are the pair that
 pin the vocabulary check's own scope: `0105` proves it reaches artifacts without
@@ -77,7 +93,15 @@ to stream it.
 
 - **The subject plane is untracked.** `.spur/run/` and `.spur/memory/evidence/`
   are gitignored, so in a clean checkout or CI there is nothing to verify and the
-  rule passes. It bites on the developer's machine, immediately after a pipeline
+  rule passes.
+- **Feature receipts are contract- and date-scoped.** A receipt with
+  `confidenceContract: 1` is level-checked; one without it must predate
+  `2026-10-19`, the cutover the project pass started stamping. A receipt written
+  by a tool that bypasses the project adapter after that date is reported with the
+  remedy (`bun .spur/scripts/feature-verify.mjs verify --feature-id <id>`).
+- **An in-flight pass is exempt.** The receipt is written `RUNNING` before the
+  gate runs, so the gate would otherwise fail its own pass; `RUNNING` receipts are
+  skipped and the completed one is checked. It bites on the developer's machine, immediately after a pipeline
   run — which is where a miscategorised level is actionable.
 - **The level and substance checks apply to proof-bound verdicts only**, so today
   they have one subject in this repo. The vocabulary check is the one with broad

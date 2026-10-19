@@ -10,6 +10,15 @@ frequencies — the model is never asked for a confidence
 
 Part of the `@gobing-ai/ts-libs` monorepo and lockstep-versioned with it.
 
+**Built on the shared sampled-driver core.** Since task 0114 the engine-agnostic
+half — prompt rendering, enum schema, answer parsing and the frequency
+estimators — lives in `@gobing-ai/ts-ai-runner`
+(`src/decision/sampled-driver.ts`). This package keeps only the `fm` process
+bridge: the availability probe, the prompt-token budget and the per-ask schema
+temp file. **Every export is unchanged** — `FM_INSTRUCTIONS`,
+`buildFmSchema`, `FmSchema`, `formatDesc`, `declaredOptions`, `buildPrompt`, the
+four estimators and `requireEnumValue` are re-exported or aliased from the core.
+
 - **License:** Apache-2.0 (see [LICENSE](./LICENSE)).
 - **No model weights or third-party code are bundled.** The engine is the `fm`
   system binary on the host.

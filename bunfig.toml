@@ -9,5 +9,5 @@ coverageThreshold = { lines = 0.9, functions = 0.9 }
 coverageSkipTestFiles = true
 # build tests import a fixture emitted by mkdtemp(join(tmpdir(), 'ts-libs-build-*')), which would
 # otherwise be instrumented and reported as covered code outside the repo.
-coveragePathIgnorePatterns = ["**/ts-libs-build-*/**"]
+coveragePathIgnorePatterns = ["**/ts-libs-build-*/**", "**/dist/**", "**/tests/helpers/**"]
 pathIgnorePatterns = ["dist/**", "**/dist/**", "node_modules/**", "vendors/**"]

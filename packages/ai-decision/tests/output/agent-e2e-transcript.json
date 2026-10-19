@@ -1,0 +1,105 @@
+{
+  "suite": "agent-e2e",
+  "results": [
+    {
+      "case": "bare JSON accepted",
+      "id": "triage_route",
+      "confidence": 1,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "llm-agent",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "billing"
+    },
+    {
+      "case": "prose and fence accepted",
+      "id": "triage_route",
+      "confidence": 1,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "llm-agent",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "technical"
+    },
+    {
+      "case": "garbage stdout",
+      "id": "triage_route",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "llm-agent",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "off-enum value",
+      "id": "triage_route",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "llm-agent",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "non-zero exit",
+      "id": "triage_route",
+      "confidence": null,
+      "source": "default",
+      "reason": "error",
+      "maker": "llm-agent",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "timeout",
+      "id": "triage_route",
+      "confidence": null,
+      "source": "default",
+      "reason": "timeout",
+      "maker": "llm-agent",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "no agent installed",
+      "id": "triage_route",
+      "confidence": null,
+      "source": "default",
+      "reason": "no-backend",
+      "maker": "llm-agent",
+      "durationMs": 0,
+      "type": "choice",
+      "value": "account"
+    },
+    {
+      "case": "score accepted",
+      "id": "triage_severity",
+      "confidence": 1,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "llm-agent",
+      "durationMs": 0,
+      "type": "score",
+      "value": 2
+    },
+    {
+      "case": "noul accepted",
+      "id": "triage_refund",
+      "confidence": 1,
+      "source": "model",
+      "reason": "accepted",
+      "maker": "llm-agent",
+      "durationMs": 0,
+      "type": "noul",
+      "value": true,
+      "probability": 1
+    }
+  ]
+}

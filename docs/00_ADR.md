@@ -786,7 +786,7 @@ SDK boundary. No direct-fetch exception is needed.
 
 ## ADR-038: A Sampled-Driver Core Lives in `ts-ai-runner`; the Agent-Backed LLM Decision Driver Lives in `ts-ai-decision`
 
-**Status:** Accepted (design) · **Date:** 2026-10-18 · **Targets:** `ts-ai-runner`, `ts-decision-fm`, `ts-ai-decision` (feature O1)
+**Status:** Accepted · **Date:** 2026-10-18 · **Built:** 2026-10-19 (tasks 0114-0116) · **Targets:** `ts-ai-runner`, `ts-decision-fm`, `ts-ai-decision` (feature O1)
 
 **Decision.** The engine-agnostic half of the `fm-local` driver — prompt rendering, declared options,
 JSON answer parsing, k-sample frequency estimation and entropy confidence (ADR-030) — moves into a
@@ -799,14 +799,14 @@ maker `llm-agent`.
 **Why.** `ts-ai-decision` already depends on `ts-decision-fm`, so a shared core can only sit below
 both, beside the validators ADR-037 already exports to external drivers.
 
-**Detail:** `docs/03_ARCHITECTURE.md` § Decision backends (accepted design — ADR-038/ADR-039);
+**Detail:** `docs/03_ARCHITECTURE.md` § Decision backends (built — ADR-038/ADR-039);
 `docs/design/llm-agent-decision-backend.md`; feature O1.
 
 ---
 
 ## ADR-039: `ts-ai-runner` Owns Only the Neutral Decision Contract; the TypeSafe Driver Moves to `ts-ai-decision`
 
-**Status:** Accepted (design) · **Date:** 2026-10-18 · **Targets:** `ts-ai-runner`, `ts-ai-decision` (feature O1)
+**Status:** Accepted · **Date:** 2026-10-18 · **Built:** 2026-10-19 (task 0116) · **Targets:** `ts-ai-runner`, `ts-ai-decision` (feature O1)
 
 **Decision.** `createTypesafeDriver` and the pinned `@typesafe-ai/sdk` dependency move from
 `ts-ai-runner` to `ts-ai-decision`. `ts-ai-runner` keeps the neutral types, errors, validators,
@@ -822,7 +822,7 @@ install `ts-ai-decision` or inject a driver before the bridge is removed. A dire
 `laya-mlx` was rejected: it would break the `dir == name − "ts-"` mapping every other package keeps,
 and a real publish rename (ADR-029 kept `ts-laya-mlx`) costs a new npm bootstrap for no functional gain.
 
-**Detail:** `docs/03_ARCHITECTURE.md` § Decision backends (accepted design — ADR-038/ADR-039);
+**Detail:** `docs/03_ARCHITECTURE.md` § Decision backends (built — ADR-038/ADR-039);
 `docs/design/llm-agent-decision-backend.md` § TypeSafe relocation; feature O1.
 
 ---

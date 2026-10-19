@@ -12,6 +12,7 @@ import {
     DecisionConfigError,
     DecisionRequestError,
     DecisionTimeoutError,
+    requireEnumValue as requireCoreEnumValue,
 } from '@gobing-ai/ts-ai-runner';
 import type { ProcessExecutor, ProcessResult } from '@gobing-ai/ts-runtime';
 
@@ -199,13 +200,11 @@ export function parseFmRespond(stdout: string): Record<string, string> {
 }
 
 /** A parsed value outside the declared enum is a schema violation, never an answer (R7). */
-export function requireEnumValue(parsed: Record<string, string>, key: string, allowed: readonly string[]): string {
-    const value = parsed[key];
-    if (value === undefined || !allowed.includes(value)) {
-        throw new DecisionBackendError(
-            `fm sample for '${key}' violates the schema enum: ${value === undefined ? '(missing)' : `'${value}'`}`,
-            undefined,
-        );
-    }
-    return value;
+export function requireEnumValue(
+    parsed: Record<string, string>,
+    key: string,
+    allowed: readonly string[],
+    label = 'fm',
+): string {
+    return requireCoreEnumValue(parsed, key, allowed, label);
 }

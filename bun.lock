@@ -19,9 +19,11 @@
         "@gobing-ai/ts-decision-fm": "workspace:*",
         "@gobing-ai/ts-laya-mlx": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
+        "@typesafe-ai/sdk": "0.7.0",
         "zod": "^4.1.0",
       },
       "devDependencies": {
+        "@gobing-ai/ts-utils": "workspace:*",
         "@types/bun": "1.4.3",
       },
     },
@@ -31,7 +33,6 @@
       "dependencies": {
         "@gobing-ai/ts-infra": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
-        "@typesafe-ai/sdk": "0.6.0",
       },
       "devDependencies": {
         "@gobing-ai/ts-db": "workspace:*",
@@ -448,7 +449,7 @@
 
     "@types/node": ["@types/node@25.9.1", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg=="],
 
-    "@typesafe-ai/sdk": ["@typesafe-ai/sdk@0.6.0", "", {}, "sha512-IddX+Q0XM+VagOUZFeP7wZjaO4SHMdvnh2zEBdrZZnXedWI3BNK1lKhMx3ayrkFWvVLbVcUHJy6AVZlY+e6Jaw=="],
+    "@typesafe-ai/sdk": ["@typesafe-ai/sdk@0.7.0", "", {}, "sha512-Yg3OZArCQMJx98ut8QVkhx3rFo9ON7pz8Hjzv8c3FGz69Sk8jYftLOlz+Wf6kq6jol/1m08aBnjRAzJr2x3GoQ=="],
 
     "buffer-from": ["buffer-from@1.1.2", "", {}, "sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ=="],
 

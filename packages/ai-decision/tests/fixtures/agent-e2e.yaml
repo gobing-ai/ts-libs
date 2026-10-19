@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=../../schemas/decision-catalog.schema.json
+$schema: "@gobing-ai/ts-ai-decision/schemas/decision-catalog.schema.json"
+version: 1
+defaults:
+  maker: llm-agent
+  minConfidence: 0.7
+
+decisions:
+  triage_route:
+    type: choice
+    instructions: "Route this ticket: ${params.instructions}"
+    criteria:
+      billing: Charges, invoices, refunds
+      technical: Bugs, outages, performance
+      account: Login, permissions, profile
+    fallback: account
+
+  triage_severity:
+    type: score
+    instructions: "Rate the severity of: ${params.instructions}"
+    criteria:
+      - Cosmetic
+      - Degraded
+      - Blocking
+    fallback: 1
+
+  triage_refund:
+    type: noul
+    instructions: "Does this message ask for money back? ${params.instructions}"
+    criteria:
+      true: The customer explicitly asks for a refund
+      false: Anything else
+    fallback: false
