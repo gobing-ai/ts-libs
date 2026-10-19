@@ -278,8 +278,9 @@ export class DecisionHub {
 
     /**
      * Register every decision of an already-loaded catalog. All-or-nothing: a
-     * duplicate decision id or an unregistered maker name (decision or
-     * `defaults.maker`) throws {@link DecisionCatalogError} and registers
+     * duplicate decision id or an unregistered maker name (any chain name of a
+     * decision or `defaults.maker`, or a decision `shadow`) throws
+     * {@link DecisionCatalogError} and registers
      * nothing from the offending catalog.
      */
     load(catalog: DecisionCatalog): void {
@@ -373,8 +374,9 @@ export class DecisionHub {
     /**
      * Serve one decision with a fallback-guaranteed answer. Resolves the input,
      * renders exactly one Jev question keyed by the decision id, selects the
-     * maker by name (per call → decision → catalog defaults → hub default) and
-     * issues a single `maker.ask`. Backend construction, transport, timeout,
+     * maker chain (per call → decision → catalog defaults → hub default) and
+     * asks its makers in order until one answers, with an optional shadow asked
+     * beside it (ADR-040). Backend construction, transport, timeout,
      * invalid answers and low confidence all resolve to the declared fallback;
      * only caller mistakes throw, before any backend call.
      */
@@ -417,10 +419,11 @@ export class DecisionHub {
         // Shadow rule (ADR-040): start the shadow on the SAME request object, without awaiting it, so
         // both paths run concurrently and latency is the slower of the two. It never rejects `decide`
         // and never touches a served field — a rejected or failed ask maps to its own outcome.
+        const shadowStart = this.now();
         const shadowTask: Promise<AskOutcome> | undefined =
             shadowName === undefined
                 ? undefined
-                : this.askOne(shadowName, definition, defaults, request, this.now()).then(
+                : this.askOne(shadowName, definition, defaults, request, shadowStart).then(
                       (settled): AskOutcome => settled,
                       (error: unknown): AskOutcome => ({
                           result: this.fallbackResult(
@@ -428,7 +431,7 @@ export class DecisionHub {
                               shadowName,
                               'error',
                               null,
-                              this.now(),
+                              shadowStart,
                               undefined,
                               toErrorInfo(error),
                           ),
