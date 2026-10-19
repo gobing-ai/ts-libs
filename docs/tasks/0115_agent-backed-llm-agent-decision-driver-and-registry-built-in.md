@@ -4,7 +4,7 @@ name: Agent-backed llm-agent decision driver and registry built-in in ts-ai-deci
 status: done
 template: feature-impl
 created_at: 2026-10-19T06:34:09.538Z
-updated_at: "2026-10-19T18:25:12.763Z"
+updated_at: "2026-10-19T20:55:41.758Z"
 feature_id: O1
 priority: P2
 tags:
@@ -58,6 +58,9 @@ Answers the operator's Q3: treat normal LLM models (any `ts-ai-runner` agent/mod
   - Add a maker-table row for `llm-agent`: backend "any ts-ai-runner coding agent"; needs "an installed agent CLI"; probabilities "k-sample frequencies".
   - Add a "Configuring `llm-agent`" subsection covering options, cost (k agent invocations per ask), scratch-dir isolation, and registering extra instances, e.g. `llm-haiku`.
   - Shrink the "Planned" section to the TypeSafe move only.
+
+
+**Confidence granularity (added 2026-10-19 from downstream evidence).** With default k=3 over a two-option choice, `entropyConfidence` yields 1.0 (unanimous) or 0.08 (2-of-3); no non-unanimous result clears the hub floor (0.7; Spur catalogs 0.8). `llm-agent` therefore accepts only unanimous samples. That is intended (ADR-030: no invented confidence) but must be documented in the README maker table ("accepted = all samples agreed") and is NOT a reason to raise default k. Evidence: Spur `review-failure-class` on fm-local answered `fix` at 1.0 in 15/15 runs; see `docs/design/llm-agent-decision-backend.md` § Agent driver, "Confidence granularity".
 
 ### Acceptance Criteria
 
