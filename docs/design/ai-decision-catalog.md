@@ -325,6 +325,75 @@ const r2 = await hub.decide('category', { instructions: ticketText }, { maker: '
 Fallback results carry `source: 'default'`, the declared fallback `value`, and whatever
 `confidence` was observed (null when none), and always the selected `maker` name. `decide` never rejects for steps 4–7.
 
+## Maker chains, shadow and diagnostics (ADR-040)
+
+Accepted design for feature O2; not yet built. All three keep the fallback contract: `decide` never
+rejects for backend outcomes.
+
+### Surface changes
+
+```ts
+type MakerRef = string | readonly string[];          // non-empty list; each name ^[a-z][a-z0-9-]*$
+
+// Catalog: decision.maker and defaults.maker accept MakerRef; decision.shadow?: string.
+interface DecideOptions {
+    maker?: MakerRef;                                 // per-call chain; wins over catalog and hub
+    shadow?: string;                                  // per-call shadow; wins over decision.shadow
+}
+
+interface DecisionErrorInfo { name: string; message: string }      // message capped at 500 chars
+
+interface DecisionAttempt {
+    maker: string;
+    reason: 'accepted' | 'low-confidence' | 'no-backend' | 'timeout' | 'error';
+    durationMs: number;
+    error?: DecisionErrorInfo;
+}
+
+interface ResultBase {                                // existing fields unchanged
+    error?: DecisionErrorInfo;                            // only for no-backend | timeout | error
+    attempts?: readonly DecisionAttempt[];            // only when more than one maker was tried
+    shadow?: ShadowOutcome;                           // only when a shadow was named
+}
+
+interface ShadowOutcome {
+    maker: string;
+    value?: string | number | boolean;                // absent when the shadow produced no valid answer
+    confidence: number | null;
+    reason: DecisionAttempt['reason'];
+    durationMs: number;
+    error?: DecisionErrorInfo;
+}
+
+interface DecisionDescriptor {                        // existing fields unchanged
+    maker: string;                                    // first name of the effective chain
+    makers: readonly string[];                        // full effective chain
+    shadow?: string;
+}
+```
+
+Frozen names: `MakerRef`, `DecisionErrorInfo`, `DecisionAttempt`, `ShadowOutcome`, result fields `error`,
+`attempts`, `shadow`, descriptor fields `makers`, `shadow`, catalog key `shadow`, option `shadow`.
+(`DecisionErrorInfo`, not `DecisionError`, which is the `ts-ai-runner` error base class.)
+
+### Algorithm (replaces `decide` steps 4–7)
+
+1. Resolve the effective chain (per call → decision → `defaults` → hub `defaultMaker`) to a list. An
+   empty list, an invalid name or (per call) an unregistered name throws before any backend call;
+   catalog lists are checked at `load` with the existing `DecisionCatalogError`.
+2. For each maker in order: run today's single-maker body (resolve → ask → validate → confidence gate).
+   - valid answer (accepted or `low-confidence`) → stop; return it.
+   - `no-backend` / `timeout` / `error` → record the attempt with its `error`; continue.
+3. All makers failed → declared fallback with the **last** attempt's reason, `maker` and `error`.
+4. `attempts` is set iff the chain tried more than one maker; `durationMs` covers the whole call.
+5. Shadow: when an effective shadow exists, start it with `Promise.allSettled` beside step 2 on the same
+   request object; never let it throw out of `decide`. An unregistered per-call shadow throws in
+   step 1 like a per-call maker; a shadow that equals the maker that answered is still run (no dedupe).
+
+Anti-patterns: advancing on `low-confidence` (cascade — out of scope until confidence is
+calibrated); retries of the same maker inside the chain; a shadow callback, queue or background
+promise that outlives `decide`; putting `error.stack` or request text into `DecisionErrorInfo`.
+
 ## Non-goals
 
 These are out of scope (see feature N `### Out of scope`):

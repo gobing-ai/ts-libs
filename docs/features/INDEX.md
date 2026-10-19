@@ -26,5 +26,6 @@
 [active] **N**: Declarative AI decision catalog and hub in ts-ai-decision ([N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md](./N_declarative-ai-decision-catalog-and-hub-in-ts-ai-decision.md))
     └── [done] **N1**: Decision hub answer validation ([N1_decision-hub-answer-validation.md](./N1_decision-hub-answer-validation.md))
 [backlog] **O**: Decision models and decision makers ([O_decision-models-and-decision-makers.md](./O_decision-models-and-decision-makers.md))
-    └── [backlog] **O1**: LLM agents as decision makers and decision-backend boundary cleanup ([O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md](./O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md))
+    ├── [backlog] **O1**: LLM agents as decision makers and decision-backend boundary cleanup ([O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md](./O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md))
+    └── [backlog] **O2**: Decision maker fallback chains, shadow makers and fallback diagnostics ([O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md](./O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md))
 <!-- END AUTO-GENERATED -->

@@ -672,6 +672,10 @@ feature N.
 `llm-agent`, and `ts-ai-decision` now holds driver code: the TypeSafe driver and the agent-backed
 driver. Why: the hub is already the one package that bundles every backend. Detail: ADR-038, ADR-039.
 
+**Amendment (2026-10-19, ADR-040).** `maker` may name an ordered fallback chain, a decision or call may
+name a `shadow` maker, and fallback results carry the caught `error`. `decide` still never rejects for
+backend outcomes. Detail: ADR-040.
+
 ---
 
 ## ADR-034: Static Dependency DAG Workflow Mode
@@ -820,3 +824,41 @@ and a real publish rename (ADR-029 kept `ts-laya-mlx`) costs a new npm bootstrap
 
 **Detail:** `docs/03_ARCHITECTURE.md` § Decision backends (accepted design — ADR-038/ADR-039);
 `docs/design/llm-agent-decision-backend.md` § TypeSafe relocation; feature O1.
+
+---
+
+## ADR-040: The Hub Owns Maker Fallback Chains, Shadow Makers and Fallback Diagnostics
+
+**Status:** Accepted (design) · **Date:** 2026-10-19 · **Targets:** `ts-ai-decision` (feature O2) · **Amends:** ADR-033
+
+**Decision.** `DecisionHub` gains three routing capabilities while keeping ADR-033's contract that
+`decide` never rejects for backend outcomes and the declared `fallback` is the last resort:
+
+1. **Fallback diagnostics.** A fallback result with reason `no-backend`, `timeout` or `error` carries
+   `error: { name, message }` from the caught error (message capped at 500 characters).
+   `low-confidence` and `accepted` results never carry `error`.
+2. **Maker fallback chain.** `maker` (decision, `defaults`, per-call `DecideOptions.maker`) accepts a
+   name or a non-empty ordered list of names. The hub tries each maker in order and advances only on
+   `no-backend`, `timeout` or `error`; the first maker that returns a valid answer ends the chain,
+   whether that answer is accepted or `low-confidence`. When more than one maker was tried the result
+   carries `attempts[]` (`{ maker, reason, durationMs, error? }`, in order) and `maker` names the maker
+   whose outcome is returned. Every listed name is checked at `load` (catalog) or before any backend
+   call (per call), exactly as single names are today.
+3. **Shadow maker.** A decision or a call may name one `shadow` maker. The hub asks it concurrently with
+   the primary chain on the same rendered request; its outcome is reported as `result.shadow`
+   (`{ maker, value?, confidence, reason, durationMs, error? }`) and never changes `value`, `source`,
+   `reason` or `maker`. A shadow failure is recorded, never thrown.
+
+**Why.** Downstream consumers (Spur, knowledge-kit) already route by name but cannot express
+"local first, hosted when the local backend is down", cannot evaluate a candidate maker on live
+traffic without switching to it, and log fallbacks with no cause — the hub discards the caught error.
+All three are cross-maker concerns, which ADR-033 places in the hub rather than in each consumer.
+
+**Consequences.** `DecisionDescriptor.maker` stays the first effective name and a new
+`makers: readonly string[]` lists the full chain, so existing descriptor readers do not break. A
+shadow doubles backend cost for the decisions that name one and adds latency up to the slower of the
+two. Rejected for now: advancing the chain on `low-confidence` (a cascade — needs calibrated
+confidence first, which sampled makers do not provide), sampling-rate or adaptive routing, and
+shadow callbacks or background work that would outlive `decide`.
+
+**Detail:** `docs/design/ai-decision-catalog.md` § Maker chains, shadow and diagnostics (ADR-040); feature O2.
