@@ -5,30 +5,39 @@
  * everything above this file stays vendor-neutral.
  */
 
-import type { Question as SdkQuestion, ResultFor as SdkResultFor, SystemOneResult } from '@typesafe-ai/sdk';
+import {
+    type Answer,
+    DecisionAuthError,
+    DecisionBackendError,
+    DecisionConnectionError,
+    type DecisionDriver,
+    DecisionRateLimitError,
+    DecisionRequestError,
+    DecisionTimeoutError,
+    type Desc,
+    type Question,
+    validateAnswers,
+    validateQuestions,
+} from '@gobing-ai/ts-ai-runner';
+import type {
+    NoulQuestion,
+    ScoreResponse,
+    Question as SdkQuestion,
+    ResultFor as SdkResultFor,
+    SystemOneResult,
+} from '@typesafe-ai/sdk';
 import {
     APIConnectionError,
     APIError,
     APITimeoutError,
     AuthenticationError,
     choice,
-    noul,
     PermissionDeniedError,
     RateLimitError,
     score,
     TypeSafeClient,
     TypeSafeError,
 } from '@typesafe-ai/sdk';
-import {
-    DecisionAuthError,
-    DecisionBackendError,
-    DecisionConnectionError,
-    DecisionRateLimitError,
-    DecisionRequestError,
-    DecisionTimeoutError,
-} from './errors';
-import type { Answer, DecisionDriver, Question } from './types';
-import { validateAnswers, validateQuestions } from './validation';
 
 /** Configuration the facade resolves (key per R7) and forwards to the TypeSafe driver. */
 export interface TypesafeDriverConfig {
@@ -51,10 +60,11 @@ export function createTypesafeDriver(config: TypesafeDriverConfig): DecisionDriv
     try {
         client = new TypeSafeClient({
             apiKey: config.apiKey,
-            // baseURL is forwarded as-is. SDK 0.6.0 exports no default
-            // base-URL constant (`ENV` holds env-var names only), so an
-            // omitted baseURL still lets the SDK self-resolve
-            // `TYPESAFE_BASE_URL` — documented residual for 0073.
+            // baseURL is forwarded as-is. SDK 0.7.0 still exports no default
+            // base-URL constant (`ENV.baseURL` is the env-var NAME, and the
+            // documented default `https://api.typesafe.ai` lives only in the
+            // config JSDoc), so an omitted baseURL keeps letting the SDK
+            // self-resolve `TYPESAFE_BASE_URL` — documented residual for 0073.
             baseURL: config.baseURL,
             defaultModel: config.model,
             timeout: config.timeoutMs,
@@ -112,9 +122,25 @@ function toSdkQuestion(question: Question): SdkQuestion {
                 question.yes === undefined && question.no === undefined
                     ? undefined
                     : { true: question.yes, false: question.no };
-            return noul(question.prompt ?? null, outcomes);
+            // SDK 0.7.0's `noul()` overloads cannot express an undescribed noul
+            // (`instructions` null with no criteria), which the neutral contract allows,
+            // so the same object is built directly. The intent type is identical to the
+            // builder's, and the wire shape is unchanged for every described case.
+            const noulQuestion: NoulQuestion = { type: 'noul', instructions: question.prompt ?? null };
+            if (outcomes !== undefined) noulQuestion.criteria = outcomes;
+            return noulQuestion;
         }
     }
+}
+
+/**
+ * Read the rubric legend as the neutral index → description map. The SDK's `ScoreLegend`
+ * threads a recursive conditional (`SentContent`) that the compiler cannot resolve once the
+ * question map is the neutral union, so the value is handed over here; `validateAnswers`
+ * enforces the real shape at runtime.
+ */
+function legendOf(wire: ScoreResponse): Record<number, Desc> {
+    return wire.legend as unknown as Record<number, Desc>;
 }
 
 /** SDK wire response → neutral answer (R5). Noul gets no confidence — the wire has none and none is invented. */
@@ -129,14 +155,19 @@ function fromSdkAnswer(answer: SdkResultFor<SdkQuestion>): Answer {
                 confidence: answer.confidence,
                 probabilities: answer.probabilities,
             };
-        case 'score':
+        case 'score': {
+            // SDK 0.7.0 infers `ScoreResponse<ScoreCriteria>` from `ResultFor<Question>` too deeply to
+            // instantiate (TS2589), so the branch reads through the non-generic default instead and
+            // hands the legend over through a helper. `validateAnswers` checks the values at runtime.
+            const wire: ScoreResponse = answer;
             return {
                 kind: 'score',
-                score: answer.score,
-                confidence: answer.confidence,
-                legend: answer.legend,
-                probabilities: answer.probabilities,
+                score: wire.score,
+                confidence: wire.confidence,
+                legend: legendOf(wire),
+                probabilities: wire.probabilities,
             };
+        }
         case 'noul':
             return { kind: 'noul', probability: answer.noul };
         default:

@@ -103,7 +103,7 @@ Invariants:
   `defaultMaker` (`typesafe`). Registry factories run lazily and are memoised on success, so
   `list`/`describe` never touch a backend.
 
-## Decision backends (accepted design — ADR-038/ADR-039; not yet built)
+## Decision backends (built 2026-10-19 — ADR-038/ADR-039)
 
 Feature O1 reshapes the decision packages so `ts-ai-runner` holds only the provider-neutral contract
 and every concrete backend sits outside it. Shapes: `docs/design/llm-agent-decision-backend.md`.
@@ -115,10 +115,10 @@ and every concrete backend sits outside it. Shapes: `docs/design/llm-agent-decis
   agent-backed `llm-agent` driver beside the catalog hub; `ts-laya-mlx` and `ts-decision-clef` are
   unchanged.
 
-Invariants (to become spur rules in feature O1):
+Invariants (enforced by `.spur/rules/typescript/decision-boundaries.yaml`):
 
-- No file under `packages/ai-runner/src` imports `@typesafe-ai/sdk`; only
-  `packages/ai-decision/src/typesafe-driver.ts` may.
+- No file outside `packages/ai-decision/src` imports `@typesafe-ai/sdk`; only
+  `packages/ai-decision/src/typesafe-driver.ts` may (`no-typesafe-sdk-import-outside-ai-decision`).
 - `packages/ai-runner/src/decision/sampled-driver.ts` imports nothing outside `./types` and `./errors`.
 - No driver package (`decision-fm`, `decision-clef`, `laya-mlx`) imports `@gobing-ai/ts-ai-decision`.
 - The agent driver never runs an agent in the caller's working directory: every sample's `cwd` is a

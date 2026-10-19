@@ -3,7 +3,6 @@ import { createDecisionMaker } from '../../src/decision/decision-maker';
 import { DecisionBackendError, DecisionRequestError } from '../../src/decision/errors';
 import type { Answer, Question } from '../../src/decision/types';
 import { q } from '../../src/decision/types';
-import { createTypesafeDriver } from '../../src/decision/typesafe-driver';
 
 const choice = q.choice('route?', { accept: null, repair: null });
 const answer = {
@@ -206,116 +205,6 @@ describe('decision boundary validation', () => {
             });
             expect(await dm.noul(null, null)).toBe(value);
         }
-    });
-
-    test('direct and facade-wrapped TypeSafe choice and score validate wire mass', async () => {
-        for (const kind of ['choice', 'score'] as const) {
-            const question = kind === 'choice' ? choice : q.score(null, ['low', 'high']);
-            const keys = kind === 'choice' ? ['accept', 'repair'] : ['0', '1'];
-            for (const mass of [0, 0.5, 2, 1 - 2e-6, 1 + 2e-6, 1, 1 - 0.5e-6, 1 + 0.5e-6]) {
-                const wireAnswer = {
-                    type: kind,
-                    ...(kind === 'choice' ? { choice: 'accept' } : { score: 0.8, legend: { 0: 'low', 1: 'high' } }),
-                    confidence: 0.8,
-                    probabilities: Object.fromEntries(keys.map((key) => [key, mass / 2])),
-                };
-                const driver = createTypesafeDriver({
-                    apiKey: 'test',
-                    maxRetries: 0,
-                    fetch: (async (_input: Parameters<typeof fetch>[0]) =>
-                        Response.json({ answers: { x: wireAnswer } })) as typeof fetch,
-                });
-                for (const maker of [driver, createDecisionMaker({ driver })]) {
-                    const request = maker.ask({ state: null, questions: { x: question } });
-                    if (Math.abs(mass - 1) > 1e-6) {
-                        await expect(request).rejects.toBeInstanceOf(DecisionBackendError);
-                        await expect(request).rejects.toThrow('Invalid decision response: x');
-                    } else {
-                        expect(await request).toEqual({
-                            x: {
-                                kind,
-                                ...(kind === 'choice'
-                                    ? { label: 'accept' }
-                                    : { score: 0.8, legend: { 0: 'low', 1: 'high' } }),
-                                confidence: 0.8,
-                                probabilities: wireAnswer.probabilities,
-                            } as Answer,
-                        });
-                    }
-                }
-            }
-        }
-    });
-
-    test('default driver rejects malformed successful wire responses', async () => {
-        for (const payload of [
-            null,
-            {},
-            { answers: [] },
-            { answers: { x: null } },
-            { answers: { x: { type: 'unknown' } } },
-            { answers: { x: { type: 'noul', noul: 0.5 } } },
-            { answers: {} },
-        ]) {
-            const driver = createTypesafeDriver({
-                apiKey: 'test',
-                maxRetries: 0,
-                fetch: (async (_input: Parameters<typeof fetch>[0]) => Response.json(payload)) as typeof fetch,
-            });
-            await expect(driver.ask({ state: null, questions: { x: choice } })).rejects.toBeInstanceOf(
-                DecisionBackendError,
-            );
-        }
-    });
-
-    test('invalid builder inputs yield package errors without fetching', async () => {
-        let calls = 0;
-        const driver = createTypesafeDriver({
-            apiKey: 'test',
-            fetch: (async (_input: Parameters<typeof fetch>[0]) => {
-                calls++;
-                return Response.json({});
-            }) as typeof fetch,
-        });
-        await expect(
-            driver.ask({ state: null, questions: { x: { kind: 'score', rubric: {} } as Question } }),
-        ).rejects.toBeInstanceOf(DecisionRequestError);
-        expect(calls).toBe(0);
-    });
-
-    test('preserves __proto__ question and label keys on the wire and in answers', async () => {
-        let sent: unknown;
-        const driver = createTypesafeDriver({
-            apiKey: 'test',
-            fetch: (async (_input, init) => {
-                sent = JSON.parse(String(init?.body));
-                return Response.json({
-                    answers: {
-                        ['__proto__']: {
-                            type: 'choice',
-                            choice: '__proto__',
-                            confidence: 1,
-                            probabilities: { ['__proto__']: 1 },
-                        },
-                    },
-                });
-            }) as typeof fetch,
-        });
-        const questions = { ['__proto__']: q.choice(null, { ['__proto__']: null }) };
-        const answers = await driver.ask({ state: null, questions });
-        expect(Object.keys(answers)).toEqual(['__proto__']);
-        // noProto: the `__proto__` key is the subject of this test (an answer keyed
-        // `__proto__` must survive), so read it as the own property it is (asserted above by
-        // Object.keys) rather than through the deprecated accessor.
-        expect(Object.getOwnPropertyDescriptor(answers, '__proto__')?.value).toEqual({
-            kind: 'choice',
-            label: '__proto__',
-            confidence: 1,
-            probabilities: { ['__proto__']: 1 },
-        });
-        expect(sent).toMatchObject({
-            questions: { ['__proto__']: { type: 'choice', criteria: { ['__proto__']: null } } },
-        });
     });
 
     test('validateQuestions and validateAnswers are exported from ai-runner main barrel', async () => {

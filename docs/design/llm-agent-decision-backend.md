@@ -1,16 +1,15 @@
 ---
 name: LLM agent decision backend and sampled-driver core
-status: accepted design
-updated_at: 2026-10-18
+status: implemented
+updated_at: 2026-10-19
 adr: ADR-038, ADR-039
 feature: O1
 ---
 
 # LLM agent decision backend and sampled-driver core
 
-Accepted design for feature O1 (ADR-038, ADR-039); not yet built. Packages: `packages/ai-runner`
-(core), `packages/decision-fm` (refactor), `packages/ai-decision` (agent driver, TypeSafe driver,
-registry).
+Built for feature O1 (ADR-038, ADR-039; tasks 0114-0116). Packages: `packages/ai-runner` (core),
+`packages/decision-fm` (refactor), `packages/ai-decision` (agent driver, TypeSafe driver, registry).
 
 ## Package graph after feature O1
 

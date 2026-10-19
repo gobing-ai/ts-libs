@@ -6,3 +6,4 @@ export * from './params';
 export * from './registry';
 export * from './schema';
 export * from './types';
+export * from './typesafe-driver';

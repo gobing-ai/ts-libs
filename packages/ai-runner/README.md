@@ -740,11 +740,31 @@ shared state and get typed, discriminated answers back. Questions are built with
 answers are decoded into neutral `ChoiceAnswer` / `ScoreAnswer` / `NoulAnswer` types — no SDK type
 crosses this boundary.
 
-Named backends are selected with `backend:`: `typesafe` (the default, reads `TYPESAFE_API_KEY`),
-`laya-local` (`@gobing-ai/ts-laya-mlx`), and `fm-local` (`@gobing-ai/ts-decision-fm`). Both local
-backends resolve their driver by dynamic import on first use — this package declares no dependency
-on either driver package (ADR-028); install the one you select. For typed, non-default driver
-options, construct the driver yourself and pass it as `driver:`.
+Named backends are selected with `backend:`: `laya-local` (`@gobing-ai/ts-laya-mlx`), `fm-local`
+(`@gobing-ai/ts-decision-fm`) and — deprecated — `typesafe` (`@gobing-ai/ts-ai-decision`). All three
+resolve their driver by dynamic import on first use: this package declares no dependency on any
+driver package (ADR-028/ADR-039); install the one you select. For typed, non-default driver options,
+construct the driver yourself and pass it as `driver:`.
+
+**TypeSafe moved out (ADR-039, 2026-10-19).** `createTypesafeDriver` and the pinned
+`@typesafe-ai/sdk` dependency now live in `@gobing-ai/ts-ai-decision`; this package keeps only the
+neutral contract, the validators, the sampled-driver core and `createDecisionMaker`.
+
+```ts
+import { createDecisionMaker } from '@gobing-ai/ts-ai-runner';
+import { createTypesafeDriver } from '@gobing-ai/ts-ai-decision'; // preferred
+
+const decisions = createDecisionMaker({ driver: createTypesafeDriver({ apiKey }) });
+```
+
+The `typesafe` backend name — including the implicit default — still works for one release through a
+deprecated dynamic import, so it now **requires `@gobing-ai/ts-ai-decision` to be installed**:
+
+- missing key → `DecisionConfigError` `TYPESAFE_API_KEY` (unchanged, and checked before the import);
+- package not installed → `DecisionConfigError` `TYPESAFE_BACKEND` naming the `bun add` command.
+
+The bridge is removed in the next minor. `resolveApiKey` stays exported here and is what both the
+bridge and the `ts-ai-decision` registry use, so `TYPESAFE_API_KEY` precedence is unchanged.
 
 ### Batch `ask` — many questions, one request
 

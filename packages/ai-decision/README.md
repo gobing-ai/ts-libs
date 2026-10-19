@@ -25,7 +25,7 @@ create a cycle with the bundled built-ins.
 
 | Maker name | Backend | Package | Registered | Needs | Probabilities |
 |------------|---------|---------|------------|-------|---------------|
-| `typesafe` | TypeSafe Jev (hosted) | `ts-ai-runner` (`@typesafe-ai/sdk` 0.6.0) | built-in, lazy; hub default | `TYPESAFE_API_KEY` | from the API |
+| `typesafe` | TypeSafe Jev (hosted) | this package (`@typesafe-ai/sdk` 0.7.0) | built-in, lazy; hub default | `TYPESAFE_API_KEY` | from the API |
 | `fm-local` | Apple Foundation Models via `fm` (ADR-029/030) | `ts-decision-fm` | built-in, lazy | macOS on Apple silicon, `fm` CLI | k-sample frequencies |
 | `laya-local` | Laya on MLX, warm Python worker (ADR-027/028) | `ts-laya-mlx` | built-in, lazy | Apple silicon, Laya model + Python env | from the local model |
 | `llm-agent` | Any `ts-ai-runner` coding agent / model (ADR-038) | this package (`ts-ai-runner` surface) | built-in, lazy | an installed agent CLI | k-sample frequencies |
@@ -234,15 +234,27 @@ New backends follow the existing pattern rather than landing inside this package
 Capabilities every maker benefits from (routing, fallback, catalog features, registry
 lifecycle) belong in this package.
 
-## Planned (feature O1 — accepted design, not yet released)
+## TypeSafe driver
 
-ADR-038 / ADR-039, design `docs/design/llm-agent-decision-backend.md`:
+`createTypesafeDriver(config)` ships here since task 0116 (ADR-039): `@gobing-ai/ts-ai-runner` keeps
+only the neutral contract, so the driver and the pinned `@typesafe-ai/sdk` (0.7.0) live in this
+package.
 
-- **TypeSafe moves here** — `createTypesafeDriver` and `@typesafe-ai/sdk` (upgraded to 0.7.0)
-  move from `ts-ai-runner` into this package; `createDecisionMaker({ backend: 'typesafe' })`
-  keeps working for one release through a deprecated dynamic-import bridge.
+```ts
+import { createTypesafeDriver } from '@gobing-ai/ts-ai-decision';
+import { createDecisionMaker } from '@gobing-ai/ts-ai-runner';
 
-The `llm-agent` maker is now shipped (see the maker table and "Configuring `llm-agent`").
+const decisions = createDecisionMaker({ driver: createTypesafeDriver({ apiKey }) });
+```
+
+`createDecisionMaker({ backend: 'typesafe' })` and the implicit default still resolve the same driver
+through a deprecated dynamic-import bridge in `ts-ai-runner` for one release; that path requires this
+package to be installed and reports `DecisionConfigError` (`TYPESAFE_BACKEND`) with an install hint
+when it is not. `resolveApiKey` remains in `ts-ai-runner` and is what both paths use, so
+`TYPESAFE_API_KEY` precedence is unchanged.
+
+`@typesafe-ai/sdk` 0.7.0 raises its Node floor to 22 and compresses request bodies with zstd on
+runtimes that support it (Bun does).
 
 ## References
 

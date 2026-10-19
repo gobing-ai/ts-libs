@@ -1,8 +1,14 @@
-import { createDecisionMaker, type DecisionMaker, type DecisionMakerOptions } from '@gobing-ai/ts-ai-runner';
+import {
+    createDecisionMaker,
+    type DecisionMaker,
+    type DecisionMakerOptions,
+    resolveApiKey,
+} from '@gobing-ai/ts-ai-runner';
 import { createFmDriver, type FmDriverOptions } from '@gobing-ai/ts-decision-fm';
 import { createLayaDriver, type LayaDriverOptions } from '@gobing-ai/ts-laya-mlx';
 import { type AgentDriverOptions, createAgentDriver } from './agent-driver';
 import { DecisionRegistryError, UnknownDecisionMakerError } from './errors';
+import { createTypesafeDriver } from './typesafe-driver';
 
 /** A maker, or a lazy factory for one (sync or async). Factories run on first `resolve` and are memoised on success. */
 export type MakerSource = DecisionMaker | (() => DecisionMaker | Promise<DecisionMaker>);
@@ -40,7 +46,25 @@ export class DecisionMakerRegistry {
     constructor(options?: { builtins?: BuiltinMakerOptions | false }) {
         if (options?.builtins === false) return;
         const { makerOptions = {}, driverOptions = {} } = options?.builtins ?? {};
-        this.register('typesafe', () => createDecisionMaker({ backend: 'typesafe', ...makerOptions }));
+        // The driver lives here now (ADR-039), so the built-in no longer routes through the
+        // deprecated dynamic-import bridge. A missing key still throws inside this lazy factory,
+        // before any request, so the hub keeps reporting `reason: 'no-backend'`.
+        //
+        // `Omit<>` over an index-signature option bag collapses every declared field to `unknown`,
+        // so the bag is read back through its own type here — same object, same runtime values.
+        const transportOptions = makerOptions as DecisionMakerOptions;
+        this.register('typesafe', () =>
+            createDecisionMaker({
+                driver: createTypesafeDriver({
+                    apiKey: resolveApiKey(transportOptions),
+                    baseURL: transportOptions.baseURL,
+                    timeoutMs: transportOptions.timeoutMs,
+                    maxRetries: transportOptions.maxRetries,
+                    fetch: transportOptions.fetch,
+                }),
+                ...makerOptions,
+            }),
+        );
         this.register('fm-local', () =>
             createDecisionMaker({ driver: createFmDriver(driverOptions['fm-local'] ?? {}), ...makerOptions }),
         );

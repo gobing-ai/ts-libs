@@ -1,18 +1,23 @@
 import { describe, expect, test } from 'bun:test';
-import { removeEnvVar, setEnvVar } from '@gobing-ai/ts-utils';
-import { TypeSafeError } from '@typesafe-ai/sdk';
 import {
+    type ChoiceAnswer,
     DecisionAuthError,
     DecisionBackendError,
     DecisionConnectionError,
     DecisionError,
     DecisionRateLimitError,
     DecisionRequestError,
+    type DecisionState,
     DecisionTimeoutError,
-} from '../../src/decision/errors';
-import type { ChoiceAnswer, DecisionState, NoulAnswer, ScoreAnswer } from '../../src/decision/types';
-import { q } from '../../src/decision/types';
-import { createTypesafeDriver, type TypesafeDriverConfig } from '../../src/decision/typesafe-driver';
+    type NoulAnswer,
+    q,
+    type ScoreAnswer,
+} from '@gobing-ai/ts-ai-runner';
+import { removeEnvVar, setEnvVar } from '@gobing-ai/ts-utils';
+import { TypeSafeError } from '@typesafe-ai/sdk';
+import { createTypesafeDriver, type TypesafeDriverConfig } from '../src/typesafe-driver';
+
+import { requestBodyText, streamedJson } from './helpers/sdk-fetch';
 
 /** A captured wire request: URL, fetch init, and the JSON-parsed body. */
 interface WireCall {
@@ -27,9 +32,10 @@ function recordedFetch(respond: (call: WireCall) => Response): { fetch: typeof f
     const calls: WireCall[] = [];
     type FetchInput = Parameters<typeof fetch>[0];
     const fake = (async (input: FetchInput, init?: RequestInit) => {
-        // The driver under test only ever serializes here, so a JSON parse of
-        // `init.body` is the wire shape, not a re-derivation of it.
-        const body = init?.body === undefined ? {} : (JSON.parse(String(init.body)) as Record<string, unknown>);
+        // The driver under test only ever serializes here, so a JSON parse of the (possibly
+        // compressed) body is the wire shape, not a re-derivation of it.
+        const text = requestBodyText(init);
+        const body = text === '' ? {} : (JSON.parse(text) as Record<string, unknown>);
         const call: WireCall = {
             url: String(input),
             init: init ?? {},
@@ -58,12 +64,8 @@ function firstCall(wire: { calls: WireCall[] }): WireCall {
     return call;
 }
 
-function json(payload: unknown, status = 200, headers: Record<string, string> = {}): Response {
-    return new Response(JSON.stringify(payload), {
-        status,
-        headers: { 'content-type': 'application/json', ...headers },
-    });
-}
+/** A stream-backed JSON response; see `helpers/sdk-fetch.ts` for why the fixture must be streamed. */
+const json = streamedJson;
 
 /** Canned /v1/systemone success body, keyed like the three-question ask below. */
 const SYSTEM_ONE = {
@@ -175,14 +177,22 @@ describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
         });
     });
 
-    test('R4 — undescribed prompts become null; a bare noul sends no criteria', async () => {
+    test('R4 — undescribed prompts become null; a bare noul is rejected client-side', async () => {
         const { wire, driver: d } = driver((call) => matchingSuccess(call));
-        await d.ask({ state: null, questions: { bare: q.noul(), pick: q.choice(null, { a: 'x' }) } });
+        await d.ask({ state: null, questions: { pick: q.choice(null, { a: 'x' }) } });
         // Parsed from the serialized body, so an absent key really is absent on the wire.
         expect(firstCall(wire).questions).toEqual({
-            bare: { type: 'noul', instructions: null },
             pick: { type: 'choice', instructions: null, criteria: { a: 'x' } },
         });
+
+        // SDK 0.7.0 validates client-side that a noul carries instructions or a described outcome
+        // (0.6.0 sent it to the API and took the 422). A fully undescribed noul — no prompt, no
+        // outcome descriptions — is therefore a request error now, still inside the taxonomy.
+        const bare = driver((call) => matchingSuccess(call));
+        await expect(bare.driver.ask({ state: null, questions: { bare: q.noul() } })).rejects.toBeInstanceOf(
+            DecisionRequestError,
+        );
+        expect(bare.wire.calls).toHaveLength(0);
     });
 
     test('R4 — an absent state is sent as an empty string, never dropped from the body', async () => {

@@ -62,6 +62,9 @@ const CHANGELOG_FIXTURE_FILE = 'CHANGELOG.md';
 const DECISION_BOUNDARY_RULES: Readonly<Record<string, string>> = {
     'ai-runner': 'no-clef-driver-import-in-ai-runner',
     'decision-clef': 'no-ai-decision-import-in-decision-clef',
+    // The SDK rule's subject moved to ai-decision in ADR-039; decision-fm is the stand-in package
+    // directory because ai-decision owns the exempt file the rule must NOT fire on.
+    'decision-fm': 'no-typesafe-sdk-import-outside-ai-decision',
 };
 
 /** A declared fixture set: the rule file it exercises, its case inventory, and where its cases live. */
@@ -89,7 +92,7 @@ const FIXTURE_SETS: readonly FixtureSetDeclaration[] = [
     {
         set: 'decision-boundaries',
         ruleFile: '.spur/rules/typescript/decision-boundaries.yaml',
-        expected: { fire: 2, pass: 2 },
+        expected: { fire: 3, pass: 3 },
     },
     {
         set: 'verify-confidence',

@@ -67,11 +67,11 @@ describe('runRuleFixtureChecks', () => {
         expect(report.error).toBeUndefined();
         expect(report.pass).toBe(true);
         expect(report.totals.sets).toBe(5);
-        expect(report.totals.cases).toEqual({ total: 41, fire: 19, pass: 22 });
+        expect(report.totals.cases).toEqual({ total: 43, fire: 20, pass: 23 });
         expect(report.totals.failed).toEqual({ total: 0, fire: 0, pass: 0 });
         expect(report.sets.map((set) => [set.set, set.cases.total])).toEqual([
             ['lifecycle-bus-propagation', 5],
-            ['decision-boundaries', 4],
+            ['decision-boundaries', 6],
             ['verify-confidence', 14],
             ['evidence-citation', 9],
             ['changelog-verification', 9],
@@ -399,6 +399,6 @@ describe('runRuleFixtureChecks — the declared case inventory', () => {
 
         expect(report.pass).toBe(false);
         expect(report.error).toContain('declared case inventory mismatch for "decision-boundaries/should-pass"');
-        expect(report.error).toContain('declared 2 case(s), found 3');
+        expect(report.error).toContain('declared 3 case(s), found 4');
     });
 });

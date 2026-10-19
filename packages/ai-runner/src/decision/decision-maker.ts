@@ -17,7 +17,6 @@ import type {
     ScoreAnswer,
 } from './types';
 import { q } from './types';
-import { createTypesafeDriver } from './typesafe-driver';
 import { validateAnswers, validateQuestions } from './validation';
 
 /** Public decision surface: batch `ask` plus the three single-question sugar methods. */
@@ -55,7 +54,14 @@ export type DecisionBackend = 'typesafe' | 'laya-local' | 'fm-local';
 export interface DecisionMakerOptions {
     /** Custom driver — when supplied, `backend` is ignored, no default driver is constructed and no key is required. */
     driver?: DecisionDriver;
-    /** Named backend selector. Default: `'typesafe'`. Resolution order: `driver` → `backend` → `'typesafe'`. */
+    /**
+     * Named backend selector. Default: `'typesafe'`. Resolution order: `driver` → `backend` → `'typesafe'`.
+     *
+     * @deprecated `'typesafe'` (including the implicit default) now loads its driver from
+     * `@gobing-ai/ts-ai-decision` through a dynamic import, so it requires that package to be
+     * installed. Prefer `driver: createTypesafeDriver(...)` imported from `@gobing-ai/ts-ai-decision`;
+     * this bridge is removed in the next minor (ADR-039).
+     */
     backend?: DecisionBackend;
     /** Injected env record; defaults to `getProcessEnv()` (doctor-runner convention). */
     env?: Record<string, string | undefined>;
@@ -75,7 +81,7 @@ export interface DecisionMakerOptions {
  * Resolve the key per R7: `options.apiKey ?? (options.env ?? getProcessEnv()).TYPESAFE_API_KEY`.
  * Throws before any driver construction or request.
  */
-function resolveApiKey(options: DecisionMakerOptions): string {
+export function resolveApiKey(options: DecisionMakerOptions): string {
     const env = options.env ?? getProcessEnv();
     const apiKey = options.apiKey ?? env.TYPESAFE_API_KEY;
     if (!apiKey) {
@@ -122,6 +128,49 @@ export async function resolveLayaDriver(
     return mod.createLayaDriver(options);
 }
 
+const TYPESAFE_DRIVER_PACKAGE = '@gobing-ai/ts-ai-decision';
+
+/**
+ * Resolve the `typesafe` driver from `@gobing-ai/ts-ai-decision` (task 0116 R5, ADR-039).
+ *
+ * The driver moved out of this package, which is now the contract-only surface. The key is
+ * resolved FIRST so a missing key keeps its exact pre-move error and no import is attempted.
+ *
+ * @internal Exported for the branch tests; see {@link resolveLayaDriver}.
+ */
+export async function resolveTypesafeDriver(
+    options: DecisionMakerOptions,
+    importModule: (specifier: string) => Promise<unknown> = (specifier) => import(specifier),
+): Promise<DecisionDriver> {
+    const apiKey = resolveApiKey(options);
+    let mod: { createTypesafeDriver?: (opts?: unknown) => DecisionDriver };
+    try {
+        mod = (await importModule(TYPESAFE_DRIVER_PACKAGE)) as {
+            createTypesafeDriver?: (opts?: unknown) => DecisionDriver;
+        };
+    } catch (cause) {
+        throw new DecisionConfigError(
+            `The 'typesafe' backend requires '${TYPESAFE_DRIVER_PACKAGE}' to be installed; install it with 'bun add ${TYPESAFE_DRIVER_PACKAGE}'`,
+            'TYPESAFE_BACKEND',
+            { cause },
+        );
+    }
+    if (typeof mod.createTypesafeDriver !== 'function') {
+        throw new DecisionConfigError(
+            `Module '${TYPESAFE_DRIVER_PACKAGE}' does not export createTypesafeDriver`,
+            'TYPESAFE_BACKEND',
+        );
+    }
+    return mod.createTypesafeDriver({
+        apiKey,
+        model: options.model,
+        baseURL: options.baseURL,
+        timeoutMs: options.timeoutMs,
+        maxRetries: options.maxRetries,
+        fetch: options.fetch,
+    });
+}
+
 const FM_DRIVER_PACKAGE = '@gobing-ai/ts-decision-fm';
 
 /** @internal Exported for task 0086 R9 branch tests; see {@link resolveLayaDriver}. */
@@ -159,14 +208,7 @@ export function createDecisionMaker(options: DecisionMakerOptions = {}): Decisio
         if (resolvedDriver) return resolvedDriver;
         const backend = options.backend ?? 'typesafe';
         if (backend === 'typesafe') {
-            resolvedDriver = createTypesafeDriver({
-                apiKey: resolveApiKey(options),
-                model: options.model,
-                baseURL: options.baseURL,
-                timeoutMs: options.timeoutMs,
-                maxRetries: options.maxRetries,
-                fetch: options.fetch,
-            });
+            resolvedDriver = await resolveTypesafeDriver(options);
             return resolvedDriver;
         }
         if (backend === 'laya-local') {
