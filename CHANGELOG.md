@@ -8,6 +8,38 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.30] - 2026-10-18
+
+### Fixed
+
+- fix(ai-runner): pass --auto to headless opencode runs (48dca17c) — the opencode shim now appends `--auto` to every
+  `opencode run` argv, so a permission the operator's config declares `ask` is auto-approved instead of being
+  auto-rejected mid-run ("this non-interactive run cannot ask the user for permission") and dead-ending the tool
+  call; explicitly denied permissions still hold. Covered by a new argv regression test and the opencode row in the
+  package README.
+  <!-- src: packages/ai-runner/src/agents/shims.ts:266 (`const args = ['run', options.input ?? '', '--auto']` — the flag precedes `-c`/`-m`/`--format`, so it applies to every one-shot argv) and :258 (the probe record behind the change: opencode 2.0.32, fsWrite landed, shell rejected); semantics `Auto-approve permissions that are not explicitly denied` read from the installed CLI, `opencode run --help` → v2.0.32; observed by packages/ai-runner/tests/agents/shims.test.ts:234 (argv with and without continue/model/json) and :255 (`--auto` asserted present unconditionally); docs packages/ai-runner/README.md:503 -->
+
+<!-- verification: 1/1 bullets — one per commit in @gobing-ai/ts-utils-v0.5.29..HEAD, the short hash present exactly
+once and the summary the commit's verbatim subject (machine-checked with `git log --oneline` against `grep` over this
+section). The single bullet is an API/library claim and carries exactly one anchor comment. Claim 1 (opencode
+`--auto`): packages/ai-runner/src/agents/shims.ts:266 builds `['run', input, '--auto']` and pushes `-c`, `-m <model>`
+and `--format json` after it, so the flag reaches every `opencode run` argv the shim produces; the commit's own probe
+record sits at :258, and the flag's meaning — auto-approve what is not explicitly denied — was read from the
+installed tool (`opencode v2.0.32`, `opencode run --help`, resolved on PATH in this session) rather than recalled;
+observed by packages/ai-runner/tests/agents/shims.test.ts:234 (both argv shapes, tier 1) and :255 (`--auto`
+unconditional); the README row is packages/ai-runner/README.md:503. No test run was performed, because `changelog`
+produces text rather than code (dev-operations §8), so the evidence is the cited source anchors, the commit diff and
+the installed CLI's help text. Confidence: HIGH — the claim is a single argv construction with a named
+implementation line, a test asserting the same flag, and the flag's documented meaning taken from the installed
+binary of the exact version the probe used. Assertion coverage: (1) every bullet traced to the commit that produced
+it, never paraphrased — exact-subject match, (2) no API/library claim left uncited, (3) the level is validated, not
+self-asserted: `spur rule run --file .spur/rules/quality/changelog-verification-confidence.yaml --fail-on warning` →
+PASS (1/1 rule) over the uppercase-only enum at `.spur/rules/quality/changelog-verification-confidence.yaml:104`
+(mis-cased reported at :111, absent reported at :117), and the same rule FAILED when this record's level was written
+in lowercase instead, reporting "declares no confidence level, or spells it as something other than HIGH, MEDIUM or
+LOW" (the mutated text is not quoted here, since quoting it would itself be the mis-cased level the rule rejects);
+the file was restored byte-identical afterwards (`shasum` unchanged). -->
+
 ## [0.5.29] - 2026-10-18
 
 ### Added
