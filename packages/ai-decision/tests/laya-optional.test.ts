@@ -139,21 +139,23 @@ describe('laya-local when the Apple-only package is not installed (ADR-041)', ()
         expect(await registry.resolve('laya-local')).toBe(maker);
     });
 
-    // On macOS the real driver passes the platform check and would spawn a worker.
-    test.skipIf(process.platform === 'darwin')(
-        'the real laya-local built-in falls back on a non-macOS host',
-        async () => {
-            const registry = new DecisionMakerRegistry();
-            const hub = new DecisionHub({ registry, now: () => 0 });
-            hub.load(await parseDecisionCatalog(CATALOG, 'laya-host.yaml'));
+    // The real built-in factory, the real host check and the real hub fallback, with the platform
+    // forced so the check fails on every host: `createLayaClient` validates in its constructor, so
+    // the throw lands before anything can spawn a worker. Skipping this on darwin left the only
+    // end-to-end assertion of the fallback unexercised on the platform the package targets.
+    test('the real laya-local built-in falls back when the host check fails', async () => {
+        const registry = new DecisionMakerRegistry({
+            builtins: { driverOptions: { 'laya-local': { platform: 'linux', arch: 'x64' } } },
+        });
+        const hub = new DecisionHub({ registry, now: () => 0 });
+        hub.load(await parseDecisionCatalog(CATALOG, 'laya-host.yaml'));
 
-            const result = await hub.decide('pick', { instructions: 'route this' });
-            expect(result.source).toBe('default');
-            expect(result.reason).toBe('no-backend');
-            expect(result.value).toBe('a');
-            expect(result.maker).toBe('laya-local');
-            expect(result.error?.name).toBe('DecisionConfigError');
-            expect(result.error?.message).toContain('darwin arm64');
-        },
-    );
+        const result = await hub.decide('pick', { instructions: 'route this' });
+        expect(result.source).toBe('default');
+        expect(result.reason).toBe('no-backend');
+        expect(result.value).toBe('a');
+        expect(result.maker).toBe('laya-local');
+        expect(result.error?.name).toBe('DecisionConfigError');
+        expect(result.error?.message).toContain('darwin arm64');
+    });
 });
