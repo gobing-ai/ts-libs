@@ -27,7 +27,7 @@ create a cycle with the bundled built-ins.
 |------------|---------|---------|------------|-------|---------------|
 | `typesafe` | TypeSafe Jev (hosted) | this package (`@typesafe-ai/sdk` 0.7.0) | built-in, lazy; hub default | `TYPESAFE_API_KEY` | from the API |
 | `fm-local` | Apple Foundation Models via `fm` (ADR-029/030) | `ts-decision-fm` | built-in, lazy | macOS on Apple silicon, `fm` CLI | k-sample frequencies |
-| `laya-local` | Laya on MLX, warm Python worker (ADR-027/028) | `ts-laya-mlx` | built-in, lazy | Apple silicon, Laya model + Python env | from the local model |
+| `laya-local` | Laya on MLX, warm Python worker (ADR-027/028) | `ts-laya-mlx` (optional; installed on macOS only, ADR-041) | built-in, lazy | Apple silicon, Laya model + Python env. Other hosts fall back (`no-backend`) | from the local model |
 | `llm-agent` | Any `ts-ai-runner` coding agent / model (ADR-038) | this package (`ts-ai-runner` surface) | built-in, lazy | an installed agent CLI | k-sample frequencies (accepted = all samples agreed) |
 | `clef` | Cloudflare Workers AI Clef (ADR-037) | `ts-decision-clef` | consumer-registered | Cloudflare account ID + API token | from the API |
 

@@ -97,9 +97,14 @@ export async function sortPackagesByDependencyOrder(packages: WorkspacePackage[]
         return cyclic === undefined ? sorted : undefined;
     };
 
-    // Hard edges: runtime `dependencies` (workspace-only). A cycle here is a real
-    // packaging defect — throw.
-    const hardOrder = orderByEdges((pkg) => Object.keys(pkg.dependencies));
+    // Hard edges: runtime `dependencies` plus `optionalDependencies` (workspace-only).
+    // Optional deps are still install edges when the platform accepts them, and the
+    // dependent's dynamic import typechecks against that sibling's dist, so the
+    // build has to emit the sibling first. A cycle here is a packaging defect — throw.
+    const hardOrder = orderByEdges((pkg) => [
+        ...Object.keys(pkg.dependencies),
+        ...Object.keys(pkg.optionalDependencies ?? {}),
+    ]);
     if (hardOrder === undefined) {
         throw new Error('internal package dependency cycle in runtime dependencies');
     }
@@ -124,6 +129,7 @@ export async function sortPackagesByDependencyOrder(packages: WorkspacePackage[]
 
             const extended = orderByEdges((p) => [
                 ...Object.keys(p.dependencies),
+                ...Object.keys(p.optionalDependencies ?? {}),
                 ...Object.keys(p.devDependencies ?? {}).filter(
                     (d) => acceptedSoft.has(`${p.name}\u0000${d}`) || (p.name === pkg.name && d === dependencyName),
                 ),

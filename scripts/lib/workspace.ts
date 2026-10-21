@@ -14,6 +14,11 @@ export interface WorkspacePackage {
     private: boolean;
     /** Runtime dependencies from package.json. */
     dependencies: Record<string, string>;
+    /**
+     * Optional runtime dependencies. Workspace entries are build-order edges:
+     * the dependent's dynamic import still typechecks against the sibling's dist.
+     */
+    optionalDependencies?: Record<string, string>;
     /** Build/test-time dependencies from package.json (workspace entries are build-order edges). */
     devDependencies?: Record<string, string>;
     /** Package scripts from package.json. */
@@ -38,6 +43,7 @@ export async function findWorkspacePackages(): Promise<WorkspacePackage[]> {
             version: rootPkg.version,
             private: rootPkg.private === true,
             dependencies: rootPkg.dependencies ?? {},
+            optionalDependencies: rootPkg.optionalDependencies ?? {},
             devDependencies: rootPkg.devDependencies ?? {},
             scripts: rootPkg.scripts ?? {},
         },
@@ -59,6 +65,7 @@ export async function findWorkspacePackages(): Promise<WorkspacePackage[]> {
                 version: pkg.version,
                 private: pkg.private === true,
                 dependencies: pkg.dependencies ?? {},
+                optionalDependencies: pkg.optionalDependencies ?? {},
                 devDependencies: pkg.devDependencies ?? {},
                 scripts: pkg.scripts ?? {},
             });

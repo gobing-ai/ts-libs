@@ -15,18 +15,21 @@ Feature: [N](../features/N_declarative-ai-decision-catalog-and-hub-in-ts-ai-deci
 | Item | Value |
 |------|-------|
 | Name / source | `@gobing-ai/ts-ai-decision` / `packages/ai-decision` |
-| Dependencies (`workspace:*`) | `ts-ai-runner` (neutral surface, `createDecisionMaker`, `resolveApiKey`), `ts-decision-fm` (`fm-local`), `ts-laya-mlx` (`laya-local`), `ts-runtime` |
+| Dependencies (`workspace:*`) | `ts-ai-runner` (neutral surface, `createDecisionMaker`, `resolveApiKey`), `ts-decision-fm` (`fm-local`), `ts-runtime` |
+| Optional dependencies | `ts-laya-mlx` (`laya-local`). `"os": ["darwin"]` on that package, so non-macOS installs omit it (ADR-041) |
 | Other dependencies | `zod`, `@typesafe-ai/sdk` 0.7.0 (the `typesafe` driver; ADR-039 keeps it inside this package) |
 | Shipped files | `dist`, `src`, `schemas/decision-catalog.schema.json`, `README.md` |
 | Exports | `.`, `./schemas/*` and `./package.json`. ts-runtime resolves a `$schema` package specifier through `<pkg>/package.json`, which Bun allows without an export but Node's `require.resolve` rejects (`ERR_PACKAGE_PATH_NOT_EXPORTED`). `./schemas/*` lets editors and other standard resolvers reach the schema directly. rule-engine got the same two exports. |
 
-All three bundled makers are registered by default under their `ts-ai-runner` backend names
-(§ Maker registry). The registry builds the `fm-local` and `laya-local` drivers from its own direct
-dependencies (`createFmDriver` / `createLayaDriver`) and passes them as
-`createDecisionMaker({ driver })`. It therefore does not rely on `ts-ai-runner`'s optional runtime
-import of those packages resolving in the consumer's install. The edge is ai-decision → driver →
-ai-runner, which ADR-028 allows. Driver modules spawn nothing at import time; platform checks run at
-driver construction, and a construction failure becomes a `no-backend` fallback.
+The bundled makers are registered by default under their `ts-ai-runner` backend names
+(§ Maker registry). The registry builds `fm-local` from its direct dependency `createFmDriver`.
+It builds `laya-local` by dynamically importing `createLayaDriver` from the optional dependency
+`ts-laya-mlx` (`resolveBundledLayaDriver`). Both are passed as `createDecisionMaker({ driver })`.
+The hub therefore does not rely on `ts-ai-runner`'s optional runtime import of those packages.
+The edge is ai-decision → driver → ai-runner, which ADR-028 allows. Importing `ts-ai-decision`
+does not load `ts-laya-mlx`. A missing module throws `DecisionConfigError` with variable
+`LAYA_BACKEND`. Driver modules spawn nothing at import time; platform checks run at driver
+construction. A missing module or a construction failure becomes a `no-backend` fallback.
 
 Catalog files are **YAML only** (`.yaml` / `.yml`), so authors can comment decisions. The loader
 rejects other extensions. Parsing and `$schema` validation reuse `ts-runtime`'s
@@ -213,7 +216,7 @@ export interface BuiltinMakerOptions {
     /** Forwarded to createDecisionMaker for every built-in (env, apiKey, baseURL, timeoutMs, ...). */
     makerOptions?: Omit<DecisionMakerOptions, 'driver' | 'backend' | 'model'>;
     /** Driver options for the bundled local drivers. */
-    driverOptions?: { 'fm-local'?: FmDriverOptions; 'laya-local'?: LayaDriverOptions };
+    driverOptions?: { 'fm-local'?: FmDriverOptions; 'laya-local'?: LayaLocalDriverOptions };
 }
 
 export class DecisionMakerRegistry {
@@ -290,7 +293,7 @@ const r2 = await hub.decide('category', { instructions: ticketText }, { maker: '
 - **Built-ins:**
   - `typesafe` → `createDecisionMaker({ backend: 'typesafe', ...makerOptions })`
   - `fm-local` → `createDecisionMaker({ driver: createFmDriver(driverOptions['fm-local'] ?? {}), ...makerOptions })`
-  - `laya-local` → the same with `createLayaDriver`
+  - `laya-local` → `createDecisionMaker({ driver: await resolveBundledLayaDriver(driverOptions['laya-local']), ...makerOptions })`. `LayaLocalDriverOptions` carries the `LayaDriverOptions` fields (`client` and `nativeLoader` are `unknown`, so the declaration does not import `ts-laya-mlx`). Import failure: `DecisionConfigError`, variable `LAYA_BACKEND`.
 - **Laziness:** a factory runs on the first `resolve` and its maker is memoised. A failed factory is
   not memoised, so a later call retries. Registering never builds anything.
 - **Sharing:** one registry can back several hubs. The registry is generic and does not depend on

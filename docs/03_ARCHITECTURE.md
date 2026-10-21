@@ -3,10 +3,10 @@ name: Architecture
 doc: 03_ARCHITECTURE
 owns: HOW — module boundaries, data flow, runtime model, invariants, rationale-in-depth
 authority: derived
-version: 1.9.0
+version: 1.10.0
 derived_from: [00_ADR, 01_PRD]
 owner: Robin Min
-updated_at: 2026-10-12
+updated_at: 2026-10-21
 read_before: cross-package, seam, or schema work
 edit_rules: 99 §6.4
 sync: [T1]
@@ -81,8 +81,9 @@ makers picked by name from a `DecisionMakerRegistry` (built-ins plus consumer re
 shapes: `docs/design/ai-decision-catalog.md`.
 
 Dependencies run one way: `ts-ai-decision` → `ts-ai-runner` (neutral decision surface,
-`createDecisionMaker`, `resolveApiKey`), → `ts-decision-fm` and `ts-laya-mlx` (bundled local
-drivers, injected as `createDecisionMaker({ driver })`), and → `ts-runtime`
+`createDecisionMaker`, `resolveApiKey`), → `ts-decision-fm` (hard dependency) and `ts-laya-mlx`
+(optional, `"os": ["darwin"]`, loaded with a dynamic import on the first `laya-local` resolve —
+ADR-041), injected as `createDecisionMaker({ driver })`, and → `ts-runtime`
 (`parseStructuredConfig`, `FileSystem`). Since ADR-039 it also holds driver code of its own — the
 TypeSafe driver (`@typesafe-ai/sdk`, the only package allowed to import it) and the agent-backed
 `llm-agent` driver — and still imports no platform API outside the sanctioned seams. Catalogs are YAML only, follow the Jev
@@ -110,6 +111,9 @@ Invariants:
   reported as `result.shadow`, never served and never able to reject `decide` (ADR-040).
 - Registry factories run lazily and are memoised on success, so `list`/`describe` never touch a
   backend, and makers a chain or shadow never reached stay unbuilt.
+- `packages/ai-decision/src` does not statically import `@gobing-ai/ts-laya-mlx`. The only load is
+  the dynamic import inside `resolveBundledLayaDriver`. A missing module throws `DecisionConfigError`
+  with variable `LAYA_BACKEND` and does not reject `decide`.
 
 ## Decision backends (built 2026-10-19 — ADR-038/ADR-039)
 

@@ -212,6 +212,10 @@ describe('workspace discovery', () => {
         expect(packages.find((workspacePackage) => workspacePackage.name === '@gobing-ai/ts-infra')).toHaveProperty(
             'dependencies',
         );
+        expect(
+            packages.find((workspacePackage) => workspacePackage.name === '@gobing-ai/ts-ai-decision')
+                ?.optionalDependencies?.['@gobing-ai/ts-laya-mlx'],
+        ).toBe('workspace:*');
     });
 });
 
@@ -223,6 +227,20 @@ describe('sortPackagesByDependencyOrder', () => {
         ];
 
         await expect(sortPackagesByDependencyOrder(packages)).rejects.toThrow('internal package dependency cycle');
+    });
+
+    test('orders a package after an optionalDependency', async () => {
+        const decision = {
+            ...pkg('@gobing-ai/ts-ai-decision', 'packages/ai-decision', { '@gobing-ai/ts-ai-runner': '^0.1.5' }),
+            optionalDependencies: { '@gobing-ai/ts-laya-mlx': 'workspace:*' },
+        };
+        const laya = pkg('@gobing-ai/ts-laya-mlx', 'packages/laya-mlx', { '@gobing-ai/ts-ai-runner': '^0.1.5' });
+        const runner = pkg('@gobing-ai/ts-ai-runner', 'packages/ai-runner');
+
+        const sorted = await sortPackagesByDependencyOrder([decision, runner, laya]);
+        const names = sorted.map((p) => p.name);
+        expect(names.indexOf('@gobing-ai/ts-ai-decision')).toBeGreaterThan(names.indexOf('@gobing-ai/ts-laya-mlx'));
+        expect(names.indexOf('@gobing-ai/ts-laya-mlx')).toBeGreaterThan(names.indexOf('@gobing-ai/ts-ai-runner'));
     });
 
     test('orders a package after its workspace devDependencies regardless of input order', async () => {

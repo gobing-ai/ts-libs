@@ -53,10 +53,12 @@
     "dependencies": {
         "@gobing-ai/ts-ai-runner": "workspace:*",
         "@gobing-ai/ts-decision-fm": "workspace:*",
-        "@gobing-ai/ts-laya-mlx": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
         "@typesafe-ai/sdk": "0.7.0",
         "zod": "^4.1.0"
+    },
+    "optionalDependencies": {
+        "@gobing-ai/ts-laya-mlx": "workspace:*"
     },
     "devDependencies": {
         "@gobing-ai/ts-utils": "workspace:*",
