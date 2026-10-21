@@ -19,6 +19,7 @@ Mechanism: `docs/03_ARCHITECTURE.md` § laya-mlx. Neutral contract:
 | Version | lockstep with the workspace |
 | Exports | `.` only |
 | `dependencies` | `@gobing-ai/ts-ai-runner` (`workspace:*`), `@gobing-ai/ts-runtime` (`workspace:*`) |
+| `os` | `["darwin"]` — non-macOS package managers skip this package when it is an optional dependency (ADR-041) |
 | `files` | `dist`, `src`, `worker`, `README.md`, `LICENSE`, `NOTICE` |
 | License | Apache-2.0, with the upstream NOTICE carried forward |
 

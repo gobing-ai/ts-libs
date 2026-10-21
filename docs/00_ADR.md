@@ -3,9 +3,9 @@ name: Architecture Decision Records
 doc: 00_ADR
 owns: WHY — which cross-cutting decision was made, and the one-line reason
 authority: authoritative
-version: 1.6.0
+version: 1.7.0
 owner: Robin Min
-updated_at: 2026-10-12
+updated_at: 2026-10-21
 read_before: any structural change
 edit_rules: 99 §6.1
 sync: [T1, T2]
@@ -676,6 +676,9 @@ driver. Why: the hub is already the one package that bundles every backend. Deta
 name a `shadow` maker, and fallback results carry the caught `error`. `decide` still never rejects for
 backend outcomes. Detail: ADR-040.
 
+**Amendment (2026-10-21, ADR-041).** `ts-laya-mlx` is no longer a hard dependency of `ts-ai-decision`.
+It stays bundled on macOS as an optional dependency and is omitted on other operating systems. Detail: ADR-041.
+
 ---
 
 ## ADR-034: Static Dependency DAG Workflow Mode
@@ -862,3 +865,22 @@ confidence first, which sampled makers do not provide), sampling-rate or adaptiv
 shadow callbacks or background work that would outlive `decide`.
 
 **Detail:** `docs/design/ai-decision-catalog.md` § Maker chains, shadow and diagnostics (ADR-040); feature O2.
+
+---
+
+## ADR-041: `ts-laya-mlx` Is a macOS-Only Optional Dependency of `ts-ai-decision`
+
+**Status:** Accepted · **Date:** 2026-10-21 · **Amends:** ADR-033
+
+**Decision.** `@gobing-ai/ts-laya-mlx` declares `"os": ["darwin"]`. `@gobing-ai/ts-ai-decision` lists it
+under `optionalDependencies` and loads it with a dynamic `import()` only when `laya-local` is first
+resolved. A failed import becomes `DecisionConfigError` (`LAYA_BACKEND`); the hub maps that to
+`reason: 'no-backend'` and the declared fallback. macOS installs still receive the package and its
+native stack.
+
+**Why.** As a regular dependency the package installs `@johnhenry/backend-mlx`, whose optional
+dependency `koffi` runs an install script on every platform. Non-macOS hosts cannot run MLX, and
+Bun blocks that script. An optional dependency without an `os` gate still installs. An optional peer
+would not install on macOS either.
+
+**Detail:** `docs/03_ARCHITECTURE.md` § ai-decision; `docs/design/ai-decision-catalog.md`.

@@ -20,7 +20,7 @@ Part of the `@gobing-ai/ts-libs` monorepo and lockstep-versioned with it.
 
 > **Notice:** This is the only package in the workspace with specific host architecture constraints.
 
-1. **Platform:** macOS on Apple Silicon (`darwin arm64`). Unsupported platforms fail fast at construction time before any process is spawned.
+1. **Platform:** macOS on Apple Silicon (`darwin arm64`). The published manifest sets `"os": ["darwin"]`, so a dependent that lists this package under `optionalDependencies` (including `@gobing-ai/ts-ai-decision`) does not install it on other operating systems. Unsupported platforms fail fast at construction time before any process is spawned.
 2. **Python (core `mlx-python` only):** Python 3.10+ carrying the `laya-mlx` runtime (resolvable via `pythonPath`, injected `env.LAYA_PYTHON`, or `python3` on `PATH`). Core `mlx-native` needs no Python.
 3. **Worker script (core `mlx-python` only):** the package ships `worker/laya_worker.py` and finds it relative to its own module. A host that **bundles** this package into a single file (e.g. `bun build`) relocates the module, so it must ship the script itself and point at it with the `workerScript` option or injected `env.LAYA_WORKER_SCRIPT`. A missing script fails the ask with `DecisionConfigError` (`variable: 'LAYA_WORKER_SCRIPT'`) naming the path it tried, which the decision hub maps to the declared fallback.
 4. **Supported runtime range:** `laya-mlx 0.1.x` (validated against upstream `0.1.0` @ `fc1df62828a3fedf4d8229fdac1cbd85f1cdf337`).

@@ -134,10 +134,22 @@ describe('getGitContextSync', () => {
 });
 
 describe('getGitContextSync default executor (task 0087 R7)', () => {
-    test('defaults to NodeSyncProcessExecutor and resolves the real repo context', () => {
-        const context = getGitContextSync(process.cwd());
+    test('defaults to NodeSyncProcessExecutor and resolves a real repo context', () => {
+        // A temp repo on a named branch, not `process.cwd()`: CI checks out a pull
+        // request as a detached HEAD, where `git branch --show-current` is empty and
+        // the function returns null by contract — which would leave the happy path
+        // unexercised on every PR build.
+        const dir = mkdtempSync(join(tmpdir(), 'ai-runner-git-sync-'));
+        if (Bun.which('git') === null) {
+            expect(getGitContextSync(dir)).toBeNull();
+            return;
+        }
+        Bun.spawnSync({ cmd: ['git', '-C', dir, 'init'], stdout: 'pipe', stderr: 'pipe' });
+        Bun.spawnSync({ cmd: ['git', '-C', dir, 'checkout', '-b', 'team-mode'], stdout: 'pipe', stderr: 'pipe' });
+
+        const context = getGitContextSync(dir);
         expect(context).not.toBeNull();
         expect(context).toContain('Git context:');
-        expect(context).toMatch(/branch: \S+/);
+        expect(context).toContain('branch: team-mode');
     });
 });

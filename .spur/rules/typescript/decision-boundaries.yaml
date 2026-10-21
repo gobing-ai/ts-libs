@@ -49,6 +49,19 @@ rules:
           include:
             - "packages/ai-runner/src/**/*.ts"
 
+  - id: no-static-laya-driver-import-in-ai-decision
+    description: "ADR-041: @gobing-ai/ts-ai-decision lists @gobing-ai/ts-laya-mlx as an optional, macOS-only dependency. A static import or re-export would throw at module load on every host where the package manager skipped it, and would put the specifier into the published .d.ts. The only allowed load is the dynamic import inside resolveBundledLayaDriver. includeRequire:false matches `from`-form imports only, so that dynamic import is not flagged."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-laya-mlx"
+            includeRequire: false
+        scope:
+          include:
+            - "packages/ai-decision/src/**/*.ts"
+
   - id: laya-mlx-process-executor-only
     description: "ADR-027 / task 0080: packages/laya-mlx must use ProcessExecutor from @gobing-ai/ts-runtime and never directly spawn processes via node:child_process or Bun.spawn."
     severity: error

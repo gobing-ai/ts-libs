@@ -1,14 +1,77 @@
 import {
     createDecisionMaker,
+    DecisionConfigError,
+    type DecisionDriver,
     type DecisionMaker,
     type DecisionMakerOptions,
     resolveApiKey,
 } from '@gobing-ai/ts-ai-runner';
 import { createFmDriver, type FmDriverOptions } from '@gobing-ai/ts-decision-fm';
-import { createLayaDriver, type LayaDriverOptions } from '@gobing-ai/ts-laya-mlx';
 import { type AgentDriverOptions, createAgentDriver } from './agent-driver';
 import { DecisionRegistryError, UnknownDecisionMakerError } from './errors';
 import { createTypesafeDriver } from './typesafe-driver';
+
+/**
+ * Options forwarded to `createLayaDriver`. Same fields as `LayaDriverOptions` in
+ * `@gobing-ai/ts-laya-mlx`. Declared here so published `.d.ts` files do not import
+ * that package: it is an optional, macOS-only dependency (ADR-041) and is absent
+ * on other platforms.
+ */
+export interface LayaLocalDriverOptions {
+    pythonPath?: string;
+    module?: string;
+    workerScript?: string;
+    cwd?: string;
+    modelId?: string;
+    modelPath?: string;
+    revision?: string;
+    cacheDir?: string;
+    dtype?: 'float32' | 'float16' | 'bfloat16';
+    batchSize?: number;
+    startupTimeoutMs?: number;
+    requestTimeoutMs?: number;
+    env?: Record<string, string | undefined>;
+    platform?: string;
+    arch?: string;
+    core?: 'mlx-python' | 'mlx-native' | 'auto';
+    /** Same role as `LayaDriverOptions.client`. Typed wide so the optional module's class stays assignable. */
+    client?: unknown;
+    /** Same role as `LayaDriverOptions.nativeLoader`. */
+    nativeLoader?: unknown;
+}
+
+const LAYA_DRIVER_PACKAGE = '@gobing-ai/ts-laya-mlx';
+
+/**
+ * Load the bundled Laya driver. The package is an `optionalDependency` with
+ * `"os": ["darwin"]`, so non-macOS installs do not contain it. Only the import
+ * failure is rewritten; factory errors propagate unchanged.
+ *
+ * @internal Tests pass `load` because a workspace link always resolves.
+ */
+export async function resolveBundledLayaDriver(
+    options: LayaLocalDriverOptions = {},
+    load: () => Promise<unknown> = () => import('@gobing-ai/ts-laya-mlx'),
+): Promise<DecisionDriver> {
+    let loaded: unknown;
+    try {
+        loaded = await load();
+    } catch (cause) {
+        throw new DecisionConfigError(
+            `The 'laya-local' maker requires '${LAYA_DRIVER_PACKAGE}', an optional dependency installed only on macOS. On macOS, install it with 'bun add ${LAYA_DRIVER_PACKAGE}'.`,
+            'LAYA_BACKEND',
+            { cause },
+        );
+    }
+    const record = loaded !== null && typeof loaded === 'object' ? (loaded as { createLayaDriver?: unknown }) : {};
+    if (typeof record.createLayaDriver !== 'function') {
+        throw new DecisionConfigError(
+            `Module '${LAYA_DRIVER_PACKAGE}' does not export createLayaDriver`,
+            'LAYA_BACKEND',
+        );
+    }
+    return record.createLayaDriver(options);
+}
 
 /** A maker, or a lazy factory for one (sync or async). Factories run on first `resolve` and are memoised on success. */
 export type MakerSource = DecisionMaker | (() => DecisionMaker | Promise<DecisionMaker>);
@@ -20,7 +83,7 @@ export interface BuiltinMakerOptions {
     /** Driver options for the bundled drivers; the fm platform check runs at first resolve, not registration. */
     readonly driverOptions?: {
         readonly 'fm-local'?: FmDriverOptions;
-        readonly 'laya-local'?: LayaDriverOptions;
+        readonly 'laya-local'?: LayaLocalDriverOptions;
         readonly 'llm-agent'?: AgentDriverOptions;
     };
 }
@@ -68,15 +131,19 @@ export class DecisionMakerRegistry {
         this.register('fm-local', () =>
             createDecisionMaker({ driver: createFmDriver(driverOptions['fm-local'] ?? {}), ...makerOptions }),
         );
-        this.register('laya-local', () => {
-            const driverOpts: LayaDriverOptions = {
+        // Dynamic import: a top-level import would throw on hosts where the
+        // optional macOS package was not installed, and the rest of the hub
+        // would fail to load. A missing module becomes LAYA_BACKEND, which
+        // DecisionHub maps to reason 'no-backend'.
+        this.register('laya-local', async () => {
+            const driverOpts: LayaLocalDriverOptions = {
                 ...driverOptions['laya-local'],
             };
             if (makerOptions.env && driverOpts.env === undefined) {
                 driverOpts.env = makerOptions.env as Record<string, string | undefined>;
             }
             return createDecisionMaker({
-                driver: createLayaDriver(driverOpts),
+                driver: await resolveBundledLayaDriver(driverOpts),
                 ...makerOptions,
             });
         });

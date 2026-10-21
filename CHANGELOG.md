@@ -8,6 +8,16 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(ai-decision): `@gobing-ai/ts-laya-mlx` is an optional dependency and declares `"os": ["darwin"]`,
+  so a non-macOS install of `@gobing-ai/ts-ai-decision` no longer pulls in `@johnhenry/backend-mlx` or
+  `koffi`. `laya-local` loads that package on first resolve (`resolveBundledLayaDriver()`). A missing
+  module throws `DecisionConfigError` (`LAYA_BACKEND`), and `decide` falls back with `reason: 'no-backend'`.
+  macOS installs still receive the package and its native stack.
+  <!-- src: packages/ai-decision/src/registry.ts:52-74 (resolveBundledLayaDriver); packages/ai-decision/package.json (optionalDependencies); packages/laya-mlx/package.json (`os`); tests packages/ai-decision/tests/laya-optional.test.ts -->
+  <!-- verification: non-macOS path covered by laya-optional.test.ts (missing module, hub fallback, real built-in on linux). Confidence: HIGH -->
+
 ## [0.5.31] - 2026-10-19
 
 ### Added
