@@ -8,15 +8,44 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.5.33] - 2026-10-21
+
 ### Fixed
 
-- fix(ai-decision): `@gobing-ai/ts-laya-mlx` is an optional dependency and declares `"os": ["darwin"]`,
-  so a non-macOS install of `@gobing-ai/ts-ai-decision` no longer pulls in `@johnhenry/backend-mlx` or
-  `koffi`. `laya-local` loads that package on first resolve (`resolveBundledLayaDriver()`). A missing
-  module throws `DecisionConfigError` (`LAYA_BACKEND`), and `decide` falls back with `reason: 'no-backend'`.
-  macOS installs still receive the package and its native stack.
-  <!-- src: packages/ai-decision/src/registry.ts:52-74 (resolveBundledLayaDriver); packages/ai-decision/package.json (optionalDependencies); packages/laya-mlx/package.json (`os`); tests packages/ai-decision/tests/laya-optional.test.ts -->
-  <!-- verification: non-macOS path covered by laya-optional.test.ts (missing module, hub fallback, real built-in on linux). Confidence: HIGH -->
+- fix(ai-decision) (85416122, 7614f636): `@gobing-ai/ts-laya-mlx` is an optional dependency and declares
+  `"os": ["darwin"]`, so a non-macOS install of `@gobing-ai/ts-ai-decision` no longer pulls in
+  `@johnhenry/backend-mlx` or `koffi`. `laya-local` loads that package on first resolve
+  (`resolveBundledLayaDriver()`). A missing module throws `DecisionConfigError` (`LAYA_BACKEND`), and
+  `decide` falls back with `reason: 'no-backend'`. macOS installs still receive the package and its
+  native stack. Recorded as ADR-041, amending ADR-033.
+  <!-- src: packages/ai-decision/src/registry.ts:52 (resolveBundledLayaDriver); packages/ai-decision/package.json:60 (optionalDependencies); packages/laya-mlx/package.json:26 (`os`); docs/00_ADR.md:871 (ADR-041) · confidence: HIGH -->
+
+### Other
+
+- chore(rules) (f7daf327): a `no-static-laya-driver-import-in-ai-decision` rule forbids a `from`-form
+  import of `@gobing-ai/ts-laya-mlx` under `packages/ai-decision/src`, holding the ADR-041 boundary as a
+  gate rather than a review habit. `includeRequire: false` scopes it to `from`-form imports, so the
+  sanctioned dynamic `import()` inside `resolveBundledLayaDriver` stays allowed.
+  <!-- src: .spur/rules/typescript/decision-boundaries.yaml:52 (rule id, `includeRequire: false` at :60) · confidence: HIGH -->
+
+- test(ai-runner) (7b0b3d41): the `getGitContextSync` default-executor case builds its own temp repo
+  instead of reading `process.cwd()`, which is a detached HEAD in a pull-request checkout — there
+  `git branch --show-current` is empty and the function returns `null` by contract, so the case failed on
+  every PR build while passing on `main`.
+  <!-- src: packages/ai-runner/tests/identity.test.ts:136 (case, temp repo at :142) · confidence: HIGH -->
+
+- test(ai-decision) (7480d296): the real `laya-local` built-in fallback case drops its
+  `skipIf(process.platform === 'darwin')` and forces the platform through `driverOptions`, so the real
+  factory throws in the client constructor before any worker spawns and the assertion runs on every host —
+  the suite drops from 1 skip to 0.
+  <!-- src: packages/ai-decision/tests/laya-optional.test.ts:146 · confidence: HIGH -->
+
+- docs(readme) (07a89aff): the setup steps gain the one-time `proto trust .` — proto refuses to load
+  `[plugins.tools]` from an untrusted `.prototools`, so without it the `commit-msg` hook cannot resolve
+  `cog` and every commit fails; trust is recorded per config path, so a fresh clone or worktree needs its
+  own. The `ts-ai-decision` row is corrected to name `ts-laya-mlx` an optional macOS-only dependency
+  (ADR-041) rather than a bundled one.
+  <!-- src: README.md:90 (`proto trust .` step); README.md:77 (ts-ai-decision row) · confidence: HIGH -->
 
 ## [0.5.31] - 2026-10-19
 
