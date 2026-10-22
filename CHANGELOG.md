@@ -8,6 +8,24 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-22
+
+### Added
+
+- feat(ai-runner) (task 1284): correlated warm-turn session facade — `AiRunner.openTurnSession(agent,
+  {policy, driver?, binary?, handshakeTimeoutMs?})` opens one long-lived agent session that admits a
+  single correlated turn at a time. Typed refusals (`unsupported-agent`, `unqualified-version`,
+  `spawn-failed`, `handshake-failed`) are returned values, never throws. A turn separates acceptance
+  (`TurnHandle.accepted`) from completion (`TurnHandle.outcome`); outcomes settle exactly once as
+  `success | failure | interrupted | not-started | outcome-unknown | contract-violation` — process
+  death before acceptance is `not-started`, after acceptance `outcome-unknown`. `cancel(reason,
+  {graceMs})` resolves deterministically within `TURN_CANCEL_GRACE_MS` (5s) when the agent ignores
+  it. `turnSessionPolicyDigest` hashes canonical-JSON policy for consumer-side reuse checks. 0.x
+  ships the contract only: `TURN_SESSION_DRIVERS` is intentionally empty — real claude/pi/codex
+  drivers land with recorded qualification evidence. A real-process scripted fake driver is
+  exported from the new `@gobing-ai/ts-ai-runner/testing` subpath for consumer tests.
+  <!-- src: packages/ai-runner/src/turn-session.ts (TurnSessionDriver, openTurnSessionWithDriver); packages/ai-runner/src/ai-runner.ts (openTurnSession); docs/design/fleet-task-turn-execution.md §4–5, ADR-145 · confidence: HIGH -->
+
 ## [0.5.33] - 2026-10-21
 
 ### Fixed

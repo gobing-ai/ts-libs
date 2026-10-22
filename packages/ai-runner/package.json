@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-ai-runner",
-    "version": "0.5.33",
+    "version": "0.6.0",
     "description": "@gobing-ai/ts-ai-runner — Coding-agent shims, detection, doctor checks, and prompt execution.",
     "keywords": [
         "typescript",
@@ -28,6 +28,10 @@
         ".": {
             "types": "./dist/index.d.ts",
             "import": "./dist/index.js"
+        },
+        "./testing": {
+            "types": "./dist/testing/fake-turn-driver.d.ts",
+            "import": "./dist/testing/fake-turn-driver.js"
         }
     },
     "files": [
