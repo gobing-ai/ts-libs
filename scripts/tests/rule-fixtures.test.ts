@@ -381,6 +381,7 @@ describe('runRuleFixtureChecks — fixture shapes that cannot be silently droppe
 
 describe('runRuleFixtureChecks — the declared case inventory', () => {
     test('rejects emptied failure cases and support files even when rule outcomes still match', async () => {
+        // Two full fixture-collection runs per pass; bun's 5s default is too tight under load.
         for (const relative of [
             'verify-confidence/should-fire/.spur/run/0103-verdict.json',
             'lifecycle-bus-propagation/should-fire/events.ts',
@@ -391,7 +392,7 @@ describe('runRuleFixtureChecks — the declared case inventory', () => {
             expect(report.pass).toBe(false);
             expect(report.results.some((row) => row.error?.includes('fixture content changed'))).toBe(true);
         }
-    });
+    }, 30_000);
 
     test('fails when a declared expectation directory is emptied', async () => {
         const root = await makeTempRepo();
