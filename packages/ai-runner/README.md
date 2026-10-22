@@ -29,6 +29,7 @@ bun add @gobing-ai/ts-ai-runner
 | `MessageStore` / `DrainedMessage` | ai-runner-owned orchestration persistence port and minimal message view consumed by `TeamOrchestrator` |
 | `TeamAgentProcess` | Manages a long-running agent subprocess with pipe-mode stdin/stdout |
 | `TeamOrchestrator` | Loads specs, starts/stops agents, routes durable/live messages, and emits lifecycle events |
+| `AiRunner.openTurnSession()` | Opens a correlated warm-turn session over one long-lived agent process: one turn at a time, typed refusals (never throws), acceptance separate from outcome, deterministic settlement (`success`/`failure`/`interrupted`/`not-started`/`outcome-unknown`/`contract-violation`), bounded cancel grace. 0.x ships the contract only — `TURN_SESSION_DRIVERS` is empty; real per-agent drivers land with qualification evidence. |
 | `AgentEvents` / `AiRunnerProcessEvents` | Typed event maps for agent and process-level observability |
 | `AGENT_SHIMS` / `TIER1_PRIORITY` / `TIER2_AGENTS` / `DISPLAY_ORDER` | Agent registry constants |
 | `isAgentName()` | Type guard for supported agent identifiers |
@@ -929,8 +930,11 @@ safe to call more than once; the maker is not usable afterwards.
 
 ## Boundary Notes
 
-- This package is a command adapter, not an agent orchestration framework.
-- It does not install agent CLIs or manage credentials.
+- The turn-session facade (task 1284) owns only process/protocol mechanics (ADR-145): consumers own
+  policy, receipts and validation. `TURN_SESSION_DRIVERS` registers a driver only with recorded
+  `verifiedAgainst` qualification evidence; the scripted fake in `@gobing-ai/ts-ai-runner/testing`
+  is for consumer tests, never library code.
+- This package is a command adapter, not an agent orchestration framework.- It does not install agent CLIs or manage credentials.
 - It does not parse agent responses beyond process result capture.
 - It keeps subprocess launching behind `ProcessExecutor` / `PipeProcess`, so tests can stay deterministic.
 - Team-mode persistence is consumed through the ai-runner-owned `MessageStore` port; `InboxMessageDao` from `@gobing-ai/ts-db/inbox` is one structural provider. Host apps own migrations and adapter lifecycle, and `@gobing-ai/ts-db` is a development dependency of this package (only the DB-backed integration test resolves the concrete DAO).

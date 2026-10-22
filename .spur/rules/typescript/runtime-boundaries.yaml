@@ -69,6 +69,8 @@ rules:
             # The single sanctioned seam: exitProcess() lives here and owns the
             # only legitimate process.exit call in the workspace.
             - "packages/utils/src/output.ts"
+            # The scripted fake agent child: exit codes are part of the turn protocol under test.
+            - "packages/ai-runner/src/testing/fake-turn-agent.ts"
 
   - id: no-shadow-exit-helper
     description: "exitProcess() may only be defined in @gobing-ai/ts-utils output.ts; other modules must import it, not redeclare it (prevents bypassing the sanctioned exit seam)."

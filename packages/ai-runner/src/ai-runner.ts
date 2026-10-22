@@ -17,6 +17,14 @@ import {
     QuotaObservationProducer,
 } from './quota';
 import { translateSlashCommand } from './slash-command';
+import {
+    type OpenTurnSessionResult,
+    openTurnSessionWithDriver,
+    TURN_SESSION_DRIVERS,
+    type TurnBinary,
+    type TurnSessionDriver,
+    type TurnSessionPolicy,
+} from './turn-session';
 
 /** Result returned by every AI runner dispatch method. */
 export interface AgentRunResult {
@@ -218,6 +226,53 @@ export class AiRunner {
     runAuthCommand(agent: AgentName, options: AgentRunOptions = {}): Promise<AgentRunResult> | null {
         const command = getAgentShim(agent).getAuthCommand();
         return command === null ? null : this.invoke(agent, 'auth', command, options, true);
+    }
+
+    /** Open a correlated warm-turn session (task 1284). Expected refusals are typed, never throws. */
+    async openTurnSession(
+        agent: AgentName,
+        options: {
+            policy: TurnSessionPolicy;
+            /** Test/injection seam; defaults to the built-in registry (empty in 0.x). */
+            driver?: TurnSessionDriver;
+            /** Pre-resolved binary identity; defaults to probing the shim's version command. */
+            binary?: TurnBinary;
+            handshakeTimeoutMs?: number;
+        },
+    ): Promise<OpenTurnSessionResult> {
+        // Driver lookup BEFORE any binary probe: an unsupported agent must not spawn (AC1).
+        const driver = options.driver ?? TURN_SESSION_DRIVERS.get(agent);
+        if (driver === undefined) {
+            return {
+                ok: false,
+                reason: 'unsupported-agent',
+                detail: `no turn-session driver registered for agent '${agent}' (registry: ${[...TURN_SESSION_DRIVERS.keys()].join(', ') || 'empty'})`,
+            };
+        }
+        const binary = options.binary ?? (await this.resolveTurnBinary(agent));
+        return await openTurnSessionWithDriver({
+            agent,
+            driver,
+            policy: options.policy,
+            binary,
+            processExecutor: this.processExecutor,
+            ...(options.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: options.handshakeTimeoutMs } : {}),
+        });
+    }
+
+    /** Probe the agent binary for qualification: path + best-effort semver from the version command. */
+    private async resolveTurnBinary(agent: AgentName): Promise<TurnBinary> {
+        const command = getAgentShim(agent).getVersionCommand();
+        const result = await this.processExecutor.run({
+            command: command.command,
+            args: command.args,
+            label: `ai-runner.${agent}.version`,
+            rejectOnError: false,
+            forceBuffered: true,
+            ...(this.defaultCwd !== undefined ? { cwd: this.defaultCwd } : {}),
+        });
+        const match = /[0-9]+\.[0-9]+\.[0-9]+[^\s]*/.exec(result.stdout);
+        return { path: command.command, version: match?.[0] ?? null };
     }
 
     private async invoke(
