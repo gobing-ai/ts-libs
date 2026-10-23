@@ -8,6 +8,22 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-23
+
+### Fixed
+
+- fix(ai-runner) (spur task 1276): headless antigravity (`agy -p`) dispatches were exiting 0 with
+  empty answers on healthy models. Field diagnosis (five failed pipeline review runs, 2026-10-23):
+  `--mode accept-edits` alone only covers edit prompts — the jetski sandbox still ran allowed
+  commands with workspace-scoped filesystem restrictions (blocking e.g. `~/.gitconfig`, which
+  fatals every `git` invocation) and hard-denied any command outside the built-in prefix
+  allowlist (e.g. `bun <script>` vs the built-in `bun run`), with no headless way to grant it.
+  The shim now passes `--dangerously-skip-permissions` in print mode — the agy CLI's own
+  documented remedy for headless automation — widening the 0689 trust policy with operator
+  sanction. The flag is scoped to `-p` print dispatches; interactive sessions keep their own
+  permission flow. Callers that scope the dispatch (workspace-scoped `--add-dir`, bounded
+  timeouts) remain the containment boundary.
+
 ## [0.6.1] - 2026-10-22
 
 ### Added

@@ -170,11 +170,20 @@ describe('new agent shims', () => {
         expect(shim.tier).toBe(1);
         expect(shim.getPromptCommand({ input: 'ship it' })).toEqual({
             command: 'agy',
-            args: ['-p', 'ship it', '--mode', 'accept-edits'],
+            args: ['-p', 'ship it', '--mode', 'accept-edits', '--dangerously-skip-permissions'],
         });
         expect(shim.getPromptCommand({ input: 'x', continue: true, model: 'claude-opus-4' })).toEqual({
             command: 'agy',
-            args: ['-p', 'x', '--mode', 'accept-edits', '--continue', '--model', 'claude-opus-4'],
+            args: [
+                '-p',
+                'x',
+                '--mode',
+                'accept-edits',
+                '--dangerously-skip-permissions',
+                '--continue',
+                '--model',
+                'claude-opus-4',
+            ],
         });
         // spur 0689: workspace threads to --add-dir so headless relative writes
         // land in the project tree instead of agy's scratch dir.
@@ -183,6 +192,7 @@ describe('new agent shims', () => {
             'x',
             '--mode',
             'accept-edits',
+            '--dangerously-skip-permissions',
             '--add-dir',
             '/repo',
         ]);
@@ -434,10 +444,18 @@ describe('session-affinity argv matrix (0447 R3/R5)', () => {
         {
             agent: 'antigravity-cli',
             name: 'agy',
-            fresh: ['-p', '', '--mode', 'accept-edits'],
-            sessionDirOnly: ['-p', '', '--mode', 'accept-edits'],
-            sessionIdAndDir: ['-p', '', '--mode', 'accept-edits', '--conversation', 'abc123'],
-            continueOnly: ['-p', '', '--mode', 'accept-edits', '--continue'],
+            fresh: ['-p', '', '--mode', 'accept-edits', '--dangerously-skip-permissions'],
+            sessionDirOnly: ['-p', '', '--mode', 'accept-edits', '--dangerously-skip-permissions'],
+            sessionIdAndDir: [
+                '-p',
+                '',
+                '--mode',
+                'accept-edits',
+                '--dangerously-skip-permissions',
+                '--conversation',
+                'abc123',
+            ],
+            continueOnly: ['-p', '', '--mode', 'accept-edits', '--dangerously-skip-permissions', '--continue'],
         },
         {
             agent: 'grok',

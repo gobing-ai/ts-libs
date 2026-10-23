@@ -285,17 +285,22 @@ const antigravityCliShim: AgentShim = {
     getHelpCommand: () => ({ command: 'agy', args: ['--help'] }),
     getVersionCommand: () => ({ command: 'agy', args: ['--version'] }),
     getPromptCommand: (options) => {
-        // Print mode is headless: agy auto-denies any tool that would prompt
-        // (write_file et al.), so expectFile-style automation dead-ends without
-        // a permission affordance (spur 0689). `--mode accept-edits` is the
-        // narrowest grant verified to suppress the denial (live probe
-        // 2026-08-27: write_file succeeds, multi-step write-read-write passes);
-        // it auto-approves edit permission requests only, not all tools. Trust
-        // assumption: the dispatch is already an operator-initiated, headless,
-        // workspace-scoped subprocess running agent-emitted commands under the
-        // caller's supervision. This is the narrow edit-only policy shared by
-        // configured headless executors that otherwise prompt (spur 0689).
-        const args = ['-p', options.input ?? '', '--mode', 'accept-edits'];
+        // Print mode is headless: agy auto-denies any tool that would prompt,
+        // so expectFile-style automation dead-ends without a permission
+        // affordance (spur 0689). `--mode accept-edits` alone proved too narrow
+        // in the field (spur task 1276 review lane, 2026-10-23): the sandbox
+        // (toolPermission=proceed-in-sandbox) blocked reads outside the
+        // workspace (~/.gitconfig) and hard-denied allowlisted-command
+        // variants (e.g. `bun <script>` vs the built-in `bun run` prefix),
+        // producing exit-0 empty answers from healthy models. The CLI's own
+        // documented remedy for headless automation is
+        // `--dangerously-skip-permissions` (auto-approve all tool permission
+        // requests, sandbox included). Trust assumption (0689, widened with
+        // operator sanction 2026-10-23): the dispatch is an operator-initiated,
+        // headless, workspace-scoped subprocess running agent-emitted commands
+        // under the caller's supervision; the flag is scoped to print mode
+        // only — interactive agy sessions keep their own permission flow.
+        const args = ['-p', options.input ?? '', '--mode', 'accept-edits', '--dangerously-skip-permissions'];
         if (options.timeoutMs !== undefined) args.push('--print-timeout', `${options.timeoutMs}ms`);
         // Headless agy resolves relative file-tool paths against a scratch dir,
         // not the process cwd; --add-dir re-roots them into the real workspace
