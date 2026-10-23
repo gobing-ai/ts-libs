@@ -60,6 +60,7 @@ const KNOWN_SCHEMA_HASHES: Readonly<Record<string, string>> = {
     '0.6.0': '0e7e78d20282ecc892f0411b0f6a149e3ee2470f7fb23f561ad23d8588719fb7',
     '0.6.1': '0e7e78d20282ecc892f0411b0f6a149e3ee2470f7fb23f561ad23d8588719fb7',
     '0.6.2': '0e7e78d20282ecc892f0411b0f6a149e3ee2470f7fb23f561ad23d8588719fb7',
+    '0.6.3': '0e7e78d20282ecc892f0411b0f6a149e3ee2470f7fb23f561ad23d8588719fb7',
 };
 
 describe('HISTORY_IMPORT_SCHEMA_VERSION (0748 R1)', () => {

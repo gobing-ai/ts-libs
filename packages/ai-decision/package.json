@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-ai-decision",
-    "version": "0.6.2",
+    "version": "0.6.3",
     "description": "@gobing-ai/ts-ai-decision — Declarative YAML decision catalog over the ts-ai-runner DecisionMaker surface.",
     "keywords": [
         "typescript",
