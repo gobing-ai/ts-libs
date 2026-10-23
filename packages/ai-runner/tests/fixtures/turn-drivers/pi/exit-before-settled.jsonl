@@ -1,0 +1,4 @@
+{"type":"extension_ui_request","id":"<ext-id>","method":"setStatus","statusKey":"fff"}
+{"id":"p1","type":"response","command":"prompt","success":true}
+{"type":"agent_start"}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"partial"}],"stopReason":"stop"}}

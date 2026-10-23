@@ -302,7 +302,7 @@ describe('getAgentSessionCapability (0447 R2 + B8 R1/R3)', () => {
             supportsStructuredOutput: true,
             verifiedAgainst: '18.2.3',
         });
-        expect(getAgentSessionCapability('pi').verifiedAgainst).toBe('0.87.0');
+        expect(getAgentSessionCapability('pi').verifiedAgainst).toBe('0.87.1');
     });
 
     test('claude supports resume-by-id and structured output but no session-dir (B8 R4)', () => {

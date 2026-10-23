@@ -934,6 +934,11 @@ safe to call more than once; the maker is not usable afterwards.
   policy, receipts and validation. `TURN_SESSION_DRIVERS` registers a driver only with recorded
   `verifiedAgainst` qualification evidence; the scripted fake in `@gobing-ai/ts-ai-runner/testing`
   is for consumer tests, never library code.
+- Registered drivers (evidence in `tests/fixtures/turn-drivers/<agent>/`): `claude` 2.1.308
+  stream-json (task 1276) and `pi` 0.87.1 rpc (task 1277 — probed live 2026-10-23 against the
+  repository dependency; the PATH 1.4.0 binary speaks the same family but is not the spawn
+  target, so `qualify()` pins 0.87.1 only). Any other version refuses `unqualified-version` and
+  the consumer falls back to resume/one-shot — never a guessed protocol.
 - This package is a command adapter, not an agent orchestration framework.- It does not install agent CLIs or manage credentials.
 - It does not parse agent responses beyond process result capture.
 - It keeps subprocess launching behind `ProcessExecutor` / `PipeProcess`, so tests can stay deterministic.

@@ -548,7 +548,12 @@ const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapabilit
         supportsSessionDir: true,
         supportsPersistentStdin: true,
         supportsStructuredOutput: true,
-        verifiedAgainst: '0.87.0',
+        verifiedAgainst: '0.87.1',
+        // Persistent stdin re-verified with a live two-turn capture on 2026-10-23 (task 1277):
+        // `--mode rpc --no-session` served two keyed turns in one process with per-turn prompt
+        // response + agent_settled. Resume-by-id/session-dir surface carried from the 0.87.0
+        // probe (patch-level dependency bump 0.87.0 → 0.87.1, unchanged CLI surface); the
+        // turn-session driver pins the same 0.87.1 version (turn-drivers/pi-rpc.ts).
     },
     claude: {
         supportsResumeById: true,

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { PipeProcess, ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { AgentName } from './agents/shims';
 import { createClaudeTurnSessionDriver } from './turn-drivers/claude-stream-json';
+import { createPiTurnSessionDriver } from './turn-drivers/pi-rpc';
 
 /**
  * Correlated warm-turn session facade (task 1284, design `fleet-task-turn-execution.md` §4–5,
@@ -173,10 +174,12 @@ export type OpenTurnSessionResult =
 /**
  * Built-in driver registry. Entries land only with recorded qualification evidence (anti-pattern:
  * registration without evidence): claude 2.1.308 stream-json (task 1276, fixtures under
- * `tests/fixtures/turn-drivers/claude`). 0.x shipped this empty by design.
+ * `tests/fixtures/turn-drivers/claude`) and pi 0.87.1 rpc (task 1277, fixtures under
+ * `tests/fixtures/turn-drivers/pi`). 0.x shipped this empty by design.
  */
 export const TURN_SESSION_DRIVERS: ReadonlyMap<AgentName, TurnSessionDriver> = new Map([
     ['claude', createClaudeTurnSessionDriver()],
+    ['pi', createPiTurnSessionDriver()],
 ]);
 
 /** How long `cancel()` waits for native terminal evidence before resolving `outcome-unknown`. */

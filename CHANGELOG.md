@@ -8,6 +8,24 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+### Added
+
+- feat(ai-runner) (spur task 1277): the second turn-session driver ships registered — `pi` over
+  `pi --mode rpc --no-session` joins `claude` in `TURN_SESSION_DRIVERS`, qualified live on
+  2026-10-23 against the repository dependency pi 0.87.1 (two keyed turns settled success in one
+  warm process; mid-run abort captured; fixtures under `tests/fixtures/turn-drivers/pi`). The
+  protocol self-attributes acceptance: the driver sends each prompt command with the runner turn
+  id as its `id`, and pi echoes that id on the `response` — so acceptance is never guessed from
+  output records. `agent_settled` (never `agent_end`, which can precede retries) is the only
+  completion evidence; a `success: false` prompt response, a `parse` response (framing broke), or
+  `agent_settled` with `aborted: true` (1.4.0 shape) settle failure. `qualify()` pins 0.87.1 —
+  the PATH binary 1.4.0 speaks the same family (adds `data.disposition` on the prompt response
+  and `aborted` on settle; the decoder tolerates both) but is not the warm seam's spawn target,
+  so any other version refuses `unqualified-version` and consumers keep the resume/one-shot
+  fallback with the named reason. `AGENT_SESSION_CAPABILITY.pi.verifiedAgainst` re-probed and
+  bumped 0.87.0 → 0.87.1 (persistent stdin re-verified; resume/session-dir carried from 0.87.0,
+  patch-level unchanged).
+
 ## [0.6.2] - 2026-10-23
 
 ### Fixed

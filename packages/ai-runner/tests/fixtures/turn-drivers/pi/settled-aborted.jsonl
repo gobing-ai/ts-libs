@@ -1,0 +1,3 @@
+{"id":"p1","type":"response","command":"prompt","success":true}
+{"type":"agent_start"}
+{"type":"agent_settled","aborted":true}

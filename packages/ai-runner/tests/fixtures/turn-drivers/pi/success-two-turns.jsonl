@@ -1,0 +1,22 @@
+{"type":"extension_ui_request","id":"<ext-id>","method":"setWidget","widgetKey":"powerline"}
+{"type":"extension_ui_request","id":"<ext-id>","method":"setStatus","statusKey":"fff"}
+{"id":"t1","type":"response","command":"prompt","success":true}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_start","message":{"role":"assistant"}}
+{"type":"message_end","message":{"role":"system","content":"","sections":{"preamble":"<redacted-host-preamble>"}}}
+{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"Reply with exactly the single word alpha and nothing else."}],"timestamp":1792776900000}}
+{"type":"message_update","delta":{"type":"text_delta","text":"alpha"},"usage":{"input":1000,"output":3,"cacheRead":0,"cost":{"total":0.0001}}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"alpha"}],"stopReason":"stop","usage":{"input":1000,"output":3,"cacheRead":0,"cost":{"total":0.0001}}}}
+{"type":"turn_end","message":{"role":"assistant","content":[{"type":"text","text":"alpha"}],"stopReason":"stop"}}
+{"type":"agent_end","messages":[{"role":"user","content":[{"type":"text","text":"<redacted>"}]},{"role":"assistant","content":[{"type":"text","text":"<redacted>"}]}]}
+{"type":"agent_settled"}
+{"type":"session_info_changed","sessionFile":"<path>","sessionId":"<id>"}
+{"id":"t2","type":"response","command":"prompt","success":true}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_update","delta":{"type":"text_delta","text":"beta"},"usage":{"input":1200,"output":3,"cacheRead":900,"cost":{"total":0.0001}}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"beta"}],"stopReason":"stop","usage":{"input":1200,"output":3,"cacheRead":900,"cost":{"total":0.0001}}}}
+{"type":"turn_end","message":{"role":"assistant","content":[{"type":"text","text":"beta"}],"stopReason":"stop"}}
+{"type":"agent_end","messages":[{"role":"user","content":[{"type":"text","text":"<redacted>"}]},{"role":"assistant","content":[{"type":"text","text":"<redacted>"}]}]}
+{"type":"agent_settled"}
