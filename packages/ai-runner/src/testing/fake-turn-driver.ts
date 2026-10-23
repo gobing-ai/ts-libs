@@ -12,7 +12,7 @@ export interface FakeTurnAction {
     op: 'ready' | 'accept' | 'output' | 'terminal' | 'stray' | 'sleep' | 'ignore-cancel' | 'flood' | 'exit';
     nativeSessionId?: string;
     data?: string;
-    kind?: 'success' | 'failure';
+    kind?: 'success' | 'failure' | 'not-started';
     nativeTurnId?: string;
     finalText?: string;
     line?: Record<string, unknown>;
@@ -80,7 +80,12 @@ export function createFakeTurnSessionDriver(
                     ...(frame.type === 'terminal'
                         ? {
                               terminal: {
-                                  kind: frame.kind === 'failure' ? 'failure' : 'success',
+                                  kind:
+                                      frame.kind === 'failure'
+                                          ? 'failure'
+                                          : frame.kind === 'not-started'
+                                            ? 'not-started'
+                                            : 'success',
                                   ...(frame.nativeTurnId !== undefined ? { nativeTurnId: frame.nativeTurnId } : {}),
                                   ...(frame.nativeSessionId !== undefined
                                       ? { nativeSessionId: frame.nativeSessionId }

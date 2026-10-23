@@ -9,7 +9,7 @@
  * Protocol (child → parent):
  *   {"ctl":"ready","nativeSessionId":...}                           handshake (auto-emitted at startup)
  *   {"turn":T,"type":"accepted"} | {"turn":T,"type":"output","data":...}
- *   {"turn":T,"type":"terminal","kind":"success"|"failure",...}
+ *   {"turn":T,"type":"terminal","kind":"success"|"failure"|"not-started",...}
  *   {"ctl":"exit"} echoes are the raw scripted `stray` lines.
  */
 import { createInterface } from 'node:readline';
@@ -18,7 +18,7 @@ interface FakeAction {
     op: 'ready' | 'accept' | 'output' | 'terminal' | 'stray' | 'sleep' | 'ignore-cancel' | 'flood' | 'exit';
     nativeSessionId?: string;
     data?: string;
-    kind?: 'success' | 'failure';
+    kind?: 'success' | 'failure' | 'not-started';
     nativeTurnId?: string;
     finalText?: string;
     line?: Record<string, unknown>;

@@ -26,6 +26,18 @@ versioned in **lockstep** — a single version number covers every package in th
   bumped 0.87.0 → 0.87.1 (persistent stdin re-verified; resume/session-dir carried from 0.87.0,
   patch-level unchanged).
 
+### Fixed
+
+- fix(ai-runner) (spur task 1277, escalation Q2): a pi `response` with `success: false` arriving
+  BEFORE acceptance settled `failure`, violating the facade's uniform pre-acceptance rule (the
+  process-exit path already settles `not-started`; `turn-session.ts:436/472/566`). The decoder now
+  classifies pre-acceptance rejection as `not-started` (reason carries the pi error); rejection
+  after acceptance stays `failure`. The facade terminal mapping honors the wire kind instead of
+  collapsing every non-success terminal to `failure`, and the scripted fake driver/agent gained
+  the `not-started` kind so consumers can regression-test the contract. Found by the Spur-side
+  real-child regression (`packages/app/tests/workflow/pi-warm-work-item.test.ts`) before any
+  0.6.3 consumer shipped against it.
+
 ## [0.6.2] - 2026-10-23
 
 ### Fixed

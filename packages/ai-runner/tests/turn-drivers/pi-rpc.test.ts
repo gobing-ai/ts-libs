@@ -103,17 +103,30 @@ describe('pi turn-session driver (task 1277)', () => {
         ]);
     });
 
-    test('decode: response-level rejection settles failure with the named reason', () => {
+    test('decode: response-level rejection is pre-acceptance not-started / post-acceptance failure', () => {
         const driver = createPiTurnSessionDriver();
-        const events = driver.decode(
+        // Rejection BEFORE acceptance = the turn never started (uniform session contract, same
+        // classification as the process-exit path). The Spur 1277 plan pins this outcome.
+        const preAcceptance = driver.decode(
             '{"id":"t1","type":"response","command":"prompt","success":false,"error":"no provider"}',
             { turnId: 't1', accepted: false },
         );
-        expect(events).toHaveLength(1);
-        expect(events[0]).toMatchObject({
+        expect(preAcceptance).toHaveLength(1);
+        expect(preAcceptance[0]).toMatchObject({
             turnId: 't1',
             type: 'terminal',
-            terminal: { kind: 'failure', reason: expect.stringContaining('no provider') },
+            terminal: { kind: 'not-started', reason: expect.stringContaining('no provider') },
+        });
+        // Rejection AFTER acceptance (accepted turn's command errors) is a definite failure.
+        const postAcceptance = driver.decode(
+            '{"id":"t1","type":"response","command":"prompt","success":false,"error":"runner crashed"}',
+            { turnId: 't1', accepted: true },
+        );
+        expect(postAcceptance).toHaveLength(1);
+        expect(postAcceptance[0]).toMatchObject({
+            turnId: 't1',
+            type: 'terminal',
+            terminal: { kind: 'failure', reason: expect.stringContaining('runner crashed') },
         });
     });
 

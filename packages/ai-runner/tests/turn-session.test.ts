@@ -138,6 +138,22 @@ describe('TurnSession (task 1284 — correlated warm-turn session facade)', () =
         if (!result.ok) expect(result.reason).toBe('handshake-failed');
     });
 
+    test('driver terminal not-started settles not-started (pre-acceptance rejection contract)', async () => {
+        const { runner, driver } = fakeRunner([{ op: 'terminal', kind: 'not-started' }]);
+        const result = await open(runner, driver);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        const session = result.session;
+        try {
+            const handle = session.startTurn({ prompt: 'go', correlation: CORRELATION });
+            expect(await handle.accepted).toBeNull();
+            const outcome = await handle.outcome;
+            expect(outcome.kind).toBe('not-started');
+        } finally {
+            await session.close();
+        }
+    });
+
     test('AC2: acceptance and terminal outcome are separate and correlated', async () => {
         const { runner, driver } = fakeRunner([
             { op: 'accept' },

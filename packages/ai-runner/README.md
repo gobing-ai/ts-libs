@@ -939,6 +939,12 @@ safe to call more than once; the maker is not usable afterwards.
   repository dependency; the PATH 1.4.0 binary speaks the same family but is not the spawn
   target, so `qualify()` pins 0.87.1 only). Any other version refuses `unqualified-version` and
   the consumer falls back to resume/one-shot — never a guessed protocol.
+- Outcome classification (task 1277 escalation Q2): a definite pre-acceptance end settles
+  `not-started`, uniformly across the process-exit path and decoder terminals (pi's prompt
+  rejection before acceptance). `failure` is reserved for definite post-acceptance ends. The pi
+  fixtures could not capture a live pre-acceptance rejection (0.87.1 accepted every inducement:
+  empty message, unknown model), so the shape is decoder-unit-tested with synthetic lines and
+  facade-tested through the scripted fake.
 - This package is a command adapter, not an agent orchestration framework.- It does not install agent CLIs or manage credentials.
 - It does not parse agent responses beyond process result capture.
 - It keeps subprocess launching behind `ProcessExecutor` / `PipeProcess`, so tests can stay deterministic.

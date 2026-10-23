@@ -108,7 +108,10 @@ export function createPiTurnSessionDriver(
                             turnId: context.turnId,
                             type: 'terminal',
                             terminal: {
-                                kind: 'failure',
+                                // Pre-acceptance rejection = the turn never started (uniform
+                                // session rule, same classification as the process-exit path);
+                                // post-acceptance is a definite failure.
+                                kind: context.accepted ? 'failure' : 'not-started',
                                 reason: `pi rejected the prompt command: ${record.error ?? 'unspecified error'}`,
                             },
                         },

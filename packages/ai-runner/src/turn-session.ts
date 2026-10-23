@@ -100,7 +100,9 @@ export interface TurnBinary {
 
 /** A wire-level terminal extracted from one decoded line. */
 export interface TurnWireTerminal {
-    kind: 'success' | 'failure';
+    // `not-started` is the pre-acceptance definite-end classification (e.g. pi rejecting the
+    // prompt command before any run started) — it must survive the facade mapping unchanged.
+    kind: 'success' | 'failure' | 'not-started';
     nativeTurnId?: string;
     nativeSessionId?: string;
     finalText?: string;
@@ -500,11 +502,9 @@ class TurnSessionImpl implements TurnSession {
             return;
         }
         if (wire.type === 'terminal' && wire.terminal !== undefined) {
-            const kind: TurnOutcomeKind = turn.cancelRequested
-                ? 'interrupted'
-                : wire.terminal.kind === 'success'
-                  ? 'success'
-                  : 'failure';
+            // Decoder terminals carry their own pre-acceptance classification (`not-started`);
+            // cancel precedence still wins over whatever the wire reported.
+            const kind: TurnOutcomeKind = turn.cancelRequested ? 'interrupted' : wire.terminal.kind;
             turn.settle({
                 kind,
                 ...(wire.terminal.nativeTurnId !== undefined ? { nativeTurnId: wire.terminal.nativeTurnId } : {}),
