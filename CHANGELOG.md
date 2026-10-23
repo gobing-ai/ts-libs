@@ -8,6 +8,26 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-22
+
+### Added
+
+- feat(ai-runner) (task 1276): the first real turn-session driver ships registered — `claude` over
+  `claude -p --input-format stream-json --output-format stream-json --verbose` is now in
+  `TURN_SESSION_DRIVERS`, so `openTurnSession('claude', …)` opens one long-lived process that serves
+  successive correlated turns and ends each one with exactly one `result` record. `qualify()`
+  accepts only the observed binary version `2.1.308` and refuses any other with
+  `unqualified-version` (consumers keep the resume/one-shot fallback). `result.is_error` — never
+  `subtype` — decides the terminal, because an API error keeps `subtype: 'success'` with
+  `is_error: true`; a process that dies after acceptance with no `result` settles
+  `outcome-unknown`, and one that dies before acceptance settles `not-started`, so acceptance is
+  never read as success. `TurnSessionDriver.decode` gained an optional `TurnDecodeContext` because
+  claude echoes no runner turn id and the facade must stamp the active turn. The
+  `AGENT_SESSION_CAPABILITY.claude` row records `verifiedAgainst: '2.1.308'` with the two-turn
+  persistent-stdin capture, and the recorded transcripts are under
+  `packages/ai-runner/tests/fixtures/turn-drivers/claude`.
+  <!-- src: packages/ai-runner/src/turn-drivers/claude-stream-json.ts:47; packages/ai-runner/src/turn-session.ts:178 (TURN_SESSION_DRIVERS), :160 (TurnDecodeContext); packages/ai-runner/src/agents/shims.ts:548 (capability row); docs/design/fleet-task-turn-execution.md §5 · confidence: HIGH -->
+
 ## [0.6.0] - 2026-10-22
 
 ### Added
