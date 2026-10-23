@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { PipeProcess, ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { AgentName } from './agents/shims';
+import { createClaudeTurnSessionDriver } from './turn-drivers/claude-stream-json';
 
 /**
  * Correlated warm-turn session facade (task 1284, design `fleet-task-turn-execution.md` §4–5,
@@ -121,6 +122,18 @@ export class TurnProtocolError extends Error {
     }
 }
 
+/**
+ * Session-scoped decode attribution (task 1276): the facade hands each driver the caller's current
+ * active turn, when one exists. Protocols whose records echo a runner turn id (the fake driver)
+ * ignore it; protocols like claude stream-json — whose records carry only a constant session id —
+ * stamp `turnId` on every frame so `route` can attribute them. `accepted` lets a driver infer
+ * acceptance for turns whose boundary record was consumed by the handshake (claude turn 1).
+ */
+export interface TurnDecodeContext {
+    readonly turnId: string;
+    readonly accepted: boolean;
+}
+
 /** Handshake result: the native session id when the agent reported one during startup. */
 export type TurnHandshake = { nativeSessionId?: string } | null;
 
@@ -139,8 +152,12 @@ export interface TurnSessionDriver {
      */
     handshake?(pull: (timeoutMs: number) => Promise<string | null>): Promise<TurnHandshake>;
     encodeTurn(input: { turnId: string; prompt: string; correlation: TurnCorrelation }): string;
-    /** Decode one stdout line into zero or more frames; throws {@link TurnProtocolError} on malformed input. */
-    decode(line: string): TurnWireEvent[];
+    /**
+     * Decode one stdout line into zero or more frames; throws {@link TurnProtocolError} on
+     * malformed input. `context` carries the session's current active turn for drivers whose
+     * protocol cannot self-attribute (claude); drivers that echo turn ids may ignore it.
+     */
+    decode(line: string, context?: TurnDecodeContext): TurnWireEvent[];
     encodeCancel(reason: string): string;
 }
 
@@ -153,8 +170,14 @@ export type OpenTurnSessionResult =
           detail: string;
       };
 
-/** Built-in driver registry. Empty in 0.x by design — real drivers land with qualification evidence. */
-export const TURN_SESSION_DRIVERS: ReadonlyMap<AgentName, TurnSessionDriver> = new Map();
+/**
+ * Built-in driver registry. Entries land only with recorded qualification evidence (anti-pattern:
+ * registration without evidence): claude 2.1.308 stream-json (task 1276, fixtures under
+ * `tests/fixtures/turn-drivers/claude`). 0.x shipped this empty by design.
+ */
+export const TURN_SESSION_DRIVERS: ReadonlyMap<AgentName, TurnSessionDriver> = new Map([
+    ['claude', createClaudeTurnSessionDriver()],
+]);
 
 /** How long `cancel()` waits for native terminal evidence before resolving `outcome-unknown`. */
 export const TURN_CANCEL_GRACE_MS = 5_000;
@@ -514,7 +537,12 @@ class TurnSessionImpl implements TurnSession {
         // settles contract-violation.
         try {
             for await (const line of this.lines) {
-                const wires = this.driver.decode(line);
+                const active = this.active;
+                const context: TurnDecodeContext | undefined =
+                    active === undefined
+                        ? undefined
+                        : { turnId: active.turnId, accepted: active.acceptedAt !== undefined };
+                const wires = this.driver.decode(line, context);
                 for (const wire of wires) this.route(wire);
             }
         } catch (error) {

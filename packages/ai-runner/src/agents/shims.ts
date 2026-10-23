@@ -90,7 +90,7 @@ export type StdinFrame = (input: string) => string;
 const piRpcFrame: StdinFrame = (input) => `${JSON.stringify({ type: 'prompt', message: input })}\n`;
 
 /** claude stream-json input dialect: one user-message JSONL envelope per line. */
-const claudeStreamJsonFrame: StdinFrame = (input) =>
+export const claudeStreamJsonFrame: StdinFrame = (input) =>
     `${JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: input }] } })}\n`;
 
 /** Deprecation metadata attached to a retired or superseded agent shim. */
@@ -550,10 +550,11 @@ const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapabilit
         supportsSessionDir: false,
         supportsPersistentStdin: true,
         supportsStructuredOutput: true,
-        verifiedAgainst: '2.1.278',
-        // Persistent stdin is shim-wired: `-p --input-format stream-json --output-format
-        // stream-json` keeps the process alive reading JSONL envelopes (verified --help;
-        // --input-format only works with --print).
+        verifiedAgainst: '2.1.308',
+        // Persistent stdin re-verified with a live two-turn capture on 2026-10-22 (task 1276): one
+        // process served two keyed turns and emitted one `result` record per turn with a constant
+        // session id (fixtures: ai-runner tests/fixtures/turn-drivers/claude). Stream-json input
+        // only works with --print, and stream-json output requires --verbose (observed 2.1.308).
         note: 'no session-dir flag — sessionDir is ignored (best-effort isolate)',
     },
     codex: {

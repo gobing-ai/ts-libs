@@ -68,13 +68,32 @@ describe('TurnSession (task 1284 — correlated warm-turn session facade)', () =
             },
         } as unknown as ProcessExecutor;
         const runner = new AiRunner({ processExecutor: exploding });
-        const result = await runner.openTurnSession('claude', { policy: { workspace: process.cwd(), role: 'member' } });
+        // 'codex' has no registered turn-session driver (only claude does) — refused before any probe.
+        const result = await runner.openTurnSession('codex', { policy: { workspace: process.cwd(), role: 'member' } });
         expect(result.ok).toBe(false);
         if (!result.ok) {
             expect(result.reason).toBe('unsupported-agent');
             expect(result.detail.length).toBeGreaterThan(0);
         }
         expect(spawned).toBe(false);
+    });
+
+    test('AC1: probe explosion — typed refusal, never a throw', async () => {
+        const explodingProbe: ProcessExecutor = {
+            run: () => {
+                throw new Error('probe blew up');
+            },
+            runStreaming: (): PipeProcess => {
+                throw new Error('must not stream');
+            },
+        } as unknown as ProcessExecutor;
+        const runner = new AiRunner({ processExecutor: explodingProbe });
+        const result = await runner.openTurnSession('claude', { policy: { workspace: process.cwd(), role: 'member' } });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.reason).toBe('spawn-failed');
+            expect(result.detail).toContain('probe blew up');
+        }
     });
 
     test('AC1: unqualified version — typed refusal with the driver reason', async () => {

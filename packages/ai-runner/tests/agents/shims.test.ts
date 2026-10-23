@@ -303,7 +303,7 @@ describe('getAgentSessionCapability (0447 R2 + B8 R1/R3)', () => {
         // Session id is discovered from output (discoverSessionId contract), not
         // from a caller-owned session dir — the note records the ignore.
         expect(cap.note).toContain('sessionDir is ignored');
-        expect(cap.verifiedAgainst).toBe('2.1.278');
+        expect(cap.verifiedAgainst).toBe('2.1.308');
     });
 
     test('codex resumes by id via the non-interactive `exec resume <id>` (B8 R3)', () => {

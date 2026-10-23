@@ -249,7 +249,17 @@ export class AiRunner {
                 detail: `no turn-session driver registered for agent '${agent}' (registry: ${[...TURN_SESSION_DRIVERS.keys()].join(', ') || 'empty'})`,
             };
         }
-        const binary = options.binary ?? (await this.resolveTurnBinary(agent));
+        let binary: TurnBinary;
+        try {
+            binary = options.binary ?? (await this.resolveTurnBinary(agent));
+        } catch (error) {
+            // Probe explosions (executor bugs, missing shims) are refusals, never throws (AC1).
+            return {
+                ok: false,
+                reason: 'spawn-failed',
+                detail: `binary probe failed for agent '${agent}': ${error instanceof Error ? error.message : String(error)}`,
+            };
+        }
         return await openTurnSessionWithDriver({
             agent,
             driver,
