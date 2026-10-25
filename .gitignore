@@ -102,9 +102,12 @@ playwright-report/
 .pi-lens/
 vendors/
 .wolf/
-/.spur/spur.*
-/.spur/run
-/.spur/context
-/.spur/memory/
-/.spur/server-owner.lock/
+# `**/` so a per-package `.spur/` (e.g. packages/ai-runner/.spur from a hook run inside the
+# package) is runtime state too: root-anchored patterns let it show up as untracked, which broke
+# `bun run lint` (biome formats it) and blocked `bun run bump-ver` ("working tree is not clean").
+**/.spur/spur.*
+**/.spur/run
+**/.spur/context
+**/.spur/memory/
+**/.spur/server-owner.lock/
 /docs/dogfood/
