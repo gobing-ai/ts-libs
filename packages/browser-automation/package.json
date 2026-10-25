@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-browser-automation",
-    "version": "0.6.4",
+    "version": "0.7.0",
     "description": "@gobing-ai/ts-browser-automation — Reusable Playwright persistent browser profile sessions: headed login, headless reuse.",
     "keywords": [
         "typescript",

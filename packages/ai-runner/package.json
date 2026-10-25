@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-ai-runner",
-    "version": "0.6.4",
+    "version": "0.7.0",
     "description": "@gobing-ai/ts-ai-runner — Coding-agent shims, detection, doctor checks, and prompt execution.",
     "keywords": [
         "typescript",
