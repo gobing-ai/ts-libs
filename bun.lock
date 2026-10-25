@@ -13,7 +13,7 @@
     },
     "packages/ai-decision": {
       "name": "@gobing-ai/ts-ai-decision",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-ai-runner": "workspace:*",
         "@gobing-ai/ts-decision-fm": "workspace:*",
@@ -31,7 +31,7 @@
     },
     "packages/ai-runner": {
       "name": "@gobing-ai/ts-ai-runner",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-infra": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
@@ -43,7 +43,7 @@
     },
     "packages/browser-automation": {
       "name": "@gobing-ai/ts-browser-automation",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-runtime": "workspace:*",
       },
@@ -57,7 +57,7 @@
     },
     "packages/db": {
       "name": "@gobing-ai/ts-db",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-runtime": "workspace:*",
         "@gobing-ai/ts-utils": "workspace:*",
@@ -81,7 +81,7 @@
     },
     "packages/decision-clef": {
       "name": "@gobing-ai/ts-decision-clef",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-ai-runner": "workspace:*",
         "@gobing-ai/ts-infra": "workspace:*",
@@ -93,7 +93,7 @@
     },
     "packages/decision-fm": {
       "name": "@gobing-ai/ts-decision-fm",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-ai-runner": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
@@ -104,7 +104,7 @@
     },
     "packages/dual-workflow-engine": {
       "name": "@gobing-ai/ts-dual-workflow-engine",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-db": "workspace:*",
         "@gobing-ai/ts-infra": "workspace:*",
@@ -117,7 +117,7 @@
     },
     "packages/infra": {
       "name": "@gobing-ai/ts-infra",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-utils": "workspace:*",
         "@logtape/logtape": "^2.0.0",
@@ -157,7 +157,7 @@
     },
     "packages/laya-mlx": {
       "name": "@gobing-ai/ts-laya-mlx",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-ai-runner": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
@@ -172,7 +172,7 @@
     },
     "packages/llm-jsonl-importer": {
       "name": "@gobing-ai/ts-llm-jsonl-importer",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-db": "workspace:*",
         "@gobing-ai/ts-runtime": "workspace:*",
@@ -185,7 +185,7 @@
     },
     "packages/rule-engine": {
       "name": "@gobing-ai/ts-rule-engine",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-ai-runner": "workspace:*",
         "@gobing-ai/ts-db": "workspace:*",
@@ -200,7 +200,7 @@
     },
     "packages/runtime": {
       "name": "@gobing-ai/ts-runtime",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@gobing-ai/ts-utils": "workspace:*",
         "execa": "^9.5.0",
@@ -220,7 +220,7 @@
     },
     "packages/utils": {
       "name": "@gobing-ai/ts-utils",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "devDependencies": {
         "@types/bun": "1.4.3",
       },
