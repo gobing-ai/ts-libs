@@ -88,10 +88,18 @@ describe('claude turn-session driver (task 1276)', () => {
         let index = 0;
         const handshake = driver.handshake;
         if (handshake === undefined) throw new Error('driver must expose a handshake');
-        const result = await handshake(async () => pulled[index++] ?? null);
+        const result = await handshake(
+            async () => pulled[index++] ?? null,
+            () => {},
+        );
         expect(result).toEqual({ nativeSessionId: 's-9' });
         // EOF before any session evidence → null (handshake refusal downstream).
-        expect(await handshake(async () => null)).toBeNull();
+        expect(
+            await handshake(
+                async () => null,
+                () => {},
+            ),
+        ).toBeNull();
     });
 
     test('handshake: JSON noise rows are skipped; 64 non-session rows exhaust to null', async () => {
@@ -108,14 +116,17 @@ describe('claude turn-session driver (task 1276)', () => {
             let at = 0;
             return async () => lines[at++] ?? null;
         })();
-        expect(await handshake(noisyPull)).toEqual({ nativeSessionId: 's-noise' });
+        expect(await handshake(noisyPull, () => {})).toEqual({ nativeSessionId: 's-noise' });
         // Exhausting the 64-line window without session evidence → null.
         let seen = 0;
         expect(
-            await handshake(async () => {
-                seen += 1;
-                return '{"type":"system","subtype":"hook_started"}';
-            }),
+            await handshake(
+                async () => {
+                    seen += 1;
+                    return '{"type":"system","subtype":"hook_started"}';
+                },
+                () => {},
+            ),
         ).toBeNull();
         expect(seen).toBe(HANDSHAKE_MAX_LINES);
     });

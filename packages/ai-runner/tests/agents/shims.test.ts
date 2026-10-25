@@ -322,7 +322,10 @@ describe('getAgentSessionCapability (0447 R2 + B8 R1/R3)', () => {
         expect(cap.supportsSessionDir).toBe(false);
         // R3 branch 2 (true + wired): the non-interactive resume command itself is
         // proven by the argv matrix below (`exec resume <id> <prompt>`).
-        expect(cap.verifiedAgainst).toBe('0.155.1');
+        // 1278: `app-server` now serves persistent-stdin warm turns (live two-turn +
+        // resume capture on 0.164.0), so the stdin gap this row used to record is closed.
+        expect(cap.supportsPersistentStdin).toBe(true);
+        expect(cap.verifiedAgainst).toBe('0.164.0');
     });
 
     test('agy and grok support resume-by-id, no session-dir', () => {

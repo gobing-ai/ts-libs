@@ -68,8 +68,9 @@ describe('TurnSession (task 1284 — correlated warm-turn session facade)', () =
             },
         } as unknown as ProcessExecutor;
         const runner = new AiRunner({ processExecutor: exploding });
-        // 'codex' has no registered turn-session driver (only claude does) — refused before any probe.
-        const result = await runner.openTurnSession('codex', { policy: { workspace: process.cwd(), role: 'member' } });
+        // 'gemini' has no registered turn-session driver (claude/codex/pi are registered) —
+        // refused before any probe.
+        const result = await runner.openTurnSession('gemini', { policy: { workspace: process.cwd(), role: 'member' } });
         expect(result.ok).toBe(false);
         if (!result.ok) {
             expect(result.reason).toBe('unsupported-agent');

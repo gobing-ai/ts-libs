@@ -33,17 +33,23 @@ describe('createFakeTurnSessionDriver (task 1284)', () => {
     test('default handshake consumes one ready frame via pull', async () => {
         const driver = createFakeTurnSessionDriver([]);
         let pulled = 0;
-        const result = await (driver.handshake as NonNullable<typeof driver.handshake>)(async () => {
-            pulled += 1;
-            return '{"ctl":"ready","nativeSessionId":"s2"}';
-        });
+        const result = await (driver.handshake as NonNullable<typeof driver.handshake>)(
+            async () => {
+                pulled += 1;
+                return '{"ctl":"ready","nativeSessionId":"s2"}';
+            },
+            () => {},
+        );
         expect(pulled).toBe(1);
         expect(result).toEqual({ nativeSessionId: 's2' });
     });
 
     test('handshake returns null on EOF before ready', async () => {
         const driver = createFakeTurnSessionDriver([]);
-        const result = await (driver.handshake as NonNullable<typeof driver.handshake>)(async () => null);
+        const result = await (driver.handshake as NonNullable<typeof driver.handshake>)(
+            async () => null,
+            () => {},
+        );
         expect(result).toBeNull();
     });
 

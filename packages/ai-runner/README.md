@@ -29,7 +29,7 @@ bun add @gobing-ai/ts-ai-runner
 | `MessageStore` / `DrainedMessage` | ai-runner-owned orchestration persistence port and minimal message view consumed by `TeamOrchestrator` |
 | `TeamAgentProcess` | Manages a long-running agent subprocess with pipe-mode stdin/stdout |
 | `TeamOrchestrator` | Loads specs, starts/stops agents, routes durable/live messages, and emits lifecycle events |
-| `AiRunner.openTurnSession()` | Opens a correlated warm-turn session over one long-lived agent process: one turn at a time, typed refusals (never throws), acceptance separate from outcome, deterministic settlement (`success`/`failure`/`interrupted`/`not-started`/`outcome-unknown`/`contract-violation`), bounded cancel grace. 0.x ships the contract only — `TURN_SESSION_DRIVERS` is empty; real per-agent drivers land with qualification evidence. |
+| `AiRunner.openTurnSession()` | Opens a correlated warm-turn session over one long-lived agent process: one turn at a time, typed refusals (never throws), acceptance separate from outcome, deterministic settlement (`success`/`failure`/`interrupted`/`not-started`/`outcome-unknown`/`contract-violation`), bounded cancel grace. Drivers land only with qualification evidence (`claude`, `pi`, `codex`). |
 | `AgentEvents` / `AiRunnerProcessEvents` | Typed event maps for agent and process-level observability |
 | `AGENT_SHIMS` / `TIER1_PRIORITY` / `TIER2_AGENTS` / `DISPLAY_ORDER` | Agent registry constants |
 | `isAgentName()` | Type guard for supported agent identifiers |
@@ -935,10 +935,16 @@ safe to call more than once; the maker is not usable afterwards.
   `verifiedAgainst` qualification evidence; the scripted fake in `@gobing-ai/ts-ai-runner/testing`
   is for consumer tests, never library code.
 - Registered drivers (evidence in `tests/fixtures/turn-drivers/<agent>/`): `claude` 2.1.308
-  stream-json (task 1276) and `pi` 0.87.1 rpc (task 1277 — probed live 2026-10-23 against the
+  stream-json (task 1276), `pi` 0.87.1 rpc (task 1277 — probed live 2026-10-23 against the
   repository dependency; the PATH 1.4.0 binary speaks the same family but is not the spawn
-  target, so `qualify()` pins 0.87.1 only). Any other version refuses `unqualified-version` and
-  the consumer falls back to resume/one-shot — never a guessed protocol.
+  target, so `qualify()` pins 0.87.1 only) and `codex` 0.164.0 app-server (task 1278 — probed live
+  2026-10-24: two serial turns on one native thread plus a `thread/resume` from a second process).
+  Any other version refuses `unqualified-version` and the consumer falls back to resume/one-shot —
+  never a guessed protocol.
+- Codex needs the two extended driver hooks: its `handshake` also WRITES (it must send
+  `initialize`/`initialized`/`thread/start` and return the native thread id), and its turn/cancel
+  frames address that thread plus the native turn id, which reach the driver as `scope`. Protocols
+  that carry their own addressing (pi's command-id echo, claude's constant session id) ignore both.
 - Outcome classification (task 1277 escalation Q2): a definite pre-acceptance end settles
   `not-started`, uniformly across the process-exit path and decoder terminals (pi's prompt
   rejection before acceptance). `failure` is reserved for definite post-acceptance ends. The pi

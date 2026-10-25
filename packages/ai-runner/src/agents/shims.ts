@@ -570,12 +570,15 @@ const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapabilit
     codex: {
         supportsResumeById: true,
         supportsSessionDir: false,
-        supportsPersistentStdin: false,
+        supportsPersistentStdin: true,
         supportsStructuredOutput: true,
-        verifiedAgainst: '0.155.1',
-        // R3 branch 2: `exec resume <id> <prompt>` is the working non-interactive
-        // resume (verified 0.154.0) — wired in getPromptCommand below.
-        note: 'no session-dir flag — sessionDir is ignored; `exec` carries one prompt arg (stdin `-` is one-shot), so no multi-turn stdin',
+        verifiedAgainst: '0.164.0',
+        // Persistent stdin re-verified with a live two-turn capture on 2026-10-24 (task 1278):
+        // `codex app-server` kept one process across initialize → thread/start → two turn/start
+        // turns (thread/turn ids echoed per notification), and a second process resumed the same
+        // thread with thread/resume (fixtures: ai-runner tests/fixtures/turn-drivers/codex).
+        // `exec resume <id> <prompt>` remains the non-interactive resume path in getPromptCommand.
+        note: 'no session-dir flag — sessionDir is ignored; warm turns go through `app-server` (turn-session driver), one-shot/`exec resume` through the shim argv',
     },
     'antigravity-cli': {
         supportsResumeById: true,

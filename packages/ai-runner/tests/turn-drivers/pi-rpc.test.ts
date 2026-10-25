@@ -170,8 +170,13 @@ describe('pi turn-session driver (task 1277)', () => {
             let at = 0;
             return async () => lines[at++] ?? null;
         })();
-        expect(await handshake(noisyPull)).toEqual({});
-        expect(await handshake(async () => null)).toBeNull();
+        expect(await handshake(noisyPull, () => {})).toEqual({});
+        expect(
+            await handshake(
+                async () => null,
+                () => {},
+            ),
+        ).toBeNull();
     });
 
     test('registry: pi is registered with the real-binary spawn (evidence-backed)', () => {

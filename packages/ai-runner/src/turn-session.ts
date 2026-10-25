@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { PipeProcess, ProcessExecutor } from '@gobing-ai/ts-runtime';
 import type { AgentName } from './agents/shims';
 import { createClaudeTurnSessionDriver } from './turn-drivers/claude-stream-json';
+import { createCodexTurnSessionDriver } from './turn-drivers/codex-app-server';
 import { createPiTurnSessionDriver } from './turn-drivers/pi-rpc';
 
 /**
@@ -98,6 +99,18 @@ export interface TurnBinary {
     version: string | null;
 }
 
+/**
+ * Session-scoped native identity handed to a driver's encode paths (task 1278). Codex addresses a
+ * native thread on every `turn/start` and needs the native turn id to interrupt; protocols that
+ * carry their own addressing ignore it.
+ */
+export interface TurnWireScope {
+    /** Native session/thread id the handshake established (`undefined` when the driver has none). */
+    readonly nativeSessionId?: string;
+    /** Native turn id the driver reported at acceptance for the ACTIVE turn. */
+    readonly nativeTurnId?: string;
+}
+
 /** A wire-level terminal extracted from one decoded line. */
 export interface TurnWireTerminal {
     // `not-started` is the pre-acceptance definite-end classification (e.g. pi rejecting the
@@ -115,6 +128,8 @@ export interface TurnWireEvent {
     type: 'accepted' | 'output' | 'diagnostic' | 'terminal';
     data?: unknown;
     terminal?: TurnWireTerminal;
+    /** Native turn id observed on the acceptance frame (codex `turn/start` result). */
+    nativeTurnId?: string;
 }
 
 /** Thrown by `TurnSessionDriver.decode` on a malformed frame — settles the turn `contract-violation`. */
@@ -153,15 +168,24 @@ export interface TurnSessionDriver {
      * no handshake. Pull via `pull(timeoutMs)` — NOT `for await` over a stream — because an
      * early `return`/`break` in a for-await CLOSES the shared iterator the session pump needs.
      */
-    handshake?(pull: (timeoutMs: number) => Promise<string | null>): Promise<TurnHandshake>;
-    encodeTurn(input: { turnId: string; prompt: string; correlation: TurnCorrelation }): string;
+    handshake?(
+        pull: (timeoutMs: number) => Promise<string | null>,
+        write: (line: string) => void,
+    ): Promise<TurnHandshake>;
+    encodeTurn(input: {
+        turnId: string;
+        prompt: string;
+        correlation: TurnCorrelation;
+        /** Native identity for drivers whose turn frame must address a native thread (codex). */
+        scope?: TurnWireScope;
+    }): string;
     /**
      * Decode one stdout line into zero or more frames; throws {@link TurnProtocolError} on
      * malformed input. `context` carries the session's current active turn for drivers whose
      * protocol cannot self-attribute (claude); drivers that echo turn ids may ignore it.
      */
     decode(line: string, context?: TurnDecodeContext): TurnWireEvent[];
-    encodeCancel(reason: string): string;
+    encodeCancel(reason: string, scope?: TurnWireScope): string;
 }
 
 /** Outcome of {@link AiRunner.openTurnSession}: an open session or a typed failure reason. */
@@ -176,11 +200,13 @@ export type OpenTurnSessionResult =
 /**
  * Built-in driver registry. Entries land only with recorded qualification evidence (anti-pattern:
  * registration without evidence): claude 2.1.308 stream-json (task 1276, fixtures under
- * `tests/fixtures/turn-drivers/claude`) and pi 0.87.1 rpc (task 1277, fixtures under
- * `tests/fixtures/turn-drivers/pi`). 0.x shipped this empty by design.
+ * `tests/fixtures/turn-drivers/claude`), pi 0.87.1 rpc (task 1277, fixtures under
+ * `tests/fixtures/turn-drivers/pi`) and codex 0.164.0 app-server (task 1278, fixtures under
+ * `tests/fixtures/turn-drivers/codex`). 0.x shipped this empty by design.
  */
 export const TURN_SESSION_DRIVERS: ReadonlyMap<AgentName, TurnSessionDriver> = new Map([
     ['claude', createClaudeTurnSessionDriver()],
+    ['codex', createCodexTurnSessionDriver()],
     ['pi', createPiTurnSessionDriver()],
 ]);
 
@@ -269,6 +295,8 @@ class ActiveTurn implements TurnHandle {
     readonly correlation: TurnCorrelation;
     readonly startedAt = new Date().toISOString();
     acceptedAt: string | undefined;
+    /** Native turn id the driver reported at acceptance (codex) — carried to cancel and the outcome. */
+    nativeTurnId: string | undefined;
     firstOutputAt: string | undefined;
     outcomeResolved = false;
     cancelRequested = false;
@@ -431,7 +459,12 @@ class TurnSessionImpl implements TurnSession {
         this.state = 'busy';
         try {
             this.process.writeStdin(
-                this.driver.encodeTurn({ turnId, prompt: input.prompt, correlation: input.correlation }),
+                this.driver.encodeTurn({
+                    turnId,
+                    prompt: input.prompt,
+                    correlation: input.correlation,
+                    scope: { nativeSessionId: this.nativeSessionId },
+                }),
             );
         } catch (error) {
             // A dead stdin means the process is gone: the turn never started.
@@ -445,7 +478,12 @@ class TurnSessionImpl implements TurnSession {
         if (!turn.outcomeResolved) {
             turn.cancelRequested = true;
             try {
-                this.process.writeStdin(this.driver.encodeCancel(reason));
+                this.process.writeStdin(
+                    this.driver.encodeCancel(reason, {
+                        nativeSessionId: this.nativeSessionId,
+                        nativeTurnId: turn.nativeTurnId,
+                    }),
+                );
             } catch {
                 // stdin gone — the exit handler settles deterministically.
             }
@@ -465,7 +503,12 @@ class TurnSessionImpl implements TurnSession {
         if (turn !== undefined && !turn.outcomeResolved) {
             turn.cancelRequested = true;
             try {
-                this.process.writeStdin(this.driver.encodeCancel('session closing'));
+                this.process.writeStdin(
+                    this.driver.encodeCancel('session closing', {
+                        nativeSessionId: this.nativeSessionId,
+                        nativeTurnId: turn.nativeTurnId,
+                    }),
+                );
             } catch {
                 // stdin gone
             }
@@ -507,7 +550,11 @@ class TurnSessionImpl implements TurnSession {
             const kind: TurnOutcomeKind = turn.cancelRequested ? 'interrupted' : wire.terminal.kind;
             turn.settle({
                 kind,
-                ...(wire.terminal.nativeTurnId !== undefined ? { nativeTurnId: wire.terminal.nativeTurnId } : {}),
+                ...(wire.terminal.nativeTurnId !== undefined
+                    ? { nativeTurnId: wire.terminal.nativeTurnId }
+                    : turn.nativeTurnId !== undefined
+                      ? { nativeTurnId: turn.nativeTurnId }
+                      : {}),
                 ...(wire.terminal.nativeSessionId !== undefined
                     ? { nativeSessionId: wire.terminal.nativeSessionId }
                     : {}),
@@ -523,8 +570,11 @@ class TurnSessionImpl implements TurnSession {
             return;
         }
         if (wire.type === 'accepted') {
+            if (wire.nativeTurnId !== undefined && turn.nativeTurnId === undefined)
+                turn.nativeTurnId = wire.nativeTurnId;
             if (turn.acceptedAt === undefined) {
-                turn.acceptedAt = at;
+                // `markAccepted` owns the `acceptedAt` write — setting it first would make its own
+                // idempotence guard skip `resolveAccepted`, leaving the `accepted` promise pending.
                 turn.markAccepted();
                 turn.emit({ type: 'accepted' });
             } else {
@@ -628,7 +678,7 @@ export async function openTurnSessionWithDriver(options: {
     let handshakeResult: TurnHandshake = null;
     if (driver.handshake !== undefined) {
         // A handshake that loses the race (or throws) must not surface as an unhandled rejection.
-        const handshake = driver.handshake(pull).catch(() => null);
+        const handshake = driver.handshake(pull, (line) => process.writeStdin(line)).catch(() => null);
         try {
             handshakeResult = await Promise.race([handshake, delay(handshakeTimeoutMs)]);
         } catch {

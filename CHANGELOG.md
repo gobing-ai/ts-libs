@@ -5,8 +5,42 @@ All notable changes to the `@gobing-ai/ts-*` packages are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and the
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
-
 ## [Unreleased]
+
+### Added
+
+- feat(ai-runner) (spur task 1278): the third turn-session driver ships registered — `codex` over
+  `codex app-server`, qualified live on 2026-10-24 against `codex-cli 0.164.0` (two serial keyed
+  turns on one native thread, a third turn after `thread/resume` from a second process, a
+  mid-turn `turn/interrupt`, and a `failed` turn; fixtures under
+  `tests/fixtures/turn-drivers/codex`). The driver bootstraps `initialize` → `initialized` →
+  `thread/start` inside the handshake and returns the native thread id; `turn/start` responses
+  are ACCEPTANCE (they carry the native turn id) and `turn/completed` is the only terminal, with
+  `TurnStatus` mapped `completed` → `success` (final `final_answer` text), `failed` → `failure`
+  (provider error message), `interrupted` → `failure` so the facade's cancel precedence decides.
+  `AGENT_SESSION_CAPABILITY.codex` re-probed: `supportsPersistentStdin` false → **true**,
+  `verifiedAgainst` 0.155.1 → 0.164.0.
+  <!-- src: packages/ai-runner/src/turn-drivers/codex-app-server.ts:41 (CODEX_TURN_VERIFIED_VERSION), :86 (createCodexTurnSessionDriver), :109 (initialize→thread handshake), :237 (turn/interrupt); packages/ai-runner/src/turn-session.ts:207 (registry entry); packages/ai-runner/src/agents/shims.ts:570 (capability row); tests/fixtures/turn-drivers/codex/README.md (capture provenance) · confidence: HIGH -->
+- feat(ai-runner) (spur task 1278): two narrow driver-contract extensions codex needs, both
+  optional and backward compatible. `handshake(pull, write)` gives a driver the stdin writer its
+  protocol requires (codex cannot start a thread without sending `initialize` first), and
+  `encodeTurn`/`encodeCancel` receive a `scope` (`nativeSessionId`, `nativeTurnId`) plus
+  `TurnWireEvent.nativeTurnId` on acceptance, so a driver whose every frame must address a native
+  thread/turn can encode it without session-scoped module state. claude/pi ignore both.
+  <!-- src: packages/ai-runner/src/turn-session.ts:107 (TurnWireScope), :171 (handshake pull+write), :556 (nativeTurnId carried into the outcome), :681 (write wiring in openTurnSessionWithDriver); packages/ai-runner/src/turn-drivers/codex-app-server.ts:109 · confidence: HIGH -->
+
+### Fixed
+
+- fix(ai-runner) (spur task 1278): the facade's `accepted` promise could never resolve for a
+  driver-reported acceptance. `route()` assigned `turn.acceptedAt` itself and then called
+  `markAccepted()`, whose idempotence guard (`if (this.acceptedAt !== undefined) return;`) saw the
+  field already set and skipped `resolveAccepted` — so `handle.accepted` stayed pending forever
+  while the `accepted` EVENT was emitted and the outcome carried `acceptedAt`. `markAccepted()` is
+  now the only writer. Found by the Spur-side codex driver test (`await handle.accepted` before a
+  cancel), invisible to outcome-only assertions.
+  <!-- src: packages/ai-runner/src/turn-session.ts:578 (markAccepted is the single acceptedAt writer), :350 (markAccepted idempotence guard); packages/ai-runner/tests/turn-drivers/codex-app-server.test.ts (cancel-after-acceptance case) · confidence: HIGH -->
+
+## [0.6.4] - 2026-10-24
 
 ### Added
 
@@ -25,6 +59,7 @@ versioned in **lockstep** — a single version number covers every package in th
   fallback with the named reason. `AGENT_SESSION_CAPABILITY.pi.verifiedAgainst` re-probed and
   bumped 0.87.0 → 0.87.1 (persistent stdin re-verified; resume/session-dir carried from 0.87.0,
   patch-level unchanged).
+  <!-- src: packages/ai-runner/src/turn-drivers/pi-rpc.ts:41 (PI_TURN_VERIFIED_VERSION), :60 (createPiTurnSessionDriver); packages/ai-runner/src/turn-session.ts:207 (registry); packages/ai-runner/src/agents/shims.ts:553 (capability row); tests/fixtures/turn-drivers/pi/README.md · confidence: HIGH -->
 
 ### Fixed
 
@@ -37,6 +72,7 @@ versioned in **lockstep** — a single version number covers every package in th
   the `not-started` kind so consumers can regression-test the contract. Found by the Spur-side
   real-child regression (`packages/app/tests/workflow/pi-warm-work-item.test.ts`) before any
   0.6.3 consumer shipped against it.
+  <!-- src: packages/ai-runner/src/turn-drivers/pi-rpc.ts:130 (pre-acceptance rejection → not-started); packages/ai-runner/src/turn-session.ts:553 (wire kind honored); packages/ai-runner/tests/turn-drivers/pi-rpc.test.ts (rejection cases) · confidence: HIGH -->
 
 ## [0.6.2] - 2026-10-23
 
