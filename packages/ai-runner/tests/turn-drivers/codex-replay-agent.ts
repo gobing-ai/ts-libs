@@ -19,6 +19,9 @@ import { createInterface } from 'node:readline';
 type Row = Record<string, unknown> & { id?: string | number; method?: string; result?: unknown };
 
 const fixturePath = process.argv[2];
+// `immediate`: never hold the tail back for a cancel — used to replay a NATIVE interruption
+// (turn/completed interrupted) that the caller did not request.
+const immediate = process.argv[3] === 'immediate';
 const rows: Row[] = (fixturePath === undefined ? '' : readFileSync(fixturePath, 'utf8'))
     .split('\n')
     .filter((line) => line.trim() !== '')
@@ -55,7 +58,7 @@ const serve = (frame: Row): void => {
     if (frame.method === 'turn/start') {
         const segment = segments[turnIndex] ?? [];
         turnIndex += 1;
-        const splitAt = Math.max(segment.findIndex(isInterruptResponse), -1);
+        const splitAt = immediate ? -1 : Math.max(segment.findIndex(isInterruptResponse), -1);
         const head = splitAt === -1 ? segment : segment.slice(0, splitAt);
         pending = splitAt === -1 ? [] : segment.slice(splitAt);
         head.forEach((row, index) => {

@@ -114,8 +114,10 @@ export interface TurnWireScope {
 /** A wire-level terminal extracted from one decoded line. */
 export interface TurnWireTerminal {
     // `not-started` is the pre-acceptance definite-end classification (e.g. pi rejecting the
-    // prompt command before any run started) — it must survive the facade mapping unchanged.
-    kind: 'success' | 'failure' | 'not-started';
+    // prompt command before any run started) and `interrupted` is a NATIVE interruption the
+    // caller did not necessarily request (codex `turn/completed` status, task 1278) — both must
+    // survive the facade mapping unchanged. A caller-requested cancel still wins over the wire.
+    kind: 'success' | 'failure' | 'interrupted' | 'not-started';
     nativeTurnId?: string;
     nativeSessionId?: string;
     finalText?: string;
@@ -150,6 +152,14 @@ export class TurnProtocolError extends Error {
 export interface TurnDecodeContext {
     readonly turnId: string;
     readonly accepted: boolean;
+    /**
+     * Native turn id the driver reported at acceptance for this turn (codex). A decoder whose
+     * notifications echo the native turn id must fence on it: a frame carrying a different native
+     * turn is foreign or stale and becomes a diagnostic, never this turn's terminal.
+     */
+    readonly nativeTurnId?: string;
+    /** Native session/thread id of the open session, for the same identity fence. */
+    readonly nativeSessionId?: string;
 }
 
 /** Handshake result: the native session id when the agent reported one during startup. */
@@ -547,6 +557,8 @@ class TurnSessionImpl implements TurnSession {
         if (wire.type === 'terminal' && wire.terminal !== undefined) {
             // Decoder terminals carry their own pre-acceptance classification (`not-started`);
             // cancel precedence still wins over whatever the wire reported.
+            // Cancel precedence: a caller-requested cancel is `interrupted` whatever the wire said;
+            // otherwise the wire kind passes through, including a NATIVE `interrupted` (1278).
             const kind: TurnOutcomeKind = turn.cancelRequested ? 'interrupted' : wire.terminal.kind;
             turn.settle({
                 kind,
@@ -594,7 +606,12 @@ class TurnSessionImpl implements TurnSession {
                 const context: TurnDecodeContext | undefined =
                     active === undefined
                         ? undefined
-                        : { turnId: active.turnId, accepted: active.acceptedAt !== undefined };
+                        : {
+                              turnId: active.turnId,
+                              accepted: active.acceptedAt !== undefined,
+                              ...(active.nativeTurnId !== undefined ? { nativeTurnId: active.nativeTurnId } : {}),
+                              ...(this.nativeSessionId !== undefined ? { nativeSessionId: this.nativeSessionId } : {}),
+                          };
                 const wires = this.driver.decode(line, context);
                 for (const wire of wires) this.route(wire);
             }

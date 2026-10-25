@@ -207,16 +207,30 @@ export function createCodexTurnSessionDriver(
                 }
                 return [];
             }
-            // The session admits one turn at a time, so any `turn/completed` belongs to the
-            // active turn; the NATIVE ids on it are what the outcome reports.
+            // A `turn/completed` is attributed ONLY to the turn whose native identity it echoes:
+            // a foreign thread, or a native turn id that is not the accepted one, is foreign or
+            // stale and must never settle the active turn (task 1278 AC3 identity fence).
             if (frame.params?.turn !== undefined && frame.method === 'turn/completed') {
                 const turn = frame.params.turn;
+                const frameThread = frame.params.threadId;
+                const foreignThread =
+                    context.nativeSessionId !== undefined &&
+                    frameThread !== undefined &&
+                    frameThread !== context.nativeSessionId;
+                const foreignTurn =
+                    context.nativeTurnId !== undefined && turn.id !== undefined && turn.id !== context.nativeTurnId;
+                if (foreignThread || foreignTurn) return [{ turnId: context.turnId, type: 'diagnostic', data: frame }];
                 const terminal: TurnWireTerminal = {
-                    // `interrupted` is a native interruption the caller did not request; the facade
-                    // upgrades a caller-requested cancel to `interrupted` itself.
-                    kind: turn.status === 'completed' ? 'success' : 'failure',
+                    // A native interruption is its own outcome when the caller did not request the
+                    // cancel; the facade's cancel precedence still upgrades a requested one.
+                    kind:
+                        turn.status === 'completed'
+                            ? 'success'
+                            : turn.status === 'interrupted'
+                              ? 'interrupted'
+                              : 'failure',
                     ...(turn.id !== undefined ? { nativeTurnId: turn.id } : {}),
-                    ...(frame.params.threadId !== undefined ? { nativeSessionId: frame.params.threadId } : {}),
+                    ...(frameThread !== undefined ? { nativeSessionId: frameThread } : {}),
                 };
                 if (turn.status === 'interrupted') terminal.reason = 'codex turn status interrupted';
                 else if (turn.status === 'failed')

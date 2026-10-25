@@ -19,11 +19,15 @@ const CORRELATION: TurnCorrelation = {
 const FIXTURES = join(import.meta.dir, '..', 'fixtures', 'turn-drivers', 'codex');
 
 /** Driver whose child replays one fixture instead of spawning the real codex binary. */
-function replayDriver(fixture: string): TurnSessionDriver {
+function replayDriver(fixture: string, mode?: 'immediate'): TurnSessionDriver {
     return createCodexTurnSessionDriver({
         spawn: {
             command: process.execPath,
-            args: [join(import.meta.dir, 'codex-replay-agent.ts'), join(FIXTURES, fixture)],
+            args: [
+                join(import.meta.dir, 'codex-replay-agent.ts'),
+                join(FIXTURES, fixture),
+                ...(mode === undefined ? [] : [mode]),
+            ],
         },
     });
 }
@@ -159,14 +163,14 @@ describe('codex app-server turn-session driver (task 1278)', () => {
                 },
             },
         ]);
-        // A native interruption the caller did NOT request is a failure; the facade upgrades a
-        // requested cancel to `interrupted` itself.
+        // A NATIVE interruption is its own outcome even when the caller did not request a cancel
+        // (task 1278 AC3); the facade's cancel precedence still upgrades a requested one.
         const interrupted = JSON.stringify({
             method: 'turn/completed',
             params: { threadId: 'thread-1', turn: { id: 'native-3', status: 'interrupted', error: null } },
         });
         expect(driver.decode(interrupted, context)[0]).toMatchObject({
-            terminal: { kind: 'failure', reason: expect.stringContaining('interrupted') },
+            terminal: { kind: 'interrupted', reason: expect.stringContaining('interrupted') },
         });
         // `inProgress` never terminates a turn.
         const inProgress = JSON.stringify({
@@ -174,6 +178,29 @@ describe('codex app-server turn-session driver (task 1278)', () => {
             params: { threadId: 'thread-1', turn: { id: 'native-4', status: 'inProgress' } },
         });
         expect(driver.decode(inProgress, context)[0]?.type).toBe('diagnostic');
+    });
+
+    test("decode: a foreign thread or foreign native turn is a diagnostic, never this turn's terminal (AC3)", () => {
+        const driver = createCodexTurnSessionDriver();
+        const context = { turnId: 't1', accepted: true, nativeTurnId: 'native-1', nativeSessionId: 'thread-1' };
+        const completion = (threadId: string, turnId: string) =>
+            JSON.stringify({
+                method: 'turn/completed',
+                params: { threadId, turn: { id: turnId, status: 'completed', error: null, items: [] } },
+            });
+        // Foreign thread (another agent session's frame), same-looking status.
+        expect(driver.decode(completion('foreign-thread', 'native-1'), context)[0]?.type).toBe('diagnostic');
+        // Foreign native turn (a stale or injected completion for a different turn).
+        expect(driver.decode(completion('thread-1', 'foreign-turn'), context)[0]?.type).toBe('diagnostic');
+        // The genuine identity settles.
+        expect(driver.decode(completion('thread-1', 'native-1'), context)[0]).toMatchObject({
+            type: 'terminal',
+            terminal: { kind: 'success', nativeTurnId: 'native-1', nativeSessionId: 'thread-1' },
+        });
+        // Without a known native identity (pre-acceptance) the frame cannot be fenced out.
+        expect(driver.decode(completion('thread-1', 'native-1'), { turnId: 't1', accepted: false })[0]?.type).toBe(
+            'terminal',
+        );
     });
 
     test('decode: startup and progress noise is ignored; malformed JSON is a protocol violation', () => {
@@ -289,6 +316,27 @@ describe('codex app-server turn-session driver (task 1278)', () => {
             expect(second.nativeTurnId).not.toBe(first.nativeTurnId);
         } finally {
             await session.close();
+        }
+    });
+
+    test('AC3: a native interruption without a local cancel settles interrupted', async () => {
+        const runner = new AiRunner({});
+        const result = await runner.openTurnSession('codex', {
+            driver: replayDriver('interrupted-turn.jsonl', 'immediate'),
+            binary: { path: 'codex', version: CODEX_TURN_VERIFIED_VERSION },
+            policy: { workspace: process.cwd(), role: 'member' },
+            handshakeTimeoutMs: 5_000,
+        });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        try {
+            // No cancel is requested: the outcome must reflect the NATIVE status, not failure.
+            const outcome = await result.session.startTurn({ prompt: 'count to 200', correlation: CORRELATION })
+                .outcome;
+            expect(outcome.kind).toBe('interrupted');
+            expect(outcome.nativeTurnId).toBe('01a1705e-7c7a-7363-b409-c97aaf7275bf');
+        } finally {
+            await result.session.close();
         }
     });
 

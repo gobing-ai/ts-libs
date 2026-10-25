@@ -31,6 +31,16 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ### Fixed
 
+- fix(ai-runner) (spur task 1278): two contract defects the Spur-side codex adapter probe exposed.
+  (1) A NATIVE `interrupted` turn settled `failure` whenever the caller had not requested the
+  cancel: `TurnWireTerminal.kind` had no `interrupted`, so the codex decoder collapsed the status
+  and only the facade's cancel precedence could ever produce that outcome. The wire kind now
+  carries `interrupted` and passes through; a caller-requested cancel still wins.
+  (2) A `turn/completed` was attributed to the active turn without checking native identity, so a
+  foreign thread's or a stale turn's completion could settle the active turn `success` with the
+  foreign native ids. `TurnDecodeContext` now carries the accepted `nativeTurnId` and the session
+  `nativeSessionId`, and the codex decoder reports any mismatching completion as a diagnostic.
+  <!-- src: packages/ai-runner/src/turn-session.ts:110 (TurnWireTerminal.kind carries interrupted), :150 (TurnDecodeContext native identity), :612 (facade passes native identity into decode); packages/ai-runner/src/turn-drivers/codex-app-server.ts:212 (identity fence), :226 (interrupted mapping); tests/turn-drivers/codex-app-server.test.ts (fence + unsolicited-interrupt cases) · confidence: HIGH -->
 - fix(ai-runner) (spur task 1278): the facade's `accepted` promise could never resolve for a
   driver-reported acceptance. `route()` assigned `turn.acceptedAt` itself and then called
   `markAccepted()`, whose idempotence guard (`if (this.acceptedAt !== undefined) return;`) saw the
