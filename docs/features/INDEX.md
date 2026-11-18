@@ -27,5 +27,6 @@
     └── [done] **N1**: Decision hub answer validation ([N1_decision-hub-answer-validation.md](./N1_decision-hub-answer-validation.md))
 [backlog] **O**: Decision models and decision makers ([O_decision-models-and-decision-makers.md](./O_decision-models-and-decision-makers.md))
     ├── [done] **O1**: LLM agents as decision makers and decision-backend boundary cleanup ([O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md](./O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md))
-    └── [done] **O2**: Decision maker fallback chains, shadow makers and fallback diagnostics ([O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md](./O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md))
+    ├── [done] **O2**: Decision maker fallback chains, shadow makers and fallback diagnostics ([O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md](./O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md))
+    └── [backlog] **O3**: Gemini Decision 1 and GPT-6 Luna DecisionMaker drivers ([O3_gemini-decision-1-and-gpt-6-luna-decisionmaker-drivers.md](./O3_gemini-decision-1-and-gpt-6-luna-decisionmaker-drivers.md))
 <!-- END AUTO-GENERATED -->

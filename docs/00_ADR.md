@@ -884,3 +884,17 @@ Bun blocks that script. An optional dependency without an `os` gate still instal
 would not install on macOS either.
 
 **Detail:** `docs/03_ARCHITECTURE.md` § ai-decision; `docs/design/ai-decision-catalog.md`.
+
+---
+
+## ADR-042: Hosted Gemini Decision 1 and GPT-6 Luna Decision Backends Ship as `ts-decision-gemini` and `ts-decision-openai` through `APIClient`
+
+**Status:** Accepted · **Date:** 2026-11-17 · **Targets:** `ts-decision-gemini` (new), `ts-decision-openai` (new) (feature O3)
+
+**Decision.** Publish `@gobing-ai/ts-decision-gemini` (`packages/decision-gemini`) and `@gobing-ai/ts-decision-openai` (`packages/decision-openai`) as additive `DecisionDriver` packages implementing Google's Gemini Decisions API (`gemini-decision-1` via `POST /v1beta/decisions`) and OpenAI's Decisions API (`gpt-6-luna` via `POST /v1/decisions`). Both adapters use `@gobing-ai/ts-infra` `APIClient` with explicit caller credentials (`apiKey`, optional `baseURL`, `model`, `timeoutMs`, `fetch`) and `@gobing-ai/ts-ai-runner` validators and `DecisionError` taxonomy. No external vendor SDK (`@google/genai` or `openai`) is introduced.
+
+**Reason.** Follows ADR-037 (`ts-decision-clef`): keeping each hosted REST adapter in its own thin package over `APIClient` avoids pulling vendor SDKs into `ts-ai-runner` or `ts-ai-decision`, lets consumers install only the provider(s) they use, and enables deterministic `fetch`-injected testing.
+
+**Boundary.** Dependencies point from `ts-decision-gemini` and `ts-decision-openai` to `ts-ai-runner` and `ts-infra`, never in reverse. Consumers inject either driver via `createDecisionMaker({ driver })` or register a lazy maker in `DecisionMakerRegistry`. Existing `ts-ai-runner` backend selectors and `ts-ai-decision` built-in maker lists remain unchanged.
+
+**Detail:** `docs/design/gemini-and-openai-decision-backends.md`; feature O3.
