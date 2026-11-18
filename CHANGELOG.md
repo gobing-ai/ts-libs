@@ -7,6 +7,19 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-17
+
+### Added
+
+- feat(dual-workflow-engine) (spur task 1381): the state-machine and transition-flow root schemas
+  accept an optional, behavior-free `metadata` record (`z.record(z.string(), z.unknown())`) so
+  hosts can annotate a workflow (Spur reads `metadata.mcp.expose`) without the engine learning
+  their vocabulary. Every other unknown root key still fails `.strict()`.
+  <!-- src: packages/dual-workflow-engine/src/schema.ts (StateMachineWorkflowDefSchema, TransitionFlowWorkflowDefSchema metadata); packages/dual-workflow-engine/tests/schema.test.ts ("dialect metadata") · confidence: HIGH -->
+- feat(decision): new packages `@gobing-ai/ts-decision-gemini` and `@gobing-ai/ts-decision-openai`
+  (tasks 0120, 0121), first published by manual bootstrap.
+  <!-- src: packages/decision-gemini/package.json; packages/decision-openai/package.json · confidence: HIGH -->
+
 ### Added
 
 - feat(ai-runner) (spur task 1278): the third turn-session driver ships registered — `codex` over
