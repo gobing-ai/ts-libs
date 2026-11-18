@@ -125,6 +125,8 @@ export interface StateMachineWorkflowDef {
     readonly version?: string;
     /** Optional human description of the workflow's purpose. */
     readonly description?: string;
+    /** Optional behavior-free host annotations; the engine never reads them. */
+    readonly metadata?: Readonly<Record<string, unknown>>;
     readonly initialState: string;
     readonly terminalStates?: readonly string[];
     /**
@@ -207,6 +209,8 @@ export interface TransitionFlowWorkflowDef {
     readonly version?: string;
     /** Optional human description of the workflow's purpose. */
     readonly description?: string;
+    /** Optional behavior-free host annotations; the engine never reads them. */
+    readonly metadata?: Readonly<Record<string, unknown>>;
     readonly initialNode: string;
     readonly terminalNodes?: readonly string[];
     readonly iterationBound?: number;

@@ -92,6 +92,8 @@ export const StateMachineWorkflowDefSchema = z
         // Optional, behavior-free document version tag (accepted for forward/backward compat).
         version: z.string().optional(),
         description: z.string().optional(),
+        // Behavior-free host annotations (e.g. Spur's `metadata.mcp`); the engine never reads it.
+        metadata: z.record(z.string(), z.unknown()).optional(),
         initialState: z.string().min(1),
         terminalStates: z.array(z.string().min(1)).optional(),
         failureStates: z.array(z.string().min(1)).optional(),
@@ -211,6 +213,8 @@ export const TransitionFlowWorkflowDefSchema = z
         // Optional, behavior-free document version tag (accepted for forward/backward compat).
         version: z.string().optional(),
         description: z.string().optional(),
+        // Behavior-free host annotations; the engine never reads it.
+        metadata: z.record(z.string(), z.unknown()).optional(),
         initialNode: z.string().min(1),
         terminalNodes: z.array(z.string().min(1)).optional(),
         iterationBound: z.number().int().positive().optional(),

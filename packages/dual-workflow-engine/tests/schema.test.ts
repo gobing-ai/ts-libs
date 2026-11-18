@@ -645,3 +645,40 @@ describe('StateMachineWorkflowDefSchema transitions.terminalReason (task 0937)',
         expect(result.success).toBe(false);
     });
 });
+
+describe.each(['state-machine', 'transition-flow'] as const)('%s dialect metadata', (dialect) => {
+    const schema = dialect === 'state-machine' ? StateMachineWorkflowDefSchema : TransitionFlowWorkflowDefSchema;
+    const base = (extra: Record<string, unknown>) =>
+        dialect === 'state-machine'
+            ? {
+                  name: 'wf',
+                  initialState: 'a',
+                  states: [{ id: 'a' }, { id: 'b' }],
+                  transitions: [{ from: 'a', to: 'b' }],
+                  ...extra,
+              }
+            : {
+                  kind: 'transition-flow',
+                  name: 'wf',
+                  initialNode: 'x',
+                  nodes: [{ id: 'x' }, { id: 'y' }],
+                  edges: [{ from: 'x', to: 'y' }],
+                  ...extra,
+              };
+
+    test('round-trips an opaque metadata record unchanged', () => {
+        const metadata = { mcp: { expose: true }, owner: 'team-a', n: 3 };
+        const result = schema.safeParse(base({ metadata }));
+        expect(result.success).toBe(true);
+        expect(result.data?.metadata).toEqual(metadata);
+    });
+
+    test('rejects a non-object metadata value', () => {
+        expect(schema.safeParse(base({ metadata: ['x'] })).success).toBe(false);
+        expect(schema.safeParse(base({ metadata: 'x' })).success).toBe(false);
+    });
+
+    test('unknown top-level keys still fail alongside metadata (.strict preserved)', () => {
+        expect(schema.safeParse(base({ metadata: {}, mcp: { expose: true } })).success).toBe(false);
+    });
+});
