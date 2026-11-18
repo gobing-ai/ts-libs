@@ -48,5 +48,6 @@ Feature satellites are owned by `spur feature`. The generated, authoritative ros
 | O | Decision models and decision makers | ⏳ planned | [`O_decision-models-and-decision-makers.md`](features/O_decision-models-and-decision-makers.md) |
 | O1 | ↳ LLM agents as decision makers and decision-backend boundary cleanup | ✅ done | [`O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md`](features/O1_llm-agents-as-decision-makers-and-decision-backend-boundary-cleanup.md) |
 | O2 | ↳ Decision maker fallback chains, shadow makers and fallback diagnostics | ✅ done | [`O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md`](features/O2_decision-maker-fallback-chains-shadow-makers-and-fallback-diagnostics.md) |
+| O3 | ↳ Gemini Decision 1 and GPT-6 Luna DecisionMaker drivers (ADR-042) | ✅ done | [`O3_gemini-decision-1-and-gpt-6-luna-decisionmaker-drivers.md`](features/O3_gemini-decision-1-and-gpt-6-luna-decisionmaker-drivers.md) |
 
 **Status legend:** ✅ done · 🔶 partial · ⏳ planned · 💤 deferred

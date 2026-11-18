@@ -1,6 +1,6 @@
 ---
 name: Gemini Decision 1 and GPT-6 Luna decision backends
-status: planned
+status: built
 updated_at: 2026-11-17
 adr: ADR-042
 feature: O3
@@ -8,7 +8,7 @@ feature: O3
 
 # Gemini Decision 1 and GPT-6 Luna Decision Backends
 
-Planned in feature O3. Decision: ADR-042. Packages: `packages/decision-gemini` and `packages/decision-openai`.
+Implemented in feature O3 (tasks 0120–0121). Decision: ADR-042. Packages: `packages/decision-gemini` and `packages/decision-openai`.
 
 ## Exports
 

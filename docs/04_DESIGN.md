@@ -29,7 +29,7 @@ API; generated declarations are the compile-time contract.
 | AI decision catalog and hub (`ts-ai-decision`) | built 2026-10-03, extended 2026-10-19 — `packages/ai-decision`; catalog loader, `DecisionMakerRegistry`, `DecisionHub` (ADR-033, ADR-040, ADR-041) | [`ai-decision-catalog.md`](design/ai-decision-catalog.md) |
 | Hosted Clef decision backend (`ts-decision-clef`) | built 2026-10-09 — ADR-037 | [`decision-clef-backend.md`](design/decision-clef-backend.md) |
 | LLM agent decision backend + sampled-driver core; TypeSafe relocation | built 2026-10-19 — ADR-038/ADR-039, feature O1 | [`llm-agent-decision-backend.md`](design/llm-agent-decision-backend.md) |
-| Hosted Gemini Decision 1 & GPT-6 Luna decision backends (`ts-decision-gemini`, `ts-decision-openai`) | planned — ADR-042, feature O3 | [`gemini-and-openai-decision-backends.md`](design/gemini-and-openai-decision-backends.md) |
+| Hosted Gemini Decision 1 & GPT-6 Luna decision backends (`ts-decision-gemini`, `ts-decision-openai`) | built 2026-11-17 — ADR-042, feature O3 | [`gemini-and-openai-decision-backends.md`](design/gemini-and-openai-decision-backends.md) |
 
 Cross-package and platform constraints are architectural decisions in `docs/00_ADR.md`, not
 duplicated here.

@@ -889,7 +889,7 @@ would not install on macOS either.
 
 ## ADR-042: Hosted Gemini Decision 1 and GPT-6 Luna Decision Backends Ship as `ts-decision-gemini` and `ts-decision-openai` through `APIClient`
 
-**Status:** Accepted · **Date:** 2026-11-17 · **Targets:** `ts-decision-gemini` (new), `ts-decision-openai` (new) (feature O3)
+**Status:** Accepted · **Date:** 2026-11-17 · **Built:** 2026-11-17 (feature O3, tasks 0120-0121) · **Targets:** `ts-decision-gemini` (new), `ts-decision-openai` (new) (feature O3)
 
 **Decision.** Publish `@gobing-ai/ts-decision-gemini` (`packages/decision-gemini`) and `@gobing-ai/ts-decision-openai` (`packages/decision-openai`) as additive `DecisionDriver` packages implementing Google's Gemini Decisions API (`gemini-decision-1` via `POST /v1beta/decisions`) and OpenAI's Decisions API (`gpt-6-luna` via `POST /v1/decisions`). Both adapters use `@gobing-ai/ts-infra` `APIClient` with explicit caller credentials (`apiKey`, optional `baseURL`, `model`, `timeoutMs`, `fetch`) and `@gobing-ai/ts-ai-runner` validators and `DecisionError` taxonomy. No external vendor SDK (`@google/genai` or `openai`) is introduced.
 

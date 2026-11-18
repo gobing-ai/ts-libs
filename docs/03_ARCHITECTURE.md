@@ -124,15 +124,16 @@ and every concrete backend sits outside it. Shapes: `docs/design/llm-agent-decis
   sampled-driver core (prompt rendering, enum options, answer parsing, ADR-030 frequency estimation).
   It imports no SDK and no workspace package.
 - `ts-decision-fm` is an fm sampler over the core; `ts-ai-decision` holds the TypeSafe driver and the
-  agent-backed `llm-agent` driver beside the catalog hub; `ts-laya-mlx` and `ts-decision-clef` are
-  unchanged.
+  agent-backed `llm-agent` driver beside the catalog hub; `ts-laya-mlx`, `ts-decision-clef`,
+  `ts-decision-gemini` (ADR-042), and `ts-decision-openai` (ADR-042) are standalone consumer-injected
+  drivers.
 
 Invariants (enforced by `.spur/rules/typescript/decision-boundaries.yaml`):
 
 - No file outside `packages/ai-decision/src` imports `@typesafe-ai/sdk`; only
   `packages/ai-decision/src/typesafe-driver.ts` may (`no-typesafe-sdk-import-outside-ai-decision`).
 - `packages/ai-runner/src/decision/sampled-driver.ts` imports nothing outside `./types` and `./errors`.
-- No driver package (`decision-fm`, `decision-clef`, `laya-mlx`) imports `@gobing-ai/ts-ai-decision`.
+- No driver package (`decision-fm`, `decision-clef`, `decision-gemini`, `decision-openai`, `laya-mlx`) imports `@gobing-ai/ts-ai-decision`.
 - The agent driver never runs an agent in the caller's working directory: every sample's `cwd` is a
   per-ask scratch directory removed when the ask settles.
 - Every probability a sampled driver returns is a sample frequency over declared options; no driver
