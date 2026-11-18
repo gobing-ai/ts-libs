@@ -102,6 +102,30 @@
         "@types/bun": "1.4.3",
       },
     },
+    "packages/decision-gemini": {
+      "name": "@gobing-ai/ts-decision-gemini",
+      "version": "0.7.1",
+      "dependencies": {
+        "@gobing-ai/ts-ai-runner": "workspace:*",
+        "@gobing-ai/ts-infra": "workspace:*",
+      },
+      "devDependencies": {
+        "@gobing-ai/ts-ai-decision": "workspace:*",
+        "@types/bun": "1.4.3",
+      },
+    },
+    "packages/decision-openai": {
+      "name": "@gobing-ai/ts-decision-openai",
+      "version": "0.7.1",
+      "dependencies": {
+        "@gobing-ai/ts-ai-runner": "workspace:*",
+        "@gobing-ai/ts-infra": "workspace:*",
+      },
+      "devDependencies": {
+        "@gobing-ai/ts-ai-decision": "workspace:*",
+        "@types/bun": "1.4.3",
+      },
+    },
     "packages/dual-workflow-engine": {
       "name": "@gobing-ai/ts-dual-workflow-engine",
       "version": "0.7.1",
@@ -308,6 +332,10 @@
     "@gobing-ai/ts-decision-clef": ["@gobing-ai/ts-decision-clef@workspace:packages/decision-clef"],
 
     "@gobing-ai/ts-decision-fm": ["@gobing-ai/ts-decision-fm@workspace:packages/decision-fm"],
+
+    "@gobing-ai/ts-decision-gemini": ["@gobing-ai/ts-decision-gemini@workspace:packages/decision-gemini"],
+
+    "@gobing-ai/ts-decision-openai": ["@gobing-ai/ts-decision-openai@workspace:packages/decision-openai"],
 
     "@gobing-ai/ts-dual-workflow-engine": ["@gobing-ai/ts-dual-workflow-engine@workspace:packages/dual-workflow-engine"],
 

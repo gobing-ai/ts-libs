@@ -18,3 +18,5 @@ document usage.
 | `@gobing-ai/ts-ai-decision` | `.`, `./package.json`, `./schemas/*` | [README](../../packages/ai-decision/README.md) |
 | `@gobing-ai/ts-browser-automation` | `.` | [README](../../packages/browser-automation/README.md) |
 | `@gobing-ai/ts-decision-clef` | `.` | [README](../../packages/decision-clef/README.md) |
+| `@gobing-ai/ts-decision-gemini` | `.` | [README](../../packages/decision-gemini/README.md) |
+| `@gobing-ai/ts-decision-openai` | `.` | [README](../../packages/decision-openai/README.md) |

@@ -35,6 +35,8 @@ graph TD
     decision-fm["@gobing-ai/ts-decision-fm<br/>→ runtime, ai-runner"]
     ai-decision["@gobing-ai/ts-ai-decision<br/>→ runtime, ai-runner, decision-fm, laya-mlx"]
     decision-clef["@gobing-ai/ts-decision-clef<br/>→ ai-runner, infra"]
+    decision-gemini["@gobing-ai/ts-decision-gemini<br/>→ ai-runner, infra"]
+    decision-openai["@gobing-ai/ts-decision-openai<br/>→ ai-runner, infra"]
 
     runtime --> utils
     db --> runtime
@@ -57,6 +59,10 @@ graph TD
     ai-decision --> laya-mlx
     decision-clef --> ai-runner
     decision-clef --> infra
+    decision-gemini --> ai-runner
+    decision-gemini --> infra
+    decision-openai --> ai-runner
+    decision-openai --> infra
 ```
 
 **2902 tests across 13 packages.** All pass. No skipped.
@@ -76,6 +82,8 @@ graph TD
 - **[@gobing-ai/ts-llm-jsonl-importer](packages/llm-jsonl-importer/README.md)** — Generic JSONL importer for LLM agent history files. Handles schema validation, source definitions, content redaction, hash-based deduplication, and checkpointed incremental imports.
 - **[@gobing-ai/ts-ai-decision](packages/ai-decision/README.md)** — Declarative YAML decision catalogs (ADR-033) over the `DecisionMaker` surface of `@gobing-ai/ts-ai-runner`: strict catalog schema (JSON Schema + zod), `${params.*}` template validation/rendering, and load-time consistency checks. Declares `ts-decision-fm` as a bundled driver dependency and `ts-laya-mlx` as an optional macOS-only one (ADR-041).
 - **[@gobing-ai/ts-decision-clef](packages/decision-clef/README.md)** — Hosted Cloudflare Workers AI decision backend (ADR-037) over the same `DecisionMaker` surface: `clef`/`clef-flash` REST routing through the portable `ts-infra` `APIClient`, explicit caller credentials, provider limit enforcement and typed answer mapping. Consumer-injected; no built-in backend selector.
+- **[@gobing-ai/ts-decision-gemini](packages/decision-gemini/README.md)** — Google Gemini Decision 1 hosted decision backend (ADR-042) over the same `DecisionMaker` surface: `POST /v1beta/decisions` routing through the portable `ts-infra` `APIClient`, `x-goog-api-key` credentials, provider limit enforcement and typed answer mapping. Consumer-injected; no built-in backend selector.
+- **[@gobing-ai/ts-decision-openai](packages/decision-openai/README.md)** — OpenAI GPT-6 Luna hosted decision backend (ADR-042) over the same `DecisionMaker` surface: `POST /v1/decisions` routing through the portable `ts-infra` `APIClient`, `Authorization: Bearer` credentials, provider limit enforcement and typed answer mapping. Consumer-injected; no built-in backend selector.
 
 ## Getting Started
 

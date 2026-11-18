@@ -1,0 +1,4 @@
+@gobing-ai/ts-decision-openai
+Copyright 2026 Robin Min and ts-libs contributors
+
+This package bundles no third-party code and no model weights. It drives the OpenAI GPT-6 Luna Decisions REST API over the portable ts-infra APIClient seam.

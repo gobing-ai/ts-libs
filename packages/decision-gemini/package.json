@@ -1,0 +1,64 @@
+{
+    "name": "@gobing-ai/ts-decision-gemini",
+    "version": "0.7.1",
+    "description": "@gobing-ai/ts-decision-gemini — Google Gemini Decision 1 decision backend driving the hosted Decisions API over the portable ts-infra APIClient seam.",
+    "keywords": [
+        "typescript",
+        "ai",
+        "decision",
+        "gemini",
+        "google",
+        "decision-maker",
+        "hosted"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/gobing-ai/ts-libs.git",
+        "directory": "packages/decision-gemini"
+    },
+    "author": "Robin Min <minlongbing@gmail.com>",
+    "contributors": [
+        "Robin Min <minlongbing@gmail.com>"
+    ],
+    "type": "module",
+    "private": false,
+    "sideEffects": false,
+    "license": "Apache-2.0",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "src",
+        "README.md",
+        "LICENSE",
+        "NOTICE"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json && bun ../../scripts/builder.ts fix-dist-esm-extensions dist",
+        "test": "NODE_ENV=test bun test --coverage --coverage-dir=.coverage --reporter=dots",
+        "test:full": "NODE_ENV=test bun test --update-snapshots --coverage --coverage-dir=.coverage",
+        "typecheck": "tsc --noEmit",
+        "lint": "biome check . && bun run typecheck",
+        "format": "biome check . --write",
+        "check": "bun run lint && bun run test",
+        "prepublishOnly": "bun ../../scripts/builder.ts check-publish-manifest . && bun run build",
+        "release": "echo 'Manual publish is disabled. Releases go through GitHub Actions via Trusted Publishing — push a tag: git tag @gobing-ai/ts-decision-gemini-v<version> && git push --tags' && exit 1"
+    },
+    "dependencies": {
+        "@gobing-ai/ts-ai-runner": "workspace:*",
+        "@gobing-ai/ts-infra": "workspace:*"
+    },
+    "devDependencies": {
+        "@gobing-ai/ts-ai-decision": "workspace:*",
+        "@types/bun": "1.4.3"
+    },
+    "publishConfig": {
+        "access": "public"
+    }
+}

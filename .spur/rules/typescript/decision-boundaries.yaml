@@ -176,3 +176,77 @@ rules:
         scope:
           include:
             - "packages/ai-runner/package.json"
+
+  - id: no-gemini-driver-import-in-ai-runner
+    description: "ADR-042 / task 0120: @gobing-ai/ts-ai-runner must not declare a dependency on or statically import @gobing-ai/ts-decision-gemini. Gemini is a consumer-injected driver; the dependency points from Gemini to ai-runner, never in reverse."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-decision-gemini"
+        scope:
+          include:
+            - "packages/ai-runner/src/**/*.ts"
+
+  - id: no-ai-decision-import-in-decision-gemini
+    description: "ADR-042 / task 0120: @gobing-ai/ts-decision-gemini must not import @gobing-ai/ts-ai-decision. The hosted driver sits below the catalog layer; the catalog declares its makers, never the reverse."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-ai-decision"
+        scope:
+          include:
+            - "packages/decision-gemini/src/**/*.ts"
+
+  - id: no-gemini-dependency-in-ai-runner-manifest
+    description: "ADR-042 / task 0120: the @gobing-ai/ts-ai-runner manifest must not reference @gobing-ai/ts-decision-gemini at all. The import-direction rule above cannot see a declaration with no import, so this covers the manifest half of the one-way boundary. The check is a line scan: it flags the name anywhere in that file, which is deliberately broader than the dependency fields it protects."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - pattern: "ts-decision-gemini"
+            matchMode: usage
+        scope:
+          include:
+            - "packages/ai-runner/package.json"
+
+  - id: no-openai-driver-import-in-ai-runner
+    description: "ADR-042 / task 0121: @gobing-ai/ts-ai-runner must not declare a dependency on or statically import @gobing-ai/ts-decision-openai. GPT-6 Luna is a consumer-injected driver; the dependency points from OpenAI to ai-runner, never in reverse."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-decision-openai"
+        scope:
+          include:
+            - "packages/ai-runner/src/**/*.ts"
+
+  - id: no-ai-decision-import-in-decision-openai
+    description: "ADR-042 / task 0121: @gobing-ai/ts-decision-openai must not import @gobing-ai/ts-ai-decision. The hosted driver sits below the catalog layer; the catalog declares its makers, never the reverse."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - specifier: "@gobing-ai/ts-ai-decision"
+        scope:
+          include:
+            - "packages/decision-openai/src/**/*.ts"
+
+  - id: no-openai-dependency-in-ai-runner-manifest
+    description: "ADR-042 / task 0121: the @gobing-ai/ts-ai-runner manifest must not reference @gobing-ai/ts-decision-openai at all. The import-direction rule above cannot see a declaration with no import, so this covers the manifest half of the one-way boundary. The check is a line scan: it flags the name anywhere in that file, which is deliberately broader than the dependency fields it protects."
+    severity: error
+    evaluator:
+      type: forbidden-import
+      config:
+        forbidden:
+          - pattern: "ts-decision-openai"
+            matchMode: usage
+        scope:
+          include:
+            - "packages/ai-runner/package.json"
