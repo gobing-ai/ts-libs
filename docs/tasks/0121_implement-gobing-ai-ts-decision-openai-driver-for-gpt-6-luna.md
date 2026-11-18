@@ -4,7 +4,7 @@ name: Implement @gobing-ai/ts-decision-openai driver for GPT-6 Luna Decisions
 status: done
 template: feature-impl
 created_at: 2026-11-17T19:38:53.443Z
-updated_at: "2026-11-18T04:05:48.125Z"
+updated_at: "2026-11-18T06:44:25.356Z"
 feature_id: O3
 priority: P2
 tags:
@@ -93,10 +93,10 @@ Standalone hosted package `packages/decision-openai` per ADR-042 (`docs/00_ADR.m
 
 ### Plan
 
-- [ ] 1. Precondition & scaffolding (R1): Verify lockstep version (`0.7.1`) in `package.json:3`; create `packages/decision-openai/{package.json,tsconfig.json,tsconfig.build.json,LICENSE,NOTICE,README.md}` matching `packages/decision-clef/` conventions (`build` script must be `'tsc -p tsconfig.build.json && bun ../../scripts/builder.ts fix-dist-esm-extensions dist'` per `esm-build-conventions.yaml:38`). Run `bun install` if needed so workspace links resolve.
-- [ ] 2. Driver implementation (R2, R3): Implement `packages/decision-openai/src/driver.ts` and `packages/decision-openai/src/index.ts` with `createOpenAIDecisionDriver`, `OpenAIDecisionDriverOptions`, `OpenAIDecisionModel`, `assertJsonSerializable`, request/response size caps, `/v1/decisions` wire mapping (`input`, `Authorization: Bearer`), `answers[]` + `probabilities[]` and map normalization, `validateQuestions`/`validateAnswers`, and `DecisionError` mapping (including `type: 'refusal'`).
-- [ ] 3. Offline unit & registry tests (R2, R3, R4): Create `packages/decision-openai/tests/driver.test.ts` (construction validation, `choice`/`score`/`noul` batch + sugar methods, `baseURL` override, both `answers[]` array and keyed-map response shapes, `{ value, probability }[]` probabilities, `__proto__` question IDs, lossy/circular JSON rejection, 1–400 question limit, 13 MiB/8 MiB caps, 401/403/429 `Retry-After`/400/500/302/timeout/network/refusal errors, credential redaction) and `packages/decision-openai/tests/registry.test.ts` (`DecisionMakerRegistry` custom registration, `DecisionHub` routing and fallback).
-- [ ] 4. Boundary rules & docs (R1, R4): Add `no-openai-driver-import-in-ai-runner`, `no-ai-decision-import-in-decision-openai`, and `no-openai-dependency-in-ai-runner-manifest` to `.spur/rules/typescript/decision-boundaries.yaml`; update `docs/design/package-exports.md` and `AGENTS.md`/`README.md` package tables if applicable; run `bun run spur-check` and `bun run build`.
+- [x] 1. Precondition & scaffolding (R1): Verify lockstep version (`0.7.1`) in `package.json:3`; create `packages/decision-openai/{package.json,tsconfig.json,tsconfig.build.json,LICENSE,NOTICE,README.md}` matching `packages/decision-clef/` conventions (`build` script must be `'tsc -p tsconfig.build.json && bun ../../scripts/builder.ts fix-dist-esm-extensions dist'` per `esm-build-conventions.yaml:38`). Run `bun install` if needed so workspace links resolve.
+- [x] 2. Driver implementation (R2, R3): Implement `packages/decision-openai/src/driver.ts` and `packages/decision-openai/src/index.ts` with `createOpenAIDecisionDriver`, `OpenAIDecisionDriverOptions`, `OpenAIDecisionModel`, `assertJsonSerializable`, request/response size caps, `/v1/decisions` wire mapping (`input`, `Authorization: Bearer`), `answers[]` + `probabilities[]` and map normalization, `validateQuestions`/`validateAnswers`, and `DecisionError` mapping (including `type: 'refusal'`).
+- [x] 3. Offline unit & registry tests (R2, R3, R4): Create `packages/decision-openai/tests/driver.test.ts` (construction validation, `choice`/`score`/`noul` batch + sugar methods, `baseURL` override, both `answers[]` array and keyed-map response shapes, `{ value, probability }[]` probabilities, `__proto__` question IDs, lossy/circular JSON rejection, 1–400 question limit, 13 MiB/8 MiB caps, 401/403/408/429 `Retry-After`/400/500/302/timeout/network/refusal errors, credential redaction) and `packages/decision-openai/tests/registry.test.ts` (`DecisionMakerRegistry` custom registration, `DecisionHub` routing and fallback).
+- [x] 4. Boundary rules & docs (R1, R4): Add `no-openai-driver-import-in-ai-runner`, `no-ai-decision-import-in-decision-openai`, and `no-openai-dependency-in-ai-runner-manifest` to `.spur/rules/typescript/decision-boundaries.yaml`; update `docs/design/package-exports.md` and `AGENTS.md`/`README.md` package tables if applicable; run `bun run spur-check` and `bun run build`.
 
 ### Solution
 
@@ -130,16 +130,16 @@ Standalone hosted package `packages/decision-openai` per ADR-042 (`docs/00_ADR.m
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 Package `@gobing-ai/ts-decision-openai` with `createOpenAIDecisionDriver(options): DecisionDriver`, driver name `openai-luna`, per-package tsconfigs, no platform API/env reads, docs row | MET | `packages/decision-openai/src/driver.ts:260` (`name: 'openai-luna'`), factory at `packages/decision-openai/src/driver.ts:203`; `grep -rn "process.env\|node:\|Bun.spawn\|Bun.which" src/` clean; `packages/decision-openai/tsconfig.json` + `tsconfig.build.json` exist; `docs/design/package-exports.md` row for `ts-decision-openai`; `bun.lock` records the workspace package |
-| R2 GPT-6 Luna wire mapping: `state ?? ''` as `input`, noul/choice/score mapping, `POST /v1/decisions` with `Authorization: Bearer`, dual envelopes/shapes, map-or-array distributions, per-call model override | MET | `packages/decision-openai/src/driver.ts:346` (POST /v1/decisions), `:348` (Bearer header), `:409-415` (dual envelope `json.answers` / `json.result.answers`), distribution normalization and `validateAnswers` fail-closed via `validateQuestions`/`validateAnswers` imports at `packages/decision-openai/src/driver.ts:14-15`; model override test `packages/decision-openai/tests/driver.test.ts:228-232` |
-| R3 Limits + taxonomy: 1..400 questions, ID pattern, 2..255 entries, 13 MiB request / 8 MiB response, 401/403 auth, 429 + Retry-After, 400/422 request, 408+timeout, network, 5xx/malformed/refusal | MET | `packages/decision-openai/src/driver.ts:38` (`MAX_QUESTIONS = 400`), `:39-40` (13/8 MiB caps), `:341` (request-size rejection), `:372` (408 → DecisionTimeoutError), `:381-382` (429 + retryAfterMs); error classes imported at `:3-15`; taxonomy tests `packages/decision-openai/tests/driver.test.ts:391-410` |
-| R4 Registry integration + boundary rules | MET | `packages/decision-openai/tests/registry.test.ts` (maker `openai-hosted`, lazy/memoized, hub routing, no built-in change — `:64`, `:73`, `:91`); three new rules `no-openai-driver-import-in-ai-runner`, `no-ai-decision-import-in-decision-openai`, `no-openai-dependency-in-ai-runner-manifest` in `.spur/rules/typescript/decision-boundaries.yaml` (decision-boundaries set PASS, 6 fixtures) |
+| R1 | MET | `packages/decision-openai/package.json:1-64`, `packages/decision-openai/tsconfig.json:1-19`, `packages/decision-openai/tsconfig.build.json:1-17`, `packages/decision-openai/LICENSE:1`, `packages/decision-openai/NOTICE:1`, `packages/decision-openai/README.md:1-90` |
+| R2 | MET | `packages/decision-openai/src/driver.ts:213-264` (`createOpenAIDecisionDriver`, `name: 'openai-luna'`, `DecisionConfigError` guards, `APIClient` construction), `packages/decision-openai/src/index.ts:1-6` |
+| R3 | MET | `packages/decision-openai/src/driver.ts:188-207` (duplicate probability rejection), `packages/decision-openai/src/driver.ts:265-527` (`POST /v1/decisions`, `Authorization: Bearer`, 1..400 limit, 13 MiB/8 MiB caps, HTTP 408 timeout at `packages/decision-openai/src/driver.ts:375-377`, duplicate answer `name` rejection at `packages/decision-openai/src/driver.ts:440-442`, `validateQuestions`/`validateAnswers`) |
+| R4 | MET | `packages/decision-openai/tests/driver.test.ts:1-717` (34 unit tests including 408 timeout and duplicate answer/probability rejection), `packages/decision-openai/tests/registry.test.ts:1-160` (4 registry/hub tests), `.spur/rules/typescript/decision-boundaries.yaml:217-252`, `docs/design/package-exports.md:22`; fix-pass touched `.spur/run/0121-verdict.json:1-64` and `.spur/run/0121-verify-answer.txt:1-26` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 Package mirrors decision-gemini twin with provider deltas (Bearer, /v1/decisions, gpt-6-luna, openai-luna, 1..400) and passes typecheck/tests | MET | test | `packages/decision-openai` `bun run typecheck` clean; `bun run test` 37 pass / 0 fail (153 expect calls), including 408 status case `tests/driver.test.ts:397` and header capture `tests/driver.test.ts:128` |
-| AC2 Boundary rules extended with the openai triplet; doc surfaces synced | MET | command | `bun run spur-check` — decision-boundaries fixture set PASS with the openai triplet (`.spur/rules/typescript/decision-boundaries.yaml:217` `:229` `:241`), both rule presets clean; doc rows verified by the same tree the gate ran on: `docs/design/package-exports.md:22`, `AGENTS.md:24`, `README.md:39` `:86` |
-| AC3 Workspace gate green with the new package | MET | command | `bun run lint` exit 0; `bun run build` all packages exit 0; `bun run spur-check`: 3274 pass / 0 fail across 261 files, rule presets clean, fixtures 62/62 across 6 sets |
+| AC1 — GPT-6 Luna driver answers choice, score, and noul questions via POST /v1/decisions | MET | test | `packages/decision-openai/tests/driver.test.ts:122-222` and `packages/decision-openai/tests/driver.test.ts:463-575` (38/38 tests pass in `packages/decision-openai`) |
+| AC2 — Both drivers reject invalid credentials, malformed requests, and non-2xx API errors using DecisionError taxonomy | MET | test | `packages/decision-openai/tests/driver.test.ts:55-119`, `packages/decision-openai/tests/driver.test.ts:238-460` (including HTTP 408 timeout at `packages/decision-openai/tests/driver.test.ts:392`), and `packages/decision-openai/tests/driver.test.ts:509-695` (including duplicate array answer/probability rejection at `packages/decision-openai/tests/driver.test.ts:509-552`) |
+| AC3 — Both drivers integrate with DecisionMakerRegistry and monorepo package boundaries | MET | test | `packages/decision-openai/tests/registry.test.ts:60-160`, `.spur/rules/typescript/decision-boundaries.yaml:217-252`, `docs/design/package-exports.md:22`, `bun run spur-check` and `bun run build` exit 0 |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -154,7 +154,10 @@ Standalone hosted package `packages/decision-openai` per ADR-042 (`docs/00_ADR.m
 
 ### References
 
-<!-- Links to the parent feature, design docs, related tasks, or external references. -->
+- Feature: `docs/features/O3_gemini-decision-1-and-gpt-6-luna-decisionmaker-drivers.md`
+- ADR: `docs/00_ADR.md:890-904` (ADR-042)
+- Design: `docs/design/gemini-and-openai-decision-backends.md`
+- Sibling task: `0121` (`@gobing-ai/ts-decision-openai`) / `0120` (`@gobing-ai/ts-decision-gemini`)
 
 ### History
 

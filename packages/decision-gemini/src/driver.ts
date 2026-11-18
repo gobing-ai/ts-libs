@@ -190,14 +190,18 @@ function normalizeDistribution(raw: unknown, status: number): Record<string, num
         return Object.fromEntries(Object.entries(raw)) as Record<string, number>;
     }
     if (Array.isArray(raw)) {
-        const out: Record<string, number> = {};
+        const out: Record<string, number> = Object.create(null);
         for (const entry of raw) {
             if (!isRecord(entry) || !('value' in entry) || typeof entry.probability !== 'number') {
                 throw new DecisionBackendError('Malformed probability distribution in response', status);
             }
-            out[String(entry.value)] = entry.probability;
+            const key = String(entry.value);
+            if (Object.hasOwn(out, key)) {
+                throw new DecisionBackendError('Duplicate probability entry in response', status);
+            }
+            out[key] = entry.probability;
         }
-        return out;
+        return Object.fromEntries(Object.entries(out));
     }
     throw new DecisionBackendError('Malformed probability distribution in response', status);
 }
@@ -378,6 +382,10 @@ export function createGeminiDecisionDriver(options: GeminiDecisionDriverOptions)
                 throw new DecisionBackendError(`HTTP ${response.status} redirect received`, response.status);
             }
 
+            if (response.status === 408) {
+                throw new DecisionTimeoutError('HTTP 408 request timeout', response.status);
+            }
+
             if (response.status === 401 || response.status === 403) {
                 throw new DecisionAuthError(`HTTP ${response.status} authentication failure`, response.status);
             }
@@ -439,6 +447,9 @@ export function createGeminiDecisionDriver(options: GeminiDecisionDriverOptions)
 
             const answers: Record<string, Answer> = Object.create(null);
             for (const [name, rawAnswer] of rawEntries) {
+                if (Object.hasOwn(answers, name)) {
+                    throw new DecisionBackendError('Duplicate answer entry in response', response.status);
+                }
                 if (!isRecord(rawAnswer)) {
                     throw new DecisionBackendError('Invalid answer in response', response.status);
                 }

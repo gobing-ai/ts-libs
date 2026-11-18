@@ -215,10 +215,10 @@ describe('createGeminiDecisionDriver — request shape (R2)', () => {
                 blank: q.choice('   ', { a: 'A', b: 'B' }),
             },
         });
-        const wire = ctx.wire();
-        expect(wire.questions['bare']).toEqual({ type: 'noul', instructions: 'bare' });
-        expect(wire.questions['nulled']).toEqual({ type: 'noul', instructions: 'nulled' });
-        expect(wire.questions['blank']).toEqual({
+        const { bare, nulled, blank } = ctx.wire().questions;
+        expect(bare).toEqual({ type: 'noul', instructions: 'bare' });
+        expect(nulled).toEqual({ type: 'noul', instructions: 'nulled' });
+        expect(blank).toEqual({
             type: 'choice',
             instructions: 'blank',
             criteria: { a: 'A', b: 'B' },
@@ -290,8 +290,8 @@ describe('createGeminiDecisionDriver — request shape (R2)', () => {
 
     test('rejects un-serializable state before transport', async () => {
         const { driver, ctx } = driverWith();
-        const circular: Record<string, unknown> = {};
-        circular['self'] = circular;
+        const circular: { self?: unknown } = {};
+        circular.self = circular;
         await expect(driver.ask({ state: circular as never, questions: { q1: q.noul() } })).rejects.toThrow(
             DecisionRequestError,
         );
@@ -389,6 +389,7 @@ describe('createGeminiDecisionDriver — transport and status mapping (R3)', () 
         const cases: [number, new (...args: never[]) => Error, string][] = [
             [401, DecisionAuthError, '401'],
             [403, DecisionAuthError, '403'],
+            [408, DecisionTimeoutError, '408'],
             [400, DecisionRequestError, '400'],
             [404, DecisionRequestError, '404'],
             [422, DecisionRequestError, '422'],
@@ -504,6 +505,51 @@ describe('createGeminiDecisionDriver — response parsing (R4)', () => {
             confidence: 0.9,
             probabilities: { yes: 0.9, no: 0.1 },
         });
+    });
+
+    test('rejects duplicate answer names and duplicate probability values in array form', async () => {
+        const dupAnswers = createGeminiDecisionDriver({
+            apiKey: VALID_KEY,
+            fetch: (async () =>
+                new Response(
+                    JSON.stringify({
+                        answers: [
+                            { name: 'q1', type: 'noul', noul: 0.2 },
+                            { name: 'q1', type: 'noul', noul: 0.8 },
+                        ],
+                    }),
+                    { status: 200 },
+                )) as unknown as typeof fetch,
+        });
+        await expect(dupAnswers.ask({ state: null, questions: { q1: q.noul() } })).rejects.toThrow(
+            DecisionBackendError,
+        );
+
+        const dupProbs = createGeminiDecisionDriver({
+            apiKey: VALID_KEY,
+            fetch: (async () =>
+                new Response(
+                    JSON.stringify({
+                        answers: [
+                            {
+                                name: 'pick',
+                                type: 'choice',
+                                choice: 'yes',
+                                confidence: 0.9,
+                                probabilities: [
+                                    { value: 'yes', probability: 0.4 },
+                                    { value: 'yes', probability: 0.5 },
+                                    { value: 'no', probability: 0.5 },
+                                ],
+                            },
+                        ],
+                    }),
+                    { status: 200 },
+                )) as unknown as typeof fetch,
+        });
+        await expect(
+            dupProbs.ask({ state: null, questions: { pick: q.choice('Pick', { yes: 'Y', no: 'N' }) } }),
+        ).rejects.toThrow(DecisionBackendError);
     });
 
     test('accepts `label` as an alias for `choice` on choice answers', async () => {

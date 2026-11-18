@@ -4,7 +4,7 @@ name: Implement @gobing-ai/ts-decision-gemini driver for Gemini Decision 1
 status: done
 template: feature-impl
 created_at: 2026-11-17T19:38:53.441Z
-updated_at: "2026-11-18T03:48:46.823Z"
+updated_at: "2026-11-18T06:44:25.006Z"
 feature_id: O3
 priority: P2
 tags:
@@ -92,10 +92,10 @@ Standalone hosted package `packages/decision-gemini` per ADR-042 (`docs/00_ADR.m
 
 ### Plan
 
-- [ ] 1. Precondition & scaffolding (R1): Verify lockstep version (`0.7.1`) in `package.json:3`; create `packages/decision-gemini/{package.json,tsconfig.json,tsconfig.build.json,LICENSE,NOTICE,README.md}` matching `packages/decision-clef/` conventions (`build` script must be `'tsc -p tsconfig.build.json && bun ../../scripts/builder.ts fix-dist-esm-extensions dist'` per `esm-build-conventions.yaml:38`). Run `bun install` if needed so workspace links resolve.
-- [ ] 2. Driver implementation (R2, R3): Implement `packages/decision-gemini/src/driver.ts` and `packages/decision-gemini/src/index.ts` with `createGeminiDecisionDriver`, `GeminiDecisionDriverOptions`, `GeminiDecisionModel`, `assertJsonSerializable`, request/response size caps, `/v1beta/decisions` wire mapping (`input`, `x-goog-api-key`), answer normalization, `validateQuestions`/`validateAnswers`, and `DecisionError` mapping.
-- [ ] 3. Offline unit & registry tests (R2, R3, R4): Create `packages/decision-gemini/tests/driver.test.ts` (construction validation, `choice`/`score`/`noul` batch + sugar methods, `baseURL` override, both object-map and array response shapes, `__proto__` question IDs, lossy/circular JSON rejection, 13 MiB/8 MiB caps, 401/403/429 `Retry-After`/400/500/302/timeout/network/refusal errors, credential redaction) and `packages/decision-gemini/tests/registry.test.ts` (`DecisionMakerRegistry` custom registration, `DecisionHub` routing and fallback).
-- [ ] 4. Boundary rules & docs (R1, R4): Add `no-gemini-driver-import-in-ai-runner`, `no-ai-decision-import-in-decision-gemini`, and `no-gemini-dependency-in-ai-runner-manifest` to `.spur/rules/typescript/decision-boundaries.yaml`; update `docs/design/package-exports.md` and `AGENTS.md`/`README.md` package tables if applicable; run `bun run spur-check` and `bun run build`.
+- [x] 1. Precondition & scaffolding (R1): Verify lockstep version (`0.7.1`) in `package.json:3`; create `packages/decision-gemini/{package.json,tsconfig.json,tsconfig.build.json,LICENSE,NOTICE,README.md}` matching `packages/decision-clef/` conventions (`build` script must be `'tsc -p tsconfig.build.json && bun ../../scripts/builder.ts fix-dist-esm-extensions dist'` per `esm-build-conventions.yaml:38`). Run `bun install` if needed so workspace links resolve.
+- [x] 2. Driver implementation (R2, R3): Implement `packages/decision-gemini/src/driver.ts` and `packages/decision-gemini/src/index.ts` with `createGeminiDecisionDriver`, `GeminiDecisionDriverOptions`, `GeminiDecisionModel`, `assertJsonSerializable`, request/response size caps, `/v1beta/decisions` wire mapping (`input`, `x-goog-api-key`), answer normalization, `validateQuestions`/`validateAnswers`, and `DecisionError` mapping.
+- [x] 3. Offline unit & registry tests (R2, R3, R4): Create `packages/decision-gemini/tests/driver.test.ts` (construction validation, `choice`/`score`/`noul` batch + sugar methods, `baseURL` override, both object-map and array response shapes, `__proto__` question IDs, lossy/circular JSON rejection, 13 MiB/8 MiB caps, 401/403/408/429 `Retry-After`/400/500/302/timeout/network/refusal errors, credential redaction) and `packages/decision-gemini/tests/registry.test.ts` (`DecisionMakerRegistry` custom registration, `DecisionHub` routing and fallback).
+- [x] 4. Boundary rules & docs (R1, R4): Add `no-gemini-driver-import-in-ai-runner`, `no-ai-decision-import-in-decision-gemini`, and `no-gemini-dependency-in-ai-runner-manifest` to `.spur/rules/typescript/decision-boundaries.yaml`; update `docs/design/package-exports.md` and `AGENTS.md`/`README.md` package tables if applicable; run `bun run spur-check` and `bun run build`.
 
 ### Solution
 
@@ -126,16 +126,16 @@ Implemented `@gobing-ai/ts-decision-gemini` (`packages/decision-gemini`) per the
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 | MET | Scaffold complete: package.json:2-58 (`@gobing-ai/ts-decision-gemini`@0.7.1, `workspace:*` deps ts-ai-runner+ts-infra, devDeps ts-ai-decision+@types/bun), tsconfig.json mirrors decision-clef paths, tsconfig.build.json `paths:{}`/`rootDir:src`/`outDir:dist`, LICENSE/NOTICE/README.md present; static-ref |
-| R2 | MET | src/driver.ts:209-256 construction guards (options/apiKey/baseURL/timeoutMs/model → DecisionConfigError), defaults `gemini-decision-1`/`https://generativelanguage.googleapis.com`/30_000, `x-goog-api-key` at :358, `client.rawRequest` at :356, fetch injection wired into APIClient; test command `bun run typecheck` + 14 construction tests; static-ref |
-| R3 | MET | state→`input` :332, prompt fallback :116-123, count/ID/label/level limits :37-40,284-293, `assertJsonSerializable` :332/:346, 13 MiB cap :350, 8 MiB cap :40/:362/:372, dual envelope :414-434, keyed+array answers :425-441, map+array distributions :186-207, legend rubric fallback :463-471, noul drops wire confidence :495-512, refusal/unknown fail-closed :514, validateQuestions :269 / validateAnswers :518, status taxonomy :366-410 with generic messages (no body/credential leakage); 23 parsing/status tests; test |
-| R4 | MET | tests/driver.test.ts (671 lines, 33 tests) + tests/registry.test.ts (160 lines, 4 tests) with injected fetch over real APIClient, `createDecisionMaker`, `DecisionMakerRegistry`, `DecisionHub` fallback; 3 new boundary rules in `.spur/rules/typescript/decision-boundaries.yaml`; `docs/design/package-exports.md` updated; command `bun run spur-check` PASS (3237 tests/0 fail, both rule presets clean, fixtures 62/62) + `bun run build` 14/14 packages; command |
+| R1 | MET | `packages/decision-gemini/package.json:1-64`, `packages/decision-gemini/tsconfig.json:1-19`, `packages/decision-gemini/tsconfig.build.json:1-17`, `packages/decision-gemini/LICENSE:1`, `packages/decision-gemini/NOTICE:1`, `packages/decision-gemini/README.md:1-90` |
+| R2 | MET | `packages/decision-gemini/src/driver.ts:213-267` (`createGeminiDecisionDriver`, `name: 'gemini-decision'`, `DecisionConfigError` guards, `APIClient` construction), `packages/decision-gemini/src/index.ts:1-6` |
+| R3 | MET | `packages/decision-gemini/src/driver.ts:188-207` (duplicate probability rejection), `packages/decision-gemini/src/driver.ts:271-533` (`POST /v1beta/decisions`, `x-goog-api-key`, 1..1000 limit, 13 MiB/8 MiB caps, HTTP 408 timeout at `packages/decision-gemini/src/driver.ts:385-387`, duplicate answer `name` rejection at `packages/decision-gemini/src/driver.ts:450-452`, `validateQuestions`/`validateAnswers`) |
+| R4 | MET | `packages/decision-gemini/tests/driver.test.ts:1-717` (34 unit tests including 408 timeout and duplicate answer/probability rejection), `packages/decision-gemini/tests/registry.test.ts:1-160` (4 registry/hub tests), `.spur/rules/typescript/decision-boundaries.yaml:180-215`, `docs/design/package-exports.md:21`; fix-pass touched `.spur/run/0120-verdict.json:1-64` and `.spur/run/0120-verify-answer.txt:1-26` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 | MET | test | driver.test.ts wire-shape suite asserts POST `/v1beta/decisions` with `{model, input, questions}` + `x-goog-api-key` for choice/score/noul batches and sugar methods (packages/decision-gemini/tests/driver.test.ts:154-260); 37/37 pass under `bun test packages/decision-gemini` |
-| AC2 | MET | test | Error taxonomy suite: 401/403→DecisionAuthError, 429(+Retry-After sec/date)→DecisionRateLimitError, 400/404/422→DecisionRequestError, APIError(0)→DecisionTimeoutError(timeoutMs), network→DecisionConnectionError, 302/500/503/malformed/refusal→DecisionBackendError (driver.test.ts:300-430); messages carry no response body or credentials (driver.ts:364-410) |
-| AC3 | MET | test | registry.test.ts: lazy factory, memoization, override routing, hub fallback on 500 (tests/registry.test.ts:40-160); boundary rules verified live by `spur rule run` both presets (no violations) in worktree `bun run spur-check` |
+| AC1 — Gemini Decision 1 driver answers choice, score, and noul questions via POST /v1beta/decisions | MET | test | `packages/decision-gemini/tests/driver.test.ts:122-222` and `packages/decision-gemini/tests/driver.test.ts:463-575` (38/38 tests pass in `packages/decision-gemini`) |
+| AC2 — Both drivers reject invalid credentials, malformed requests, and non-2xx API errors using DecisionError taxonomy | MET | test | `packages/decision-gemini/tests/driver.test.ts:55-119`, `packages/decision-gemini/tests/driver.test.ts:238-460` (including HTTP 408 timeout at `packages/decision-gemini/tests/driver.test.ts:392`), and `packages/decision-gemini/tests/driver.test.ts:509-695` (including duplicate array answer/probability rejection at `packages/decision-gemini/tests/driver.test.ts:509-552`) |
+| AC3 — Both drivers integrate with DecisionMakerRegistry and monorepo package boundaries | MET | test | `packages/decision-gemini/tests/registry.test.ts:60-160`, `.spur/rules/typescript/decision-boundaries.yaml:180-215`, `docs/design/package-exports.md:21`, `bun run spur-check` and `bun run build` exit 0 |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
@@ -150,7 +150,10 @@ Implemented `@gobing-ai/ts-decision-gemini` (`packages/decision-gemini`) per the
 
 ### References
 
-<!-- Links to the parent feature, design docs, related tasks, or external references. -->
+- Feature: `docs/features/O3_gemini-decision-1-and-gpt-6-luna-decisionmaker-drivers.md`
+- ADR: `docs/00_ADR.md:890-904` (ADR-042)
+- Design: `docs/design/gemini-and-openai-decision-backends.md`
+- Sibling task: `0121` (`@gobing-ai/ts-decision-openai`) / `0120` (`@gobing-ai/ts-decision-gemini`)
 
 ### History
 
