@@ -336,13 +336,46 @@ function resolvePackageSchema(
     try {
         // Resolve the package root via its always-present package.json, then join the subpath.
         // This sidesteps `exports` gating on arbitrary JSON subpaths.
-        const manifest = resolveFn(`${pkg}/package.json`, from);
-        return joinPath(dirnamePath(manifest), subpath);
+        return schemaPathOf(resolveFn, pkg, subpath, from);
     } catch (error) {
+        // A project config names the schema of the tool that reads it, and that tool is not always an
+        // ancestor of the config: globally installed CLIs (bun/npm global, `bun link`) live outside the
+        // project tree, so the config-directory lookup cannot see them. Retry from this module's own
+        // directory — inside a bundled CLI that is the tool's package root, which ships the schema.
+        const host = hostModuleDir();
+        if (host !== undefined && host !== from) {
+            try {
+                return schemaPathOf(resolveFn, pkg, subpath, host);
+            } catch {
+                // Both locations missed: report the caller's own location, which is the actionable one.
+            }
+        }
         throw new StructuredConfigSchemaError(
             `Cannot resolve package schema "${specifier}" referenced by "${source}": ${errorMessage(error)}`,
         );
     }
+}
+
+function schemaPathOf(
+    resolve: (specifier: string, from: string) => string,
+    pkg: string,
+    subpath: string,
+    from: string,
+): string {
+    return joinPath(dirnamePath(resolve(`${pkg}/package.json`, from)), subpath);
+}
+
+/**
+ * Directory of this module: the host tool's own package root once bundled. `import.meta.dir` is Bun's
+ * form; `import.meta.url` covers other ESM hosts. `undefined` where neither exists (e.g. some workers).
+ */
+function hostModuleDir(): string | undefined {
+    const meta = import.meta as { dir?: string; url?: string };
+    if (typeof meta.dir === 'string' && meta.dir.length > 0) return meta.dir;
+    if (typeof meta.url === 'string' && meta.url.startsWith('file://')) {
+        return dirnamePath(decodeURIComponent(meta.url.slice('file://'.length)));
+    }
+    return undefined;
 }
 
 function splitPackageSpecifier(specifier: string): { pkg: string; subpath: string } {

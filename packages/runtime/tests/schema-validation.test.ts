@@ -122,6 +122,67 @@ describe('loadStructuredConfig', () => {
         ).toMatchObject({ name: 'demo' });
     });
 
+    test('retries a package-specifier ref from the host module directory when the config dir cannot resolve it', async () => {
+        // The schema belongs to the tool reading the config, and that tool is not always an ancestor
+        // of the config: a globally installed CLI (bun/npm global) has no node_modules on the config's
+        // path. The retry from this module's own directory is what makes such refs resolve.
+        const dir = await mkdtemp(join(tmpdir(), 'structured-config-host-'));
+        const pkgRoot = join(dir, 'cli', 'node_modules', '@scope', 'demo');
+        await mkdir(join(pkgRoot, 'schemas'), { recursive: true });
+        await writeFile(join(pkgRoot, 'package.json'), JSON.stringify({ name: '@scope/demo' }));
+        await writeFile(
+            join(pkgRoot, 'schemas', 'config.schema.json'),
+            JSON.stringify({
+                type: 'object',
+                additionalProperties: false,
+                required: ['name'],
+                properties: { $schema: { type: 'string' }, name: { type: 'string' } },
+            }),
+        );
+
+        const configDir = join(dir, 'project', 'configs');
+        await mkdir(configDir, { recursive: true });
+        const froms: string[] = [];
+        const resolve = (specifier: string, from: string): string => {
+            froms.push(from);
+            if (specifier !== '@scope/demo/package.json') throw new Error(`unexpected specifier ${specifier}`);
+            if (from === configDir) throw new Error(`Cannot find package '@scope/demo' imported from ${from}`);
+            return join(pkgRoot, 'package.json');
+        };
+
+        const parsed = await parseStructuredConfig(
+            '$schema: "@scope/demo/schemas/config.schema.json"\nname: demo\n',
+            join(configDir, 'c.yaml'),
+            { resolve },
+        );
+        expect(parsed).toMatchObject({ name: 'demo' });
+        expect(froms).toEqual([configDir, expect.any(String)]);
+        expect(froms[1]).not.toBe(configDir);
+
+        // Validation still applies when the fallback resolves the schema.
+        await expect(
+            parseStructuredConfig(
+                '$schema: "@scope/demo/schemas/config.schema.json"\nname: demo\nextra: nope\n',
+                join(configDir, 'c.yaml'),
+                { resolve },
+            ),
+        ).rejects.toThrow(StructuredConfigSchemaError);
+    });
+
+    test('reports the config-directory failure when neither location resolves the package', async () => {
+        const configDir = join(await mkdtemp(join(tmpdir(), 'structured-config-miss-')), 'configs');
+        await mkdir(configDir, { recursive: true });
+        const resolve = (_specifier: string, from: string): string => {
+            throw new Error(`Cannot find package '@scope/missing' imported from ${from}`);
+        };
+
+        await expect(
+            parseStructuredConfig('$schema: "@scope/missing/schemas/x.json"\nname: demo\n', join(configDir, 'c.yaml'), {
+                resolve,
+            }),
+        ).rejects.toThrow(`Cannot find package '@scope/missing' imported from ${configDir}`);
+    });
+
     test('supports remote schema refs through an injected fetch implementation', async () => {
         const parsed = await parseStructuredConfig(
             '$schema: https://schemas.example/config.json\nname: demo\n',
