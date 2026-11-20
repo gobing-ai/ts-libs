@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-decision-gemini",
-    "version": "0.8.0",
+    "version": "0.8.1",
     "description": "@gobing-ai/ts-decision-gemini — Google Gemini Decision 1 decision backend driving the hosted Decisions API over the portable ts-infra APIClient seam.",
     "keywords": [
         "typescript",
