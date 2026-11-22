@@ -148,6 +148,23 @@ describe('fm process runs and error mapping (task 0084 R7, R8)', () => {
         ).rejects.toThrow(/count-tokens failed \(exit 1\): boom/);
     });
 
+    it('ModelManager error 1008 (model service unreachable, e.g. sandboxed caller) is a config error, not a backend error', async () => {
+        const denied = new StubFmExecutor({
+            exitCode: 1,
+            stderr: 'Error: The operation couldn’t be completed. (ModelManagerServices.ModelManagerError error 1008.)',
+        });
+        await expect(countPromptTokens(denied, 'fm', INSTRUCTIONS, PROMPT)).rejects.toThrow(DecisionConfigError);
+        await expect(countPromptTokens(denied, 'fm', INSTRUCTIONS, PROMPT)).rejects.toThrow(/sandbox/);
+        await expect(
+            runFmRespond(
+                denied,
+                'fm',
+                respondArgv({ schemaPath: '/s', instructions: INSTRUCTIONS, prompt: PROMPT }),
+                1000,
+            ),
+        ).rejects.toThrow(DecisionConfigError);
+    });
+
     it('runs respond with the per-sample timeout', async () => {
         const executor = new StubFmExecutor({ stdout: '{}' });
         await runFmRespond(

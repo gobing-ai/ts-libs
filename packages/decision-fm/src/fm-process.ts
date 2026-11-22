@@ -117,6 +117,7 @@ export async function countPromptTokens(
         throw new DecisionConfigError(`fm not found: '${fmPath}' could not be spawned`, 'fmPath');
     }
     if (result.exitCode !== 0) {
+        throwIfModelServiceDenied(fmText(result));
         throw new DecisionBackendError(
             `fm count-tokens failed (exit ${result.exitCode}): ${fmText(result)}`,
             undefined,
@@ -135,6 +136,23 @@ export async function countPromptTokens(
 /** Stable substrings of fm's failure text (design § Errors discrimination). */
 const CONTEXT_SIZE_MARKER = "exceeded the model's context size";
 const GUARDRAILS_MARKER = 'safety guardrails were triggered';
+/**
+ * modelmanagerd refuses the caller outright (observed ~60–150 ms, no inference)
+ * when fm runs inside a restricted context such as a coding agent's Seatbelt
+ * sandbox, while `fm available --model system` still exits 0. It is an
+ * environment fault, so it maps to `DecisionConfigError` (hub reason
+ * `no-backend`, which a maker chain advances past) instead of a backend error.
+ */
+const MODEL_SERVICE_DENIED_MARKER = 'ModelManagerError error 1008';
+
+function throwIfModelServiceDenied(text: string): void {
+    if (text.includes(MODEL_SERVICE_DENIED_MARKER)) {
+        throw new DecisionConfigError(
+            `fm cannot reach the on-device model service (is the caller running inside a sandbox?): ${text}`,
+            'fm-model-service',
+        );
+    }
+}
 
 /**
  * One `fm respond` sample: run with the per-sample timeout, map every failure
@@ -160,6 +178,7 @@ export async function runFmRespond(
     }
     if (result.exitCode !== 0) {
         const text = fmText(result);
+        throwIfModelServiceDenied(text);
         if (text.includes(CONTEXT_SIZE_MARKER)) {
             throw new DecisionRequestError(`fm prompt exceeded the model context size: ${text}`, undefined, undefined);
         }
