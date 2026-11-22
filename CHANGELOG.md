@@ -7,6 +7,24 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-21
+
+### Fixed
+
+- fix(decision) (0068913f): the typesafe driver answers buffered fetch replies again. SDK 0.7.0's
+  `bufferResponse` releases the original body and then `parseBody` calls `res.text()`; on Bun a
+  reply whose body is already buffered counts as disturbed after that, so every call — success or
+  HTTP error — rejected with `TypeError: Body already used`. The fetch seam now re-emits the reply
+  bytes as a fresh stream, inside the SDK's attempt so its timeout and abort still apply.
+  <!-- src: packages/ai-decision/src/typesafe-driver.ts:121 (streamBackedFetch), :72 (fetch seam wraps config.fetch ?? fetch); packages/ai-decision/tests/typesafe-driver.test.ts:352 (buffered-body regression, success + 401) · confidence: HIGH -->
+- fix(decision-fm) (51b112a6): `ModelManagerError error 1008` is now a config error, not a backend
+  error. modelmanagerd refuses the caller outright (observed ~60–150 ms, no inference) when fm runs
+  inside a restricted context such as a coding agent's Seatbelt sandbox, while `fm available --model
+  system` still exits 0; both `count-tokens` and `respond` now raise `DecisionConfigError` naming the
+  likely cause, so the hub reports `no-backend` and a maker chain advances instead of failing on a
+  generic backend error.
+  <!-- src: packages/decision-fm/src/fm-process.ts:146 (MODEL_SERVICE_DENIED_MARKER), :148 (throwIfModelServiceDenied), :120 (count-tokens site), :181 (respond site); packages/decision-fm/tests/fm-process.test.ts:151 · confidence: HIGH -->
+
 ## [0.8.0] - 2026-11-17
 
 ### Added
