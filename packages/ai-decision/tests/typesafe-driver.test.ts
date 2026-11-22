@@ -338,14 +338,34 @@ describe('createTypesafeDriver (0072: client wiring and mapping)', () => {
         // The transport wraps fetch rejections, but a body-read failure in the
         // SDK's response parsing reaches the driver raw — the path that pins
         // translateError's foreign-error fall-through.
+        // A null-body response is the one the driver's fetch seam hands over untouched.
         const { driver: d } = driver(() => {
-            const res = json(SYSTEM_ONE);
+            const res = new Response(null, { status: 200, headers: { 'content-type': 'application/json' } });
             Object.defineProperty(res, 'text', { value: () => Promise.reject(foreign) });
             return res;
         });
         const err = await rejection(d.ask({ state: 's', questions: { a: q.noul('y?') } }));
         expect(err).toBe(foreign);
         expect(err).not.toBeInstanceOf(DecisionError);
+    });
+
+    test('buffered (non-stream) fetch bodies are answered, not "Body already used"', async () => {
+        // Bun's real fetch can hand back an already-buffered body; SDK 0.7.0's bufferResponse then
+        // disturbs it and every call — success or HTTP error — failed with a TypeError.
+        const buffered = (payload: unknown, status = 200) =>
+            new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } });
+
+        const { driver: ok } = driver(() =>
+            buffered({ model: 'jev-1.14.0', answers: { a: { type: 'noul', noul: 0.9 } } }),
+        );
+        expect(await ok.ask({ state: 's', questions: { a: q.noul('y?') } })).toEqual({
+            a: { kind: 'noul', probability: 0.9 },
+        });
+
+        const { driver: denied } = driver(() => buffered({ detail: 'bad key' }, 401));
+        expect(await rejection(denied.ask({ state: 's', questions: { a: q.noul('y?') } }))).toBeInstanceOf(
+            DecisionAuthError,
+        );
     });
 
     test('R1 — explicit baseURL reaches the client even under ambient TYPESAFE_BASE_URL', async () => {

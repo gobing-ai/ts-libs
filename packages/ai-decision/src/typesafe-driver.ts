@@ -69,7 +69,7 @@ export function createTypesafeDriver(config: TypesafeDriverConfig): DecisionDriv
             defaultModel: config.model,
             timeout: config.timeoutMs,
             retry: config.maxRetries === undefined ? undefined : { maxRetries: config.maxRetries },
-            fetch: config.fetch,
+            fetch: streamBackedFetch(config.fetch ?? fetch),
         });
     } catch (err) {
         translateError(err);
@@ -108,6 +108,29 @@ export function createTypesafeDriver(config: TypesafeDriverConfig): DecisionDriv
             return answers;
         },
     };
+}
+
+/**
+ * SDK 0.7.0's `bufferResponse` takes a reader on the original body and releases it, then
+ * `parseBody` calls `res.text()`. On Bun, a response whose body is already buffered (as a real
+ * fetch reply often is) counts as disturbed after that, so every call threw
+ * `TypeError: Body already used`. Re-emitting the bytes as a fresh stream gives the SDK the
+ * stream-backed body it expects. The read runs inside the SDK's attempt, so its timeout and abort
+ * still apply. ponytail: drop once the SDK stops locking the original body.
+ */
+function streamBackedFetch(base: typeof fetch): typeof fetch {
+    return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        const res = await base(input, init);
+        if (res.body === null) return res;
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                if (bytes.byteLength > 0) controller.enqueue(bytes);
+                controller.close();
+            },
+        });
+        return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+    }) as typeof fetch;
 }
 
 /** Neutral question → SDK wire question (R4). `null` is "undescribed" on the wire. */
