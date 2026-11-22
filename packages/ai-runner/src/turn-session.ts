@@ -226,6 +226,12 @@ export const TURN_CANCEL_GRACE_MS = 5_000;
 export const TURN_HANDSHAKE_TIMEOUT_MS = 10_000;
 /** Max buffered stdout line; overflow is a protocol contract violation. */
 export const TURN_MAX_LINE_BYTES = 1024 * 1024;
+/**
+ * Bound on draining stdout after the child exits, before the exit path settles the turn. A child
+ * that emits a bad frame and exits at once must classify `contract-violation`, not be outrun by
+ * the exit event; the bound only exists so a grandchild holding stdout open cannot stall it.
+ */
+const TURN_EXIT_DRAIN_MS = 1_000;
 
 /** `startTurn` while another turn is active — no hidden queue, by design. */
 export class TurnSessionBusyError extends Error {
@@ -431,6 +437,8 @@ class TurnSessionImpl implements TurnSession {
     private readonly process: PipeProcess;
     private readonly driver: TurnSessionDriver;
     private readonly lines: AsyncIterable<string>;
+    /** Resolves when the stdout pump has routed every line (never rejects — it settles the turn). */
+    private readonly pumped: Promise<void>;
     private active: ActiveTurn | undefined;
     /** Most recent turn — kept so frames arriving after settlement surface as diagnostics. */
     private lastTurn: ActiveTurn | undefined;
@@ -449,9 +457,9 @@ class TurnSessionImpl implements TurnSession {
         this.policyDigest = turnSessionPolicyDigest(options.policy);
         this.nativeSessionId = options.nativeSessionId;
         this.lines = options.lines;
-        void this.pump();
+        this.pumped = this.pump();
         void this.process.exited.then(() => {
-            this.onExit();
+            void this.onExit();
         });
     }
 
@@ -624,7 +632,10 @@ class TurnSessionImpl implements TurnSession {
     }
 
     /** Deterministic settlement when the process dies: before acceptance → not-started, after → unknown. */
-    private onExit(): void {
+    private async onExit(): Promise<void> {
+        // Drain first: the exit event can win the race against stdout delivery, and settling on it
+        // alone would report not-started for a child that did emit a contract-violating frame.
+        await Promise.race([this.pumped, delay(TURN_EXIT_DRAIN_MS)]);
         const turn = this.active;
         this.state = 'closed';
         if (turn === undefined) return;

@@ -6,7 +6,12 @@ import type { PipeProcess, ProcessExecutor } from '@gobing-ai/ts-runtime';
 import { AiRunner } from '../src/ai-runner';
 import { createFakeTurnSessionDriver, type FakeTurnAction } from '../src/testing/fake-turn-driver';
 import type { TurnCorrelation, TurnEvent, TurnOutcome, TurnSessionDriver } from '../src/turn-session';
-import { TURN_CANCEL_GRACE_MS, TurnSessionBusyError } from '../src/turn-session';
+import {
+    openTurnSessionWithDriver,
+    TURN_CANCEL_GRACE_MS,
+    TurnProtocolError,
+    TurnSessionBusyError,
+} from '../src/turn-session';
 
 const CORRELATION: TurnCorrelation = {
     runId: 'run-1284',
@@ -275,6 +280,58 @@ describe('TurnSession (task 1284 — correlated warm-turn session facade)', () =
         if (!result.ok) return expect.unreachable();
         const handle = result.session.startTurn({ prompt: 'hi', correlation: CORRELATION });
         expect((await handle.outcome).kind).toBe('contract-violation');
+    });
+
+    test('a bad frame still arriving when the exit event fires settles contract-violation', async () => {
+        // Deterministic ordering of the CI flake: `exited` resolves while stdout has not yet
+        // delivered the malformed line, so a settlement that trusts the exit event alone reports
+        // not-started and drops the contract evidence the child did emit.
+        const encoder = new TextEncoder();
+        let push!: ReadableStreamDefaultController<Uint8Array>;
+        const stdout = new ReadableStream<Uint8Array>({
+            start: (controller) => {
+                push = controller;
+            },
+        });
+        const child: PipeProcess = {
+            pid: null,
+            stdout,
+            stderr: null,
+            exited: Promise.resolve(0),
+            writeStdin: () => {},
+            endStdin: () => {},
+            kill: () => {},
+        };
+        const executor = {
+            run: () => {
+                throw new Error('must not run');
+            },
+            runStreaming: (): PipeProcess => child,
+        } as unknown as ProcessExecutor;
+        const driver: TurnSessionDriver = {
+            agent: 'pi',
+            qualify: () => ({ qualified: true }),
+            spawnArgv: () => ({ command: '/fake/turn-agent', args: [] }),
+            encodeTurn: () => 'go\n',
+            decode: (line) => {
+                throw new TurnProtocolError(`malformed frame: ${line}`);
+            },
+            encodeCancel: () => 'cancel\n',
+        };
+        const result = await openTurnSessionWithDriver({
+            agent: 'pi',
+            driver,
+            policy: { workspace: process.cwd(), role: 'member' },
+            binary: { path: '/fake/turn-agent', version: '9.9.9' },
+            processExecutor: executor,
+        });
+        if (!result.ok) return expect.unreachable();
+        const handle = result.session.startTurn({ prompt: 'go', correlation: CORRELATION });
+        await Promise.resolve(); // let the already-resolved `exited` fire its handler
+        push.enqueue(encoder.encode('not a frame\n'));
+        push.close();
+        expect((await handle.outcome).kind).toBe('contract-violation');
+        await result.session.close();
     });
 
     test('close while a turn is busy settles the turn and closes the session', async () => {
