@@ -282,11 +282,18 @@ describe('TurnSession (task 1284 — correlated warm-turn session facade)', () =
         expect((await handle.outcome).kind).toBe('contract-violation');
     });
 
-    test('a bad frame still arriving when the exit event fires settles contract-violation', async () => {
-        // Deterministic ordering of the CI flake: `exited` resolves while stdout has not yet
-        // delivered the malformed line, so a settlement that trusts the exit event alone reports
-        // not-started and drops the contract evidence the child did emit.
+    /**
+     * Fake child whose stdout, exit, and stdin failure are driven by the test, so the ordering that
+     * decides how a turn settles is exact rather than a timing lottery.
+     */
+    function scriptedChild(options: { manualExit?: boolean; writeStdin?: () => void } = {}) {
         const encoder = new TextEncoder();
+        let endProcess!: (code: number | null) => void;
+        const exited = options.manualExit
+            ? new Promise<number | null>((resolve) => {
+                  endProcess = resolve;
+              })
+            : Promise.resolve(0);
         let push!: ReadableStreamDefaultController<Uint8Array>;
         const stdout = new ReadableStream<Uint8Array>({
             start: (controller) => {
@@ -297,17 +304,11 @@ describe('TurnSession (task 1284 — correlated warm-turn session facade)', () =
             pid: null,
             stdout,
             stderr: null,
-            exited: Promise.resolve(0),
-            writeStdin: () => {},
+            exited,
+            writeStdin: options.writeStdin ?? (() => {}),
             endStdin: () => {},
             kill: () => {},
         };
-        const executor = {
-            run: () => {
-                throw new Error('must not run');
-            },
-            runStreaming: (): PipeProcess => child,
-        } as unknown as ProcessExecutor;
         const driver: TurnSessionDriver = {
             agent: 'pi',
             qualify: () => ({ qualified: true }),
@@ -318,19 +319,71 @@ describe('TurnSession (task 1284 — correlated warm-turn session facade)', () =
             },
             encodeCancel: () => 'cancel\n',
         };
-        const result = await openTurnSessionWithDriver({
-            agent: 'pi',
-            driver,
-            policy: { workspace: process.cwd(), role: 'member' },
-            binary: { path: '/fake/turn-agent', version: '9.9.9' },
-            processExecutor: executor,
-        });
+        return {
+            write(lines: string[]): void {
+                for (const line of lines) push.enqueue(encoder.encode(`${line}\n`));
+                push.close();
+            },
+            /** Resolve a manual exit — `close()` waits for it. */
+            exit: (): void => endProcess(0),
+            open: () =>
+                openTurnSessionWithDriver({
+                    agent: 'pi',
+                    driver,
+                    policy: { workspace: process.cwd(), role: 'member' },
+                    binary: { path: '/fake/turn-agent', version: '9.9.9' },
+                    processExecutor: {
+                        run: () => {
+                            throw new Error('must not run');
+                        },
+                        runStreaming: (): PipeProcess => child,
+                    } as unknown as ProcessExecutor,
+                }),
+        };
+    }
+
+    test('a bad frame still arriving when the exit event fires settles contract-violation', async () => {
+        // CI ordering: `exited` resolves while stdout has not yet delivered the malformed line, so a
+        // settlement that trusts the exit event alone reports not-started.
+        const child = scriptedChild();
+        const result = await child.open();
         if (!result.ok) return expect.unreachable();
         const handle = result.session.startTurn({ prompt: 'go', correlation: CORRELATION });
         await Promise.resolve(); // let the already-resolved `exited` fire its handler
-        push.enqueue(encoder.encode('not a frame\n'));
-        push.close();
+        child.write(['not a frame']);
         expect((await handle.outcome).kind).toBe('contract-violation');
+        await result.session.close();
+    });
+
+    test('a stdin write that fails after the bad frame was written settles contract-violation', async () => {
+        // The observed CI shape: the child wrote a malformed frame and exited, so `writeStdin` throws
+        // EPIPE before the pump has routed that frame. "The prompt never arrived" must not outrank
+        // proof that the protocol broke.
+        const child = scriptedChild({
+            manualExit: true,
+            writeStdin: () => {
+                throw new Error('EPIPE: broken pipe, write');
+            },
+        });
+        const result = await child.open();
+        if (!result.ok) return expect.unreachable();
+        const handle = result.session.startTurn({ prompt: 'go', correlation: CORRELATION });
+        child.write(['not a frame']);
+        expect((await handle.outcome).kind).toBe('contract-violation');
+        child.exit();
+        await result.session.close();
+    });
+
+    test('a bad frame routed before any turn exists settles the next turn contract-violation', async () => {
+        // The pump can outrun `startTurn` on a fast child; the violation must be carried, not dropped.
+        const child = scriptedChild({ manualExit: true });
+        const result = await child.open();
+        if (!result.ok) return expect.unreachable();
+        child.write(['not a frame']);
+        await new Promise((resolve) => setTimeout(resolve, 10)); // let the pump hit it with no active turn
+        const outcome = await result.session.startTurn({ prompt: 'go', correlation: CORRELATION }).outcome;
+        expect(outcome.kind).toBe('contract-violation');
+        child.exit();
         await result.session.close();
     });
 

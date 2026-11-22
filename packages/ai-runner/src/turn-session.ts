@@ -439,6 +439,11 @@ class TurnSessionImpl implements TurnSession {
     private readonly lines: AsyncIterable<string>;
     /** Resolves when the stdout pump has routed every line (never rejects — it settles the turn). */
     private readonly pumped: Promise<void>;
+    /**
+     * First frame the pump could not decode. Proof the protocol broke outranks every
+     * process-gone classification (exit, dead stdin) and outlives the turn it happened outside of.
+     */
+    private protocolViolation: string | undefined;
     private active: ActiveTurn | undefined;
     /** Most recent turn — kept so frames arriving after settlement surface as diagnostics. */
     private lastTurn: ActiveTurn | undefined;
@@ -475,6 +480,11 @@ class TurnSessionImpl implements TurnSession {
         turn.cancelHook = (reason, graceMs) => this.cancelTurn(turn, reason, graceMs);
         this.active = turn;
         this.state = 'busy';
+        if (this.protocolViolation !== undefined) {
+            // The stream already broke before this turn existed; writing a prompt to it is pointless.
+            turn.settle({ kind: 'contract-violation', reason: this.protocolViolation });
+            return turn;
+        }
         try {
             this.process.writeStdin(
                 this.driver.encodeTurn({
@@ -485,8 +495,9 @@ class TurnSessionImpl implements TurnSession {
                 }),
             );
         } catch (error) {
-            // A dead stdin means the process is gone: the turn never started.
-            turn.settle({ kind: 'not-started', reason: error instanceof Error ? error.message : String(error) });
+            // A dead stdin means the process is gone — but it may have died of a malformed frame it
+            // already wrote, so settle behind the drain instead of claiming the turn never arrived.
+            void this.settleGone(turn, error instanceof Error ? error.message : String(error));
         }
         return turn;
     }
@@ -624,11 +635,20 @@ class TurnSessionImpl implements TurnSession {
                 for (const wire of wires) this.route(wire);
             }
         } catch (error) {
-            this.active?.settle({
-                kind: 'contract-violation',
-                reason: error instanceof Error ? error.message : String(error),
-            });
+            const reason = error instanceof Error ? error.message : String(error);
+            this.protocolViolation ??= reason;
+            this.active?.settle({ kind: 'contract-violation', reason });
         }
+    }
+
+    /** Let the stdout pump finish (bounded), then settle a turn whose process is gone. */
+    private async settleGone(turn: ActiveTurn, reason: string): Promise<void> {
+        await Promise.race([this.pumped, delay(TURN_EXIT_DRAIN_MS)]);
+        if (this.protocolViolation !== undefined) {
+            turn.settle({ kind: 'contract-violation', reason: this.protocolViolation });
+            return;
+        }
+        turn.settle({ kind: 'not-started', reason });
     }
 
     /** Deterministic settlement when the process dies: before acceptance → not-started, after → unknown. */
@@ -640,7 +660,9 @@ class TurnSessionImpl implements TurnSession {
         this.state = 'closed';
         if (turn === undefined) return;
         if (!turn.outcomeResolved) {
-            if (turn.acceptedAt === undefined)
+            if (this.protocolViolation !== undefined)
+                turn.settle({ kind: 'contract-violation', reason: this.protocolViolation });
+            else if (turn.acceptedAt === undefined)
                 turn.settle({ kind: 'not-started', reason: 'process exited before acceptance' });
             else turn.settle({ kind: 'outcome-unknown', reason: 'process exited without a native terminal' });
         }
