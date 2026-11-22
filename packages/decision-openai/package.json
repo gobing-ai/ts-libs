@@ -1,6 +1,6 @@
 {
     "name": "@gobing-ai/ts-decision-openai",
-    "version": "0.8.2",
+    "version": "0.8.3",
     "description": "@gobing-ai/ts-decision-openai — OpenAI GPT-6 Luna decision backend driving the hosted Decisions API over the portable ts-infra APIClient seam.",
     "keywords": [
         "openai",
