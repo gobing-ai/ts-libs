@@ -7,6 +7,17 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All
 versioned in **lockstep** — a single version number covers every package in the monorepo.
 ## [Unreleased]
 
+## [0.8.3] - 2026-11-21
+
+### Fixed
+
+- fix(ai-runner) (87e021fe): a turn whose child emits a malformed frame and exits immediately now
+  settles `contract-violation` instead of `not-started`. The exit handler settled as soon as
+  `exited` resolved, so the exit event could outrun stdout delivery and drop the frame (hit in CI
+  under load); the exit path now drains the stdout pump first, bounded by `TURN_EXIT_DRAIN_MS`
+  (1 s) so a grandchild holding stdout open cannot stall settlement.
+  <!-- src: packages/ai-runner/src/turn-session.ts:234 (TURN_EXIT_DRAIN_MS), :655 (async onExit), :658 (Promise.race drain); packages/ai-runner/tests/turn-session.test.ts:345 (bad frame arriving with the exit event settles contract-violation) · confidence: HIGH -->
+
 ## [0.8.2] - 2026-11-21
 
 ### Fixed
