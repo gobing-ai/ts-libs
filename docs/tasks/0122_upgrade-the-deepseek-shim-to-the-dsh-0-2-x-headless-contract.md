@@ -4,7 +4,7 @@ name: Upgrade the deepseek shim to the dsh 0.2.x headless contract
 status: done
 template: feature-impl
 created_at: 2026-11-26T22:15:41.365Z
-updated_at: "2026-11-26T22:36:44.912Z"
+updated_at: "2026-11-26T22:59:58.552Z"
 feature_id: I1
 
 priority: P2
@@ -183,21 +183,21 @@ Out of scope, unchanged as designed: no event parser, no `PromptOptions` permiss
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| R1 — `getPromptCommand` builds `dsh --profile headless [--json] [--session-id <id>] --permission-mode workspace-write --approval-policy never -- <input>`, `<input>` = `options.input ?? ''` last, blank not validated | MET | `packages/ai-runner/src/agents/shims.ts:433-449` (argv order; `--` then `options.input ?? ''` last at `:446-448`); tests `packages/ai-runner/tests/agents/shims.test.ts:569` (frozen argv, `toEqual`) and `:576` (blank input, `-x` after `--`) |
-| R2 — `--json` only for `mode: 'json'`; `text`/unset emit no output flag; shim stays a pure argv builder | MET | `packages/ai-runner/src/agents/shims.ts:436`; test `packages/ai-runner/tests/agents/shims.test.ts:590` covers json/text/unset; no parse surface added (`shims.ts:426-451` returns only `{command,args}`) |
-| R3 — a recorded fixture set proves exit 0 ⇔ `final.reason.kind === "completed"`, exits 1 otherwise | MET | fixtures `packages/ai-runner/tests/fixtures/dsh/completed.jsonl`, `not-completed.jsonl` + provenance `…/dsh/README.md`; test `packages/ai-runner/tests/agents/shims.test.ts:644` pairs each fixture's `final` with the README/constant exit code |
-| R4 — `sessionId` emits `--session-id` with the same permission flags; `continue`/`sessionDir` alone emit no session flag; `model`/`workspace`/`timeoutMs` ignored | MET | `packages/ai-runner/src/agents/shims.ts:441-442`; test `packages/ai-runner/tests/agents/shims.test.ts:608` asserts the resume argv and the unchanged fresh argv for `continue`/`sessionDir`/`model`/`workspace`/`timeoutMs` |
-| R5 — `deepseek` row: `supportsResumeById: true`, `supportsStructuredOutput: true`, `supportsSessionDir`/`supportsPersistentStdin` false, `verifiedAgainst` = installed version, note explains each false | MET | `packages/ai-runner/src/agents/shims.ts:644-651` (`verifiedAgainst: '0.2.2-rc.1'`, matching `dsh --version` probed this run); test `packages/ai-runner/tests/agents/shims.test.ts:628` asserts the exact row and that the note names `sessionDir` and `stdin` |
-| R6 — availability stays `dsh --version`; help stays `dsh --help`; auth stays null with no credential read | MET | `packages/ai-runner/src/agents/shims.ts:430-431` (`getHelpCommand`/`getVersionCommand` unchanged), `:450` (`getAuthCommand: () => null`); test `packages/ai-runner/tests/agents/shims.test.ts:622` |
+| R1 | MET | `packages/ai-runner/src/agents/shims.ts:432-446` (`--profile headless`, permission flags `:443`, `--` + `options.input ?? ''` last `:445`); tests `packages/ai-runner/tests/agents/shims.test.ts:569` (frozen argv `toEqual`) and `:576` (blank input passes through, `-x` stays after `--`) — 80/80 pass this run |
+| R2 | MET | `packages/ai-runner/src/agents/shims.ts:434` (`--json` only when `mode === 'json'`); no parsing in `dshShim` (`:426-449`); test `packages/ai-runner/tests/agents/shims.test.ts:590` (json / text / unset) |
+| R3 | MET | fixtures `packages/ai-runner/tests/fixtures/dsh/completed.jsonl:8` (`final.reason.kind: "completed"`, exit 0) and `not-completed.jsonl:1` (error event, no `final`, exit 1); provenance `packages/ai-runner/tests/fixtures/dsh/README.md:7-11`; test `packages/ai-runner/tests/agents/shims.test.ts:644` asserts exit 0 ⇔ completed final and README/test exit-code agreement; source contract deepseek-harness `packages/bundle/headless/src/index.ts` line 441 |
+| R4 | MET | `packages/ai-runner/src/agents/shims.ts:439` (`--session-id` only from `sessionId`), permission flags unconditional `:443`; test `packages/ai-runner/tests/agents/shims.test.ts:608` (resume argv; `continue`/`sessionDir`/`model`/`workspace`/`timeoutMs` yield fresh argv) |
+| R5 | MET | `packages/ai-runner/src/agents/shims.ts:647-654` (resume/structured true, sessionDir/stdin false, `verifiedAgainst: '0.2.2-rc.1'` = `dsh --version` this run, note explains each false); test `packages/ai-runner/tests/agents/shims.test.ts:628` |
+| R6 | MET | `packages/ai-runner/src/agents/shims.ts:426-449` (version `dsh --version`, help `dsh --help`, `getAuthCommand: () => null` `:448`; no fs/env access in `dshShim`); tests `packages/ai-runner/tests/agents/shims.test.ts:558`, `:622` |
 
 | Acceptance Criteria | Status | Evidence Type | Evidence |
 |---------------------|--------|---------------|----------|
-| AC1 — The dsh shim builds the 0.2.x headless one-shot command (req: R1) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:569`, `:576`; argv source `packages/ai-runner/src/agents/shims.ts:433-449` |
-| AC2 — The dsh shim emits --json only in json mode (req: R2) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:590` |
-| AC3 — A recorded fixture ties exit 0 to a completed final reason (req: R3) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:644` over `packages/ai-runner/tests/fixtures/dsh/` (README states each exit code) |
-| AC4 — A dsh prompt resumes by session id with repeated permission flags (req: R4) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:608` |
-| AC5 — The deepseek capability row reflects the verified dsh version (req: R5) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:628`; row `packages/ai-runner/src/agents/shims.ts:647` |
-| AC6 — dsh availability is detected without reading credentials (req: R6) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:622`; shim `packages/ai-runner/src/agents/shims.ts:430-431`, `:450` |
+| AC1 — The dsh shim builds the 0.2.x headless one-shot command | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:569`, `:576` (pass this run) |
+| AC2 — The dsh shim emits --json only in json mode | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:590` |
+| AC3 — A recorded fixture ties exit 0 to a completed final reason | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:644` over `packages/ai-runner/tests/fixtures/dsh/completed.jsonl:8` |
+| AC4 — A dsh prompt resumes by session id with repeated permission flags | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:608` |
+| AC5 — The deepseek capability row reflects the verified dsh version | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:628`; `dsh --version` → `0.2.2-rc.1` this run |
+| AC6 — dsh availability is detected without reading credentials | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:558`, `:622`; static read `packages/ai-runner/src/agents/shims.ts:426-449` |
 - Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
