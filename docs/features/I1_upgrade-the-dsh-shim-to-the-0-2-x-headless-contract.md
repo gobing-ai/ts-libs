@@ -2,11 +2,11 @@
 schema_version: 1
 id: "I1"
 name: "Upgrade the dsh shim to the 0.2.x headless contract"
-status: active
+status: done
 priority: P2
 tags: []
 created_at: "2026-11-26T22:22:40.307Z"
-updated_at: "2026-11-26T22:35:15.708Z"
+updated_at: "2026-11-26T22:39:24.541Z"
 ---
 
 # I1: Upgrade the dsh shim to the 0.2.x headless contract
@@ -85,4 +85,6 @@ Feature: dsh 0.2.x headless contract
 ## History
 
 - 2026-11-26T22:35:15.708Z backlog → active (system)
+- 2026-11-26T22:39:23.853Z active → verifying (system)
+- 2026-11-26T22:39:24.541Z verifying → done (system)
 
