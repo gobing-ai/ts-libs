@@ -30,6 +30,11 @@ bootstrap:
 # ── Spur app section (validated by spurConfigSchema in @gobing-ai/spur-config) ──
 agent:
   default: pi
+  fleet:
+    enabled: false
+    members:
+      # A2A target for spur-new's outbound peer `tslibs-coder` (address ts-libs-coder-1)
+      - { role: coder, executor: claude, id: coder-1 }
 
 rules:
   paths:
