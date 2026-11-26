@@ -416,10 +416,12 @@ const grokShim: AgentShim = {
 /**
  * DeepSeek coding agent (`dsh`, @deepseek-ai/dsh) — tier-1. Boot model is
  * `dsh --profile <name>`; the headless one-shot surface is the `headless`
- * profile: `dsh --profile headless "<task>"` streams reasoning to stderr and
- * prints the final assistant message to stdout. At 0.1.5-rc.1 the headless
- * app accepts only the positional task and `-h` — no resume/model/mode flags.
- * No auth subcommand; credentials resolve via env references / `~/.dsh`.
+ * profile. At 0.2.x headless the app accepts `--json` (NDJSON run events),
+ * `--session-id` resume, `--permission-mode`, `--approval-policy` and
+ * `--add-dir` (`dsh --profile headless --help`, verified on 0.2.2-rc.1).
+ * A run exits 0 only when it ends with a completed final `turn/end`, so the
+ * exit status alone carries the outcome and the shim parses no events.
+ * No auth subcommand; credentials resolve via env references / `$DSH_HOME`.
  */
 const dshShim: AgentShim = {
     name: 'deepseek',
@@ -428,11 +430,20 @@ const dshShim: AgentShim = {
     getHelpCommand: () => ({ command: 'dsh', args: ['--help'] }),
     getVersionCommand: () => ({ command: 'dsh', args: ['--version'] }),
     getPromptCommand: (options) => {
-        // Always a fresh one-shot headless dispatch: sessionId/sessionDir/
-        // continue/model degrade silently — the HEADLESS app takes only the
-        // task + `-h`; no resume/model flags exist at dsh 0.1.5-rc.1.
-        // mode/workspace/timeoutMs have no dsh flag — best-effort ignored.
-        return { command: 'dsh', args: ['--profile', 'headless', options.input ?? ''] };
+        const args = ['--profile', 'headless'];
+        if ((options.mode ?? 'text') === 'json') args.push('--json');
+        // ADR-047 R5: sessionId is the only session input that emits a flag. `continue`
+        // is never mapped — dsh has no last-session flag and guessing an id would break
+        // pinned-session precedence; `sessionDir` is ignored (the store is `$DSH_HOME`,
+        // an env var an argv-only shim cannot carry).
+        if (options.sessionId !== undefined) args.push('--session-id', options.sessionId);
+        // Non-interactive fixed grant: dsh requires the permission preset (and the
+        // approval policy) on every dispatch, resume included. model/workspace/
+        // timeoutMs have no dsh flag — best-effort ignored.
+        args.push('--permission-mode', 'workspace-write', '--approval-policy', 'never');
+        // `--` pins the task as the positional, so a dash-leading prompt is never a flag.
+        args.push('--', options.input ?? '');
+        return { command: 'dsh', args };
     },
     getAuthCommand: () => null,
 };
@@ -630,14 +641,16 @@ const AGENT_SESSION_CAPABILITY: Readonly<Record<AgentName, AgentSessionCapabilit
         verifiedAgainst: 'unverified (CLI not installed)',
         note: 'CLI absent at verification (2026-09-18) — conservative defaults; `chat --continue` resumes the last session only, no session-dir/stdin/structured-output flags documented',
     },
-    // dsh headless has no resume/session flags — fresh-dispatch degrade.
+    // dsh 0.2.x headless: `--json` NDJSON events and `--session-id` resume exist; the
+    // session store is `$DSH_HOME` (no directory flag) and each run is one task per
+    // process (no persistent stdin). Resume needs the same cwd + repeated permission flags.
     deepseek: {
-        supportsResumeById: false,
+        supportsResumeById: true,
         supportsSessionDir: false,
         supportsPersistentStdin: false,
-        supportsStructuredOutput: false,
-        verifiedAgainst: '0.1.5-rc.1',
-        note: 'headless app takes only the task positional and -h at 0.1.5-rc.1 — no resume/session/mode flags; fresh-dispatch degrade',
+        supportsStructuredOutput: true,
+        verifiedAgainst: '0.2.2-rc.1',
+        note: 'sessionDir false: the session store is $DSH_HOME, an env var an argv-only shim cannot set; persistent stdin false: headless runs one task per process; resume requires the same cwd and repeats the permission flags',
     },
     fm: {
         supportsResumeById: true,

@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
     AGENT_SHIMS,
     type AgentName,
@@ -533,7 +535,26 @@ describe('session-affinity argv matrix (0447 R3/R5)', () => {
     });
 });
 
-describe('deepseek shim (task 0066)', () => {
+/** Exit code dsh reports for each recorded `--json` fixture (task 0122 R3; also in the README). */
+const DSH_FIXTURE_EXIT_CODES: Readonly<Record<string, number>> = {
+    'completed.jsonl': 0,
+    'not-completed.jsonl': 1,
+};
+
+const DSH_FIXTURES = join(import.meta.dir, '..', 'fixtures', 'dsh');
+
+/** Parse an NDJSON fixture into its event objects, failing loudly on a non-JSON line. */
+function readDshFixture(file: string): { type: string; reason?: { kind?: string } }[] {
+    return readFileSync(join(DSH_FIXTURES, file), 'utf8')
+        .split('\n')
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as { type: string; reason?: { kind?: string } });
+}
+
+describe('deepseek shim (task 0122 — dsh 0.2.x headless contract)', () => {
+    /** Flags every headless dispatch carries, before the `--`-pinned task. */
+    const PERMISSION_FLAGS = ['--permission-mode', 'workspace-write', '--approval-policy', 'never', '--'];
+
     test('deepseek is a known canonical id resolving to the dsh shim', () => {
         expect(isAgentName('deepseek')).toBe(true);
         expect(resolveAgentName('deepseek')).toBe('deepseek');
@@ -545,35 +566,91 @@ describe('deepseek shim (task 0066)', () => {
         expect(shim.getVersionCommand()).toEqual({ command: 'dsh', args: ['--version'] });
     });
 
-    test('getPromptCommand maps input to dsh headless one-shot argv', () => {
+    test('getPromptCommand builds the 0.2.x headless one-shot argv (R1)', () => {
         expect(getAgentShim('deepseek').getPromptCommand({ input: 'run the tests' })).toEqual({
             command: 'dsh',
-            args: ['--profile', 'headless', 'run the tests'],
+            args: ['--profile', 'headless', ...PERMISSION_FLAGS, 'run the tests'],
         });
     });
 
-    test('session/continue/model options degrade to a fresh headless one-shot without error', () => {
+    test('the task is always the last argv element, after `--` (R1)', () => {
         const shim = getAgentShim('deepseek');
-        const expected = { command: 'dsh', args: ['--profile', 'headless', 'fix the bug'] };
-        expect(shim.getPromptCommand({ input: 'fix the bug', sessionId: 's1' })).toEqual(expected);
-        expect(shim.getPromptCommand({ input: 'fix the bug', sessionDir: '/tmp/s' })).toEqual(expected);
-        expect(shim.getPromptCommand({ input: 'fix the bug', continue: true })).toEqual(expected);
-        expect(shim.getPromptCommand({ input: 'fix the bug', model: 'deepseek-chat' })).toEqual(expected);
+        // Blank input is not validated in the shim: dsh rejects it with exit 1 before any
+        // model work, so a shim-side throw would only duplicate the usage error.
+        expect(shim.getPromptCommand({}).args).toEqual(['--profile', 'headless', ...PERMISSION_FLAGS, '']);
+        // `--` pins the task, so a dash-leading prompt is never reparsed as a dsh flag.
+        expect(shim.getPromptCommand({ input: '-x' }).args).toEqual([
+            '--profile',
+            'headless',
+            ...PERMISSION_FLAGS,
+            '-x',
+        ]);
     });
 
-    test('getAuthCommand is null (no auth subcommand)', () => {
+    test('emits --json only for mode: json (R2)', () => {
+        const shim = getAgentShim('deepseek');
+        expect(shim.getPromptCommand({ input: 'x', mode: 'json' }).args).toEqual([
+            '--profile',
+            'headless',
+            '--json',
+            ...PERMISSION_FLAGS,
+            'x',
+        ]);
+        expect(shim.getPromptCommand({ input: 'x', mode: 'text' }).args).toEqual([
+            '--profile',
+            'headless',
+            ...PERMISSION_FLAGS,
+            'x',
+        ]);
+        expect(shim.getPromptCommand({ input: 'x' }).args).toEqual(['--profile', 'headless', ...PERMISSION_FLAGS, 'x']);
+    });
+
+    test('sessionId resumes with the permission flags repeated; the rest still degrades (R4)', () => {
+        const shim = getAgentShim('deepseek');
+        expect(shim.getPromptCommand({ input: 'fix the bug', sessionId: 's1' })).toEqual({
+            command: 'dsh',
+            args: ['--profile', 'headless', '--session-id', 's1', ...PERMISSION_FLAGS, 'fix the bug'],
+        });
+        const fresh = { command: 'dsh', args: ['--profile', 'headless', ...PERMISSION_FLAGS, 'fix the bug'] };
+        // `continue` alone and `sessionDir` alone have no dsh flag — both stay a fresh dispatch.
+        expect(shim.getPromptCommand({ input: 'fix the bug', continue: true })).toEqual(fresh);
+        expect(shim.getPromptCommand({ input: 'fix the bug', sessionDir: '/tmp/s' })).toEqual(fresh);
+        expect(shim.getPromptCommand({ input: 'fix the bug', model: 'deepseek-chat' })).toEqual(fresh);
+        expect(shim.getPromptCommand({ input: 'fix the bug', workspace: '/w', timeoutMs: 1000 })).toEqual(fresh);
+    });
+
+    test('getAuthCommand is null and no credential is read (R6)', () => {
         expect(getAgentShim('deepseek').getAuthCommand()).toBeNull();
+        // Availability stays the plain version probe; help stays `dsh --help`.
+        expect(getAgentShim('deepseek').getVersionCommand()).toEqual({ command: 'dsh', args: ['--version'] });
     });
 
-    test('deepseek has no resume-by-id and no session-dir (fresh degrade)', () => {
-        expect(getAgentSessionCapability('deepseek')).toEqual({
-            supportsResumeById: false,
+    test('the capability row reflects the verified dsh version (R5)', () => {
+        const capability = getAgentSessionCapability('deepseek');
+        expect(capability).toEqual({
+            supportsResumeById: true,
             supportsSessionDir: false,
             supportsPersistentStdin: false,
-            supportsStructuredOutput: false,
-            verifiedAgainst: '0.1.5-rc.1',
+            supportsStructuredOutput: true,
+            verifiedAgainst: '0.2.2-rc.1',
             note: expect.any(String),
         });
+        // Each remaining `false` must be explained, not merely declared.
+        const note = (capability.note ?? '').toLowerCase();
+        expect(note).toContain('sessiondir');
+        expect(note).toContain('stdin');
+    });
+
+    test('a recorded fixture ties exit 0 to a completed final reason (R3)', () => {
+        const readme = readFileSync(join(DSH_FIXTURES, 'README.md'), 'utf8');
+        for (const [file, exitCode] of Object.entries(DSH_FIXTURE_EXIT_CODES)) {
+            const finals = readDshFixture(file).filter((event) => event.type === 'final');
+            const completedFinal = finals.some((event) => event.reason?.kind === 'completed');
+            // The contract: exit 0 ⇔ the run ended with a completed final turn/end.
+            expect({ file, completed: completedFinal }).toEqual({ file, completed: exitCode === 0 });
+            // The README carries the same exit code the test asserts — no drift between them.
+            expect(readme).toContain(`\`${file}\` — exit **${exitCode}**`);
+        }
     });
 
     // B8 R1/R2/R5: every AgentName resolves a complete, verified record — shape,

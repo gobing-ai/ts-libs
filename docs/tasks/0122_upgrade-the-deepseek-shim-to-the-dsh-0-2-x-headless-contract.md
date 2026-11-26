@@ -1,14 +1,16 @@
 ---
 schema_version: 1
 name: Upgrade the deepseek shim to the dsh 0.2.x headless contract
-status: todo
+status: done
 template: feature-impl
 created_at: 2026-11-26T22:15:41.365Z
-updated_at: "2026-11-26T22:23:43.318Z"
+updated_at: "2026-11-26T22:36:44.912Z"
 feature_id: I1
 
 priority: P2
 estimate_hours: 3
+done_forced: "false"
+done_reason: unforced close
 ---
 
 ## 0122. Upgrade the deepseek shim to the dsh 0.2.x headless contract
@@ -46,12 +48,12 @@ Facts the design rests on (harness source `~/xprojects/spur-new/vendors/deepseek
 
 ### Requirements
 
-- [ ] R1. `dshShim.getPromptCommand` builds `dsh --profile headless [--json] [--session-id <id>] --permission-mode workspace-write --approval-policy never -- <input>`, with `<input>` = `options.input ?? ''` as the last argv element; blank input is not validated in the shim (dsh rejects it with exit 1 before model work)
-- [ ] R2. emit `--json` only for `mode: 'json'`; `mode: 'text'` or unset emits no output flag; the shim stays a pure argv builder and parses no events
-- [ ] R3. a recorded fixture set proves dsh exits 0 only when `final.reason.kind === "completed"` and exits 1 otherwise, so callers can treat the exit status as the run outcome
-- [ ] R4. `sessionId` emits `--session-id <id>` together with the same permission flags; `continue: true` alone and `sessionDir` alone emit no session flag (fresh dispatch); `model`, `workspace` and `timeoutMs` stay ignored
-- [ ] R5. the `deepseek` row in `AGENT_SESSION_CAPABILITY` sets `supportsResumeById: true` and `supportsStructuredOutput: true` (`supportsSessionDir`/`supportsPersistentStdin` stay false), with `verifiedAgainst` set to the installed dsh version and a note on why each false remains
-- [ ] R6. availability stays `dsh --version`; `getHelpCommand` stays `dsh --help`; `getAuthCommand` stays null and no credential is read
+- [x] R1. `dshShim.getPromptCommand` builds `dsh --profile headless [--json] [--session-id <id>] --permission-mode workspace-write --approval-policy never -- <input>`, with `<input>` = `options.input ?? ''` as the last argv element; blank input is not validated in the shim (dsh rejects it with exit 1 before model work)
+- [x] R2. emit `--json` only for `mode: 'json'`; `mode: 'text'` or unset emits no output flag; the shim stays a pure argv builder and parses no events
+- [x] R3. a recorded fixture set proves dsh exits 0 only when `final.reason.kind === "completed"` and exits 1 otherwise, so callers can treat the exit status as the run outcome
+- [x] R4. `sessionId` emits `--session-id <id>` together with the same permission flags; `continue: true` alone and `sessionDir` alone emit no session flag (fresh dispatch); `model`, `workspace` and `timeoutMs` stay ignored
+- [x] R5. the `deepseek` row in `AGENT_SESSION_CAPABILITY` sets `supportsResumeById: true` and `supportsStructuredOutput: true` (`supportsSessionDir`/`supportsPersistentStdin` stay false), with `verifiedAgainst` set to the installed dsh version and a note on why each false remains
+- [x] R6. availability stays `dsh --version`; `getHelpCommand` stays `dsh --help`; `getAuthCommand` stays null and no credential is read
 
 Out of scope: an NDJSON event parser/mapper; a `PromptOptions` permission or directory-grant field and `--add-dir`; `--model`; any change to `AGENT_SHIMS`, `TIER1_PRIORITY`, `DISPLAY_ORDER`, the `ts-llm-jsonl-importer` deepseek source, or feature I's scenario text; the version bump/publish (operator-run).
 
@@ -59,12 +61,12 @@ Out of scope: an NDJSON event parser/mapper; a `PromptOptions` permission or dir
 
 All ACs are observed by `packages/ai-runner/tests/agents/shims.test.ts` (AC3 reads `tests/fixtures/dsh/`). Titles match feature I1 scenarios.
 
-- [ ] AC1 — The dsh shim builds the 0.2.x headless one-shot command (req: R1)
-- [ ] AC2 — The dsh shim emits --json only in json mode (req: R2)
-- [ ] AC3 — A recorded fixture ties exit 0 to a completed final reason (req: R3)
-- [ ] AC4 — A dsh prompt resumes by session id with repeated permission flags (req: R4)
-- [ ] AC5 — The deepseek capability row reflects the verified dsh version (req: R5)
-- [ ] AC6 — dsh availability is detected without reading credentials (req: R6)
+- [x] AC1 — The dsh shim builds the 0.2.x headless one-shot command (req: R1)
+- [x] AC2 — The dsh shim emits --json only in json mode (req: R2)
+- [x] AC3 — A recorded fixture ties exit 0 to a completed final reason (req: R3)
+- [x] AC4 — A dsh prompt resumes by session id with repeated permission flags (req: R4)
+- [x] AC5 — The deepseek capability row reflects the verified dsh version (req: R5)
+- [x] AC6 — dsh availability is detected without reading credentials (req: R6)
 
 ### Q&A
 
@@ -134,15 +136,84 @@ Concurrency (2026-11-26): no `wip` tasks; one worktree (main). Unrelated uncommi
 
 ### Solution
 
-<!-- Filled during implementation: file:line change map and concise rationale. -->
+Change map (dsh shim → 0.2.x headless contract; no new exported API, type or option):
+
+| File | Change |
+| --- | --- |
+| `packages/ai-runner/src/agents/shims.ts:416` | Replaced the stale 0.1.5-rc.1 doc comment with the 0.2.x contract: `--json`, `--session-id`, `--permission-mode`, `--approval-policy`, `--add-dir` exist; exit 0 only on a completed final `turn/end` (R1/R3) |
+| `shims.ts:426` (`dshShim.getPromptCommand`) | Frozen argv builder: `--profile headless` → `--json` only for `mode: 'json'` → `--session-id <id>` when `sessionId` is set → `--permission-mode workspace-write --approval-policy never` on every dispatch → `-- <input ?? ''>` last (R1/R2/R4) |
+| `shims.ts:647` (`deepseek` row, `AGENT_SESSION_CAPABILITY`) | `supportsResumeById: true`, `supportsStructuredOutput: true`, `supportsSessionDir`/`supportsPersistentStdin` stay `false` with the note explaining each `false`; `verifiedAgainst: '0.2.2-rc.1'` (installed version) (R5) |
+| `packages/ai-runner/tests/agents/shims.test.ts:539-655` | Rewrote the three task-0066 tests and added R2/R1-edge/R3 tests (see below) |
+| `packages/ai-runner/tests/fixtures/dsh/completed.jsonl` | `--json` stdout of an exit-0 run ending `final.reason.kind: "completed"` |
+| `packages/ai-runner/tests/fixtures/dsh/not-completed.jsonl` | `--json` stdout of an exit-1 run with no `final` event |
+| `packages/ai-runner/tests/fixtures/dsh/README.md` | Provenance block (dsh 0.2.2-rc.1, capture commands, per-file exit code, redactions) in the `turn-drivers/pi` style |
+| `packages/ai-runner/README.md:336,350,509` | Doc sync (T3/T4): the capability matrix row now reads `deepseek` ✓ resume-by-id / `--session-id <id>` / ✓ `--json` (re-probed 2026-11-26), and the shim table lists the 0.2.x prompt flags |
+
+Rationale (why these shapes, not others):
+- **Order is frozen and asserted with `toEqual`.** dsh validates the permission preset before it touches stdin or the model, and requires the preset plus approval policy to be repeated on resume, so the flags ride every dispatch, not only fresh ones.
+- **`--` before the task is load-bearing.** Probed on 0.2.2-rc.1: `dsh --profile headless --permission-mode workspace-write --approval-policy never --session-id session-bogus -- "-x"` reaches session resolution and exits 1 with `session "session-bogus" does not exist` — a session error, not a usage error, so the dash-leading task was parsed as the positional.
+- **Blank input is passed through, not validated.** `options.input ?? ''` matches every other shim and dsh's own usage error (`error: a task is required`, exit 1, before any model work) — a shim-side throw would only duplicate it.
+- **`continue` is never mapped.** dsh has no last-session flag; synthesising an id would need session-store reads, which a pure argv builder must not do, and would break ADR-047 R5 pinned-session precedence. `sessionDir` has no dsh flag (`DSH_HOME` is env, which `ShimCommand` cannot carry), and `model`/`workspace`/`timeoutMs` keep degrading silently.
+- **No NDJSON parser.** No ai-runner code parses agent stdout, and the exit status already carries the outcome (exit 0 ⇔ completed final reason), so the shim stays a pure argv builder; R3 is proved by a fixture, not by a parser.
+
+Tests (all in `tests/agents/shims.test.ts`, `describe('deepseek shim (task 0122 …)')`):
+- R1 `getPromptCommand` frozen argv; blank input as the last element; `-x` after `--`.
+- R2 `--json` appears only for `mode: 'json'` (`'text'` and unset emit none).
+- R4 `sessionId` adds `--session-id` *and* the permission flags; `continue`/`sessionDir`/`model`/`workspace`/`timeoutMs` stay on the fresh argv.
+- R5 capability row equals the frozen values, and its note explains both remaining `false`s.
+- R3 each fixture's `final`/`reason.kind` is paired with the exit code held in `DSH_FIXTURE_EXIT_CODES`, and the README is asserted to state the same exit code (no README/constant drift).
+- R6 `getAuthCommand` is null; version/help stay `dsh --version` / `dsh --help` (no credential read).
+
+Fixture capture (2026-11-26, dsh 0.2.2-rc.1, scratch cwd `/tmp/dsh-scratch` outside the repo):
+- `completed.jsonl` — `dsh --profile headless --json --permission-mode workspace-write --approval-policy never -- "Reply with exactly one word: ready"`, exit 0.
+- `not-completed.jsonl` — `dsh --profile headless --json --session-id session-bogus -- "x"`, exit 1. This is the Design's sanctioned fallback: a probed SIGINT-interrupted run exits **130** (128+SIGINT) and ends in an internal `error` event, so it does not demonstrate the exit-1 arm of the contract.
+
+Regression probe (no model call), recorded as evidence for R1:
+`dsh --profile headless --permission-mode workspace-write --approval-policy never --session-id session-bogus -- "-x"` → exit 1, `session "session-bogus" does not exist` (flags accepted, task parsed as the positional); the shim's exact fresh argv with the same bogus id behaves identically.
+
+Verification: `bun run spur-check` clean (biome, per-package `tsc --noEmit`, 3292 tests pass, both `spur rule` presets, rule fixtures 62/62) and `bun run build` green for every package. `git status` in the worktree shows only the shim, test and fixture changes (the `.spur/config.yaml` edit named in Design is not present — the tree was clean at kickoff).
+
+Out of scope, unchanged as designed: no event parser, no `PromptOptions` permission/grant field, no `--add-dir`, no `--model`; `AGENT_SHIMS`, `TIER1_PRIORITY`, `DISPLAY_ORDER`, the importer source and feature I's scenario text untouched; version bump/publish left to the operator.
 
 ### Testing
 
-<!-- Filled during verification: commands run, outcomes, coverage claim or N/A. -->
+**Pipeline verify results**
+
+- Verdict: PASS (from verdict artifact)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| R1 — `getPromptCommand` builds `dsh --profile headless [--json] [--session-id <id>] --permission-mode workspace-write --approval-policy never -- <input>`, `<input>` = `options.input ?? ''` last, blank not validated | MET | `packages/ai-runner/src/agents/shims.ts:433-449` (argv order; `--` then `options.input ?? ''` last at `:446-448`); tests `packages/ai-runner/tests/agents/shims.test.ts:569` (frozen argv, `toEqual`) and `:576` (blank input, `-x` after `--`) |
+| R2 — `--json` only for `mode: 'json'`; `text`/unset emit no output flag; shim stays a pure argv builder | MET | `packages/ai-runner/src/agents/shims.ts:436`; test `packages/ai-runner/tests/agents/shims.test.ts:590` covers json/text/unset; no parse surface added (`shims.ts:426-451` returns only `{command,args}`) |
+| R3 — a recorded fixture set proves exit 0 ⇔ `final.reason.kind === "completed"`, exits 1 otherwise | MET | fixtures `packages/ai-runner/tests/fixtures/dsh/completed.jsonl`, `not-completed.jsonl` + provenance `…/dsh/README.md`; test `packages/ai-runner/tests/agents/shims.test.ts:644` pairs each fixture's `final` with the README/constant exit code |
+| R4 — `sessionId` emits `--session-id` with the same permission flags; `continue`/`sessionDir` alone emit no session flag; `model`/`workspace`/`timeoutMs` ignored | MET | `packages/ai-runner/src/agents/shims.ts:441-442`; test `packages/ai-runner/tests/agents/shims.test.ts:608` asserts the resume argv and the unchanged fresh argv for `continue`/`sessionDir`/`model`/`workspace`/`timeoutMs` |
+| R5 — `deepseek` row: `supportsResumeById: true`, `supportsStructuredOutput: true`, `supportsSessionDir`/`supportsPersistentStdin` false, `verifiedAgainst` = installed version, note explains each false | MET | `packages/ai-runner/src/agents/shims.ts:644-651` (`verifiedAgainst: '0.2.2-rc.1'`, matching `dsh --version` probed this run); test `packages/ai-runner/tests/agents/shims.test.ts:628` asserts the exact row and that the note names `sessionDir` and `stdin` |
+| R6 — availability stays `dsh --version`; help stays `dsh --help`; auth stays null with no credential read | MET | `packages/ai-runner/src/agents/shims.ts:430-431` (`getHelpCommand`/`getVersionCommand` unchanged), `:450` (`getAuthCommand: () => null`); test `packages/ai-runner/tests/agents/shims.test.ts:622` |
+
+| Acceptance Criteria | Status | Evidence Type | Evidence |
+|---------------------|--------|---------------|----------|
+| AC1 — The dsh shim builds the 0.2.x headless one-shot command (req: R1) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:569`, `:576`; argv source `packages/ai-runner/src/agents/shims.ts:433-449` |
+| AC2 — The dsh shim emits --json only in json mode (req: R2) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:590` |
+| AC3 — A recorded fixture ties exit 0 to a completed final reason (req: R3) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:644` over `packages/ai-runner/tests/fixtures/dsh/` (README states each exit code) |
+| AC4 — A dsh prompt resumes by session id with repeated permission flags (req: R4) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:608` |
+| AC5 — The deepseek capability row reflects the verified dsh version (req: R5) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:628`; row `packages/ai-runner/src/agents/shims.ts:647` |
+| AC6 — dsh availability is detected without reading credentials (req: R6) | MET | test | `packages/ai-runner/tests/agents/shims.test.ts:622`; shim `packages/ai-runner/src/agents/shims.ts:430-431`, `:450` |
+- Coverage: N/A (verdict-based; verify pipeline does not measure code coverage)
 
 ### Review
 
-<!-- Filled during review: P1-P4 findings, residual risk, and final disposition. -->
+Verdict: PASS (review run `a836cb54-2037-404c-84d7-cd7089bbce2b`; full traceability tables in `.spur/run/a836cb54-2037-404c-84d7-cd7089bbce2b-review-cert.md`).
+
+Dimensions: functional traceability (R1–R6 / AC1–AC6 all MET with `path:line` evidence), SECUA (argv order asserted with `toEqual`; `sessionId` reaches dsh as its own argv element, so no shell or path-injection surface; matches the neighbouring shim shapes), architecture (no new export, type or option; `ShimCommand` unchanged; no event parser added).
+
+Findings (no open P1–P3):
+
+- P4 (note) — `not-completed.jsonl` evidences the exit-1 arm through a pre-turn session error rather than a turn ending with a non-completed `reason`. This is the Design's sanctioned fallback: a probed SIGINT-interrupted run exits **130** (128+SIGINT) and therefore does not demonstrate "exits 1". A non-completed-reason stream would be a strictly better fixture if one can be captured cheaply later.
+- P4 (note) — `supportsStructuredOutput: true` is declared while the shim parses nothing. Intended reading: the CLI offers NDJSON and the shim can request it via `mode: 'json'`; the exit status carries the outcome. Matches `grok`'s row.
+
+Residual risk: resume is unit-tested (argv) but not exercised against a live dsh Session; correctness there rests on dsh's documented rule that a Session is cwd-bound and permission flags are repeated, which the argv encodes and the capability note records. No security, data-loss or accessibility exposure: the shim is a pure argv builder that reads no env, filesystem or credential.
+
+Disposition: accept — gate PASS (light tier) on the same tree, no repair hop needed.
 
 ### References
 
@@ -158,4 +229,7 @@ Concurrency (2026-11-26): no `wip` tasks; one worktree (main). Unrelated uncommi
 ### History
 
 - 2026-11-26T22:19:49.975Z backlog → todo (system)
+- 2026-11-26T22:33:59.636Z todo → wip (system)
+- 2026-11-26T22:35:15.058Z wip → testing (system)
+- 2026-11-26T22:35:16.094Z testing → done (system)
 

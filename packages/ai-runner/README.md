@@ -333,7 +333,7 @@ const { args } = getAgentShim('omp').getPromptCommand({
 // args: ['-p', '', '--session-dir', '.spur/run/r1/...', '-r', 'abc123', '--mode', 'text']
 ```
 
-**Shim / capability matrix** (probed 2026-09-18; `verifiedAgainst` per row in `getAgentSessionCapability`):
+**Shim / capability matrix** (probed 2026-09-18; `deepseek` re-probed 2026-11-26 on dsh 0.2.2-rc.1; `verifiedAgainst` per row in `getAgentSessionCapability`):
 
 | Agent | resumeById | sessionDir | sessionId resume flag | persistentStdin | structuredOutput |
 | ----- | ---------- | ---------- | --------------------- | --------------- | ---------------- |
@@ -347,7 +347,7 @@ const { args } = getAgentShim('omp').getPromptCommand({
 | opencode | ✗ (CLI `-s <id>` unwired) | ✗ | degrade → fresh `run` | ✗ | ✓ (`--format json`) |
 | openclaw | ✗ (CLI `--session-id` unwired) | ✗ | degrade → fresh `agent` | ✗ | ✓ (CLI `--json`; unwired) |
 | hermes | ✗ (unverified) | ✗ | degrade → fresh `chat` | ✗ | ✗ (unverified) |
-| deepseek | ✗ | ✗ | degrade → fresh headless one-shot | ✗ | ✗ |
+| deepseek | ✓ (0.2.2-rc.1) | ✗ (ignored; the store is `$DSH_HOME`) | `--session-id <id>` | ✗ | ✓ (`--json`) |
 | fm | ✓ | ✓ | `--resume <file>` + `--save-transcript <file>` (file = `<sessionDir>/<sessionId>.json`) | ✗ (`fm chat` is interactive only) | ✗ (`--schema` needs a file; ts-decision-fm surface) |
 
 **Claude session discovery:** claude has no session-dir flag and does not accept a caller-chosen
@@ -506,7 +506,7 @@ Agent-specific behavior:
 | `openclaw` | `openclaw` | 2 | `openclaw health` | `agent --local -m` |
 | `hermes` | `hermes` | 1 | `hermes doctor` | `chat -q`, `--continue`, `-m` |
 | `grok` | `grok` | 1 | env/file (`XAI_API_KEY` or `~/.grok/auth.json`) | `-p`, `-c` (resume), `-m`, `--output-format plain\|json` (maps ai-runner `text` → `plain`) |
-| `deepseek` | `dsh` | 1 | env-only / `~/.dsh` (no status verb) | `--profile headless <task>`; session/model options degrade to a fresh one-shot (no flags at 0.1.5-rc.1) |
+| `deepseek` | `dsh` | 1 | env-only / `~/.dsh` (no status verb) | `--profile headless`, `--json`, `--session-id <id>`, `--permission-mode workspace-write`, `--approval-policy never`, `--` then the task (0.2.2-rc.1); `continue`/`sessionDir`/`model` degrade to a fresh one-shot |
 | `fm` | `fm` | 1 | `fm available --model system` | `respond --no-stream`, `-m`, transcript session flags; **text-only** (no file/shell tools — excluded from `TIER1_PRIORITY` auto-selection) |
 
 This is the right layer for UI previews, audit logging, and custom launchers.
