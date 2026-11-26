@@ -5,9 +5,10 @@ All notable changes to the `@gobing-ai/ts-*` packages are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and the
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). All packages are
 versioned in **lockstep** — a single version number covers every package in the monorepo.
+
 ## [Unreleased]
 
-## [0.8.3] - 2026-11-21
+## [0.8.5] - 2026-11-21
 
 ### Fixed
 
@@ -31,7 +32,7 @@ versioned in **lockstep** — a single version number covers every package in th
 - fix(decision-fm) (51b112a6): `ModelManagerError error 1008` is now a config error, not a backend
   error. modelmanagerd refuses the caller outright (observed ~60–150 ms, no inference) when fm runs
   inside a restricted context such as a coding agent's Seatbelt sandbox, while `fm available --model
-  system` still exits 0; both `count-tokens` and `respond` now raise `DecisionConfigError` naming the
+system` still exits 0; both `count-tokens` and `respond` now raise `DecisionConfigError` naming the
   likely cause, so the hub reports `no-backend` and a maker chain advances instead of failing on a
   generic backend error.
   <!-- src: packages/decision-fm/src/fm-process.ts:146 (MODEL_SERVICE_DENIED_MARKER), :148 (throwIfModelServiceDenied), :120 (count-tokens site), :181 (respond site); packages/decision-fm/tests/fm-process.test.ts:151 · confidence: HIGH -->
@@ -167,13 +168,13 @@ versioned in **lockstep** — a single version number covers every package in th
 ### Added
 
 - feat(ai-runner) (task 1284): correlated warm-turn session facade — `AiRunner.openTurnSession(agent,
-  {policy, driver?, binary?, handshakeTimeoutMs?})` opens one long-lived agent session that admits a
+{policy, driver?, binary?, handshakeTimeoutMs?})` opens one long-lived agent session that admits a
   single correlated turn at a time. Typed refusals (`unsupported-agent`, `unqualified-version`,
   `spawn-failed`, `handshake-failed`) are returned values, never throws. A turn separates acceptance
   (`TurnHandle.accepted`) from completion (`TurnHandle.outcome`); outcomes settle exactly once as
   `success | failure | interrupted | not-started | outcome-unknown | contract-violation` — process
   death before acceptance is `not-started`, after acceptance `outcome-unknown`. `cancel(reason,
-  {graceMs})` resolves deterministically within `TURN_CANCEL_GRACE_MS` (5s) when the agent ignores
+{graceMs})` resolves deterministically within `TURN_CANCEL_GRACE_MS` (5s) when the agent ignores
   it. `turnSessionPolicyDigest` hashes canonical-JSON policy for consumer-side reuse checks. 0.x
   ships the contract only: `TURN_SESSION_DRIVERS` is intentionally empty — real claude/pi/codex
   drivers land with recorded qualification evidence. A real-process scripted fake driver is
