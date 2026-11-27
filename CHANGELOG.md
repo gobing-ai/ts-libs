@@ -8,6 +8,16 @@ versioned in **lockstep** — a single version number covers every package in th
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-11-27
+
+### Fixed
+
+- fix(importer) (4e4d9e30): DeepSeek dsh sessions no longer lose tool calls. An `assistant/message`
+  event's `tool-call` content blocks now emit `history_tool_call` rows linked to that message,
+  carrying the call id, tool name, an argument digest and an `unknown` status; the dsh mapper
+  previously produced message rows only, so the field map did not even carry the tool-call keys.
+  <!-- src: packages/llm-jsonl-importer/src/mappers.ts:2247 (assistant content scan), :2250 (history_tool_call entry), :2920 (DSH_FIELD_MAP gains TOOL_CALL_MAPPER_KEYS); packages/llm-jsonl-importer/tests/deepseek-importer.test.ts:316 (v4 tool-call row attributed to deepseek and joined to its assistant message) · confidence: HIGH -->
+
 ## [0.8.5] - 2026-11-21
 
 ### Fixed
