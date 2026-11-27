@@ -97,6 +97,16 @@ export const q = {
 };
 
 /**
+ * Answers plus the model that actually served them (P12 R3): `servedModel` is what the backend
+ * reports it used, which can differ from the requested model under routing. Absent whenever the
+ * driver reports none — a fallback, a local process, or an agent CLI with no model identity.
+ */
+export interface DecisionAnswersMeta {
+    answers: Record<string, Answer>;
+    servedModel?: string;
+}
+
+/**
  * The one-method internal seam every backend driver implements. The loose
  * `Record<string, Answer>` return is narrowed to `AnswersFor<Q>` by a single
  * documented cast at the facade boundary — drivers stay trivial to write.
@@ -108,6 +118,15 @@ export interface DecisionDriver {
         questions: Record<string, Question>;
         model?: string;
     }): Promise<Record<string, Answer>>;
+    /**
+     * `ask` plus the served model (P12 R1). Optional and additive: a driver that cannot report a
+     * model omits it, and every caller keeps working through `ask` alone.
+     */
+    askWithMeta?(req: {
+        state: DecisionState;
+        questions: Record<string, Question>;
+        model?: string;
+    }): Promise<DecisionAnswersMeta>;
     /**
      * Release whatever the driver owns outside the JS heap — a warm worker process, a socket, a
      * pool. Optional: a driver that owns no such resource omits it. Must be safe to call more than

@@ -167,6 +167,7 @@
       "reason": "accepted",
       "maker": "typesafe",
       "durationMs": 0,
+      "servedModel": "stub",
       "type": "choice",
       "value": "a"
     },

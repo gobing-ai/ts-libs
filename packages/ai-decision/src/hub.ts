@@ -108,6 +108,12 @@ export interface DecisionResultBase {
     readonly attempts?: readonly DecisionAttempt[];
     /** The shadow's outcome. Present only when the decision or the call named a shadow. */
     readonly shadow?: ShadowOutcome;
+    /**
+     * The model the accepted backend actually served (P12 R4). Present only on `source: 'model'`
+     * results from a maker that reports one — a fallback served nothing, and a local/agent backend
+     * reports no model identity.
+     */
+    readonly servedModel?: string;
 }
 
 /** The fallback-guaranteed result of one `decide` call, shaped by the decision type. */
@@ -513,7 +519,14 @@ export class DecisionHub {
         try {
             const maker = await this.registry.resolve(makerName);
             inAsk = true;
-            const answers = await maker.ask(request);
+            // P12 R4: prefer the maker's meta seam when it has one, so the served model rides the
+            // same validated result. A directly registered maker or a driver without the seam falls
+            // back to `ask`, unchanged.
+            const meta =
+                typeof maker.askWithMeta === 'function'
+                    ? await maker.askWithMeta(request)
+                    : { answers: await maker.ask(request) };
+            const answers = meta.answers;
             // Every resolved maker crosses the shared validator — a directly registered maker would
             // otherwise skip the check createDecisionMaker applies. Inside the try: its
             // DecisionBackendError is an answer failure, never a caller error.
@@ -556,6 +569,8 @@ export class DecisionHub {
                 reason: 'accepted' as const,
                 maker: makerName,
                 durationMs: this.now() - start,
+                // Only an accepted, model-served answer names a model; the fallbacks below never do.
+                ...(meta.servedModel === undefined ? {} : { servedModel: meta.servedModel }),
             };
             switch (answer.kind) {
                 case 'choice':

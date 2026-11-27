@@ -7,12 +7,14 @@
 
 import {
     type Answer,
+    type DecisionAnswersMeta,
     DecisionAuthError,
     DecisionBackendError,
     DecisionConnectionError,
     type DecisionDriver,
     DecisionRateLimitError,
     DecisionRequestError,
+    type DecisionState,
     DecisionTimeoutError,
     type Desc,
     type Question,
@@ -50,12 +52,20 @@ export interface TypesafeDriverConfig {
 }
 
 /**
+ * The TypeSafe driver: it always implements the meta seam, so a caller that wants the served model
+ * (the hub, a direct consumer) calls it without a presence check.
+ */
+export type TypesafeDriver = DecisionDriver & {
+    askWithMeta: NonNullable<DecisionDriver['askWithMeta']>;
+};
+
+/**
  * Build the TypeSafe driver: exactly one `TypeSafeClient` per driver instance
  * (R2), the API key always passed explicitly so the SDK's `TYPESAFE_API_KEY`
  * self-resolution never runs (R1). All transport failures — at construction
  * or at ask time — come back as `DecisionError`s, never SDK classes (R7).
  */
-export function createTypesafeDriver(config: TypesafeDriverConfig): DecisionDriver {
+export function createTypesafeDriver(config: TypesafeDriverConfig): TypesafeDriver {
     let client: TypeSafeClient;
     try {
         client = new TypeSafeClient({
@@ -75,38 +85,55 @@ export function createTypesafeDriver(config: TypesafeDriverConfig): DecisionDriv
         translateError(err);
     }
 
+    // One request path for both entries: `ask` drops the model, `askWithMeta` reports it. Two
+    // copies would let the answer mapping and validation drift apart (P12 R3).
+    const askOnce = async ({
+        state,
+        questions,
+        model,
+    }: {
+        state: DecisionState;
+        questions: Record<string, Question>;
+        model?: string;
+    }): Promise<DecisionAnswersMeta> => {
+        validateQuestions(questions);
+
+        // The neutral contract allows `null` state ("no caller context") and the SDK type
+        // accepts it, but the wire drops a null field and the API answers 422 "state: Field
+        // required" — so every fully parameterless decision used to fall back on this backend.
+        // Same null→'' mapping the laya and fm drivers already apply; structured state passes
+        // through untouched (the wire accepts an object or array).
+        let result: SystemOneResult<Record<string, SdkQuestion>>;
+        try {
+            const sdkQuestions = Object.fromEntries(
+                Object.entries(questions).map(([name, question]) => [name, toSdkQuestion(question)]),
+            );
+            result = await client.systemOne({ state: state ?? '', questions: sdkQuestions, model });
+        } catch (err) {
+            translateError(err);
+        }
+
+        // R6: the SDK echoes the request's question names, so the mapped
+        // record keeps the caller's keys in correspondence. R8/P12 R3: `model` is the model the
+        // backend actually served and is surfaced only through `askWithMeta`; `usage` stays
+        // unsurfaced.
+        if (!result?.answers || typeof result.answers !== 'object' || Array.isArray(result.answers)) {
+            throw new DecisionBackendError('Invalid decision response: expected answers map', undefined);
+        }
+        const answers = Object.fromEntries(
+            Object.entries(result.answers).map(([name, answer]) => [name, fromSdkAnswer(answer)]),
+        );
+        validateAnswers(questions, answers);
+        // Absent, not undefined: a backend that reports no model must not look like one reporting nothing.
+        return typeof result.model === 'string' && result.model !== ''
+            ? { answers, servedModel: result.model }
+            : { answers };
+    };
+
     return {
         name: 'typesafe',
-        async ask({ state, questions, model }) {
-            validateQuestions(questions);
-
-            // The neutral contract allows `null` state ("no caller context") and the SDK type
-            // accepts it, but the wire drops a null field and the API answers 422 "state: Field
-            // required" — so every fully parameterless decision used to fall back on this backend.
-            // Same null→'' mapping the laya and fm drivers already apply; structured state passes
-            // through untouched (the wire accepts an object or array).
-            let result: SystemOneResult<Record<string, SdkQuestion>>;
-            try {
-                const sdkQuestions = Object.fromEntries(
-                    Object.entries(questions).map(([name, question]) => [name, toSdkQuestion(question)]),
-                );
-                result = await client.systemOne({ state: state ?? '', questions: sdkQuestions, model });
-            } catch (err) {
-                translateError(err);
-            }
-
-            // R6: the SDK echoes the request's question names, so the mapped
-            // record keeps the caller's keys in correspondence. R8: `model`
-            // and `usage` on the result are deliberately not surfaced.
-            if (!result?.answers || typeof result.answers !== 'object' || Array.isArray(result.answers)) {
-                throw new DecisionBackendError('Invalid decision response: expected answers map', undefined);
-            }
-            const answers = Object.fromEntries(
-                Object.entries(result.answers).map(([name, answer]) => [name, fromSdkAnswer(answer)]),
-            );
-            validateAnswers(questions, answers);
-            return answers;
-        },
+        ask: async (req) => (await askOnce(req)).answers,
+        askWithMeta: askOnce,
     };
 }
 

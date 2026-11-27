@@ -29,6 +29,16 @@ export interface DecisionMaker {
         questions: Q;
         model?: string;
     }): Promise<AnswersFor<Q>>;
+    /**
+     * `ask` plus the model the backend actually served (P12 R1/R2), or no `servedModel` when the
+     * driver cannot report one. Optional: a maker object registered directly need not implement it,
+     * and `createDecisionMaker` always does. Validation is identical on both paths.
+     */
+    askWithMeta?<const Q extends Record<string, Question>>(req: {
+        state: DecisionState;
+        questions: Q;
+        model?: string;
+    }): Promise<{ answers: AnswersFor<Q>; servedModel?: string }>;
     /** Pick one label. Sugar over `ask` with exactly one choice question. */
     choice<const L extends string>(
         state: DecisionState,
@@ -198,10 +208,19 @@ export async function resolveFmDriver(
 }
 
 /**
+ * A maker built by {@link createDecisionMaker}: the optional meta seam is always implemented, so a
+ * caller that wants the served model calls it without a presence check. A maker object registered
+ * directly (a test double, a foreign implementation) keeps the optional shape.
+ */
+export type DecisionMakerWithMeta = DecisionMaker & {
+    askWithMeta: NonNullable<DecisionMaker['askWithMeta']>;
+};
+
+/**
  * Build a DecisionMaker. `options.driver` wins when supplied; otherwise `options.backend`
  * resolves the driver (default `'typesafe'`). The driver is constructed lazily on first use.
  */
-export function createDecisionMaker(options: DecisionMakerOptions = {}): DecisionMaker {
+export function createDecisionMaker(options: DecisionMakerOptions = {}): DecisionMakerWithMeta {
     let resolvedDriver: DecisionDriver | undefined;
     const getDriver = async (): Promise<DecisionDriver> => {
         if (options.driver) return options.driver;
@@ -237,6 +256,23 @@ export function createDecisionMaker(options: DecisionMakerOptions = {}): Decisio
         return answers as AnswersFor<Q>;
     };
 
+    const askWithMeta = async <const Q extends Record<string, Question>>(req: {
+        state: DecisionState;
+        questions: Q;
+        model?: string;
+    }): Promise<{ answers: AnswersFor<Q>; servedModel?: string }> => {
+        const driver = await getDriver();
+        validateQuestions(req.questions);
+        // R2: prefer the driver's meta seam and fall back to plain `ask` — the answer validation
+        // below is shared, so a driver that cannot report a model behaves exactly as it does today.
+        const meta = driver.askWithMeta ? await driver.askWithMeta(req) : { answers: await driver.ask(req) };
+        validateAnswers(req.questions, meta.answers);
+        // Runtime validation above establishes each question/answer correspondence.
+        const answers = meta.answers as AnswersFor<Q>;
+        // Absent, never an explicit undefined: consumers distinguish "no model reported" by absense.
+        return meta.servedModel === undefined ? { answers } : { answers, servedModel: meta.servedModel };
+    };
+
     return {
         driver: options.driver?.name ?? options.backend ?? 'typesafe',
         // Only an injected or already-resolved driver is a candidate: running the lazy factory
@@ -246,6 +282,7 @@ export function createDecisionMaker(options: DecisionMakerOptions = {}): Decisio
             await (options.driver ?? resolvedDriver)?.dispose?.();
         },
         ask,
+        askWithMeta,
         // R4/R5: each sugar method is one `ask` with exactly one `q.*` question,
         // unwrapping the single answer — no second driver call, no duplicated
         // request assembly.
