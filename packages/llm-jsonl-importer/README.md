@@ -21,7 +21,7 @@ Generic JSONL import pipeline for AI-agent history-style files: discover files, 
 
 Built-in source keys are `claude`, `codex`, `gemini`, `pi`, `opencode`, `antigravity`, `openclaw`, `omp`, `grok`, `agy`, and `deepseek`. The `agy` source scans `~/.gemini/antigravity-cli`, covering both `history.jsonl` and `brain/**` transcripts; conversation `.db` stores under `conversations/` are not imported.
 
-The `deepseek` source scans `$DSH_HOME/sessions` (falling back to `~/.dsh/sessions`) for `session-<uuid>/` directories containing `session.v3.jsonl` or `session.v3.jsonl.zstd`. Compressed session logs are decompressed through the system `zstd` CLI — zstd must be on `PATH`, else the import fails with an actionable error naming zstd and the file. The session header line is imported as a `meta` row with the session `cwd`; `user/message` and `assistant/message` events map to user/assistant message rows (joined text content, epoch-ms `time` → ISO timestamp, `source.model` when present), while any other plugin-extensible event type (compaction, hooks, titles) is tolerated and skipped; torn crash tails are skipped (`corruptLinePolicy: 'skip'`).
+The `deepseek` source scans `$DSH_HOME/sessions` (falling back to `~/.dsh/sessions`) for `session-<uuid>/` directories containing `session.v3.jsonl` or `session.v4.jsonl`, including their `.zstd` variants. Compressed session logs require `zstd` on `PATH`. The importer keeps the session header as a `meta` row and maps `user/message` and `assistant/message` events to message rows. An assistant message's `tool-call` blocks produce linked tool-call rows with an argument digest and `unknown` outcome. Other event types and torn final lines are skipped.
 
 ## Installation
 

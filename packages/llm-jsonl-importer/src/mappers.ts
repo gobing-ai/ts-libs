@@ -2219,7 +2219,8 @@ export function dshSplit(raw: Record<string, unknown>, context?: TransformContex
     // present and falls back to the importer's line-derived record hash when absent.
     const messageId = s(msg.id, data.id);
 
-    return [
+    const content = data.content ?? msg.content;
+    const entries: SplitEntry[] = [
         {
             targetTable: 'history_message',
             record: {
@@ -2237,12 +2238,31 @@ export function dshSplit(raw: Record<string, unknown>, context?: TransformContex
                 cache_read_tokens: null,
                 cache_write_tokens: null,
                 cost_usd: null,
-                content_text: extractContentText(data.content ?? msg.content) ?? s(data.text, msg.text) ?? null,
+                content_text: extractContentText(content) ?? s(data.text, msg.text) ?? null,
                 cwd: null,
                 provenance: 'ambient',
             },
         },
     ];
+    if (role === 'assistant' && Array.isArray(content)) {
+        for (const block of content) {
+            const call = o(block);
+            if (call.type !== 'tool-call' || typeof call.id !== 'string' || typeof call.name !== 'string') continue;
+            entries.push({
+                targetTable: 'history_tool_call',
+                record: {
+                    _messageSplitIndex: 0,
+                    session_id: sessionId,
+                    seq,
+                    call_id: call.id,
+                    tool_name: call.name,
+                    args_digest: argsDigest(call.arguments),
+                    status: 'unknown',
+                },
+            });
+        }
+    }
+    return entries;
 }
 
 const UUID_PATTERN = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
@@ -2896,8 +2916,8 @@ export const GROK_FIELD_MAP = identityFieldMap(
 export const GEMINI_FIELD_MAP = identityFieldMap(
     MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS, SKILL_CALL_MAPPER_KEYS),
 );
-/** Identity field map for the DeepSeek dsh mapper — message rows only, no tool-call rows. */
-export const DSH_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(['source_record_id']));
+/** Identity field map for DeepSeek dsh messages and their tool calls. */
+export const DSH_FIELD_MAP = identityFieldMap(MESSAGE_MAPPER_KEYS.concat(TOOL_CALL_MAPPER_KEYS, ['source_record_id']));
 
 // ---------------------------------------------------------------------------
 // Zod schemas for the six source mappers

@@ -104,17 +104,27 @@ const messageRows = async (
 
 /**
  * task 1471: dsh 0.2.2-rc.1 writes `session.v4.jsonl[.zstd]`. The header and message envelopes keep
- * their v3 shape (`type`, `data.message`) and only `version` moves to 4, which is what real sessions
- * show — so the mapper carries over and the discovery globs are the only change upstream needs.
+ * their v3 shape (`type`, `data.message`).
  */
 function fixtureV4Lines(): string[] {
-    return fixtureLines().map((line) =>
-        line.startsWith('{"type":"session"')
-            ? line
-                  .replace('"version":3', '"version":4')
-                  .replace('"createdAt":"2026-09-11T22:00:00.000Z"', '"createdAt":1795501024185')
-            : line,
-    );
+    return fixtureLines().map((line) => {
+        if (line.startsWith('{"type":"session"')) {
+            return line
+                .replace('"version":3', '"version":4')
+                .replace('"createdAt":"2026-09-11T22:00:00.000Z"', '"createdAt":1795501024185');
+        }
+        if (line.startsWith('{"type":"assistant/message"')) {
+            const event = JSON.parse(line);
+            event.data.message.content.push({
+                type: 'tool-call',
+                id: 'c-1',
+                name: 'read',
+                arguments: '{"file":"fixture"}',
+            });
+            return JSON.stringify(event);
+        }
+        return line;
+    });
 }
 
 /** Write the v4 fixture beside the v3 layout, optionally zstd-compressed. */
@@ -301,5 +311,25 @@ describe('deepseek v4 sessions (task 1471, feature E11)', () => {
         const result = await runJsonlImport('deepseek', { db, files: [compressed], mode: 'full' });
         expect(result.parseErrors).toHaveLength(0);
         expect(result.importedRecords).toBeGreaterThan(0);
+    });
+
+    test('a v4 tool invocation is attributed to deepseek and linked to its assistant message', async () => {
+        const file = await writeV4Session(true);
+        await runJsonlImport('deepseek', { db, files: [file], mode: 'full' });
+        await runJsonlImport('deepseek', { db, files: [file], mode: 'full' });
+        const rows = await db.queryAll(
+            `SELECT t.source, t.session_id, t.call_id, t.tool_name, t.status, m.role
+             FROM history_tool_call t JOIN history_message m ON m.record_hash = t.message_hash`,
+        );
+        expect(rows).toEqual([
+            {
+                source: 'deepseek',
+                session_id: UUID,
+                call_id: 'c-1',
+                tool_name: 'read',
+                status: 'unknown',
+                role: 'assistant',
+            },
+        ]);
     });
 });
