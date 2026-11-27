@@ -4,7 +4,17 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-test('feature verification adapter delegates identity and propagates operation errors', async () => {
+const ADAPTER_EXIT_BUDGET_MS = 15_000;
+// Each case starts up to three independent runtimes. Budget their startup separately from assertions.
+const ADAPTER_TEST_BUDGET_MS = 3 * ADAPTER_EXIT_BUDGET_MS + 5_000;
+
+test(
+    'feature verification adapter delegates identity and propagates operation errors',
+    verifyIdentity,
+    ADAPTER_TEST_BUDGET_MS,
+);
+
+async function verifyIdentity(): Promise<void> {
     const root = await mkdtemp(join(tmpdir(), 'ts-libs-feature-verify-'));
     const modulePath = join(root, 'verification.mjs');
     const driver = join(import.meta.dir, '../../.spur/scripts/feature-verify.mjs');
@@ -23,6 +33,7 @@ test('feature verification adapter delegates identity and propagates operation e
                 {
                     cwd: root,
                     encoding: 'utf8',
+                    timeout: ADAPTER_EXIT_BUDGET_MS,
                 },
             );
         const success = run('F1');
@@ -42,9 +53,15 @@ test('feature verification adapter delegates identity and propagates operation e
     } finally {
         await rm(root, { recursive: true, force: true });
     }
-});
+}
 
-test('the adapter records a derived confidence level on the receipt it did not write', async () => {
+test(
+    'the adapter records a derived confidence level on the receipt it did not write',
+    verifyConfidence,
+    ADAPTER_TEST_BUDGET_MS,
+);
+
+async function verifyConfidence(): Promise<void> {
     const root = await mkdtemp(join(tmpdir(), 'ts-libs-feature-verify-confidence-'));
     const modulePath = join(root, 'verification.mjs');
     const driver = join(import.meta.dir, '../../.spur/scripts/feature-verify.mjs');
@@ -72,6 +89,7 @@ test('the adapter records a derived confidence level on the receipt it did not w
             {
                 cwd: root,
                 encoding: 'utf8',
+                timeout: ADAPTER_EXIT_BUDGET_MS,
             },
         );
     const receipt = async () => JSON.parse(await readFile(receiptPath, 'utf8'));
@@ -101,4 +119,4 @@ test('the adapter records a derived confidence level on the receipt it did not w
     } finally {
         await rm(root, { recursive: true, force: true });
     }
-});
+}

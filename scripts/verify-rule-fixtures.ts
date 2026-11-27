@@ -500,9 +500,9 @@ function failureReport(error: unknown): RuleFixtureReport {
 }
 
 /** Sweep every fixture set and collect the report; throws only on a scratch or report-write failure. */
-async function collectReport(repoRoot: string): Promise<RuleFixtureReport> {
+async function collectReport(repoRoot: string, scratchParent: string): Promise<RuleFixtureReport> {
     const fixturesRoot = join(repoRoot, FIXTURES_ROOT);
-    const scratchRoot = await mkdtemp(join(tmpdir(), 'ts-libs-rule-fixtures-'));
+    const scratchRoot = await mkdtemp(join(scratchParent, 'ts-libs-rule-fixtures-'));
     const sets: RuleFixtureSetReport[] = [];
     const results: RuleFixtureResultRow[] = [];
 
@@ -592,12 +592,17 @@ async function collectReport(repoRoot: string): Promise<RuleFixtureReport> {
  *
  * @param repoRoot - Repository root the declared fixture sets and rule files resolve under.
  * @param reportPath - Report path; parent directories are created when absent.
+ * @param scratchParent - Existing parent for this sweep's temporary workdir.
  * @returns The report written to `reportPath`.
  */
-export async function runRuleFixtureChecks(repoRoot: string, reportPath: string): Promise<RuleFixtureReport> {
+export async function runRuleFixtureChecks(
+    repoRoot: string,
+    reportPath: string,
+    scratchParent = tmpdir(),
+): Promise<RuleFixtureReport> {
     let report: RuleFixtureReport;
     try {
-        report = await collectReport(repoRoot);
+        report = await collectReport(repoRoot, scratchParent);
     } catch (error) {
         report = failureReport(error);
     }

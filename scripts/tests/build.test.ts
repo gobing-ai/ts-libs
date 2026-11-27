@@ -196,7 +196,9 @@ describe('fixDistRoots', () => {
         await expect(fixDistRoots([])).rejects.toThrow('fix-dist-esm-extensions <dist-dir>');
     });
 
-    test('leaves exported program text intact and repairs idempotently', async () => {
+    test('leaves exported program text intact and repairs idempotently', verifyRepairIdempotence, 15_000);
+
+    async function verifyRepairIdempotence(): Promise<void> {
         const root = await mkdtemp(join(tmpdir(), 'ts-libs-build-dist-'));
         try {
             await mkdir(join(root, 'nested'));
@@ -242,7 +244,7 @@ describe('fixDistRoots', () => {
         } finally {
             await rm(root, { recursive: true, force: true });
         }
-    });
+    }
 
     test('throws before writing a file whose emitted JavaScript does not parse', async () => {
         const root = await mkdtemp(join(tmpdir(), 'ts-libs-build-parse-'));

@@ -211,13 +211,15 @@ describe('runRuleFixtureChecks', () => {
         expect(report.error).toContain('should-pass/notes.txt');
     });
 
-    test('removes every temporary workdir after the sweep', async () => {
-        const before = (await readdir(tmpdir())).filter((name) => name.startsWith('ts-libs-rule-fixtures-')).length;
-        await runRuleFixtureChecks(repoRoot, await makeReportPath());
-        const after = (await readdir(tmpdir())).filter((name) => name.startsWith('ts-libs-rule-fixtures-')).length;
+    test('removes every temporary workdir after the sweep', verifyScratchCleanup, 20_000);
 
-        expect(after).toBe(before);
-    });
+    async function verifyScratchCleanup(): Promise<void> {
+        const scratchParent = await mkdtemp(join(tmpdir(), 'ts-libs-cleanup-test-'));
+        scratchRoots.push(scratchParent);
+        const report = await runRuleFixtureChecks(repoRoot, await makeReportPath(), scratchParent);
+        expect(report.pass).toBe(true);
+        expect(await readdir(scratchParent)).toEqual([]);
+    }
 });
 
 describe('printReport', () => {
