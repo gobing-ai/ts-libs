@@ -222,7 +222,8 @@ export const SOURCE_DEFINITIONS: Readonly<Record<LlmJsonlSource, SourceDefinitio
             'deepseek',
             'DeepSeek dsh',
             ['.dsh/sessions'],
-            ['session.v3.jsonl', 'session.v3.jsonl.zstd'],
+            // v3 stays importable; v4 is what dsh 0.2.2-rc.1 writes (task 1471, feature E11).
+            ['session.v3.jsonl', 'session.v3.jsonl.zstd', 'session.v4.jsonl', 'session.v4.jsonl.zstd'],
             dshSplit,
             DSH_FIELD_MAP,
             DSH_SCHEMA,

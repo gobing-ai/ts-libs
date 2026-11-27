@@ -102,6 +102,39 @@ const messageRows = async (
     return rows as MessageRow[];
 };
 
+/**
+ * task 1471: dsh 0.2.2-rc.1 writes `session.v4.jsonl[.zstd]`. The header and message envelopes keep
+ * their v3 shape (`type`, `data.message`) and only `version` moves to 4, which is what real sessions
+ * show — so the mapper carries over and the discovery globs are the only change upstream needs.
+ */
+function fixtureV4Lines(): string[] {
+    return fixtureLines().map((line) =>
+        line.startsWith('{"type":"session"')
+            ? line
+                  .replace('"version":3', '"version":4')
+                  .replace('"createdAt":"2026-09-11T22:00:00.000Z"', '"createdAt":1795501024185')
+            : line,
+    );
+}
+
+/** Write the v4 fixture beside the v3 layout, optionally zstd-compressed. */
+async function writeV4Session(uncompressed: boolean): Promise<string> {
+    const dir = join(root, '.dsh', 'sessions', '--tmp--proj--', `session-${UUID}`);
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, uncompressed ? 'session.v4.jsonl' : 'session.v4.jsonl.zstd');
+    const raw = fixtureV4Lines().join('\n');
+    if (!uncompressed) {
+        const scratch = join(root, 'plain-v4.jsonl');
+        await writeFile(scratch, raw);
+        const proc = Bun.spawnSync(['zstd', '-q', '-f', '-o', file, scratch]);
+        if (proc.exitCode !== 0) throw new Error(`zstd fixture compression failed: ${proc.stderr.toString()}`);
+        await rm(scratch);
+    } else {
+        await writeFile(file, raw);
+    }
+    return file;
+}
+
 describe('deepseek importer (task 0067)', () => {
     test('R1 — discovery finds session.v3.jsonl and .zstd under home .dsh/sessions', async () => {
         await writeSession(false);
@@ -227,10 +260,46 @@ describe('deepseek importer (task 0067)', () => {
     test('R9 — registry entry is wired under the deepseek source key', () => {
         const definition = getSourceDefinition('deepseek');
         expect(definition.defaultRoots).toEqual(['.dsh/sessions']);
-        expect(definition.filePatterns).toEqual(['session.v3.jsonl', 'session.v3.jsonl.zstd']);
+        expect(definition.filePatterns).toEqual([
+            'session.v3.jsonl',
+            'session.v3.jsonl.zstd',
+            'session.v4.jsonl',
+            'session.v4.jsonl.zstd',
+        ]);
         expect(definition.targetTable).toBe('history_etl_deepseek');
         expect(VALID_TABLE_NAME.test(definition.targetTable)).toBe(true);
         expect(definition.corruptLinePolicy).toBe('skip');
         expect(definition.splitConfig.mode).toBe('custom');
+    });
+});
+
+describe('deepseek v4 sessions (task 1471, feature E11)', () => {
+    test('discovery finds session.v4.jsonl and .zstd under home .dsh/sessions', async () => {
+        await writeV4Session(true);
+        await writeV4Session(false);
+        const result = await runJsonlImport('deepseek', {
+            db,
+            mode: 'full',
+            paths: { home: root, cwd: root } satisfies RuntimePaths,
+        });
+        expect(result.scannedFiles).toBe(2);
+    });
+
+    test('a v4 session maps its header and messages through dshSplit', async () => {
+        const file = await writeV4Session(true);
+        const result = await runJsonlImport('deepseek', { db, files: [file], mode: 'full' });
+        expect(result.parseErrors).toHaveLength(0);
+        const records = await messageRows(db);
+        const messages = records.filter((row) => row.disposition === 'keep');
+        expect(messages).toHaveLength(2);
+        expect(messages[0]).toMatchObject({ session_id: UUID, role: 'user', content_text: 'hi there' });
+    });
+
+    test('a compressed v4 session imports too, and its torn tail is skipped', async () => {
+        const compressed = await writeV4Session(false);
+        expect(compressed.endsWith('.jsonl.zstd')).toBe(true);
+        const result = await runJsonlImport('deepseek', { db, files: [compressed], mode: 'full' });
+        expect(result.parseErrors).toHaveLength(0);
+        expect(result.importedRecords).toBeGreaterThan(0);
     });
 });
