@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createFakeTurnSessionDriver } from '../../src/testing/fake-turn-driver';
-import { TurnProtocolError } from '../../src/turn-session';
+import { TURN_HANDSHAKE_TIMEOUT_MS, TurnProtocolError } from '../../src/turn-session';
 
 const CORRELATION = { runId: 'r', executionId: 'e', requestId: 'q', attempt: 1 };
 
@@ -30,11 +30,12 @@ describe('createFakeTurnSessionDriver (task 1284)', () => {
         expect(() => driver.decode('{"nope":1}')).toThrow(TurnProtocolError);
     });
 
-    test('default handshake consumes one ready frame via pull', async () => {
+    test('default handshake consumes one ready frame using the session startup budget', async () => {
         const driver = createFakeTurnSessionDriver([]);
         let pulled = 0;
         const result = await (driver.handshake as NonNullable<typeof driver.handshake>)(
-            async () => {
+            async (timeoutMs) => {
+                expect(timeoutMs).toBe(TURN_HANDSHAKE_TIMEOUT_MS);
                 pulled += 1;
                 return '{"ctl":"ready","nativeSessionId":"s2"}';
             },

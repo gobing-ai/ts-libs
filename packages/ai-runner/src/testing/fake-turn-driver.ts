@@ -5,7 +5,7 @@
  * Exported from the `./testing` subpath only; never imported by library code.
  */
 import type { TurnBinary, TurnHandshake, TurnSessionDriver, TurnSessionPolicy, TurnWireEvent } from '../turn-session';
-import { TurnProtocolError } from '../turn-session';
+import { TURN_HANDSHAKE_TIMEOUT_MS, TurnProtocolError } from '../turn-session';
 
 /** One scripted child action (see `fake-turn-agent.ts` for the wire semantics). */
 export interface FakeTurnAction {
@@ -54,7 +54,7 @@ export function createFakeTurnSessionDriver(
             args: [fakeTurnAgentPath(), scriptJson],
         }),
         handshake: async (pull: (timeoutMs: number) => Promise<string | null>): Promise<TurnHandshake> => {
-            const raw = await pull(2_000);
+            const raw = await pull(TURN_HANDSHAKE_TIMEOUT_MS);
             if (raw === null) return null; // EOF or timeout before ready
             const frame = JSON.parse(raw) as FakeFrame;
             if (frame.ctl !== 'ready') return null;

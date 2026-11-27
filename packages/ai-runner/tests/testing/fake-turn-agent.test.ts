@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFakeTurnSessionDriver } from '../../src/testing/fake-turn-driver';
 import type { TurnWireEvent } from '../../src/turn-session';
-import { TURN_MAX_LINE_BYTES, TurnProtocolError } from '../../src/turn-session';
+import { readLines, TURN_MAX_LINE_BYTES, TurnProtocolError } from '../../src/turn-session';
 
 const CORRELATION = { runId: 'r', executionId: 'e', requestId: 'q', attempt: 1 };
 const dirs: string[] = [];
@@ -138,7 +138,7 @@ describe('fake-turn-agent child (task 1284)', () => {
     test('flood writes a raw stdout line exceeding TURN_MAX_LINE_BYTES', async () => {
         const dir = await mkdtemp(join(tmpdir(), 'fake-agent-'));
         dirs.push(dir);
-        const scriptDriver = createFakeTurnSessionDriver([{ op: 'flood' }]);
+        const scriptDriver = createFakeTurnSessionDriver([{ op: 'flood' }, { op: 'exit', code: 0 }]);
         const argv = scriptDriver.spawnArgv(
             { path: '/fake', version: '9.9.9' },
             {} as Parameters<ReturnType<typeof createFakeTurnSessionDriver>['spawnArgv']>[1],
@@ -152,13 +152,23 @@ describe('fake-turn-agent child (task 1284)', () => {
             proc.stdin.write(str);
             await proc.stdin.flush();
         };
+        const reader = proc.stdout.getReader();
+        const ready = await reader.read();
+        expect(new TextDecoder().decode(ready.value)).toContain('"ctl":"ready"');
         await write(scriptDriver.encodeTurn({ turnId: 't1', prompt: 'x', correlation: CORRELATION }));
-        await Bun.sleep(200);
-        proc.stdin.end(); // EOF: the child flushes flood output, replays, and exits
+        // Let a premature exit finish before draining the deliberately backed-up stdout pipe.
+        await Promise.race([proc.exited, Bun.sleep(200)]);
         // The child writes the oversized line itself (>1MiB — argv can't carry it, macOS E2BIG).
-        const raw = await new Response(proc.stdout).text();
+        const decoder = new TextDecoder();
+        let raw = '';
+        for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+            raw += decoder.decode(chunk.value, { stream: true });
+        }
+        raw += decoder.decode();
         expect(await proc.exited).toBe(0);
         expect(raw.length).toBeGreaterThan(TURN_MAX_LINE_BYTES);
-        expect(() => createFakeTurnSessionDriver([]).decode(raw.trim())).toThrow(TurnProtocolError); // not a valid frame either
+        const flood = new Response(raw).body;
+        if (flood === null) throw new Error('missing flood stream');
+        await expect(readLines(flood).next()).rejects.toThrow(TurnProtocolError);
     });
 });

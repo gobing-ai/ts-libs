@@ -187,7 +187,9 @@ describe('TurnSession (task 1284 — correlated warm-turn session facade)', () =
         expect(session.state).toBe('ready');
     });
 
-    test('exit before acceptance → not-started', async () => {
+    test('exit before acceptance → not-started', verifyPreAcceptanceExit, 15_000);
+
+    async function verifyPreAcceptanceExit(): Promise<void> {
         const { runner, driver } = fakeRunner([
             { op: 'sleep', ms: 200 },
             { op: 'exit', code: 1 },
@@ -197,7 +199,7 @@ describe('TurnSession (task 1284 — correlated warm-turn session facade)', () =
         const handle = result.session.startTurn({ prompt: 'hi', correlation: CORRELATION });
         expect(await handle.accepted).toBeNull();
         expect((await handle.outcome).kind).toBe('not-started');
-    });
+    }
 
     test('exit after acceptance without native terminal → outcome-unknown', async () => {
         const { runner, driver } = fakeRunner([{ op: 'accept' }, { op: 'exit', code: 1 }]);

@@ -35,11 +35,21 @@ const startsWithExit = script[0]?.op === 'exit';
 let currentTurnId: string | null = null;
 let ignoreCancel = false;
 let flushing = false;
+let exiting = false;
 /** Pending sleep timers mapped to their resolvers so a cancel can wake them (not just clear them). */
 const sleepers = new Map<NodeJS.Timeout, () => void>();
 
 function send(line: Record<string, unknown>): void {
     process.stdout.write(`${JSON.stringify(line)}\n`);
+}
+
+function exitAfterOutput(code: number): void {
+    if (exiting) return;
+    exiting = true;
+    for (const timer of sleepers.keys()) clearTimeout(timer);
+    sleepers.clear();
+    // A synchronous exit can drop queued frames when the parent has not drained the pipe.
+    process.stdout.end(() => process.exit(code));
 }
 
 // Parent may drop stdout (kill/close) while frames are in flight — exit instead of crashing on EPIPE.
@@ -88,12 +98,16 @@ async function replay(): Promise<void> {
             send({ turn: currentTurnId, type: 'output', data: 'x'.repeat(1024 * 1024 + 64) });
         else if (action.op === 'sleep') await sleep(action.ms ?? 0);
         else if (action.op === 'ignore-cancel') ignoreCancel = true;
-        else if (action.op === 'exit') process.exit(action.code ?? 0);
+        else if (action.op === 'exit') {
+            exitAfterOutput(action.code ?? 0);
+            return;
+        }
     }
 }
 
 const rl = createInterface({ input: process.stdin });
 rl.on('line', (raw) => {
+    if (exiting) return;
     let frame: Record<string, unknown>;
     try {
         frame = JSON.parse(raw) as Record<string, unknown>;
@@ -116,7 +130,7 @@ rl.on('line', (raw) => {
     }
 });
 rl.on('close', () => {
-    process.exit(0);
+    exitAfterOutput(0);
 });
 // Scripts that lead with `exit` run at startup (direct child drives and handshake tests);
 // turn-dependent actions replay with a null turnId in that mode.
